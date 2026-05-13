@@ -1,0 +1,55 @@
+# Thalermark — self-host compose
+# Goal: a single `docker compose up` brings up the full stack.
+# Phase 0 stub: only postgres is wired. api/web/caddy land in Phase 7.
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-thalermark}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-thalermark}
+      POSTGRES_DB: ${POSTGRES_DB:-thalermark}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-thalermark}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # --- Placeholders, filled in during Phase 7 -----------------------------
+  # api:
+  #   build:
+  #     context: ..
+  #     dockerfile: apps/api/Dockerfile
+  #   env_file: ../.env
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #
+  # web:
+  #   build:
+  #     context: ..
+  #     dockerfile: apps/web/Dockerfile
+  #   env_file: ../.env
+  #   depends_on:
+  #     - api
+  #
+  # caddy:
+  #   image: caddy:2
+  #   restart: unless-stopped
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   volumes:
+  #     - ./Caddyfile:/etc/caddy/Caddyfile
+  #     - caddy_data:/data
+  #     - caddy_config:/config
+
+volumes:
+  postgres_data:
+  # caddy_data:
+  # caddy_config:

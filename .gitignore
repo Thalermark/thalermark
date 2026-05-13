@@ -1,0 +1,53 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+.svelte-kit/
+.expo/
+.expo-shared/
+.next/
+out/
+
+# Turbo
+.turbo/
+
+# Test / coverage
+coverage/
+*.lcov
+.nyc_output/
+
+# TypeScript
+*.tsbuildinfo
+
+# Env files (commit only .env.example)
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Editor / OS
+.DS_Store
+.vscode/
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Pre-Thalermark scratch (kept locally, never committed)
+_archive/
+genai/
+spikes/
+
+# Docker volumes / local data
+data/
+postgres-data/

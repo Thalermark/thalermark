@@ -1,0 +1,330 @@
+# Project Brief
+
+**Status:** Pre-build — business requirements phase complete  
+**Last updated:** May 2026
+
+---
+
+## What We're Building
+
+An open source, AI-first accounting tool built for freelancers, gig workers, and trades people — landscapers, dog sitters, power washers, independent contractors. People who are great at their craft and terrible at paperwork. Not because they're not smart, but because every existing tool assumes they want to be their own accountant.
+
+QuickBooks is built for accountants. ERPNext is built for enterprises. Wave is closer but still overwhelming. Nobody has built something genuinely for this audience.
+
+The core insight: **our users don't want accounting. They want answers.**
+
+Standard accounting software asks: *"would you like to create a journal entry?"*  
+Ours asks: *"You have 3 unpaid invoices totalling $1,240 — want me to send reminders?"*
+
+---
+
+## Name
+
+**Thalermark.** Locked in. Domain `thalermark.com` registered.
+
+**Etymology:**
+- *Thaler* — the 16th century silver coin minted from Joachimsthal, the etymological root of the word *dollar*. Spread across Europe and the world as the trusted international currency for centuries
+- *Mark* — itself a monetary unit (Deutschmark, English mark) and the stamp of authenticity pressed into a coin to certify its weight and value (mint mark, hallmark)
+- Together: "the mark of the Thaler" — the stamp of authenticity on the dollar's ancestor
+
+**Brand story:**
+> Every coin once carried a mark — a stamp pressed into the silver to certify its weight, its purity, its trust. Thalermark does the same for your business. Every invoice, every expense, every dollar accounted for and authenticated.
+
+**Pronunciation:** THAH-ler-mark (three syllables, stress on the first)
+
+**Domains to register defensively:**
+- ✅ `thalermark.com` — owned
+- 🎯 `thalermark.io`
+- 🎯 `thalermark.app`
+- 🎯 `thalermark.dev`
+- 🎯 `thalermark.co`
+- 🎯 `thalermark.net`
+
+**GitHub:** `github.com/Thalermark` org created. Main monorepo will be `Thalermark/thalermark` (public, AGPL v3).
+
+---
+
+## Positioning
+
+> A viewport into your books.
+
+AI-first means the software talks to the user, not the other way around. Intelligence is woven into the core interaction model — not a chatbot bolted on the side.
+
+---
+
+## Primary Audience
+
+**Freelancers, gig workers, and trades people:**
+- Landscapers, lawn care
+- Power washers
+- Dog sitters, pet care
+- Independent contractors of all kinds
+- Anyone making $2k-$10k/month running their own thing
+
+**What they share:**
+- Never at a desk — mobile is primary
+- No accounting knowledge or desire to learn
+- Price sensitive
+- Trust word of mouth over marketing
+- Need to know three things: what's owed to me, what I spent, did I make money
+
+**Secondary audience (adjacent, not primary):**
+- Bookkeepers managing multiple small clients
+- Small agencies running it for trades clients
+
+---
+
+## Product Philosophy
+
+- **Answers not accounting** — surface insights in plain English
+- **Mobile first** — this customer is between jobs, not at a desk
+- **Simple by default, powerful when needed** — don't show complexity until asked
+- **Open source** — community builds trust, trust drives adoption
+- **AI first** — intelligence in the core, not a feature
+
+---
+
+## Delivery Model
+
+- **SaaS** — managed cloud hosting (primary revenue)
+- **On-prem / self-hosted** — open source, free forever
+
+---
+
+## Licensing Model
+
+**AGPL v3 + Commercial Dual.** Code is AGPL v3 by default — anyone running Thalermark must publish their modifications. A separate commercial license is available for white-label accountants, agencies, and embedders whose own products can't be AGPL. Contributors sign a lightweight CLA via CLA Assistant on GitHub so we retain the right to dual-license.
+
+Precedent: Cal.com, Mattermost, Plane all run this exact model.
+
+| Tier | Model |
+|---|---|
+| Community | AGPL v3, self-hosted, core features |
+| Cloud | Managed SaaS hosting |
+| Pro | Cloud + AI insights layer, priority support |
+| Accountant | Pro + multi-client workspaces, white label, dedicated support |
+| Commercial license | One-time / annual fee for embedders who can't AGPL |
+
+---
+
+## Core Features — MVP
+
+**Locked 2026-05-10.** No additions without explicit decision. Subject to user review.
+
+### Invoicing
+- **Send an invoice** — mobile-first, end-to-end under 60 seconds
+- **Estimates** — same data model as invoice + status (draft / sent / accepted / declined / expired) + expiration date + "convert to invoice" action. Use case: trades user on a doorstep quoting a job from their phone.
+- **Invoice duplicate / use-as-template** — one-tap copy of a prior invoice for fast manual recurring
+- **Recurring invoices** — auto-generate from a template and email on a schedule (weekly / monthly / annual). Pause, edit, cancel from a recurrence panel. **No card-on-file in MVP** — customer pays each generated invoice via the Stripe link.
+- **Public invoice view** — branded page accessed via unique-token link in the email; shows invoice details + "Pay" button. No login required.
+- **Stripe payments** — single payment per invoice via the Pay button (Stripe Checkout). No saved cards in MVP.
+
+### Expenses
+- **Track an expense** — manual entry form, mobile-first
+- **Receipt capture (image)** — snap or upload; saved to storage in every tier (IRS-compliant baseline)
+- **Receipt extraction (AI)** — Pro+ / BYOK: vision LLM auto-fills merchant, total, date, tax, category
+
+### Customers
+- **Customer management** — inline create during invoicing (no page navigation), dupe detection (fuzzy name + strong identifier match), Mapbox address autocomplete with OpenStreetMap Nominatim self-host fallback. Must be seamless; this is the make-or-break interaction.
+
+### Account, Companies, Users
+- **Multi-company per account** — one account can hold multiple companies (a freelancer with side hustles, an accountant managing multiple businesses for themselves). Company switcher in nav; data isolated via RLS at the database level.
+- **Multi-user per account** — one account can have multiple members (family member helping with invoices, partner doing books). Better Auth's organizations plugin handles memberships. Invite by email via Resend; invitee clicks link, signs up or signs in, joins the account.
+- **Single role in MVP** — all members can do everything. Granular roles (admin / member / view-only), per-company permissions, member removal, ownership transfer defer to v1.1.
+
+### Audit Trail
+- **Append-only event log** — every mutation (create / update / delete / send / void / pay / accept / decline) writes a record to an `audit_events` table. Fields: actor, timestamp, entity, action, before/after diff (JSONB), IP, user agent. RLS-scoped to account/company like all data.
+- **Per-entity history tab** — invoice, expense, customer, member pages show their own change history.
+- **Account activity feed** — a single "Activity" page filterable by user / date / entity type.
+- **No tamper-evident cryptographic chaining in MVP** — basic append-only is enough; cryptographic chains are post-MVP at the earliest, possibly never.
+- **Why MVP, not deferred:** audit log is the one feature whose history is *lost forever* if you defer it. Multi-user without audit trail means "someone changed an invoice and you can't tell" — unacceptable for accounting software.
+
+### Position
+- **Dashboard** — one screen: money in, money out, what's owed, what you owe
+
+### AI Layer (Pro / BYOK)
+- **Cash flow nudges** — "January is historically slow; you have $800"
+- **Late payer detection** — "this client pays late 80% of the time"
+- **Anomaly flagging** — "expenses 40% higher than 3-month average"
+- **Expense categorization** — AI suggests, user confirms
+
+### Infrastructure (built first, before features)
+- **Telemetry module** — opt-in, anonymous, fully documented (see TELEMETRY.md). Trust signal, built before MVP features.
+
+---
+
+## Roadmap Beyond MVP
+
+### v1.1 (post-MVP near-term)
+- **Granular roles** — admin / member / view-only. Per-company permissions (user has access to some companies but not others). Member removal, ownership transfer.
+- **Customer opt-in saved card** — Stripe Customer + Payment Method. "Save card for next invoice" checkbox on the public invoice view. Subsequent invoices pre-fill the saved card; customer taps once. Not auto-charge — customer still acts.
+- **AI tax readiness** — structured quarterly tracker with set-aside calculations, dates, IRS Schedule C alignment. Beyond a simple insight; a real product surface.
+- **Natural language queries** — "how much did I make last month?" Open-ended chat surface; deferred from MVP because it's the riskiest AI feature to ship well.
+- **Bank feed (Plaid / Teller)** — highest-priority post-launch add. Auto-imports transactions, dedupes against manual entries.
+
+### v1.2+ (deferred but planned)
+- **Mileage tracking** — native GPS, background location handling, IRS-compliant trip logs. Big native-mobile build; defer until v1.x is solid.
+- **Time tracking** — scoped tight if/when built: timer start/stop, log time against a job, convert to invoice line items. No project hierarchy, no team tracking.
+- **Client portal (full)** — multi-invoice customer login, payment history, statements. Significant product surface.
+- **Bills (vendor invoices)** — track money you owe to suppliers, with payment scheduling.
+- **Expense categories & rules** — user-defined rules for auto-categorization of recurring expenses.
+
+### Possibly never / v2
+- **Auto-charge subscription billing** — true subscription model (card-on-file auto-charged on the recurrence schedule). Brand decision as much as engineering: makes Thalermark feel less like accounting and more like a subscription service. Revisit only after explicit demand.
+
+### Long-term full feature set (per original brief)
+- Approval workflows
+- Custom report builder
+- White labeling
+- SSO / SAML
+- Intercompany transactions
+- Multi-currency with FX gain/loss
+
+---
+
+## AI Layer — MVP Scope
+
+Not ChatGPT bolted on. Woven into the core interaction. Available to Pro+ tier on SaaS and to self-hosters with BYOK.
+
+**MVP:**
+- **Anomaly flagging** — "your expenses are 40% higher than your 3 month average"
+- **Cash flow nudges** — "based on your history, January is slow — you have $800 in the bank"
+- **Invoice intelligence** — "this client pays late 80% of the time"
+- **Expense categorization suggestions** — AI suggests, user confirms
+- **Receipt extraction** — vision LLM reads receipt images and structures the data (see Expenses MVP)
+
+**v1.1:**
+- **Tax readiness** — structured quarterly tracker (moved to v1.1 as a real product surface, not just a one-line insight)
+- **Natural language queries** — "how much did I make last month?" (open-ended chat surface; deferred to v1.1 because it's the riskiest AI feature to ship well, and the proactive insights above deliver "AI value" without it)
+
+The AI layer is the primary premium differentiator. Basic invoicing and expense tracking is free. Intelligence is Pro.
+
+---
+
+## Compliance
+
+- **US-first by default** — 1099 awareness, self-employment tax estimates, quarterly reminders
+- **Pluggable architecture** — compliance is a module, swappable for UK VAT, Canadian GST, etc.
+- **Not financial advice** — AI frames everything as awareness, not advice
+
+---
+
+## Monetization
+
+No hard paywall at launch. Value ladder approach:
+
+| Tier | What they get |
+|---|---|
+| Community | Free, self-hosted, core features, GitHub support |
+| Cloud | Managed hosting, automatic updates, backups |
+| Pro | Cloud + AI insights, priority support |
+| Accountant | Pro + multi-client workspaces, white label, dedicated support |
+
+Specific tier pricing is held off-repo until pre-launch.
+
+**Early revenue sequence:**
+1. Paid setup calls — one-time fee, immediate
+2. Managed cloud hosting — first recurring revenue
+3. AI insights as Pro tier — once good enough to charge for
+
+**Key metric:** an attainable paying-user count at the Pro tier within 12 months of launch, using existing open-source-accounting community networks as launchpad. Specific targets held off-repo.
+
+---
+
+## Go To Market
+
+**Launch network:** existing open-source-accounting communities — users already frustrated with current tools and looking for something better. Personal contacts within those communities are the first testers.
+
+**Build in public:** GitHub, changelog, community Discord or similar. Transparency is a feature for this audience.
+
+**Email capture from day one:** Everyone who installs, visits, or stars the repo. The list is the most valuable asset at launch.
+
+Full GTM plan not yet built out. Priority after name and tech stack are locked.
+
+---
+
+## Email Capture Strategy
+
+- Landing page before product is built — validate demand
+- README links to stay updated page
+- First-run setup offers optional email for updates
+- Every cloud signup captured automatically
+- Tool: Resend or Mailchimp, simple form, name and email only
+
+---
+
+## Telemetry
+
+Opt-in only. Anonymous. Fully documented.
+
+See `TELEMETRY.md` for complete specification including every event collected, opt-out instructions, and data retention policy.
+
+Key principle: the telemetry code is open source and auditable. Aggregate findings published publicly on a regular cadence.
+
+---
+
+## Mobile Strategy
+
+**Directional: React Native + Expo.** Not locked in but leaning strongly native. Primary audience is never at a desk — receipt capture, push notifications for invoice payment, and lock screen presence are all better native. Expo EAS handles build complexity. Web version still needed for accountant tier. Confirm before scaffolding begins.
+
+---
+
+## Tech Stack
+
+**Not yet decided.** Next major conversation.
+
+Constraints to consider:
+- Must support AI integration cleanly
+- Self-hosting must be simple — single docker compose up ideally
+- Contributor-friendly — common languages lower barrier to contribution
+- Mobile-first frontend
+- PostgreSQL strongly preferred for multi-tenancy
+
+---
+
+## Open Questions (Blocking)
+
+These must be answered before build begins:
+
+1. ~~**Name**~~ — ✅ **Thalermark** (locked, `thalermark.com` registered)
+2. ~~**Tech stack**~~ — ✅ Fully locked. See TECH-STACK.md.
+3. ~~**Mobile strategy**~~ — ✅ React Native + Expo
+4. ~~**Licensing specifics**~~ — ✅ AGPL v3 + Commercial Dual
+5. **MVP feature scope** — formal written list, no additions without explicit decision
+
+---
+
+## Open Questions (Non-blocking)
+
+These can be figured out in motion:
+
+- Payment processor specifics — Stripe Connect mechanics
+- Self-hosted license enforcement — license keys, feature flags, honor system
+- Brand identity — visual language, tone of voice, logo
+- Contributor guidelines and community structure
+- Full GTM plan
+
+---
+
+## What's Done
+
+- Business requirements — complete
+- Audience definition — complete
+- Monetization model — complete
+- Telemetry specification — complete (`TELEMETRY.md`)
+- Feature set — complete (MVP scoped, full set documented)
+- Compliance approach — complete
+- Email capture strategy — complete
+
+---
+
+## Immediate Next Steps
+
+1. ~~Lock the name~~ ✅ Thalermark, `thalermark.com` registered
+2. Register defensive domains (.io, .app, .dev, .co, .net)
+3. Decide tech stack
+4. Confirm mobile strategy (React Native + Expo)
+5. Formally define MVP feature list
+6. Build landing page on thalermark.com and start email capture
+7. Set up GitHub repo with README, LICENSE, TELEMETRY.md, CONTRIBUTING.md
+8. File USPTO trademark application (Classes 9, 36, 42) once product is in commercial use
