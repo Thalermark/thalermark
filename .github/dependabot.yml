@@ -14,8 +14,10 @@ updates:
     groups:
       dev-dependencies:
         dependency-type: "development"
+        update-types: ["minor", "patch"]
       runtime-dependencies:
         dependency-type: "production"
+        update-types: ["minor", "patch"]
 
   # GitHub Actions workflow files
   - package-ecosystem: "github-actions"
