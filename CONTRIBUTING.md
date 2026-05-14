@@ -57,6 +57,71 @@ pnpm build        # production build
 - Keep PRs focused. One concern per PR makes review fast and revert safe.
 - Reference issues in the PR description (`Closes #123`) so the issue auto-closes on merge.
 - CI must be green before merge: lint, typecheck, test, build.
+- PRs are merged via **squash and merge** (configured as the only allowed strategy). Your PR title becomes the commit message on `main`, so it should follow our commit message convention below.
+
+## Commit message conventions
+
+We use [**Conventional Commits**](https://www.conventionalcommits.org/). The format gives us readable history today and unlocks automated changelogs and version bumps later (`release-please` or `semantic-release`) without re-litigating commit-message style.
+
+### Format
+
+```
+<type>(<optional scope>): <description>
+
+[optional body]
+
+[optional footer(s)]
+```
+
+### Types we use
+
+| Type | When |
+|---|---|
+| `feat` | A new feature or user-visible capability |
+| `fix` | A bug fix |
+| `refactor` | Code change that neither fixes a bug nor adds a feature |
+| `perf` | Performance improvement |
+| `docs` | Documentation only |
+| `test` | Adding or correcting tests |
+| `build` | Changes to build system or external dependencies (Dependabot uses this) |
+| `ci` | CI configuration changes |
+| `chore` | Other changes that don't modify `src` or `test` files |
+| `revert` | Reverts a previous commit |
+
+### Scope (optional)
+
+A noun describing the area of the codebase: `feat(invoice):`, `fix(api):`, `docs(self-host):`. Skip when the change is broad (`ci: bump GitHub Actions to v6`).
+
+### Breaking changes
+
+Mark either by adding `!` after the type/scope, or by including a `BREAKING CHANGE:` footer:
+
+```
+feat(api)!: rename /api/invoices to /api/v2/invoices
+```
+
+```
+feat(api): rename /api/invoices to /api/v2/invoices
+
+BREAKING CHANGE: clients using /api/invoices must migrate to /api/v2/invoices.
+```
+
+### Examples from our history
+
+```
+feat(invoice): add recurring invoice generator
+fix(api): handle null customer in invoice serializer
+docs: add SECURITY.md (vulnerability disclosure policy)
+ci: bump GitHub Actions to v6 (Node 24 runtime)
+build(deps-dev): bump vitest from 2.1.8 to 2.1.9
+chore: migrate biome.json to v2 schema
+```
+
+### Notes
+
+- **The PR title is what matters** — since we squash-merge, the PR title becomes the single commit on `main`. The individual commit messages on your feature branch can be anything; only the PR title needs to follow the convention.
+- **Dependabot follows Conventional Commits natively** — its PRs come pre-formatted as `build(deps-dev): bump X from A to B`. No special handling needed.
+- **No commit-lint enforcement.** We rely on convention plus reviewer eyes rather than pre-commit hooks. If a PR title doesn't follow the convention, the reviewer will ask you to update it before merge.
 
 ## Reporting bugs
 
@@ -71,7 +136,7 @@ A failing test is the most valuable kind of bug report.
 
 ## Security
 
-Please do not file security issues in public GitHub issues. Email **security@thalermark.com** with details and a recommended fix if you have one. We commit to acknowledging within 48 hours and patching coordinated-disclosure issues within a reasonable timeline relative to severity.
+Please do not file security issues in public GitHub issues. Email **security@thalermark.com** with details and a recommended fix if you have one. We commit to acknowledging within 1 week and patching coordinated-disclosure issues within a reasonable timeline relative to severity.
 
 ## License of contributions
 
