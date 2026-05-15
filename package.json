@@ -22,10 +22,13 @@
     "format": "biome format --write .",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
+    "drizzle:generate": "drizzle-kit generate",
+    "drizzle:migrate": "drizzle-kit migrate",
     "clean": "turbo run clean && rm -rf node_modules .turbo"
   },
   "devDependencies": {
     "@biomejs/biome": "1.9.4",
+    "drizzle-kit": "0.31.10",
     "turbo": "2.9.12",
     "typescript": "5.7.2",
     "vitest": "2.1.9"
