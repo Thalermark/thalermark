@@ -19,27 +19,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
-    services:
-      postgres:
-        image: pgvector/pgvector:pg17
-        env:
-          POSTGRES_USER: thalermark
-          POSTGRES_PASSWORD: thalermark
-          POSTGRES_DB: thalermark_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U thalermark"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
     env:
-      DATABASE_URL: postgres://thalermark:thalermark@localhost:5432/thalermark_test
       NODE_ENV: test
 
     steps:
       - uses: actions/checkout@v6
+
+      # Cache the Postgres image used by testcontainers (~700MB).
+      # Update the cache key if the image tag changes in
+      # packages/db/tests/global-setup.ts.
+      - name: Cache Docker images
+        uses: ScribeMD/docker-cache@0.5.0
+        with:
+          key: docker-${{ runner.os }}-pgvector-pg17
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
