@@ -15,6 +15,7 @@
       "**/.expo",
       "**/.turbo",
       "**/coverage",
+      "**/migrations/meta/**",
       "_archive",
       "genai",
       "spikes"
