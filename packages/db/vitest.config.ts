@@ -5,5 +5,14 @@ export default defineConfig({
     globalSetup: ['./tests/global-setup.ts'],
     testTimeout: 30_000,
     hookTimeout: 30_000,
+    // Single fork: tests share one testcontainer-managed Postgres and use
+    // TRUNCATE in beforeEach to isolate. Parallel workers would race on the
+    // shared DB. Slight performance cost for safety; revisit if test count grows.
+    pool: 'forks',
+    poolOptions: {
+      forks: {
+        singleFork: true,
+      },
+    },
   },
 });

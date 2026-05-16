@@ -1,10 +1,12 @@
 import { eq } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
-import { describe, expect, it } from 'vitest';
-import { getTestDb } from '../../tests/db-test-helper.js';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { getTestDb, resetDb } from '../../tests/db-test-helper.js';
 import { accounts } from './accounts.js';
 
 describe('accounts', () => {
+  beforeEach(resetDb);
+
   it('inserts and reads back an account', async () => {
     const db = getTestDb();
     const id = uuidv7();
