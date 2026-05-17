@@ -1,5 +1,9 @@
 import { boolean, index, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 
+// Seeded by migration 0009. The synthetic actor for system-initiated audit
+// events; has no auth_account row, so cannot sign in.
+export const SYSTEM_USER_ID = '00000000-0000-7000-8000-000000000001';
+
 // auth_user — Better Auth's user table (a person with a login)
 export const authUser = pgTable('auth_user', {
   id: uuid('id').primaryKey(),
@@ -11,6 +15,10 @@ export const authUser = pgTable('auth_user', {
   // Read-only impersonation of any account for support; enforced via a separate
   // BYPASSRLS Postgres role at the API connection-pool layer.
   isStaff: boolean('is_staff').notNull().default(false),
+  // Synthetic actor for system-initiated mutations (recurring invoice jobs,
+  // Stripe webhooks). Has no auth_account row, so cannot sign in. Filter by
+  // `is_system = false` in any "people in your account" query.
+  isSystem: boolean('is_system').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

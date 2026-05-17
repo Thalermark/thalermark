@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { getAppDb, getStaffDb, getTestDb, resetDb } from '../tests/db-test-helper.js';
 import { withAccountContext } from './client.js';
 import { accounts } from './schema/accounts.js';
+import { auditEvents } from './schema/audit_events.js';
 import { authUser } from './schema/auth.js';
 import { companies } from './schema/companies.js';
 import { memberships } from './schema/memberships.js';
@@ -221,5 +222,180 @@ describe('RLS — staff_readonly role', () => {
     ).rejects.toThrow();
     const row = await getTestDb().select().from(accounts).where(eq(accounts.id, accountAId));
     expect(row).toHaveLength(1);
+  });
+});
+
+// audit_events sits on top of the same account-isolation idiom as the other
+// tenant tables, with the added twist that UPDATE and DELETE have no policy
+// at all — so they silently affect zero rows under the app role (Postgres
+// "RLS hides the row from the operation"), giving us append-only semantics.
+
+async function seedAuditEvents() {
+  const db = getTestDb();
+  await db.insert(auditEvents).values([
+    {
+      id: uuidv7(),
+      accountId: accountAId,
+      actorUserId: userId,
+      entityType: 'invoice',
+      entityId: uuidv7(),
+      action: 'create',
+      after: { number: 'A-1' },
+    },
+    {
+      id: uuidv7(),
+      accountId: accountBId,
+      actorUserId: userInBothId,
+      entityType: 'invoice',
+      entityId: uuidv7(),
+      action: 'create',
+      after: { number: 'B-1' },
+    },
+  ]);
+}
+
+describe('RLS — audit_events account isolation', () => {
+  beforeEach(async () => {
+    await resetDb();
+    await seedTwoTenants();
+    await seedAuditEvents();
+  });
+
+  it('sees only its own account events when context is set', async () => {
+    const seen = await withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+      return tx.select().from(auditEvents);
+    });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.accountId).toBe(accountAId);
+  });
+
+  it('sees no rows when no account context is set', async () => {
+    const seen = await getAppDb().select().from(auditEvents);
+    expect(seen).toEqual([]);
+  });
+
+  it('allows insert with matching account_id', async () => {
+    const id = uuidv7();
+    await expect(
+      withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+        await tx.insert(auditEvents).values({
+          id,
+          accountId: accountAId,
+          actorUserId: userId,
+          entityType: 'invoice',
+          entityId: uuidv7(),
+          action: 'update',
+          before: { status: 'draft' },
+          after: { status: 'sent' },
+        });
+      }),
+    ).resolves.not.toThrow();
+    const found = await getTestDb().select().from(auditEvents).where(eq(auditEvents.id, id));
+    expect(found).toHaveLength(1);
+  });
+
+  it('blocks insert with a foreign account_id (WITH CHECK violation)', async () => {
+    const smuggledId = uuidv7();
+    await expect(
+      withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+        await tx.insert(auditEvents).values({
+          id: smuggledId,
+          accountId: accountBId,
+          actorUserId: userId,
+          entityType: 'invoice',
+          entityId: uuidv7(),
+          action: 'create',
+        });
+      }),
+    ).rejects.toThrow();
+    const found = await getTestDb()
+      .select()
+      .from(auditEvents)
+      .where(eq(auditEvents.id, smuggledId));
+    expect(found).toEqual([]);
+  });
+});
+
+describe('RLS — audit_events is append-only (no UPDATE / DELETE policy)', () => {
+  beforeEach(async () => {
+    await resetDb();
+    await seedTwoTenants();
+    await seedAuditEvents();
+  });
+
+  it('cannot UPDATE an event in its own account (no policy = invisible to UPDATE)', async () => {
+    await withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+      await tx
+        .update(auditEvents)
+        .set({ action: 'tampered' })
+        .where(eq(auditEvents.accountId, accountAId));
+    });
+    const rows = await getTestDb()
+      .select()
+      .from(auditEvents)
+      .where(eq(auditEvents.accountId, accountAId));
+    expect(rows[0]?.action).toBe('create');
+  });
+
+  it('cannot DELETE an event in its own account', async () => {
+    await withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+      await tx.delete(auditEvents).where(eq(auditEvents.accountId, accountAId));
+    });
+    const rows = await getTestDb()
+      .select()
+      .from(auditEvents)
+      .where(eq(auditEvents.accountId, accountAId));
+    expect(rows).toHaveLength(1);
+  });
+
+  it('cannot UPDATE events in another account', async () => {
+    await withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+      await tx
+        .update(auditEvents)
+        .set({ action: 'tampered' })
+        .where(eq(auditEvents.accountId, accountBId));
+    });
+    const rows = await getTestDb()
+      .select()
+      .from(auditEvents)
+      .where(eq(auditEvents.accountId, accountBId));
+    expect(rows[0]?.action).toBe('create');
+  });
+
+  it('cannot DELETE events in another account', async () => {
+    await withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+      await tx.delete(auditEvents).where(eq(auditEvents.accountId, accountBId));
+    });
+    const rows = await getTestDb()
+      .select()
+      .from(auditEvents)
+      .where(eq(auditEvents.accountId, accountBId));
+    expect(rows).toHaveLength(1);
+  });
+});
+
+describe('RLS — audit_events under staff_readonly', () => {
+  beforeEach(async () => {
+    await resetDb();
+    await seedTwoTenants();
+    await seedAuditEvents();
+  });
+
+  it('reads audit events across accounts (BYPASSRLS)', async () => {
+    const seen = await getStaffDb().select().from(auditEvents);
+    expect(seen).toHaveLength(2);
+  });
+
+  it('cannot INSERT (privilege denied)', async () => {
+    await expect(
+      getStaffDb().insert(auditEvents).values({
+        id: uuidv7(),
+        accountId: accountAId,
+        actorUserId: userId,
+        entityType: 'invoice',
+        entityId: uuidv7(),
+        action: 'create',
+      }),
+    ).rejects.toThrow();
   });
 });
