@@ -50,6 +50,13 @@
       "when": 1779022978903,
       "tag": "0006_enable_rls_account_isolation",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1779024111918,
+      "tag": "0007_fix_rls_null_uuid_cast",
+      "breakpoints": true
     }
   ]
 }
