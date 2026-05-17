@@ -1,0 +1,1 @@
+ALTER TABLE "auth_user" ADD COLUMN "is_staff" boolean DEFAULT false NOT NULL;

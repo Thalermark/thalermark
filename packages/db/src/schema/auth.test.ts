@@ -31,6 +31,16 @@ describe('auth_user', () => {
       db.insert(authUser).values({ id: uuidv7(), email: 'dupe@example.com' }),
     ).rejects.toThrow();
   });
+
+  it('defaults is_staff to false for new users', async () => {
+    const db = getTestDb();
+    const id = uuidv7();
+
+    await db.insert(authUser).values({ id, email: 'civilian@example.com' });
+    const rows = await db.select().from(authUser).where(eq(authUser.id, id));
+
+    expect(rows[0]?.isStaff).toBe(false);
+  });
 });
 
 describe('auth_session', () => {
