@@ -7,6 +7,10 @@ export const authUser = pgTable('auth_user', {
   emailVerified: boolean('email_verified').notNull().default(false),
   name: text('name'),
   image: text('image'),
+  // Thalermark internal employee (NOT a member of the customer's account).
+  // Read-only impersonation of any account for support; enforced via a separate
+  // BYPASSRLS Postgres role at the API connection-pool layer.
+  isStaff: boolean('is_staff').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
