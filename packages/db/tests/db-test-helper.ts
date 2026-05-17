@@ -42,6 +42,10 @@ export function getStaffDb(): Database {
  * TRUNCATE every public table except Drizzle's migration tracker.
  * Auto-discovers tables so this stays correct as schema grows.
  * Call in `beforeEach` to guarantee clean state per test. Runs as superuser.
+ *
+ * Re-seeds rows that the migrations treat as part of the schema bootstrap
+ * (currently: the synthetic system user from migration 0009), so tests see
+ * the same baseline a fresh production database would.
  */
 export async function resetDb(): Promise<void> {
   const db = getTestDb();
@@ -54,6 +58,12 @@ export async function resetDb(): Promise<void> {
 
   const tables = result.rows.map((r) => `"${r.tablename}"`).join(', ');
   await db.execute(sql.raw(`TRUNCATE TABLE ${tables} RESTART IDENTITY CASCADE`));
+
+  await db.execute(sql`
+    INSERT INTO "auth_user" ("id", "email", "email_verified", "name", "is_staff", "is_system")
+    VALUES ('00000000-0000-7000-8000-000000000001', 'system@thalermark.internal', false, 'System', false, true)
+    ON CONFLICT ("id") DO NOTHING
+  `);
 }
 
 function requireEnv(name: string): string {

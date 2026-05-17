@@ -57,6 +57,20 @@
       "when": 1779024111918,
       "tag": "0007_fix_rls_null_uuid_cast",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1779056735957,
+      "tag": "0008_audit_events_and_is_system",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1779056857904,
+      "tag": "0009_audit_events_rls_and_system_user",
+      "breakpoints": true
     }
   ]
 }
