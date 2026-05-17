@@ -2,22 +2,46 @@ import { sql } from 'drizzle-orm';
 import { type Database, createDatabase } from '../src/client.js';
 
 let _db: Database | undefined;
+let _appDb: Database | undefined;
+let _staffDb: Database | undefined;
 
+/**
+ * Superuser connection. Bypasses RLS — use for seeding and for non-RLS
+ * schema tests. RLS isolation tests should use getAppDb() / getStaffDb().
+ */
 export function getTestDb(): Database {
   if (!_db) {
-    const url = process.env.DATABASE_URL;
-    if (!url) {
-      throw new Error('DATABASE_URL not set — global-setup.ts should have set it');
-    }
-    _db = createDatabase(url);
+    _db = createDatabase(requireEnv('DATABASE_URL'));
   }
   return _db;
 }
 
 /**
+ * Connection as `thalermark_app` — RLS-enforcing, full CRUD grants.
+ * Use this with `withAccountContext` to test tenant isolation.
+ */
+export function getAppDb(): Database {
+  if (!_appDb) {
+    _appDb = createDatabase(requireEnv('APP_DATABASE_URL'));
+  }
+  return _appDb;
+}
+
+/**
+ * Connection as `thalermark_staff_readonly` — BYPASSRLS, SELECT only.
+ * Use to verify staff impersonation can read across accounts but cannot mutate.
+ */
+export function getStaffDb(): Database {
+  if (!_staffDb) {
+    _staffDb = createDatabase(requireEnv('STAFF_DATABASE_URL'));
+  }
+  return _staffDb;
+}
+
+/**
  * TRUNCATE every public table except Drizzle's migration tracker.
  * Auto-discovers tables so this stays correct as schema grows.
- * Call in `beforeEach` to guarantee clean state per test.
+ * Call in `beforeEach` to guarantee clean state per test. Runs as superuser.
  */
 export async function resetDb(): Promise<void> {
   const db = getTestDb();
@@ -30,4 +54,10 @@ export async function resetDb(): Promise<void> {
 
   const tables = result.rows.map((r) => `"${r.tablename}"`).join(', ');
   await db.execute(sql.raw(`TRUNCATE TABLE ${tables} RESTART IDENTITY CASCADE`));
+}
+
+function requireEnv(name: string): string {
+  const v = process.env[name];
+  if (!v) throw new Error(`${name} not set — global-setup.ts should have set it`);
+  return v;
 }
