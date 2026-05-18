@@ -51,6 +51,20 @@ pnpm build        # production build
 - **Comments are rare.** Names should carry meaning; comments are reserved for hidden constraints or non-obvious *why*.
 - **Tests live next to source** as `*.test.ts` files. The runner is Vitest.
 
+## Schema conventions
+
+Conventions that the database in `packages/db/` follows. New tables should match these unless there's a documented reason to deviate.
+
+- **IDs are `uuid`, generated app-side.** Primary keys are `uuid('id').primaryKey()` with no DB default; the application generates UUIDv7 via the `uuid` npm package. UUIDv7 is time-ordered, so primary-key inserts stay sequential without giving up uuid's other properties.
+- **`snake_case` in the database, `camelCase` in TypeScript.** Drizzle column definitions carry both: `actorUserId: uuid('actor_user_id')`. Never query the DB with camelCase identifiers and never expose snake_case in TS.
+- **Timestamps are `timestamptz`.** Always `timestamp('...', { withTimezone: true })`. `createdAt` and `updatedAt` default to `defaultNow()`. No naked `timestamp` without time zone.
+- **Better Auth tables use the `auth_` prefix.** `auth_user`, `auth_session`, `auth_account`, `auth_verification`. This keeps them visually grouped and makes it obvious which tables are owned by the auth library vs the domain.
+- **Tenant-scoped tables carry `account_id` (and `company_id` where applicable).** RLS policies enforce isolation via the `app.current_account_id` GUC. Foreign keys to tenant-owning rows use `onDelete: 'cascade'` so a deleted account cleans up its data.
+- **Read `current_setting()` GUCs with the NULLIF idiom.** `NULLIF(current_setting('app.current_account_id', true), '')::uuid` — Postgres returns `''` (not NULL) when `missing_ok=true` and the GUC is unset, and casting `''` directly to uuid throws `22P02`. The NULLIF guard makes the policy fail closed instead of erroring.
+- **Append-only tables use FOR SELECT + FOR INSERT policies only.** Omit any UPDATE/DELETE policy and Postgres makes rows invisible to those operations under the app role — a silent zero-row no-op, no error. See `audit_events` for the canonical example.
+- **Per-table tests live in `packages/db/src/schema/<name>.test.ts`.** Schema-level checks run as superuser via `getTestDb()`. RLS isolation tests live together in `packages/db/src/rls-isolation.test.ts` and use `getAppDb()` / `getStaffDb()` + `withAccountContext`.
+- **Custom migrations.** Run `pnpm drizzle:generate` for table changes, then hand-write a separate `.sql` for policies or seed data. Duplicate the previous `meta/NNNN_snapshot.json`, give it a fresh `id` UUID, point `prevId` at the predecessor's id, and add an entry to `meta/_journal.json`. Reference rows seeded by migrations should also be re-inserted by `resetDb()` so tests see the same baseline.
+
 ## Commits and PRs
 
 - Branch from `main`. Branch naming is informal — `feature/`, `fix/`, `docs/` prefixes are common but not required.

@@ -1,6 +1,6 @@
 # Scaffolding Plan
 
-**Status:** Planning — written 2026-05-11, no code yet.
+**Status:** Phases 0 and 1 shipped (2026-05-17). Phase 2 (telemetry) is up next.
 **Reads:** Assumes you've read PROJECT.md and TECH-STACK.md.
 
 The shape of work between "all decisions locked" and "writing actual MVP features." Eight phases, roughly sequential — each builds on the previous one. None of the actual MVP feature code is in here; this is just the foundation.
@@ -9,16 +9,16 @@ The shape of work between "all decisions locked" and "writing actual MVP feature
 
 ## Phase overview
 
-| Phase | What gets built | Why this order |
-|---|---|---|
-| **0** | Repo skeleton + tooling | Everything else lives in here |
-| **1** | Database foundation + RLS | Every other layer assumes the DB is right |
-| **2** | Telemetry module | Trust signal; build *before* features so the patterns are established |
-| **3** | API foundation (Hono + Better Auth) | Web and mobile both need it to do anything |
-| **4** | Shared packages (validation, AI, location, brand) | Web/mobile/api all consume them |
-| **5** | Web app shell (SvelteKit) | Auth flows, layout, empty home |
-| **6** | Mobile app shell (Expo) | Same shape, native shell |
-| **7** | CI/CD and self-host story | Docker compose for self-hosters, GHA for us |
+| Phase | What gets built | Why this order | Status |
+|---|---|---|---|
+| **0** | Repo skeleton + tooling | Everything else lives in here | ✅ Shipped |
+| **1** | Database foundation + RLS | Every other layer assumes the DB is right | ✅ Shipped (slices 1.1–1.6, PRs #11–#19) |
+| **2** | Telemetry module | Trust signal; build *before* features so the patterns are established | ⬅ Next |
+| **3** | API foundation (Hono + Better Auth) | Web and mobile both need it to do anything | — |
+| **4** | Shared packages (validation, AI, location, brand) | Web/mobile/api all consume them | — |
+| **5** | Web app shell (SvelteKit) | Auth flows, layout, empty home | — |
+| **6** | Mobile app shell (Expo) | Same shape, native shell | — |
+| **7** | CI/CD and self-host story | Docker compose for self-hosters, GHA for us | — |
 
 After Phase 7, the foundation is real and we start building actual MVP features (invoice → expense → payment → dashboard → AI).
 
@@ -56,6 +56,8 @@ The bones. Goal: `pnpm install` and `pnpm build` both succeed on an empty repo.
 - **Package manager:** pnpm 9.x
 
 **Validation:** `pnpm install` works, Biome lints an empty workspace, Vitest runs an empty test suite, Turborepo orchestrates a no-op build.
+
+**Realized:** shipped in early PRs along with a production-readiness pass (signed commits, PR-required branch protection, Dependabot, CodeQL, secret scanning, SECURITY.md). See `spikes/PRODUCTION-READINESS.md` for the full log.
 
 ---
 
@@ -96,6 +98,20 @@ drizzle.config.ts
 - "User in account A cannot insert with account_id of account B" — must fail
 - "Cannot UPDATE or DELETE an audit_events row" — must fail
 - These tests run against a real Postgres (via Docker), not mocks
+
+**Realized (slice numbering):**
+
+| Slice | PR | What landed |
+|---|---|---|
+| 1.1 | #11 | `@thalermark/db` package skeleton, `drizzle.config.ts`, drizzle:generate + drizzle:migrate scripts |
+| 1.2a | #12 | `accounts` table (first domain table) |
+| 1.2b | #13 | testcontainers wired (`pgvector/pgvector:pg17`), first integration test passes in CI |
+| 1.3a | #14 | `companies` table (FK → accounts, cascade) |
+| 1.3b | #15 | Better Auth schema tables: `auth_user`, `auth_session`, `auth_account`, `auth_verification` |
+| 1.3c | #16 | `memberships` table (user ↔ account join, composite unique) |
+| 1.4 | #17 | RLS foundations + staff support roles (`thalermark_app`, `thalermark_staff_readonly`); `withAccountContext` helper |
+| 1.5 | #18 | Full RLS isolation matrix + `NULLIF(..., '')::uuid` fix-up for unset GUCs |
+| 1.6 | #19 | `audit_events` table + append-only RLS + synthetic system user (`SYSTEM_USER_ID`) |
 
 ---
 
