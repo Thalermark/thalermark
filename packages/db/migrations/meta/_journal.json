@@ -85,6 +85,13 @@
       "when": 1779076472265,
       "tag": "0011_enable_rls_telemetry_events",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1779108306272,
+      "tag": "0012_telemetry_transport_retry_columns",
+      "breakpoints": true
     }
   ]
 }
