@@ -6,22 +6,35 @@
 // Add fields here as upstream slices need them (DB, auth, telemetry, etc.).
 // The skeleton only needs PORT + NODE_ENV.
 
+export type LogLevel = 'debug' | 'info' | 'warning' | 'error' | 'fatal';
+
 export type Env = {
   nodeEnv: 'development' | 'test' | 'production';
   port: number;
+  logLevel: LogLevel;
+  errorTrackingDsn: string | undefined;
+  release: string | undefined;
 };
 
 const DEFAULT_PORT = 3000;
 const VALID_NODE_ENVS: Env['nodeEnv'][] = ['development', 'test', 'production'];
+const VALID_LOG_LEVELS: LogLevel[] = ['debug', 'info', 'warning', 'error', 'fatal'];
 
 export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
   const nodeEnv = source.NODE_ENV ?? 'development';
   if (!VALID_NODE_ENVS.includes(nodeEnv as Env['nodeEnv'])) {
     throw new Error(`NODE_ENV must be one of ${VALID_NODE_ENVS.join(', ')}; got '${nodeEnv}'`);
   }
+  const logLevel = source.LOG_LEVEL ?? 'info';
+  if (!VALID_LOG_LEVELS.includes(logLevel as LogLevel)) {
+    throw new Error(`LOG_LEVEL must be one of ${VALID_LOG_LEVELS.join(', ')}; got '${logLevel}'`);
+  }
   return Object.freeze({
     nodeEnv: nodeEnv as Env['nodeEnv'],
     port: parsePort(source.API_PORT),
+    logLevel: logLevel as LogLevel,
+    errorTrackingDsn: source.ERROR_TRACKING_DSN || undefined,
+    release: source.RELEASE || undefined,
   });
 }
 

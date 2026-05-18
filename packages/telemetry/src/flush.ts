@@ -1,7 +1,10 @@
 import { type Database, accounts, telemetryEvents, withAccountContext } from '@thalermark/db';
+import { getLogger } from '@thalermark/logger';
 import { and, asc, gte, inArray, lt, sql } from 'drizzle-orm';
 import { type TransportConfig, loadTransportConfig } from './config.js';
 import { signPayload } from './sign.js';
+
+const log = getLogger(['telemetry', 'flush']);
 
 // Discriminated result type so callers (and tests) can assert exact outcomes
 // without parsing log output. Each branch covers a distinct exit path of
@@ -43,11 +46,11 @@ export async function flushTelemetry(
 ): Promise<FlushResult> {
   if (!config.enabled) return { status: 'transport_disabled' };
   if (!config.endpointUrl) {
-    console.warn('[telemetry] transport enabled but TELEMETRY_ENDPOINT_URL is unset');
+    log.warn('transport enabled but TELEMETRY_ENDPOINT_URL is unset');
     return { status: 'endpoint_unset' };
   }
   if (!config.signingKey) {
-    console.warn('[telemetry] transport enabled but TELEMETRY_SIGNING_KEY is unset');
+    log.warn('transport enabled but TELEMETRY_SIGNING_KEY is unset');
     return { status: 'signing_key_unset' };
   }
 
@@ -112,7 +115,10 @@ export async function flushTelemetry(
   }
 
   if (response.status >= 400 && response.status < 500) {
-    console.warn(`[telemetry] dropping ${ids.length} events: endpoint returned ${response.status}`);
+    log.warn('dropping {count} events: endpoint returned {statusCode}', {
+      count: ids.length,
+      statusCode: response.status,
+    });
     await withAccountContext(db, { accountId }, async (tx) => {
       await tx.delete(telemetryEvents).where(inArray(telemetryEvents.id, ids));
     });
@@ -128,7 +134,7 @@ export async function flushTelemetry(
 // in the flush is logged but never propagated to the caller.
 export function scheduleTelemetryFlush(db: Database, accountId: string): void {
   flushTelemetry(db, accountId).catch((err) => {
-    console.error('[telemetry] flush failed', err);
+    log.error(err instanceof Error ? err : new Error(String(err)), { accountId });
   });
 }
 
@@ -157,9 +163,11 @@ async function applyRetry(
   });
   if (droppedCount > 0) {
     const detailText = detail instanceof Error ? detail.message : String(detail);
-    console.warn(
-      `[telemetry] dropping ${droppedCount} events at retry cap (${reason}): ${detailText}`,
-    );
+    log.warn('dropping {droppedCount} events at retry cap ({reason}): {detail}', {
+      droppedCount,
+      reason,
+      detail: detailText,
+    });
   }
   return { status: 'retry', count: ids.length, dropped: droppedCount };
 }

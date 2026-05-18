@@ -33,6 +33,7 @@ FROM base AS deps
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY apps/api/package.json apps/api/
 COPY packages/db/package.json packages/db/
+COPY packages/logger/package.json packages/logger/
 COPY packages/telemetry/package.json packages/telemetry/
 RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
     pnpm install --frozen-lockfile
@@ -42,9 +43,13 @@ FROM deps AS builder
 COPY apps/api ./apps/api
 COPY packages ./packages
 COPY tsconfig.base.json ./
-# Compile @thalermark/api's TypeScript to ./apps/api/dist via the package's
-# `build` script. Workspace deps (@thalermark/db, @thalermark/telemetry) stay
-# as .ts and are loaded at runtime via Node's --experimental-strip-types.
+# Build workspace deps that apps/api consumes at runtime first — Node 24's
+# --experimental-strip-types refuses to strip from files inside node_modules,
+# so every workspace dep must ship as JS in the deployed slice. The list
+# grows as upstream slices bring more packages into apps/api's import graph
+# (3.3 will add @thalermark/db, 3.6 will add @thalermark/telemetry).
+RUN pnpm --filter=@thalermark/logger build
+# Now compile @thalermark/api's own TypeScript to ./apps/api/dist.
 RUN pnpm --filter=@thalermark/api build
 # `pnpm deploy` materialises @thalermark/api with all of its prod deps copied
 # (not symlinked) into /out. The package's `files` field constrains the local
