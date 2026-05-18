@@ -1,4 +1,4 @@
-import { jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { bigint, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { accounts } from './accounts.js';
 
 // Local staging table for the telemetry stream. Writes are gated by
@@ -9,6 +9,11 @@ import { accounts } from './accounts.js';
 // `payload` is opaque jsonb here — the typed Event union lives in
 // @thalermark/telemetry and is serialized into this column by emit().
 // Keeping the column untyped avoids a db -> telemetry dependency.
+//
+// retry_count / last_attempt_at track transport state for rows that have
+// failed delivery with a retryable error. The flush loop selects rows where
+// retry_count < cap, and drops (with a log line) on cap exceeded. 4xx drops
+// immediately; 5xx and network errors increment and retry.
 export const telemetryEvents = pgTable('telemetry_events', {
   id: uuid('id').primaryKey(),
   accountId: uuid('account_id')
@@ -17,6 +22,8 @@ export const telemetryEvents = pgTable('telemetry_events', {
   eventName: text('event_name').notNull(),
   payload: jsonb('payload').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  retryCount: bigint('retry_count', { mode: 'number' }).notNull().default(0),
+  lastAttemptAt: timestamp('last_attempt_at', { withTimezone: true }),
 });
 
 export type TelemetryEvent = typeof telemetryEvents.$inferSelect;
