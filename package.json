@@ -24,11 +24,13 @@
     "test": "turbo run test",
     "drizzle:generate": "drizzle-kit generate",
     "drizzle:migrate": "drizzle-kit migrate",
+    "db:lint": "squawk packages/db/migrations/*.sql",
     "clean": "turbo run clean && rm -rf node_modules .turbo"
   },
   "devDependencies": {
     "@biomejs/biome": "1.9.4",
     "drizzle-kit": "0.31.10",
+    "squawk-cli": "^2.53.0",
     "turbo": "2.9.12",
     "typescript": "5.7.2",
     "vitest": "2.1.9"

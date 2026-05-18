@@ -1,0 +1,53 @@
+# squawk — Postgres migration safety linter.
+# https://squawkhq.com/docs/rules
+#
+# We run squawk against packages/db/migrations/*.sql via `pnpm db:lint`
+# and in CI on every PR. The active ruleset is intentionally narrowed to
+# the *universally destructive* operations (drop column, rename column,
+# change type, drop table, etc.) — those catch real mistakes regardless
+# of table size or traffic.
+#
+# The rules excluded below all fire only against populated production
+# tables. We are pre-production; greenfield migrations create tables and
+# add their FKs/indexes in the same step (no existing rows to scan, no
+# writes to block), and drizzle-kit wraps every migration in its own
+# transaction (squawk can't see this from the SQL file alone).
+#
+# *** Re-enable these before launch. ***
+# Trigger: first migration that mutates a table with rows in production.
+# At that point, switch back to the default ruleset and rewrite any
+# offending migrations (e.g. CONCURRENTLY for indexes, NOT VALID +
+# VALIDATE for FKs, explicit lock/statement timeouts at the migrator
+# connection). Per-rule rationale in the comment blocks below.
+
+excluded_rules = [
+  # Wants every CREATE TABLE / CREATE INDEX to use `IF NOT EXISTS` and
+  # every migration to wrap itself in BEGIN/COMMIT. Drizzle-kit already
+  # wraps each migration in a transaction; the IF NOT EXISTS guard
+  # fights drizzle's worldview (each migration is applied exactly once,
+  # tracked in __drizzle_migrations).
+  "prefer-robust-stmts",
+
+  # Wants `SET lock_timeout = ...` and `SET statement_timeout = ...`
+  # before every DDL. The right place for these is the migrator's
+  # connection (apps/api boot or migration runner), not embedded in
+  # every .sql file. Revisit when we wire the production migrator.
+  "require-timeout-settings",
+
+  # Wants `CREATE INDEX CONCURRENTLY` so reads/writes aren't blocked
+  # while the index builds. CONCURRENTLY can't run inside a tx, which
+  # conflicts with drizzle-kit's per-migration tx. Re-enable once
+  # we're adding indexes to populated production tables (we'd then
+  # write those as hand-written migrations outside the tx wrapper).
+  "require-concurrent-index-creation",
+
+  # Wants `ADD CONSTRAINT ... NOT VALID` then a separate `VALIDATE
+  # CONSTRAINT` so the table isn't scanned while writes are blocked.
+  # Only matters when the table has rows. Our migrations add FKs to
+  # tables created in the same migration with zero rows.
+  "constraint-missing-not-valid",
+
+  # Same concern as constraint-missing-not-valid, just a different
+  # rule name for the FK-specific case. Same reasoning to exclude.
+  "adding-foreign-key-constraint",
+]

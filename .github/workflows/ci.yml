@@ -48,6 +48,9 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      - name: Lint DB migrations (squawk)
+        run: pnpm db:lint
+
       - name: Typecheck
         run: pnpm typecheck
 

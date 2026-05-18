@@ -14,6 +14,9 @@ importers:
       drizzle-kit:
         specifier: 0.31.10
         version: 0.31.10
+      squawk-cli:
+        specifier: ^2.53.0
+        version: 2.53.0
       turbo:
         specifier: 2.9.12
         version: 2.9.12
@@ -886,6 +889,31 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@squawk-cli/darwin-arm64@2.53.0':
+    resolution: {integrity: sha512-XMt2e+1rHukkxhDWiefH4LFR9k3kQcRcTV3pd2EsuTf3stsUSF8nY6xVrsFM8ArwKNpa3hrngihfGDM4aeyYkQ==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@squawk-cli/darwin-x64@2.53.0':
+    resolution: {integrity: sha512-Ss3V/C5BiXs9JgSPPOYizXG7WvIGpvrggbdNAwfArCxzMfMqrPkXWFT8o1HV/5PeN/hjnplP+qbBNJpB56WTGg==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@squawk-cli/linux-arm64@2.53.0':
+    resolution: {integrity: sha512-DHrATEFlFGZWLc1jCT10yICFzhuM3TAjI1O55Jc5b7G4I6hHOiONx7s5aMOX8z8kjvv/i5b2LdQGXtQZxEOsdQ==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@squawk-cli/linux-x64@2.53.0':
+    resolution: {integrity: sha512-bhQvRE1gOvMtk9+Xn7cfWQKdqdNXWln4BIg7R37ScUSZLT2/zp6s8M1yspC6j/fncUdG3/5WZv6NtdYm7U8PyQ==}
+    cpu: [x64]
+    os: [linux]
+
+  '@squawk-cli/win32-x64@2.53.0':
+    resolution: {integrity: sha512-VFFzrbnk4ePXGVKVFR3jTq7V583nw4rwc0UXTWK03Xujfm4Cm+HATXbaeC7bs2V03EDAS9HJQQouTJ3HYhTTtA==}
+    cpu: [x64]
+    os: [win32]
+
   '@testcontainers/postgresql@11.14.0':
     resolution: {integrity: sha512-wYbJn8GRTj8qfqzfVubxioYWlHJU/ImIjuzPwyy9C5Qfo6g3GLduPZAj+BifvqTZjgT3gd4gFVLCPhBji7dc1w==}
 
@@ -1624,6 +1652,10 @@ packages:
     resolution: {integrity: sha512-UcjcJOWknrNkF6PLX83qcHM6KHgVKNkV62Y8a5uYDVv9ydGQVwAHMKqHdJje1VTWpljG0WYpCDhrCdAOYH4TWg==}
     engines: {node: '>= 10.x'}
 
+  squawk-cli@2.53.0:
+    resolution: {integrity: sha512-UdnK+FBfbsqiWAdKDaOSV14QgBmpzSd+0yHdyOGPx73hmCj0pf2UrN6uQkRF67plcpsjnaYuWKqlDtgGo5DW4A==}
+    hasBin: true
+
   ssh-remote-port-forward@1.0.4:
     resolution: {integrity: sha512-x0LV1eVDwjf1gmG7TTnfqIzf+3VPRz7vrNIjX6oYLbeCrf/PeVY6hkT68Mg+q02qXxQhrLjB0jfgvhevoCRmLQ==}
 
@@ -2331,6 +2363,21 @@ snapshots:
     optional: true
 
   '@rollup/rollup-win32-x64-msvc@4.60.3':
+    optional: true
+
+  '@squawk-cli/darwin-arm64@2.53.0':
+    optional: true
+
+  '@squawk-cli/darwin-x64@2.53.0':
+    optional: true
+
+  '@squawk-cli/linux-arm64@2.53.0':
+    optional: true
+
+  '@squawk-cli/linux-x64@2.53.0':
+    optional: true
+
+  '@squawk-cli/win32-x64@2.53.0':
     optional: true
 
   '@testcontainers/postgresql@11.14.0':
@@ -3094,6 +3141,14 @@ snapshots:
   split-ca@1.0.1: {}
 
   split2@4.2.0: {}
+
+  squawk-cli@2.53.0:
+    optionalDependencies:
+      '@squawk-cli/darwin-arm64': 2.53.0
+      '@squawk-cli/darwin-x64': 2.53.0
+      '@squawk-cli/linux-arm64': 2.53.0
+      '@squawk-cli/linux-x64': 2.53.0
+      '@squawk-cli/win32-x64': 2.53.0
 
   ssh-remote-port-forward@1.0.4:
     dependencies:
