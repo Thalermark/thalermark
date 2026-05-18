@@ -1,0 +1,21 @@
+{
+  "name": "@thalermark/logger",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf .turbo dist *.tsbuildinfo"
+  },
+  "files": ["dist"],
+  "dependencies": {
+    "@logtape/logtape": "2.1.0"
+  },
+  "devDependencies": {
+    "vitest": "2.1.9"
+  }
+}
