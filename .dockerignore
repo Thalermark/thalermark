@@ -1,0 +1,39 @@
+# Excluded from every Docker build context. Keep this tight: anything not on
+# the explicit COPY list in a Dockerfile won't enter an image, but a smaller
+# context means faster `docker build` and fewer accidental ADD/COPY hits.
+
+# Dependencies — re-installed inside the image
+**/node_modules
+
+# Build outputs
+**/dist
+**/build
+**/.turbo
+**/.svelte-kit
+**/coverage
+**/*.tsbuildinfo
+
+# Local state
+.env
+.env.*
+!.env.example
+**/.DS_Store
+*.log
+
+# VCS
+.git
+.gitignore
+
+# Tooling
+.github
+.vscode
+.idea
+
+# Docs / planning artifacts not needed at runtime
+spikes
+*.md
+!README.md
+
+# Tests aren't shipped to runtime images, but builder stage may still need
+# them for `pnpm deploy`; we strip via .gitignore-style patterns at the
+# COPY level instead of here.
