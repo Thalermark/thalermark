@@ -31,7 +31,7 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: 1.13.7
-        version: 1.13.7(hono@4.6.14)
+        version: 1.13.7(hono@4.12.18)
       '@sentry/node':
         specifier: 10.53.1
         version: 10.53.1
@@ -39,8 +39,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/logger
       hono:
-        specifier: 4.6.14
-        version: 4.6.14
+        specifier: 4.12.18
+        version: 4.12.18
     devDependencies:
       '@types/node':
         specifier: 25.8.0
@@ -1888,8 +1888,8 @@ packages:
   graceful-fs@4.2.11:
     resolution: {integrity: sha512-RbJ5/jmFcNNCcDV5o9eTnBLJ/HszWV0P73bc+Ff4nS/rJj+YaS6IGyiOL0VoBYX+l1Wrl3k63h/KrH+nhJ0XvQ==}
 
-  hono@4.6.14:
-    resolution: {integrity: sha512-j4VkyUp2xazGJ8eCCLN1Vm/bxdvm/j5ZuU9AIjLu9vapn2M44p9L3Ktr9Vnb2RN2QtcR/wVjZVMlT5k7GJQgPw==}
+  hono@4.12.18:
+    resolution: {integrity: sha512-RWzP96k/yv0PQfyXnWjs6zot20TqfpfsNXhOnev8d1InAxubW93L11/oNUc3tQqn2G0bSdAOBpX+2uDFHV7kdQ==}
     engines: {node: '>=16.9.0'}
 
   ieee754@1.2.1:
@@ -2844,9 +2844,9 @@ snapshots:
       protobufjs: 7.5.8
       yargs: 17.7.2
 
-  '@hono/node-server@1.13.7(hono@4.6.14)':
+  '@hono/node-server@1.13.7(hono@4.12.18)':
     dependencies:
-      hono: 4.6.14
+      hono: 4.12.18
 
   '@isaacs/cliui@8.0.2':
     dependencies:
@@ -3841,7 +3841,7 @@ snapshots:
 
   graceful-fs@4.2.11: {}
 
-  hono@4.6.14: {}
+  hono@4.12.18: {}
 
   ieee754@1.2.1: {}
 
