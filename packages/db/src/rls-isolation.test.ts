@@ -8,6 +8,7 @@ import { auditEvents } from './schema/audit_events.js';
 import { authUser } from './schema/auth.js';
 import { companies } from './schema/companies.js';
 import { memberships } from './schema/memberships.js';
+import { telemetryEvents } from './schema/telemetry_events.js';
 
 // Slice 1.5 — full isolation matrix. Tests connect AS thalermark_app and
 // thalermark_staff_readonly (not the testcontainer superuser) so RLS is
@@ -397,5 +398,149 @@ describe('RLS — audit_events under staff_readonly', () => {
         action: 'create',
       }),
     ).rejects.toThrow();
+  });
+});
+
+// telemetry_events uses the same NULLIF tenant idiom but, unlike audit_events,
+// is *not* append-only. The HTTP transport needs DELETE within tenant scope to
+// drain successfully-sent rows (Slice 2.4); the opt-out path needs DELETE to
+// purge an account's queue (Slice 2.3). Staff readonly still cannot mutate.
+
+async function seedTelemetryEvents() {
+  const db = getTestDb();
+  await db.insert(telemetryEvents).values([
+    {
+      id: uuidv7(),
+      accountId: accountAId,
+      eventName: 'invoice_created',
+      payload: { line_item_count: 3 },
+    },
+    {
+      id: uuidv7(),
+      accountId: accountBId,
+      eventName: 'invoice_created',
+      payload: { line_item_count: 5 },
+    },
+  ]);
+}
+
+describe('RLS — telemetry_events account isolation', () => {
+  beforeEach(async () => {
+    await resetDb();
+    await seedTwoTenants();
+    await seedTelemetryEvents();
+  });
+
+  it('sees only its own account events when context is set', async () => {
+    const seen = await withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+      return tx.select().from(telemetryEvents);
+    });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.accountId).toBe(accountAId);
+  });
+
+  it('sees no rows when no account context is set', async () => {
+    const seen = await getAppDb().select().from(telemetryEvents);
+    expect(seen).toEqual([]);
+  });
+
+  it('allows insert with matching account_id', async () => {
+    const id = uuidv7();
+    await expect(
+      withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+        await tx.insert(telemetryEvents).values({
+          id,
+          accountId: accountAId,
+          eventName: 'session_start',
+          payload: { deployment_type: 'cloud', product_version: '0.1.0' },
+        });
+      }),
+    ).resolves.not.toThrow();
+    const found = await getTestDb()
+      .select()
+      .from(telemetryEvents)
+      .where(eq(telemetryEvents.id, id));
+    expect(found).toHaveLength(1);
+  });
+
+  it('blocks insert with a foreign account_id (WITH CHECK violation)', async () => {
+    const smuggledId = uuidv7();
+    await expect(
+      withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+        await tx.insert(telemetryEvents).values({
+          id: smuggledId,
+          accountId: accountBId,
+          eventName: 'invoice_created',
+          payload: { line_item_count: 1 },
+        });
+      }),
+    ).rejects.toThrow();
+    const found = await getTestDb()
+      .select()
+      .from(telemetryEvents)
+      .where(eq(telemetryEvents.id, smuggledId));
+    expect(found).toEqual([]);
+  });
+});
+
+describe('RLS — telemetry_events allows tenant-scoped DELETE (staging table)', () => {
+  beforeEach(async () => {
+    await resetDb();
+    await seedTwoTenants();
+    await seedTelemetryEvents();
+  });
+
+  it('deletes its own account events (drain after HTTP send)', async () => {
+    await withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+      await tx.delete(telemetryEvents);
+    });
+    const aRows = await getTestDb()
+      .select()
+      .from(telemetryEvents)
+      .where(eq(telemetryEvents.accountId, accountAId));
+    expect(aRows).toEqual([]);
+  });
+
+  it('cannot DELETE rows in another account (silent no-op)', async () => {
+    await withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+      await tx.delete(telemetryEvents).where(eq(telemetryEvents.accountId, accountBId));
+    });
+    const bRows = await getTestDb()
+      .select()
+      .from(telemetryEvents)
+      .where(eq(telemetryEvents.accountId, accountBId));
+    expect(bRows).toHaveLength(1);
+  });
+});
+
+describe('RLS — telemetry_events under staff_readonly', () => {
+  beforeEach(async () => {
+    await resetDb();
+    await seedTwoTenants();
+    await seedTelemetryEvents();
+  });
+
+  it('reads telemetry events across accounts (BYPASSRLS)', async () => {
+    const seen = await getStaffDb().select().from(telemetryEvents);
+    expect(seen).toHaveLength(2);
+  });
+
+  it('cannot INSERT (privilege denied)', async () => {
+    await expect(
+      getStaffDb()
+        .insert(telemetryEvents)
+        .values({
+          id: uuidv7(),
+          accountId: accountAId,
+          eventName: 'invoice_created',
+          payload: { line_item_count: 1 },
+        }),
+    ).rejects.toThrow();
+  });
+
+  it('cannot DELETE (privilege denied)', async () => {
+    await expect(getStaffDb().delete(telemetryEvents)).rejects.toThrow();
+    const rows = await getTestDb().select().from(telemetryEvents);
+    expect(rows).toHaveLength(2);
   });
 });

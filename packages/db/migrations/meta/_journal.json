@@ -71,6 +71,20 @@
       "when": 1779056857904,
       "tag": "0009_audit_events_rls_and_system_user",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1779076447978,
+      "tag": "0010_telemetry_events_and_account_opt_in",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1779076472265,
+      "tag": "0011_enable_rls_telemetry_events",
+      "breakpoints": true
     }
   ]
 }
