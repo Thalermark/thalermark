@@ -21,4 +21,32 @@ describe('accounts', () => {
     expect(rows[0]?.createdAt).toBeInstanceOf(Date);
     expect(rows[0]?.updatedAt).toBeInstanceOf(Date);
   });
+
+  it('defaults telemetry to opted-out: enabled=false, install_id=null', async () => {
+    const db = getTestDb();
+    const id = uuidv7();
+
+    await db.insert(accounts).values({ id, name: 'Test Account' });
+
+    const rows = await db.select().from(accounts).where(eq(accounts.id, id));
+    expect(rows[0]?.telemetryEnabled).toBe(false);
+    expect(rows[0]?.telemetryInstallId).toBeNull();
+  });
+
+  it('accepts an explicit opt-in (telemetry_enabled + install_id)', async () => {
+    const db = getTestDb();
+    const id = uuidv7();
+    const installId = uuidv7();
+
+    await db.insert(accounts).values({
+      id,
+      name: 'Test Account',
+      telemetryEnabled: true,
+      telemetryInstallId: installId,
+    });
+
+    const rows = await db.select().from(accounts).where(eq(accounts.id, id));
+    expect(rows[0]?.telemetryEnabled).toBe(true);
+    expect(rows[0]?.telemetryInstallId).toBe(installId);
+  });
 });
