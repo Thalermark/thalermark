@@ -52,6 +52,12 @@ importers:
         specifier: 2.1.9
         version: 2.1.9(@types/node@25.8.0)
 
+  packages/telemetry:
+    devDependencies:
+      vitest:
+        specifier: 2.1.9
+        version: 2.1.9(@types/node@25.8.0)
+
 packages:
 
   '@balena/dockerignore@1.0.2':
