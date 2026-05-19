@@ -7,22 +7,26 @@ const stubAuth = {
   handler: async () => new Response('stub', { status: 418 }),
 } as unknown as Parameters<typeof createApp>[0]['auth'];
 
+// Stub db — only needed by createApp's signature; routes that hit the DB are
+// integration-tested separately. Public/auth routes here never touch it.
+const stubDb = {} as unknown as Parameters<typeof createApp>[0]['db'];
+
 describe('health route', () => {
   it('returns 200 with status ok', async () => {
-    const app = createApp({ auth: stubAuth });
+    const app = createApp({ auth: stubAuth, db: stubDb });
     const res = await app.request('/health');
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ status: 'ok' });
   });
 
   it('returns 404 for an unknown route', async () => {
-    const app = createApp({ auth: stubAuth });
+    const app = createApp({ auth: stubAuth, db: stubDb });
     const res = await app.request('/does-not-exist');
     expect(res.status).toBe(404);
   });
 
   it('routes /api/auth/* to the auth handler', async () => {
-    const app = createApp({ auth: stubAuth });
+    const app = createApp({ auth: stubAuth, db: stubDb });
     const res = await app.request('/api/auth/anything');
     expect(res.status).toBe(418);
   });

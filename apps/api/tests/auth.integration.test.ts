@@ -29,7 +29,7 @@ describe('POST /api/auth/sign-up/email', () => {
         betterAuthSecret: 'test-secret-at-least-32-characters-long',
         betterAuthUrl: 'http://localhost:3000',
       });
-      const app = createApp({ auth });
+      const app = createApp({ auth, db: handle.db });
 
       const res = await app.request('/api/auth/sign-up/email', {
         method: 'POST',
