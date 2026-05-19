@@ -92,6 +92,13 @@
       "when": 1779108306272,
       "tag": "0012_telemetry_transport_retry_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1779218093757,
+      "tag": "0013_auth_user_last_account_id",
+      "breakpoints": true
     }
   ]
 }

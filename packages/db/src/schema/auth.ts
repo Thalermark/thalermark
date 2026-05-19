@@ -1,4 +1,5 @@
 import { boolean, index, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { accounts } from './accounts.js';
 
 // Seeded by migration 0009. The synthetic actor for system-initiated audit
 // events; has no auth_account row, so cannot sign in.
@@ -19,6 +20,9 @@ export const authUser = pgTable('auth_user', {
   // Stripe webhooks). Has no auth_account row, so cannot sign in. Filter by
   // `is_system = false` in any "people in your account" query.
   isSystem: boolean('is_system').notNull().default(false),
+  // Cross-device "last active account" anchor for the account picker. Null
+  // until the user picks one; cleared (SET NULL) if the account is deleted.
+  lastAccountId: uuid('last_account_id').references(() => accounts.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

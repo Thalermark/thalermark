@@ -27,13 +27,10 @@ if (env.migrateOnBoot) {
   await runMigrations(env.databaseUrl);
 }
 
-// dbHandle.db is plumbed into Hono context in slice 3.5 (RLS middleware).
-// For now the handle is held only so the shutdown handler can drain it,
-// and passed to Better Auth so its Drizzle adapter can talk to Postgres.
 const dbHandle = createApiDatabase(env.databaseUrl);
 const auth = createApiAuth(dbHandle.db, env);
 
-const app = createApp({ auth });
+const app = createApp({ auth, db: dbHandle.db });
 
 const server = serve(
   {
