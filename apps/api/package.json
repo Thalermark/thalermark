@@ -19,14 +19,17 @@
     "@thalermark/auth": "workspace:*",
     "@thalermark/db": "workspace:*",
     "@thalermark/logger": "workspace:*",
+    "@thalermark/telemetry": "workspace:*",
     "drizzle-orm": "0.45.2",
     "hono": "4.12.19",
-    "pg": "8.21.0"
+    "pg": "8.21.0",
+    "uuid": "14.0.0"
   },
   "devDependencies": {
     "@testcontainers/postgresql": "11.14.0",
     "@types/node": "25.9.0",
     "@types/pg": "8.20.0",
+    "@types/uuid": "11.0.0",
     "tsx": "4.22.2",
     "vitest": "2.1.9"
   }
