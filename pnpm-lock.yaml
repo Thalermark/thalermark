@@ -30,8 +30,8 @@ importers:
   apps/api:
     dependencies:
       '@hono/node-server':
-        specifier: 1.13.7
-        version: 1.13.7(hono@4.12.19)
+        specifier: 2.0.3
+        version: 2.0.3(hono@4.12.19)
       '@sentry/node':
         specifier: 10.53.1
         version: 10.53.1
@@ -788,9 +788,9 @@ packages:
     engines: {node: '>=6'}
     hasBin: true
 
-  '@hono/node-server@1.13.7':
-    resolution: {integrity: sha512-kTfUMsoloVKtRA2fLiGSd9qBddmru9KadNyhJCwgKBxTiNkaAJEwkVN9KV/rS4HtmmNRtUh6P+YpmjRMl0d9vQ==}
-    engines: {node: '>=18.14.1'}
+  '@hono/node-server@2.0.3':
+    resolution: {integrity: sha512-a0jV+/HRe3G5zjFID3zObAQFdkl6zpxTuqktdDDXS3MJKcrZIkB8OkLpNBlY/WXFqv2HF4a0takPej+aNFczWA==}
+    engines: {node: '>=20'}
     peerDependencies:
       hono: ^4
 
@@ -2621,7 +2621,7 @@ snapshots:
       protobufjs: 7.5.8
       yargs: 17.7.2
 
-  '@hono/node-server@1.13.7(hono@4.12.19)':
+  '@hono/node-server@2.0.3(hono@4.12.19)':
     dependencies:
       hono: 4.12.19
 
