@@ -14,7 +14,7 @@
     "clean": "rm -rf .turbo dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@hono/node-server": "1.13.7",
+    "@hono/node-server": "1.19.13",
     "@sentry/node": "10.53.1",
     "@thalermark/logger": "workspace:*",
     "hono": "4.12.19"
