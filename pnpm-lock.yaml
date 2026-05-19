@@ -35,16 +35,31 @@ importers:
       '@sentry/node':
         specifier: 10.53.1
         version: 10.53.1
+      '@thalermark/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@thalermark/logger':
         specifier: workspace:*
         version: link:../../packages/logger
+      drizzle-orm:
+        specifier: 0.45.2
+        version: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(pg@8.21.0)
       hono:
         specifier: 4.12.19
         version: 4.12.19
+      pg:
+        specifier: 8.21.0
+        version: 8.21.0
     devDependencies:
+      '@testcontainers/postgresql':
+        specifier: 11.14.0
+        version: 11.14.0
       '@types/node':
         specifier: 25.9.0
         version: 25.9.0
+      '@types/pg':
+        specifier: 8.20.0
+        version: 8.20.0
       tsx:
         specifier: 4.22.2
         version: 4.22.2
@@ -1873,9 +1888,6 @@ packages:
     peerDependencies:
       pg: '>=8.0'
 
-  pg-protocol@1.13.0:
-    resolution: {integrity: sha512-zzdvXfS6v89r6v7OcFCHfHlyG/wvry1ALxZo4LqgUoy7W9xhBDMaqOuMiF3qEV45VqsN6rdlcehHrfDtlCPc8w==}
-
   pg-protocol@1.14.0:
     resolution: {integrity: sha512-n5taZ1kO3s9ngDTVxsEznOqCyToTgz0FLuPq0B33COy5pPpuWJpY3/2oRBVETuOgzdqRXfWpM9HIhp2LBBT1BA==}
 
@@ -3123,7 +3135,7 @@ snapshots:
   '@types/pg@8.20.0':
     dependencies:
       '@types/node': 25.9.0
-      pg-protocol: 1.13.0
+      pg-protocol: 1.14.0
       pg-types: 2.2.0
 
   '@types/ssh2-streams@0.1.13':
@@ -3699,8 +3711,6 @@ snapshots:
   pg-pool@3.14.0(pg@8.21.0):
     dependencies:
       pg: 8.21.0
-
-  pg-protocol@1.13.0: {}
 
   pg-protocol@1.14.0: {}
 

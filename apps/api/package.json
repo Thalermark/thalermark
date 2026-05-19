@@ -16,11 +16,16 @@
   "dependencies": {
     "@hono/node-server": "2.0.3",
     "@sentry/node": "10.53.1",
+    "@thalermark/db": "workspace:*",
     "@thalermark/logger": "workspace:*",
-    "hono": "4.12.19"
+    "drizzle-orm": "0.45.2",
+    "hono": "4.12.19",
+    "pg": "8.21.0"
   },
   "devDependencies": {
+    "@testcontainers/postgresql": "11.14.0",
     "@types/node": "25.9.0",
+    "@types/pg": "8.20.0",
     "tsx": "4.22.2",
     "vitest": "2.1.9"
   }

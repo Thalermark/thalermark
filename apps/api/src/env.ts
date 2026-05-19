@@ -14,6 +14,8 @@ export type Env = {
   logLevel: LogLevel;
   errorTrackingDsn: string | undefined;
   release: string | undefined;
+  databaseUrl: string;
+  migrateOnBoot: boolean;
 };
 
 const DEFAULT_PORT = 3000;
@@ -29,12 +31,16 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
   if (!VALID_LOG_LEVELS.includes(logLevel as LogLevel)) {
     throw new Error(`LOG_LEVEL must be one of ${VALID_LOG_LEVELS.join(', ')}; got '${logLevel}'`);
   }
+  const databaseUrl = source.DATABASE_URL;
+  if (!databaseUrl) throw new Error('DATABASE_URL is required');
   return Object.freeze({
     nodeEnv: nodeEnv as Env['nodeEnv'],
     port: parsePort(source.API_PORT),
     logLevel: logLevel as LogLevel,
     errorTrackingDsn: source.ERROR_TRACKING_DSN || undefined,
     release: source.RELEASE || undefined,
+    databaseUrl,
+    migrateOnBoot: parseBool(source.MIGRATE_ON_BOOT),
   });
 }
 
@@ -45,4 +51,10 @@ function parsePort(raw: string | undefined): number {
     throw new Error(`API_PORT must be a positive integer ≤ 65535; got '${raw}'`);
   }
   return n;
+}
+
+function parseBool(raw: string | undefined): boolean {
+  if (!raw) return false;
+  const v = raw.toLowerCase();
+  return v === 'true' || v === '1';
 }

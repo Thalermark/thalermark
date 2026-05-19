@@ -1,5 +1,3 @@
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { runMigrations } from '@thalermark/db';
 import { Pool } from 'pg';
@@ -9,9 +7,6 @@ import { Pool } from 'pg';
 // export APP_DATABASE_URL. Telemetry integration tests share the same
 // migration source of truth as the db package.
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const migrationsFolder = resolve(__dirname, '../../db/migrations');
-
 let container: StartedPostgreSqlContainer | undefined;
 
 const APP_PASSWORD = 'test_app_pw';
@@ -20,7 +15,7 @@ export async function setup() {
   container = await new PostgreSqlContainer('pgvector/pgvector:pg17').start();
   const superuserUrl = container.getConnectionUri();
   process.env.DATABASE_URL = superuserUrl;
-  await runMigrations(superuserUrl, migrationsFolder);
+  await runMigrations(superuserUrl);
 
   const pool = new Pool({ connectionString: superuserUrl });
   try {
