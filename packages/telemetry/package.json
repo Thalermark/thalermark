@@ -20,7 +20,7 @@
     "@testcontainers/postgresql": "11.14.0",
     "@types/pg": "8.20.0",
     "@types/uuid": "11.0.0",
-    "pg": "8.20.0",
+    "pg": "8.21.0",
     "vitest": "2.1.9"
   }
 }
