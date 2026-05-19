@@ -1,23 +1,40 @@
 import { describe, expect, it } from 'vitest';
 import { createApp } from './app.js';
 
+// Stub auth handler — exercises the route registration without spinning up
+// a real BA instance. Real BA exercise lives in tests/auth.integration.test.ts.
+const stubAuth = {
+  handler: async () => new Response('stub', { status: 418 }),
+} as unknown as Parameters<typeof createApp>[0]['auth'];
+
 describe('health route', () => {
   it('returns 200 with status ok', async () => {
-    const app = createApp();
+    const app = createApp({ auth: stubAuth });
     const res = await app.request('/health');
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ status: 'ok' });
   });
 
   it('returns 404 for an unknown route', async () => {
-    const app = createApp();
+    const app = createApp({ auth: stubAuth });
     const res = await app.request('/does-not-exist');
     expect(res.status).toBe(404);
+  });
+
+  it('routes /api/auth/* to the auth handler', async () => {
+    const app = createApp({ auth: stubAuth });
+    const res = await app.request('/api/auth/anything');
+    expect(res.status).toBe(418);
   });
 });
 
 describe('env loader', () => {
-  const baseEnv = { NODE_ENV: 'test', DATABASE_URL: 'postgres://test/test' };
+  const baseEnv = {
+    NODE_ENV: 'test',
+    DATABASE_URL: 'postgres://test/test',
+    BETTER_AUTH_SECRET: 'test-secret',
+    BETTER_AUTH_URL: 'http://localhost:3000',
+  };
 
   it('defaults port to 3000 when API_PORT is unset', async () => {
     const { loadEnv } = await import('./env.js');
@@ -49,7 +66,20 @@ describe('env loader', () => {
 
   it('rejects missing DATABASE_URL', async () => {
     const { loadEnv } = await import('./env.js');
-    expect(() => loadEnv({ NODE_ENV: 'test' })).toThrow(/DATABASE_URL/);
+    const { DATABASE_URL: _drop, ...rest } = baseEnv;
+    expect(() => loadEnv(rest)).toThrow(/DATABASE_URL/);
+  });
+
+  it('rejects missing BETTER_AUTH_SECRET', async () => {
+    const { loadEnv } = await import('./env.js');
+    const { BETTER_AUTH_SECRET: _drop, ...rest } = baseEnv;
+    expect(() => loadEnv(rest)).toThrow(/BETTER_AUTH_SECRET/);
+  });
+
+  it('rejects missing BETTER_AUTH_URL', async () => {
+    const { loadEnv } = await import('./env.js');
+    const { BETTER_AUTH_URL: _drop, ...rest } = baseEnv;
+    expect(() => loadEnv(rest)).toThrow(/BETTER_AUTH_URL/);
   });
 
   it('migrateOnBoot defaults false', async () => {

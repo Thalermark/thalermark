@@ -16,6 +16,8 @@ export type Env = {
   release: string | undefined;
   databaseUrl: string;
   migrateOnBoot: boolean;
+  betterAuthSecret: string;
+  betterAuthUrl: string;
 };
 
 const DEFAULT_PORT = 3000;
@@ -33,6 +35,10 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
   }
   const databaseUrl = source.DATABASE_URL;
   if (!databaseUrl) throw new Error('DATABASE_URL is required');
+  const betterAuthSecret = source.BETTER_AUTH_SECRET;
+  if (!betterAuthSecret) throw new Error('BETTER_AUTH_SECRET is required');
+  const betterAuthUrl = source.BETTER_AUTH_URL;
+  if (!betterAuthUrl) throw new Error('BETTER_AUTH_URL is required');
   return Object.freeze({
     nodeEnv: nodeEnv as Env['nodeEnv'],
     port: parsePort(source.API_PORT),
@@ -41,6 +47,8 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     release: source.RELEASE || undefined,
     databaseUrl,
     migrateOnBoot: parseBool(source.MIGRATE_ON_BOOT),
+    betterAuthSecret,
+    betterAuthUrl,
   });
 }
 

@@ -1,39 +1,30 @@
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
-import { runMigrations } from '@thalermark/db';
 import { sql } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { createApiDatabase } from '../src/lib/db.js';
 
-// Boots a real pg17 container, runs the shared migrations, and exercises
-// createApiDatabase end-to-end: connect, issue a query, drain. Single-file
-// setup (no global-setup.ts) because this is the only api-side test that
-// needs a database — adding one is justified when we have ≥2 such tests.
+// Exercises createApiDatabase end-to-end against the testcontainer booted
+// in tests/global-setup.ts: connect, query, drain. Container lifecycle is
+// shared with other integration tests in this package.
 
 describe('createApiDatabase', () => {
-  let container: StartedPostgreSqlContainer;
-  let url: string;
+  let lastHandle: ReturnType<typeof createApiDatabase> | undefined;
 
-  beforeAll(async () => {
-    container = await new PostgreSqlContainer('pgvector/pgvector:pg17').start();
-    url = container.getConnectionUri();
-    await runMigrations(url);
-  }, 60_000);
-
-  afterAll(async () => {
-    await container?.stop();
+  afterEach(async () => {
+    await lastHandle?.close();
+    lastHandle = undefined;
   });
 
   it('connects and runs a trivial query', async () => {
-    const handle = createApiDatabase(url);
-    try {
-      const result = await handle.db.execute<{ one: number }>(sql`SELECT 1 AS one`);
-      expect(result.rows[0]?.one).toBe(1);
-    } finally {
-      await handle.close();
-    }
+    const url = process.env.DATABASE_URL;
+    if (!url) throw new Error('DATABASE_URL not set');
+    lastHandle = createApiDatabase(url);
+    const result = await lastHandle.db.execute<{ one: number }>(sql`SELECT 1 AS one`);
+    expect(result.rows[0]?.one).toBe(1);
   });
 
   it('close() drains the pool and is idempotent', async () => {
+    const url = process.env.DATABASE_URL;
+    if (!url) throw new Error('DATABASE_URL not set');
     const handle = createApiDatabase(url);
     await handle.db.execute(sql`SELECT 1`);
     await handle.close();

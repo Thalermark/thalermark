@@ -5,8 +5,6 @@ export default defineConfig({
     globalSetup: ['./tests/global-setup.ts'],
     testTimeout: 30_000,
     hookTimeout: 30_000,
-    // One testcontainer per run; tests share the same Postgres and rely
-    // on TRUNCATE between describe blocks (see tests/test-helper.ts).
     pool: 'forks',
     poolOptions: {
       forks: {
