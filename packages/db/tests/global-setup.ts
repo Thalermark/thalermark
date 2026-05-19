@@ -1,11 +1,6 @@
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { Pool } from 'pg';
 import { runMigrations } from '../src/migrate.js';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const migrationsFolder = resolve(__dirname, '../migrations');
 
 let container: StartedPostgreSqlContainer | undefined;
 
@@ -16,7 +11,7 @@ export async function setup() {
   container = await new PostgreSqlContainer('pgvector/pgvector:pg17').start();
   const superuserUrl = container.getConnectionUri();
   process.env.DATABASE_URL = superuserUrl;
-  await runMigrations(superuserUrl, migrationsFolder);
+  await runMigrations(superuserUrl);
 
   // Promote the two non-login roles from migration 0005 to LOGIN so the RLS
   // isolation tests can connect AS those roles (production deploys provision

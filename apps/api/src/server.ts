@@ -1,7 +1,9 @@
 import { serve } from '@hono/node-server';
+import { runMigrations } from '@thalermark/db';
 import { configureLogger, getLogger } from '@thalermark/logger';
 import { createApp } from './app.js';
 import { loadEnv } from './env.js';
+import { createApiDatabase } from './lib/db.js';
 import { initErrorTracking } from './lib/error-tracking.js';
 
 const env = loadEnv();
@@ -16,6 +18,17 @@ initErrorTracking({
 
 configureLogger({ level: env.logLevel });
 const log = getLogger(['api', 'server']);
+
+// MIGRATE_ON_BOOT is a self-host docker-compose convenience. Production
+// deploys generally want a dedicated migrate step ahead of the rollout.
+if (env.migrateOnBoot) {
+  log.info('MIGRATE_ON_BOOT=true, running migrations');
+  await runMigrations(env.databaseUrl);
+}
+
+// dbHandle.db is plumbed into Hono context in slice 3.5 (RLS middleware).
+// For now the handle is held only so the shutdown handler can drain it.
+const dbHandle = createApiDatabase(env.databaseUrl);
 
 const app = createApp();
 
@@ -32,14 +45,19 @@ const server = serve(
   },
 );
 
-// Graceful shutdown: stop accepting new connections, then exit. Idempotent
-// in case both signals fire on a container stop.
+// Graceful shutdown: stop accepting new connections, drain the DB pool,
+// then exit. Idempotent in case both signals fire on a container stop.
 let shuttingDown = false;
 function shutdown(signal: NodeJS.Signals) {
   if (shuttingDown) return;
   shuttingDown = true;
   log.info('received {signal}, draining', { signal });
-  server.close(() => process.exit(0));
+  server.close(() => {
+    dbHandle.close().then(
+      () => process.exit(0),
+      () => process.exit(1),
+    );
+  });
 }
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
