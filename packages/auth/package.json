@@ -1,0 +1,26 @@
+{
+  "name": "@thalermark/auth",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf .turbo *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@thalermark/db": "workspace:*",
+    "better-auth": "1.6.11",
+    "drizzle-orm": "0.45.2",
+    "uuid": "14.0.0"
+  },
+  "devDependencies": {
+    "@testcontainers/postgresql": "11.14.0",
+    "@types/pg": "8.20.0",
+    "@types/uuid": "11.0.0",
+    "pg": "8.21.0",
+    "vitest": "2.1.9"
+  }
+}

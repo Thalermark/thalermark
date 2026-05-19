@@ -3,6 +3,7 @@ import { runMigrations } from '@thalermark/db';
 import { configureLogger, getLogger } from '@thalermark/logger';
 import { createApp } from './app.js';
 import { loadEnv } from './env.js';
+import { createApiAuth } from './lib/auth.js';
 import { createApiDatabase } from './lib/db.js';
 import { initErrorTracking } from './lib/error-tracking.js';
 
@@ -27,10 +28,12 @@ if (env.migrateOnBoot) {
 }
 
 // dbHandle.db is plumbed into Hono context in slice 3.5 (RLS middleware).
-// For now the handle is held only so the shutdown handler can drain it.
+// For now the handle is held only so the shutdown handler can drain it,
+// and passed to Better Auth so its Drizzle adapter can talk to Postgres.
 const dbHandle = createApiDatabase(env.databaseUrl);
+const auth = createApiAuth(dbHandle.db, env);
 
-const app = createApp();
+const app = createApp({ auth });
 
 const server = serve(
   {
