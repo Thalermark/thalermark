@@ -7,6 +7,7 @@ import { type RlsVariables, rlsContext } from './middleware/rls-context.js';
 export type AppDeps = {
   auth: ApiAuth;
   db: Database;
+  scheduleFlush?: (db: Database, accountId: string) => void;
 };
 
 // The Hono app, separate from the server entry point so tests can mount it
@@ -24,7 +25,10 @@ export function createApp(deps: AppDeps) {
   // Bootstrap endpoint must be reachable before the client knows which account
   // to send. Middleware sets userId but skips the x-account-id requirement for
   // /api/me; see middleware/rls-context.ts.
-  app.use('/api/*', rlsContext({ auth: deps.auth, db: deps.db }));
+  app.use(
+    '/api/*',
+    rlsContext({ auth: deps.auth, db: deps.db, scheduleFlush: deps.scheduleFlush }),
+  );
 
   app.get('/api/me', async (c) => {
     const userId = c.get('userId');
