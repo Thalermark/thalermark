@@ -28,6 +28,7 @@ describe('POST /api/auth/sign-up/email', () => {
         migrateOnBoot: false,
         betterAuthSecret: 'test-secret-at-least-32-characters-long',
         betterAuthUrl: 'http://localhost:3000',
+        trustedOrigins: [],
       });
       const app = createApp({ auth, db: handle.db });
 

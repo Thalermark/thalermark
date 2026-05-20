@@ -1,6 +1,5 @@
 <script lang="ts">
   import { authClient } from '$lib/auth-client';
-  import { goto } from '$app/navigation';
   import { COPY } from '@thalermark/brand';
 
   let email = $state('');
@@ -18,7 +17,9 @@
       error = result.error.message ?? 'Sign-in failed';
       return;
     }
-    await goto('/');
+    // Hard nav: forces hooks.server.ts to re-run membership routing on a
+    // fresh request. goto() + invalidateAll() leaves stale layout data.
+    window.location.assign('/');
   }
 </script>
 

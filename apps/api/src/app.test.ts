@@ -96,4 +96,45 @@ describe('env loader', () => {
     expect(loadEnv({ ...baseEnv, MIGRATE_ON_BOOT: 'true' }).migrateOnBoot).toBe(true);
     expect(loadEnv({ ...baseEnv, MIGRATE_ON_BOOT: '1' }).migrateOnBoot).toBe(true);
   });
+
+  it('trustedOrigins defaults to empty list', async () => {
+    const { loadEnv } = await import('./env.js');
+    expect(loadEnv(baseEnv).trustedOrigins).toEqual([]);
+  });
+
+  it('trustedOrigins splits a comma-separated allowlist', async () => {
+    const { loadEnv } = await import('./env.js');
+    const env = loadEnv({
+      ...baseEnv,
+      TRUSTED_ORIGINS: 'http://localhost:5173, http://localhost:8080',
+    });
+    expect(env.trustedOrigins).toEqual(['http://localhost:5173', 'http://localhost:8080']);
+  });
+});
+
+describe('cors middleware', () => {
+  it('echoes a trusted origin with credentials', async () => {
+    const app = createApp({
+      auth: stubAuth,
+      db: stubDb,
+      trustedOrigins: ['http://localhost:5173'],
+    });
+    const res = await app.request('/api/auth/anything', {
+      headers: { origin: 'http://localhost:5173' },
+    });
+    expect(res.headers.get('access-control-allow-origin')).toBe('http://localhost:5173');
+    expect(res.headers.get('access-control-allow-credentials')).toBe('true');
+  });
+
+  it('omits CORS headers for an untrusted origin', async () => {
+    const app = createApp({
+      auth: stubAuth,
+      db: stubDb,
+      trustedOrigins: ['http://localhost:5173'],
+    });
+    const res = await app.request('/api/auth/anything', {
+      headers: { origin: 'http://evil.example' },
+    });
+    expect(res.headers.get('access-control-allow-origin')).toBeNull();
+  });
 });

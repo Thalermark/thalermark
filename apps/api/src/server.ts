@@ -1,3 +1,5 @@
+import { resolve } from 'node:path';
+import { loadEnvFile } from 'node:process';
 import { serve } from '@hono/node-server';
 import { runMigrations } from '@thalermark/db';
 import { configureLogger, getLogger } from '@thalermark/logger';
@@ -6,6 +8,15 @@ import { loadEnv } from './env.js';
 import { createApiAuth } from './lib/auth.js';
 import { createApiDatabase } from './lib/db.js';
 import { initErrorTracking } from './lib/error-tracking.js';
+
+// Project-root .env is the dev convention (see drizzle.config.ts). Resolved
+// from this file because pnpm --filter runs with cwd=apps/api/, not the root.
+// Container deploys pass env vars directly and won't have a file present.
+try {
+  loadEnvFile(resolve(import.meta.dirname, '../../../.env'));
+} catch {
+  // No .env on disk — fall back to process.env as-is.
+}
 
 const env = loadEnv();
 
@@ -30,7 +41,7 @@ if (env.migrateOnBoot) {
 const dbHandle = createApiDatabase(env.databaseUrl);
 const auth = createApiAuth(dbHandle.db, env);
 
-const app = createApp({ auth, db: dbHandle.db });
+const app = createApp({ auth, db: dbHandle.db, trustedOrigins: env.trustedOrigins });
 
 const server = serve(
   {

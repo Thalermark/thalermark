@@ -1,5 +1,5 @@
 import type { LayoutServerLoad } from './$types';
 
 export const load: LayoutServerLoad = ({ locals }) => {
-  return { session: locals.session };
+  return { session: locals.session, activeCompanyId: locals.activeCompanyId };
 };
