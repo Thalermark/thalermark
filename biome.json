@@ -12,6 +12,7 @@
       "**/dist",
       "**/build",
       "**/.svelte-kit",
+      "**/*.svelte",
       "**/.expo",
       "**/.turbo",
       "**/coverage",
