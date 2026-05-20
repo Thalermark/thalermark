@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "main": "./dist/server.js",
+  "types": "./src/app.ts",
   "files": ["dist"],
   "scripts": {
     "dev": "tsx watch src/server.ts",
