@@ -1,0 +1,34 @@
+<script lang="ts">
+  import { initialBubbleColor } from '@thalermark/brand';
+
+  type Props = {
+    name: string;
+    email: string;
+    size?: 'sm' | 'md';
+  };
+
+  let { name, email, size = 'md' }: Props = $props();
+
+  const seed = $derived((name || email || '').trim());
+  const initials = $derived(deriveInitials(seed));
+  const bg = $derived(initialBubbleColor(seed.toLowerCase()));
+
+  function deriveInitials(s: string): string {
+    if (!s) return '?';
+    const parts = s.split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) {
+      return ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase();
+    }
+    return (parts[0]?.[0] ?? '?').toUpperCase();
+  }
+
+  const dimensions = $derived(size === 'sm' ? 'h-7 w-7 text-xs' : 'h-9 w-9 text-sm');
+</script>
+
+<span
+  aria-hidden="true"
+  class={`inline-flex items-center justify-center rounded-full font-medium text-white ${dimensions}`}
+  style={`background-color: ${bg}`}
+>
+  {initials}
+</span>

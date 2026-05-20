@@ -18,6 +18,7 @@ export type Env = {
   migrateOnBoot: boolean;
   betterAuthSecret: string;
   betterAuthUrl: string;
+  trustedOrigins: string[];
 };
 
 const DEFAULT_PORT = 3000;
@@ -49,6 +50,7 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     migrateOnBoot: parseBool(source.MIGRATE_ON_BOOT),
     betterAuthSecret,
     betterAuthUrl,
+    trustedOrigins: parseOrigins(source.TRUSTED_ORIGINS),
   });
 }
 
@@ -65,4 +67,15 @@ function parseBool(raw: string | undefined): boolean {
   if (!raw) return false;
   const v = raw.toLowerCase();
   return v === 'true' || v === '1';
+}
+
+// Comma-separated origin allowlist. Used both by Better Auth (CSRF check on
+// auth endpoints) and Hono's cors middleware (RPC endpoints). Empty list is
+// fine in test/migration contexts where no browser traffic ever arrives.
+function parseOrigins(raw: string | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
 }

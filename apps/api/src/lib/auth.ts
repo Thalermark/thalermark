@@ -9,6 +9,7 @@ export function createApiAuth(db: Database, env: Env) {
   return createAuth(db, {
     secret: env.betterAuthSecret,
     baseURL: env.betterAuthUrl,
+    trustedOrigins: env.trustedOrigins,
   });
 }
 
