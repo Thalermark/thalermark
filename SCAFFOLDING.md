@@ -1,6 +1,6 @@
 # Scaffolding Plan
 
-**Status:** Phases 0 and 1 shipped (2026-05-17). Phase 2 (telemetry) is up next.
+**Status:** Phases 0, 1, 2, and 3 shipped (2026-05-19). Phase 4 (shared packages) is up next.
 **Reads:** Assumes you've read PROJECT.md and TECH-STACK.md.
 
 The shape of work between "all decisions locked" and "writing actual MVP features." Eight phases, roughly sequential — each builds on the previous one. None of the actual MVP feature code is in here; this is just the foundation.
@@ -13,9 +13,9 @@ The shape of work between "all decisions locked" and "writing actual MVP feature
 |---|---|---|---|
 | **0** | Repo skeleton + tooling | Everything else lives in here | ✅ Shipped |
 | **1** | Database foundation + RLS | Every other layer assumes the DB is right | ✅ Shipped (slices 1.1–1.6, PRs #11–#19) |
-| **2** | Telemetry module | Trust signal; build *before* features so the patterns are established | ⬅ Next |
-| **3** | API foundation (Hono + Better Auth) | Web and mobile both need it to do anything | — |
-| **4** | Shared packages (validation, AI, location, brand) | Web/mobile/api all consume them | — |
+| **2** | Telemetry module | Trust signal; build *before* features so the patterns are established | ✅ Shipped (slices 2.1–2.4, PRs #22–#25) |
+| **3** | API foundation (Hono + Better Auth) | Web and mobile both need it to do anything | ✅ Shipped (slices 3.1–3.7, PRs #26, #30, #36–#40) |
+| **4** | Shared packages (validation, AI, location, brand) | Web/mobile/api all consume them | ⬅ Next |
 | **5** | Web app shell (SvelteKit) | Auth flows, layout, empty home | — |
 | **6** | Mobile app shell (Expo) | Same shape, native shell | — |
 | **7** | CI/CD and self-host story | Docker compose for self-hosters, GHA for us | — |
@@ -137,6 +137,15 @@ src/
 - Endpoint receives anonymous, batched, signed payloads
 - Full spec already documented in TELEMETRY.md — this implements it
 
+**Realized (slice numbering):**
+
+| Slice | PR | What landed |
+|---|---|---|
+| 2.1 | #22 | `@thalermark/telemetry` package skeleton; discriminated `Event` union covering every event from TELEMETRY.md; `InstallContext` envelope; no-op `emit(event)` placeholder |
+| 2.2 | #23 | `accounts.telemetry_enabled` + `accounts.telemetry_install_id`; new `telemetry_events` staging table (not append-only — RLS allows tenant-scoped DELETE/UPDATE so the transport can drain on send and opt-out can purge); staff readonly bypass kept SELECT-only |
+| 2.3 | #24 | `emit(tx, event)` (reads accounts row via RLS, bails if opt-in false, INSERTs into the staging queue); `enableTelemetry(tx)` / `disableTelemetry(tx)` helpers; **each opt-in rotates `telemetry_install_id`** so post-opt-out events can never be correlated with prior history |
+| 2.4 | #25 | HMAC-signed HTTP transport with retry: `flushTelemetry(db, accountId, config?, fetchImpl?)` (short read tx → POST outside any tx → short write tx) + `scheduleTelemetryFlush(db, accountId)` fire-and-forget after-commit hook. Migration 0012 adds `retry_count` + `last_attempt_at`. Two-key gating: `TELEMETRY_TRANSPORT_ENABLED` deployment-wide kill switch AND `accounts.telemetry_enabled` per-tenant opt-in both required |
+
 ---
 
 ## Phase 3 — API foundation (Hono + Better Auth)
@@ -167,6 +176,29 @@ Dockerfile
 - `export type AppType = typeof app` for Hono RPC clients
 
 **Validation:** `pnpm dev` brings up the API. Health route returns 200. Sign-up creates a user + account + initial company in one flow.
+
+**Realized (slice numbering):**
+
+| Slice | PR | What landed |
+|---|---|---|
+| 3.1 | #26 | `apps/api` Hono skeleton + `@hono/node-server` + typed `env.ts` + `/health` route + 4-stage Dockerfile (Node 24 alpine, pnpm via corepack, `pnpm deploy` slice, non-root, healthcheck). `createApp()` factory pattern so tests mount the app without binding a port |
+| 3.2 | #30 | `@thalermark/logger` LogTape wrapper + Sentry init in `apps/api`. `packages/telemetry/src/flush.ts` console calls swapped over as the first real consumer |
+| 3.3 | #36 | `apps/api/src/lib/db.ts` (Pool + Drizzle, idempotent close); `MIGRATE_ON_BOOT` env (default false); graceful pool drain on SIGTERM/SIGINT; `@thalermark/db` exports `migrationsFolder` constant |
+| 3.4 | #37 | `@thalermark/auth` package wraps Better Auth's Drizzle adapter onto the existing `auth_*` schema (no migrations — Phase 1 had already created BA-compatible columns). Email+password ON; orgs OFF (tenancy stays in our `accounts`/`memberships`); uuidv7 generateId. `BETTER_AUTH_SECRET` + `BETTER_AUTH_URL` required at boot |
+| 3.5 | #38 | RLS context middleware on `/api/*`: 401 no session → 400 missing/malformed `x-account-id` → 403 non-member → `withAccountContext` exposes `tx`/`accountId`/`userId` via typed Hono `Variables`. Bootstrap exemption for `/api/me`. Migration 0013 adds `auth_user.last_account_id` (cross-device anchor) |
+| 3.6 | #39 | Audit helper bound via Hono `Variables`: `c.var.audit({entityType, entityId, action, before?, after?, companyId?})` inserts into `audit_events` inside the request's tenant tx (atomic; rolls back on throw via re-throw inside the tx callback). Middleware tracks "did handler call audit()" via closure flag; on commit, fire-and-forget `scheduleTelemetryFlush(db, accountId)` runs **only for writes** — reads pay no per-request opt-in lookup. First real call site for the Phase 2 staging-queue drain |
+| 3.7 | #40 | `createApp` rewritten with Hono's chained builder so `AppType` carries route signatures end-to-end (the prior non-chained `app.method()` pattern erased the type to an empty `Hono`; Phase 4's `hc<AppType>()` clients would have typed as `any`). `/api/me` keeps `{user, memberships}` shape with a defensive 401 if `auth_user` row vanished. New `e2e-pipeline.integration.test.ts` exercises sign-up → bootstrap → seed → authed mutating request → audit row + telemetry queue row + scheduleFlush trigger in one test |
+
+**Realized structure differs from the plan above:**
+
+- No `routes/` directory — every route is defined inline on the chained Hono builder in `src/app.ts`. The chain is load-bearing for `AppType` and broke the moment we tried to split routes into multiple files; revisit only with a Hono-RPC-aware splitting pattern.
+- `middleware/audit.ts` instead of `middleware/audit-log.ts`, and **not auto-write**. True auto-write would require either PG triggers (loses semantic action names like `invoice.paid`, only sees CRUD verbs) or Drizzle interceptors (brittle, ORM-coupled). Handlers call `c.var.audit(...)` explicitly; the middleware just binds `tx`/`account`/`actor` so the call is one line and atomic with the business write.
+- No `middleware/error.ts` — Hono's default has been sufficient. Add when a real cross-cutting error need shows up.
+- `lib/db.ts` exists but pg-boss is deferred until the first feature needs background work. The exact job shape (cron vs queue vs fan-out) will be clearer when we know what's calling it.
+- `env.ts` lives at `src/env.ts`, not under `lib/`.
+- `@thalermark/logger` (LogTape wrapper) and `@thalermark/auth` (Better Auth factory) were added as their own packages so `apps/api` doesn't own the wiring of either upstream.
+- Google OAuth provider is deferred to a pre-launch parking lot — UX polish, not infrastructure. Drop-in via Better Auth's plugin model once credentials are provisioned and a sign-in UI exists.
+- Sign-up creating "an initial company in one flow" did not land — multi-company-per-account is part of the MVP feature phase, not the foundation. Sign-up creates an `auth_user` only; `/api/me` returns empty memberships until a feature explicitly seeds them.
 
 ---
 
