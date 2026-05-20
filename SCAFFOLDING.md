@@ -1,6 +1,6 @@
 # Scaffolding Plan
 
-**Status:** Phases 0, 1, 2, and 3 shipped (2026-05-19). Phase 4 (shared packages) is up next.
+**Status:** Phases 0, 1, 2, 3, and 4 shipped (2026-05-19). Phase 5 (web shell) is up next.
 **Reads:** Assumes you've read PROJECT.md and TECH-STACK.md.
 
 The shape of work between "all decisions locked" and "writing actual MVP features." Eight phases, roughly sequential — each builds on the previous one. None of the actual MVP feature code is in here; this is just the foundation.
@@ -15,8 +15,8 @@ The shape of work between "all decisions locked" and "writing actual MVP feature
 | **1** | Database foundation + RLS | Every other layer assumes the DB is right | ✅ Shipped (slices 1.1–1.6, PRs #11–#19) |
 | **2** | Telemetry module | Trust signal; build *before* features so the patterns are established | ✅ Shipped (slices 2.1–2.4, PRs #22–#25) |
 | **3** | API foundation (Hono + Better Auth) | Web and mobile both need it to do anything | ✅ Shipped (slices 3.1–3.7, PRs #26, #30, #36–#40) |
-| **4** | Shared packages (validation, AI, location, brand) | Web/mobile/api all consume them | ⬅ Next |
-| **5** | Web app shell (SvelteKit) | Auth flows, layout, empty home | — |
+| **4** | Shared packages (validation, AI, location, brand) | Web/mobile/api all consume them | ✅ Shipped (slice 4.1, PR #42 — others deferred to feature consumers) |
+| **5** | Web app shell (SvelteKit) | Auth flows, layout, empty home | ⬅ Next |
 | **6** | Mobile app shell (Expo) | Same shape, native shell | — |
 | **7** | CI/CD and self-host story | Docker compose for self-hosters, GHA for us | — |
 
@@ -229,6 +229,21 @@ Built in parallel after Phase 3. All consumed by web and mobile.
 **`/packages/api-contract/`** — Type re-export
 - Re-exports `AppType` from `apps/api`
 - Web and mobile import from here, not directly from `apps/api`
+
+**Realized (slice numbering):**
+
+| Slice | PR | What landed |
+|---|---|---|
+| 4.1 | #42 | `@thalermark/api-contract` package: `src/index.ts` is a single `export type { AppType } from '@thalermark/api'`. `apps/api/package.json` gained `"types": "./src/app.ts"` so type-only consumers don't need the dist build (main stays at `dist/server.js` for runtime). Test calls `hc<AppType>('http://localhost')` and accesses `client.api.me.$get` — if `app.ts` ever breaks the chained Hono builder (slice 3.7's load-bearing pattern), `AppType` erases to empty `Hono` and `tsc` fails before vitest runs. |
+
+**Deferred to feature consumers:**
+
+The other four packages from the plan above are feature-coupled — scaffolding them empty in Phase 4 would be infrastructure for hypothetical consumers, the same anti-pattern that justified deferring `pg-boss` in Phase 3. They land with the first feature that needs them:
+
+- **`packages/validation`** — first Zod schema lands with the first MVP feature (invoice).
+- **`packages/ai`** — Vercel AI SDK provider abstraction lands with the first AI feature (cash flow nudge, late payer, anomaly, or receipt extraction — whichever ships first).
+- **`packages/location`** — Mapbox + Nominatim address autocomplete lands with the customer-creation flow.
+- **`packages/brand`** — name/colors/copy constants land when Phase 5 (web shell) actually needs them for Tailwind tokens.
 
 ---
 
