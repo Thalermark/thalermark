@@ -1,0 +1,20 @@
+{
+  "name": "@thalermark/api-contract",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf .turbo *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@thalermark/api": "workspace:*"
+  },
+  "devDependencies": {
+    "hono": "4.12.19",
+    "vitest": "2.1.9"
+  }
+}
