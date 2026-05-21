@@ -8,10 +8,7 @@ export default defineConfig({
     // One testcontainer per run; tests share the same Postgres and rely
     // on TRUNCATE between describe blocks (see tests/test-helper.ts).
     pool: 'forks',
-    poolOptions: {
-      forks: {
-        singleFork: true,
-      },
-    },
+    maxWorkers: 1,
+    isolate: false,
   },
 });

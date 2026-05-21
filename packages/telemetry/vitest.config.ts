@@ -8,10 +8,7 @@ export default defineConfig({
     // Same constraint as @thalermark/db: tests share one testcontainer-managed
     // Postgres and rely on TRUNCATE between tests for isolation.
     pool: 'forks',
-    poolOptions: {
-      forks: {
-        singleFork: true,
-      },
-    },
+    maxWorkers: 1,
+    isolate: false,
   },
 });
