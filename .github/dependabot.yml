@@ -8,6 +8,12 @@ updates:
       day: "monday"
       time: "09:00"
       timezone: "America/Chicago"
+    ignore:
+      - dependency-name: "vite"
+        versions: [">= 8.0.0"]
+      - dependency-name: "@sveltejs/vite-plugin-svelte"
+        versions: [">= 7.0.0"]
+
     open-pull-requests-limit: 5
     assignees:
       - "mrseanr"
