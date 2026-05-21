@@ -20,6 +20,7 @@ const testEnv: Env = {
   betterAuthSecret: 'test-secret-at-least-32-characters-long',
   betterAuthUrl: 'http://localhost:3000',
   trustedOrigins: [],
+  publicAppUrl: '',
 };
 
 function extractSessionCookie(res: Response): string {
@@ -83,9 +84,12 @@ describe('Phase 3 e2e pipeline', () => {
         memberships: unknown[];
       };
       expect(me.user.email).toBe('pipeline@example.com');
-      expect(me.memberships).toEqual([]);
-
+      // Signup hook auto-seeded an account; replace it with the purpose-built
+      // telemetry-enabled tenant this test needs. emit() relies on RLS to
+      // scope its accounts SELECT to one row, and the API tests run as
+      // superuser, so we keep exactly one account present for the request.
       const db = getTestDb();
+      await db.delete(accounts);
       const accountId = uuidv7();
       await db.insert(accounts).values({
         id: accountId,

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { page } from '$app/state';
   import { authClient } from '$lib/auth-client';
   import { COPY } from '@thalermark/brand';
 
@@ -6,6 +7,12 @@
   let password = $state('');
   let error = $state<string | null>(null);
   let submitting = $state(false);
+
+  const inviteToken = $derived(page.url.searchParams.get('invite'));
+  const postAuthPath = $derived(
+    inviteToken ? `/accept-invite?token=${encodeURIComponent(inviteToken)}` : '/',
+  );
+  const signUpHref = $derived(inviteToken ? `/sign-up?invite=${encodeURIComponent(inviteToken)}` : '/sign-up');
 
   async function onSubmit(event: SubmitEvent) {
     event.preventDefault();
@@ -19,7 +26,7 @@
     }
     // Hard nav: forces hooks.server.ts to re-run membership routing on a
     // fresh request. goto() + invalidateAll() leaves stale layout data.
-    window.location.assign('/');
+    window.location.assign(postAuthPath);
   }
 </script>
 
@@ -57,5 +64,5 @@
 </form>
 
 <p class="mt-4 text-center text-sm text-primary-600">
-  No account? <a href="/sign-up" class="underline">Sign up</a>
+  No account? <a href={signUpHref} class="underline">Sign up</a>
 </p>

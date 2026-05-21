@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { page } from '$app/state';
   import { authClient } from '$lib/auth-client';
   import { COPY } from '@thalermark/brand';
 
@@ -7,6 +8,12 @@
   let password = $state('');
   let error = $state<string | null>(null);
   let submitting = $state(false);
+
+  const inviteToken = $derived(page.url.searchParams.get('invite'));
+  const postAuthPath = $derived(
+    inviteToken ? `/accept-invite?token=${encodeURIComponent(inviteToken)}` : '/',
+  );
+  const signInHref = $derived(inviteToken ? `/sign-in?invite=${encodeURIComponent(inviteToken)}` : '/sign-in');
 
   async function onSubmit(event: SubmitEvent) {
     event.preventDefault();
@@ -20,7 +27,7 @@
     }
     // Hard nav: forces hooks.server.ts to re-run on a fresh request so the
     // new session + membership routing applies. See sign-in for context.
-    window.location.assign('/');
+    window.location.assign(postAuthPath);
   }
 </script>
 
@@ -68,5 +75,5 @@
 </form>
 
 <p class="mt-4 text-center text-sm text-primary-600">
-  Already have an account? <a href="/sign-in" class="underline">Sign in</a>
+  Already have an account? <a href={signInHref} class="underline">Sign in</a>
 </p>

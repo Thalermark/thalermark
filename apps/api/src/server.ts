@@ -41,7 +41,12 @@ if (env.migrateOnBoot) {
 const dbHandle = createApiDatabase(env.databaseUrl);
 const auth = createApiAuth(dbHandle.db, env);
 
-const app = createApp({ auth, db: dbHandle.db, trustedOrigins: env.trustedOrigins });
+const app = createApp({
+  auth,
+  db: dbHandle.db,
+  trustedOrigins: env.trustedOrigins,
+  publicAppUrl: env.publicAppUrl,
+});
 
 const server = serve(
   {
