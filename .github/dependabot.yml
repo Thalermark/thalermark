@@ -13,6 +13,8 @@ updates:
         versions: [">= 8.0.0"]
       - dependency-name: "@sveltejs/vite-plugin-svelte"
         versions: [">= 7.0.0"]
+      - dependency-name: "vitest"
+        versions: [">= 5.0.0"]
 
     open-pull-requests-limit: 5
     assignees:
