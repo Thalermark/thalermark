@@ -31,49 +31,57 @@
   }
 </script>
 
-<h2 class="mb-4 text-lg font-medium text-primary-900">{COPY.signUp.title}</h2>
+<span class="eyebrow">Get early access</span>
+<h1 class="mt-3 font-serif text-3xl font-light leading-tight tracking-tight text-ink">
+  {COPY.signUp.title}
+</h1>
 
-<form onsubmit={onSubmit} class="space-y-4">
+<form onsubmit={onSubmit} class="mt-8 space-y-5">
   <label class="block">
-    <span class="block text-sm text-primary-700">Name</span>
+    <span class="block font-mono text-xs uppercase tracking-widest text-ink/60">Name</span>
     <input
       type="text"
       required
       bind:value={name}
-      class="mt-1 w-full rounded border border-primary-300 px-3 py-2"
+      class="mt-2 w-full border-b border-ink/30 bg-transparent py-2 text-ink outline-none focus:border-ink"
     />
   </label>
   <label class="block">
-    <span class="block text-sm text-primary-700">Email</span>
+    <span class="block font-mono text-xs uppercase tracking-widest text-ink/60">Email</span>
     <input
       type="email"
       required
       bind:value={email}
-      class="mt-1 w-full rounded border border-primary-300 px-3 py-2"
+      class="mt-2 w-full border-b border-ink/30 bg-transparent py-2 text-ink outline-none focus:border-ink"
     />
   </label>
   <label class="block">
-    <span class="block text-sm text-primary-700">Password</span>
+    <span class="block font-mono text-xs uppercase tracking-widest text-ink/60">Password</span>
     <input
       type="password"
       required
       minlength={8}
       bind:value={password}
-      class="mt-1 w-full rounded border border-primary-300 px-3 py-2"
+      class="mt-2 w-full border-b border-ink/30 bg-transparent py-2 text-ink outline-none focus:border-ink"
     />
   </label>
   {#if error}
-    <p class="text-sm text-red-600">{error}</p>
+    <p class="font-mono text-xs uppercase tracking-widest text-oxblood">{error}</p>
   {/if}
   <button
     type="submit"
     disabled={submitting}
-    class="w-full rounded bg-primary-900 px-3 py-2 text-white disabled:opacity-50"
+    class="w-full rounded-sm bg-ink px-3 py-3 text-sm font-medium text-cream transition-colors hover:bg-gold-deep disabled:opacity-50"
   >
     {COPY.signUp.submit}
   </button>
 </form>
 
-<p class="mt-4 text-center text-sm text-primary-600">
-  Already have an account? <a href={signInHref} class="underline">Sign in</a>
+<p class="mt-8 text-center text-sm text-ink/70">
+  Already have an account?
+  <a
+    href={signInHref}
+    class="border-b border-gold-deep text-gold-deep transition-colors hover:border-ink hover:text-ink"
+    >Sign in</a
+  >
 </p>

@@ -1,23 +1,33 @@
+// Brand palette. Mirrors the CSS custom properties in
+// spikes/thalermark-landing.html — keep the template authoritative; if the
+// template changes, update these values to match.
 export const COLORS = {
-  primary: {
-    50: '#f5f7fa',
-    100: '#e4e7eb',
-    200: '#cbd2d9',
-    300: '#9aa5b1',
-    400: '#7b8794',
-    500: '#616e7c',
-    600: '#52606d',
-    700: '#3e4c59',
-    800: '#323f4b',
-    900: '#1f2933',
+  ink: '#0f1626',
+  cream: {
+    DEFAULT: '#f4ede0',
+    warm: '#ebe0cc',
   },
-  accent: {
-    500: '#b45309',
-    600: '#92400e',
-    700: '#78350f',
+  gold: {
+    DEFAULT: '#c8a663',
+    deep: '#9a7d3f',
+    light: '#e8d5a3',
+  },
+  navy: {
+    DEFAULT: '#1a2238',
+    deep: '#0f1626',
+  },
+  accents: {
+    sage: '#5c7b3f',
+    copper: '#b87333',
+    slate: '#3d5a6c',
+    oxblood: '#8b3a2e',
   },
 } as const;
 
+// Palette for the deterministic initial-bubble avatar used in UserMenu.
+// Kept separate from the brand palette intentionally — these are warm,
+// saturated hues meant to differentiate users at a glance, not to match
+// the brand surface.
 export const INITIAL_BUBBLE_PALETTE = [
   '#ef4444',
   '#f97316',

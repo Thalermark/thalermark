@@ -1,16 +1,20 @@
 <script lang="ts">
-  import { PRODUCT_NAME } from '@thalermark/brand';
-
   let { children } = $props();
 </script>
 
-<main class="flex min-h-screen items-center justify-center bg-primary-50 px-4 py-12">
-  <div class="w-full max-w-sm">
-    <h1 class="mb-6 text-center text-2xl font-semibold tracking-tight text-primary-900">
-      {PRODUCT_NAME}
-    </h1>
-    <div class="rounded-lg border border-primary-200 bg-white p-6 shadow-sm">
+<div class="flex min-h-screen flex-col">
+  <nav class="px-6 py-8">
+    <div class="mx-auto max-w-5xl">
+      <a href="/" class="wordmark wordmark-small text-ink" aria-label="Thalermark home">
+        <span class="strike"></span>
+        <span class="word">thalermark</span>
+      </a>
+    </div>
+  </nav>
+
+  <main class="flex flex-1 items-center justify-center px-4 pb-16">
+    <div class="w-full max-w-sm">
       {@render children()}
     </div>
-  </div>
-</main>
+  </main>
+</div>

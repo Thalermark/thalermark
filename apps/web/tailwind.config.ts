@@ -1,4 +1,4 @@
-import { COLORS } from '@thalermark/brand';
+import { COLORS, FONTS } from '@thalermark/brand';
 import type { Config } from 'tailwindcss';
 
 export default {
@@ -6,8 +6,19 @@ export default {
   theme: {
     extend: {
       colors: {
-        primary: COLORS.primary,
-        accent: COLORS.accent,
+        ink: COLORS.ink,
+        cream: COLORS.cream,
+        gold: COLORS.gold,
+        navy: COLORS.navy,
+        sage: COLORS.accents.sage,
+        copper: COLORS.accents.copper,
+        slate: COLORS.accents.slate,
+        oxblood: COLORS.accents.oxblood,
+      },
+      fontFamily: {
+        serif: FONTS.serif,
+        sans: FONTS.sans,
+        mono: FONTS.mono,
       },
     },
   },
