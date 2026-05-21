@@ -9,10 +9,7 @@ export default defineConfig({
     // TRUNCATE in beforeEach to isolate. Parallel workers would race on the
     // shared DB. Slight performance cost for safety; revisit if test count grows.
     pool: 'forks',
-    poolOptions: {
-      forks: {
-        singleFork: true,
-      },
-    },
+    maxWorkers: 1,
+    isolate: false,
   },
 });
