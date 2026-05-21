@@ -1,3 +1,99 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    line-height: 1.6;
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Fractal-noise grain overlay — keeps the warm paper feel from the
+     landing template across every authed and auth surface. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.035;
+    z-index: 100;
+    mix-blend-mode: multiply;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+}
+
+@layer components {
+  .eyebrow {
+    @apply inline-block font-mono uppercase text-gold-deep;
+    font-size: 0.7rem;
+    letter-spacing: 0.2em;
+  }
+  .eyebrow::before {
+    content: "— ";
+    color: #c8a663;
+  }
+
+  /* Struck-mark wordmark — horizontal strike with end-dot terminals
+     above the Fraunces wordmark. Three sizes match the template. */
+  .wordmark {
+    @apply inline-flex flex-col items-center font-serif;
+    line-height: 1;
+    position: relative;
+  }
+  .wordmark .strike {
+    @apply block w-full relative;
+    height: 1.5px;
+    background: currentColor;
+    margin-bottom: 0.15em;
+    transform-origin: left;
+    animation: strike 0.7s cubic-bezier(0.6, 0, 0.4, 1) backwards;
+  }
+  .wordmark .strike::before,
+  .wordmark .strike::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+  .wordmark .strike::before {
+    left: 0;
+  }
+  .wordmark .strike::after {
+    right: 0;
+  }
+  .wordmark .word {
+    @apply font-serif;
+    font-weight: 300;
+    letter-spacing: -0.04em;
+    font-variation-settings: "opsz" 144;
+  }
+  .wordmark-small .word {
+    font-size: 1.4rem;
+  }
+  .wordmark-medium .word {
+    font-size: 2.2rem;
+  }
+  .wordmark-large .word {
+    font-size: clamp(3rem, 8vw, 6rem);
+  }
+}
+
+@keyframes strike {
+  from {
+    transform: scaleX(0);
+    opacity: 0;
+  }
+  to {
+    transform: scaleX(1);
+    opacity: 1;
+  }
+}

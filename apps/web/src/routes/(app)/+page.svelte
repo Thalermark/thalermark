@@ -5,8 +5,13 @@
   const session = page.data.session;
 </script>
 
-<h1 class="text-2xl font-semibold text-primary-900">Welcome back</h1>
-<p class="mt-1 text-primary-600">{TAGLINE}</p>
+<span class="eyebrow">Dashboard</span>
+<h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-ink">
+  Welcome back<span class="text-gold-deep">.</span>
+</h1>
+<p class="mt-4 max-w-xl text-ink/70">{TAGLINE}</p>
 {#if session}
-  <p class="mt-4 text-sm text-primary-500">Signed in as {session.user.email}.</p>
+  <p class="mt-6 font-mono text-xs uppercase tracking-widest text-ink/50">
+    Signed in as {session.user.email}
+  </p>
 {/if}

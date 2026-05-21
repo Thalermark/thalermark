@@ -5,26 +5,29 @@
   let { data }: PageProps = $props();
 </script>
 
-<h1 class="text-2xl font-semibold text-primary-900">{COPY.selectCompany.title}</h1>
+<span class="eyebrow">Account</span>
+<h1 class="mt-3 font-serif text-3xl font-light leading-tight tracking-tight text-ink">
+  {COPY.selectCompany.title}
+</h1>
 
 {#if data.memberships.length === 0}
-  <div class="mt-6 rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-    <p class="font-medium">Your account isn't set up yet.</p>
-    <p class="mt-1">
+  <div class="mt-8 rounded-sm border border-oxblood/30 bg-oxblood/5 p-5 text-sm text-ink">
+    <p class="font-medium text-oxblood">Your account isn't set up yet.</p>
+    <p class="mt-2 text-ink/75">
       We couldn't find any companies linked to your sign-in. This usually means your sign-up didn't
       finish. Contact support or sign out and try again.
     </p>
   </div>
 {:else}
-  <ul class="mt-6 divide-y divide-primary-200 rounded-md border border-primary-200 bg-white">
+  <ul class="mt-8 divide-y divide-ink/10 rounded-sm border border-ink/10 bg-cream-warm">
     {#each data.memberships as m (m.accountId)}
-      <li class="flex items-center justify-between px-4 py-3">
-        <span class="text-primary-900">{m.name}</span>
+      <li class="flex items-center justify-between px-5 py-4">
+        <span class="font-serif text-lg text-ink">{m.name}</span>
         <form method="post">
           <input type="hidden" name="accountId" value={m.accountId} />
           <button
             type="submit"
-            class="rounded bg-primary-900 px-3 py-1.5 text-sm text-white hover:bg-primary-700"
+            class="rounded-sm bg-ink px-4 py-2 text-sm font-medium text-cream transition-colors hover:bg-gold-deep"
           >
             Open
           </button>
@@ -33,4 +36,3 @@
     {/each}
   </ul>
 {/if}
-

@@ -45,27 +45,27 @@
     onclick={toggle}
     aria-haspopup="menu"
     aria-expanded={open}
-    class="flex items-center gap-2 rounded-full focus:outline-none focus:ring-2 focus:ring-primary-300"
+    class="flex items-center gap-2 rounded-full focus:outline-none focus:ring-2 focus:ring-gold/50"
   >
     <AvatarBubble {name} {email} />
   </button>
   {#if open}
     <div
       role="menu"
-      class="absolute right-0 z-10 mt-2 w-56 rounded-md border border-primary-200 bg-white py-1 shadow-lg"
+      class="absolute right-0 z-10 mt-2 w-60 rounded-sm border border-ink/10 bg-cream py-1 shadow-lg"
     >
-      <div class="px-3 py-2 text-xs text-primary-500">
-        <div class="truncate font-medium text-primary-900">{name || email}</div>
+      <div class="px-4 py-3">
+        <div class="truncate font-serif text-base text-ink">{name || email}</div>
         {#if name}
-          <div class="truncate">{email}</div>
+          <div class="mt-0.5 truncate font-mono text-xs text-ink/60">{email}</div>
         {/if}
       </div>
-      <div class="my-1 border-t border-primary-100"></div>
+      <div class="my-1 border-t border-ink/10"></div>
       <a
         href="/select-company"
         role="menuitem"
         onclick={close}
-        class="block px-3 py-2 text-sm text-primary-700 hover:bg-primary-50"
+        class="block px-4 py-2 text-sm text-ink/80 transition-colors hover:bg-cream-warm hover:text-ink"
       >
         {COPY.account}
       </a>
@@ -73,7 +73,7 @@
         type="button"
         role="menuitem"
         onclick={onSignOut}
-        class="block w-full px-3 py-2 text-left text-sm text-primary-700 hover:bg-primary-50"
+        class="block w-full px-4 py-2 text-left text-sm text-ink/80 transition-colors hover:bg-cream-warm hover:text-ink"
       >
         {COPY.signOut}
       </button>
