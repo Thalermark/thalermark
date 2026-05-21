@@ -99,6 +99,20 @@
       "when": 1779218093757,
       "tag": "0013_auth_user_last_account_id",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1779330226268,
+      "tag": "0014_shiny_tempest",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1779330257501,
+      "tag": "0015_enable_rls_invitations",
+      "breakpoints": true
     }
   ]
 }

@@ -19,6 +19,7 @@ const testEnv: Env = {
   betterAuthSecret: 'test-secret-at-least-32-characters-long',
   betterAuthUrl: 'http://localhost:3000',
   trustedOrigins: [],
+  publicAppUrl: '',
 };
 
 function extractSessionCookie(res: Response): string {

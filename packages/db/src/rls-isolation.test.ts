@@ -7,6 +7,7 @@ import { accounts } from './schema/accounts.js';
 import { auditEvents } from './schema/audit_events.js';
 import { authUser } from './schema/auth.js';
 import { companies } from './schema/companies.js';
+import { invitations } from './schema/invitations.js';
 import { memberships } from './schema/memberships.js';
 import { telemetryEvents } from './schema/telemetry_events.js';
 
@@ -542,5 +543,131 @@ describe('RLS — telemetry_events under staff_readonly', () => {
     await expect(getStaffDb().delete(telemetryEvents)).rejects.toThrow();
     const rows = await getTestDb().select().from(telemetryEvents);
     expect(rows).toHaveLength(2);
+  });
+});
+
+const HOUR = 60 * 60 * 1000;
+
+async function seedInvitations() {
+  const db = getTestDb();
+  await db.insert(invitations).values([
+    {
+      id: uuidv7(),
+      accountId: accountAId,
+      email: 'pending-a@example.com',
+      token: 'tok-a',
+      invitedByUserId: userId,
+      expiresAt: new Date(Date.now() + 7 * 24 * HOUR),
+    },
+    {
+      id: uuidv7(),
+      accountId: accountBId,
+      email: 'pending-b@example.com',
+      token: 'tok-b',
+      invitedByUserId: userInBothId,
+      expiresAt: new Date(Date.now() + 7 * 24 * HOUR),
+    },
+  ]);
+}
+
+describe('RLS — invitations account isolation', () => {
+  beforeEach(async () => {
+    await resetDb();
+    await seedTwoTenants();
+    await seedInvitations();
+  });
+
+  it('sees only its own account invitations when context is set', async () => {
+    const seen = await withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+      return tx.select().from(invitations);
+    });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.accountId).toBe(accountAId);
+  });
+
+  it('sees no rows when no account context is set', async () => {
+    const seen = await getAppDb().select().from(invitations);
+    expect(seen).toEqual([]);
+  });
+
+  it('allows insert with matching account_id', async () => {
+    const id = uuidv7();
+    await expect(
+      withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+        await tx.insert(invitations).values({
+          id,
+          accountId: accountAId,
+          email: 'new-a@example.com',
+          token: 'tok-new-a',
+          invitedByUserId: userId,
+          expiresAt: new Date(Date.now() + HOUR),
+        });
+      }),
+    ).resolves.not.toThrow();
+    const found = await getTestDb().select().from(invitations).where(eq(invitations.id, id));
+    expect(found).toHaveLength(1);
+  });
+
+  it('blocks insert with a foreign account_id (WITH CHECK violation)', async () => {
+    const smuggledId = uuidv7();
+    await expect(
+      withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+        await tx.insert(invitations).values({
+          id: smuggledId,
+          accountId: accountBId,
+          email: 'smuggled@example.com',
+          token: 'tok-smuggled',
+          invitedByUserId: userId,
+          expiresAt: new Date(Date.now() + HOUR),
+        });
+      }),
+    ).rejects.toThrow();
+    const found = await getTestDb()
+      .select()
+      .from(invitations)
+      .where(eq(invitations.id, smuggledId));
+    expect(found).toEqual([]);
+  });
+
+  it('cannot UPDATE invitations in another account', async () => {
+    await withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+      await tx
+        .update(invitations)
+        .set({ email: 'hijacked@example.com' })
+        .where(eq(invitations.accountId, accountBId));
+    });
+    const bRows = await getTestDb()
+      .select()
+      .from(invitations)
+      .where(eq(invitations.accountId, accountBId));
+    expect(bRows[0]?.email).toBe('pending-b@example.com');
+  });
+});
+
+describe('RLS — invitations under staff_readonly', () => {
+  beforeEach(async () => {
+    await resetDb();
+    await seedTwoTenants();
+    await seedInvitations();
+  });
+
+  it('reads invitations across accounts (BYPASSRLS)', async () => {
+    const seen = await getStaffDb().select().from(invitations);
+    expect(seen).toHaveLength(2);
+  });
+
+  it('cannot INSERT (privilege denied)', async () => {
+    await expect(
+      getStaffDb()
+        .insert(invitations)
+        .values({
+          id: uuidv7(),
+          accountId: accountAId,
+          email: 'staff-wuz-here@example.com',
+          token: 'tok-staff',
+          invitedByUserId: userId,
+          expiresAt: new Date(Date.now() + HOUR),
+        }),
+    ).rejects.toThrow();
   });
 });

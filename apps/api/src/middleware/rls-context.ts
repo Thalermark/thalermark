@@ -22,8 +22,17 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 // Bootstrap endpoints: authenticated but not yet account-scoped. The picker
 // reads from /api/me to learn which accounts the user can pick from, then sets
-// x-account-id on every subsequent request.
-const BOOTSTRAP_PATHS = new Set<string>(['/api/me', '/api/me/memberships']);
+// x-account-id on every subsequent request. Invitation accept is also bootstrap
+// because the user is not yet a member of the target account.
+const BOOTSTRAP_PATH_PATTERNS: RegExp[] = [
+  /^\/api\/me$/,
+  /^\/api\/me\/memberships$/,
+  /^\/api\/invitations\/[^/]+\/accept$/,
+];
+
+function isBootstrapPath(path: string): boolean {
+  return BOOTSTRAP_PATH_PATTERNS.some((p) => p.test(path));
+}
 
 export function rlsContext({
   auth,
@@ -36,7 +45,7 @@ export function rlsContext({
 
     c.set('userId', session.user.id);
 
-    if (BOOTSTRAP_PATHS.has(c.req.path)) return next();
+    if (isBootstrapPath(c.req.path)) return next();
 
     const accountId = c.req.header('x-account-id');
     if (!accountId || !UUID_RE.test(accountId)) {

@@ -19,6 +19,7 @@ export type Env = {
   betterAuthSecret: string;
   betterAuthUrl: string;
   trustedOrigins: string[];
+  publicAppUrl: string;
 };
 
 const DEFAULT_PORT = 3000;
@@ -51,6 +52,7 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     betterAuthSecret,
     betterAuthUrl,
     trustedOrigins: parseOrigins(source.TRUSTED_ORIGINS),
+    publicAppUrl: source.PUBLIC_APP_URL ?? '',
   });
 }
 

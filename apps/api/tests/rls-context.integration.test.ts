@@ -19,6 +19,7 @@ const testEnv: Env = {
   betterAuthSecret: 'test-secret-at-least-32-characters-long',
   betterAuthUrl: 'http://localhost:3000',
   trustedOrigins: [],
+  publicAppUrl: '',
 };
 
 function extractSessionCookie(res: Response): string {
@@ -88,7 +89,8 @@ describe('rls-context middleware', () => {
       expect(res.status).toBe(200);
       const body = (await res.json()) as { user: { email: string }; memberships: unknown[] };
       expect(body.user.email).toBe('me-bootstrap@example.com');
-      expect(body.memberships).toEqual([]);
+      // Signup hook auto-seeds a starter account + membership.
+      expect(body.memberships).toHaveLength(1);
     } finally {
       await handle.close();
     }
