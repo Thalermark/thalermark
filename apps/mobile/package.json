@@ -16,6 +16,7 @@
   "dependencies": {
     "@expo/log-box": "~56.0.12",
     "@expo/metro-runtime": "~56.0.11",
+    "@thalermark/api-contract": "workspace:*",
     "@thalermark/brand": "workspace:*",
     "better-auth": "1.6.11",
     "expo": "~56.0.3",
@@ -26,6 +27,7 @@
     "expo-secure-store": "~56.0.4",
     "expo-splash-screen": "~56.0.9",
     "expo-status-bar": "~56.0.4",
+    "hono": "4.12.19",
     "nativewind": "4.2.1",
     "react": "19.2.3",
     "react-dom": "19.2.3",
