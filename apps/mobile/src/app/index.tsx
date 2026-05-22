@@ -24,18 +24,26 @@ export default function Home() {
   useFocusEffect(
     useCallback(() => {
       let active = true;
-      authClient.getSession().then((res) => {
-        if (!active) return;
-        if (res.data?.user) {
-          setSession({
-            status: 'authed',
-            email: res.data.user.email,
-            name: res.data.user.name ?? null,
-          });
-        } else {
-          setSession({ status: 'anon' });
-        }
-      });
+      authClient
+        .getSession()
+        .then((res) => {
+          if (!active) return;
+          if (res.data?.user) {
+            setSession({
+              status: 'authed',
+              email: res.data.user.email,
+              name: res.data.user.name ?? null,
+            });
+          } else {
+            setSession({ status: 'anon' });
+          }
+        })
+        // Network unreachable, API down, etc. Fall through to anon so the
+        // user can still try to sign in/up — the same fetch will surface a
+        // proper error message under the form's submit button.
+        .catch(() => {
+          if (active) setSession({ status: 'anon' });
+        });
       return () => {
         active = false;
       };

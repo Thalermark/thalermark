@@ -10,9 +10,17 @@ const baseURL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 // `Authorization: Bearer <token>`. No cookies — RN's fetch has no cookie jar
 // we want to rely on, and bearer is the contract we promised mobile clients
 // in TECH-STACK.md.
+// React Native's fetch sends `Sec-Fetch-*` headers, which trips BA's
+// formCsrfMiddleware into demanding an Origin header — but RN doesn't send
+// Origin by default. We send our app scheme as a stable Origin so the server
+// has something to validate. The matching entry must appear in
+// TRUSTED_ORIGINS on apps/api.
+const APP_ORIGIN = 'thalermark://';
+
 export const authClient = createAuthClient({
   baseURL,
   fetchOptions: {
+    headers: { Origin: APP_ORIGIN },
     auth: {
       type: 'Bearer',
       token: async () => (await getAuthToken()) ?? undefined,
