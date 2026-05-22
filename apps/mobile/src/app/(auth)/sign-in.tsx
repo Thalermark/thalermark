@@ -1,11 +1,12 @@
 import { COPY } from '@thalermark/brand';
-import { Link, router } from 'expo-router';
+import { Link, router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { authClient } from '../../lib/auth-client';
 
 export default function SignIn() {
+  const { invite } = useLocalSearchParams<{ invite?: string }>();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -20,7 +21,11 @@ export default function SignIn() {
       setError(result.error.message ?? 'Sign-in failed');
       return;
     }
-    router.replace('/');
+    if (invite) {
+      router.replace({ pathname: '/accept-invite', params: { token: invite } });
+    } else {
+      router.replace('/');
+    }
   }
 
   return (
@@ -78,7 +83,10 @@ export default function SignIn() {
 
         <View className="mt-8 flex-row justify-center">
           <Text className="text-sm text-ink/70">No account? </Text>
-          <Link href="/sign-up" className="text-sm text-gold-deep underline">
+          <Link
+            href={invite ? { pathname: '/sign-up', params: { invite } } : '/sign-up'}
+            className="text-sm text-gold-deep underline"
+          >
             Sign up
           </Link>
         </View>
