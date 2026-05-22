@@ -9,6 +9,7 @@ import {
 } from '@thalermark/db';
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
+import { bearer } from 'better-auth/plugins';
 import { v7 as uuidv7 } from 'uuid';
 
 export type CreateAuthOptions = {
@@ -44,6 +45,12 @@ export function createAuth(db: Database, options: CreateAuthOptions) {
     emailAndPassword: {
       enabled: true,
     },
+    // Mobile uses Authorization: Bearer <session-token> instead of cookies.
+    // The bearer plugin is a no-op for cookie clients (web): its `before` hook
+    // only converts a bearer header into a session cookie if one is present.
+    // On responses it sets `set-auth-token` whenever a session cookie is being
+    // set, so mobile clients can grab the token and persist it themselves.
+    plugins: [bearer()],
     databaseHooks: {
       user: {
         create: {

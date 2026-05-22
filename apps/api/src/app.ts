@@ -35,8 +35,12 @@ export function createApp(deps: AppDeps) {
       cors({
         origin: (incoming) => (origins.includes(incoming) ? incoming : null),
         credentials: true,
-        allowHeaders: ['Content-Type', 'x-account-id'],
+        allowHeaders: ['Content-Type', 'x-account-id', 'Authorization'],
         allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+        // set-auth-token is the bearer plugin's session-token echo. Browsers
+        // hide non-CORS-safelisted response headers from JS unless exposed
+        // here, so the mobile (and Expo Web) client can read + persist it.
+        exposeHeaders: ['set-auth-token'],
       }),
     )
     .on(['GET', 'POST'], '/api/auth/*', (c) => deps.auth.handler(c.req.raw))

@@ -137,4 +137,35 @@ describe('cors middleware', () => {
     });
     expect(res.headers.get('access-control-allow-origin')).toBeNull();
   });
+
+  it('exposes set-auth-token so bearer clients can read the session token', async () => {
+    const app = createApp({
+      auth: stubAuth,
+      db: stubDb,
+      trustedOrigins: ['http://localhost:5173'],
+    });
+    const res = await app.request('/api/auth/anything', {
+      headers: { origin: 'http://localhost:5173' },
+    });
+    expect(res.headers.get('access-control-expose-headers')).toContain('set-auth-token');
+  });
+
+  it('allows the Authorization header on preflight for bearer requests', async () => {
+    const app = createApp({
+      auth: stubAuth,
+      db: stubDb,
+      trustedOrigins: ['http://localhost:5173'],
+    });
+    const res = await app.request('/api/me', {
+      method: 'OPTIONS',
+      headers: {
+        origin: 'http://localhost:5173',
+        'access-control-request-method': 'GET',
+        'access-control-request-headers': 'authorization',
+      },
+    });
+    expect(res.headers.get('access-control-allow-headers')?.toLowerCase()).toContain(
+      'authorization',
+    );
+  });
 });
