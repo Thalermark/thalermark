@@ -21,6 +21,7 @@
     "@thalermark/db": "workspace:*",
     "@thalermark/logger": "workspace:*",
     "@thalermark/telemetry": "workspace:*",
+    "@thalermark/validation": "workspace:*",
     "drizzle-orm": "0.45.2",
     "hono": "4.12.19",
     "pg": "8.21.0",

@@ -66,7 +66,7 @@ describe('audit middleware wiring', () => {
   it('writes an audit row when the handler calls c.var.audit() and schedules flush', async () => {
     const scheduleFlush = vi.fn();
     const { app, handle } = buildApp(scheduleFlush);
-    app.post('/api/invoices', async (c) => {
+    app.post('/api/__test/audit-probe', async (c) => {
       await c.var.audit({
         entityType: 'invoice',
         entityId: uuidv7(),
@@ -85,7 +85,7 @@ describe('audit middleware wiring', () => {
       if (!user) throw new Error('user not found');
       const accountId = await seedAccountAndMembership(user.id);
 
-      const res = await app.request('/api/invoices', {
+      const res = await app.request('/api/__test/audit-probe', {
         method: 'POST',
         headers: { cookie, 'x-account-id': accountId },
       });
