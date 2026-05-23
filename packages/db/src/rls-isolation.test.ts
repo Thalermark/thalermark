@@ -9,6 +9,7 @@ import { authUser } from './schema/auth.js';
 import { companies } from './schema/companies.js';
 import { customers } from './schema/customers.js';
 import { invitations } from './schema/invitations.js';
+import { invoiceLineItems, invoices } from './schema/invoices.js';
 import { memberships } from './schema/memberships.js';
 import { telemetryEvents } from './schema/telemetry_events.js';
 
@@ -818,6 +819,315 @@ describe('RLS — customers under staff_readonly', () => {
   it('cannot DELETE (privilege denied)', async () => {
     await expect(getStaffDb().delete(customers)).rejects.toThrow();
     const rows = await getTestDb().select().from(customers);
+    expect(rows).toHaveLength(2);
+  });
+});
+
+// invoices + invoice_line_items: both carry account_id (denormalized for the
+// uniform NULLIF RLS idiom). Same shape as customers — app role gets full CRUD
+// within its tenant; staff_readonly bypasses RLS for SELECT only.
+
+async function seedInvoicesAndLines(): Promise<{
+  companyAId: string;
+  companyBId: string;
+  customerAId: string;
+  customerBId: string;
+  invoiceAId: string;
+  invoiceBId: string;
+}> {
+  const db = getTestDb();
+  const [companyA] = await db.select().from(companies).where(eq(companies.accountId, accountAId));
+  const [companyB] = await db.select().from(companies).where(eq(companies.accountId, accountBId));
+  if (!companyA || !companyB) throw new Error('seedTwoTenants did not produce one company each');
+
+  const customerAId = uuidv7();
+  const customerBId = uuidv7();
+  await db.insert(customers).values([
+    { id: customerAId, accountId: accountAId, companyId: companyA.id, name: 'A Customer' },
+    { id: customerBId, accountId: accountBId, companyId: companyB.id, name: 'B Customer' },
+  ]);
+
+  const invoiceAId = uuidv7();
+  const invoiceBId = uuidv7();
+  await db.insert(invoices).values([
+    {
+      id: invoiceAId,
+      accountId: accountAId,
+      companyId: companyA.id,
+      customerId: customerAId,
+      number: 'INV-A1',
+      issueDate: '2026-05-23',
+      dueDate: '2026-06-22',
+      total: '100.00',
+    },
+    {
+      id: invoiceBId,
+      accountId: accountBId,
+      companyId: companyB.id,
+      customerId: customerBId,
+      number: 'INV-B1',
+      issueDate: '2026-05-23',
+      dueDate: '2026-06-22',
+      total: '50.00',
+    },
+  ]);
+  await db.insert(invoiceLineItems).values([
+    {
+      id: uuidv7(),
+      accountId: accountAId,
+      invoiceId: invoiceAId,
+      position: 1,
+      description: 'A line',
+      quantity: '1',
+      unitPrice: '100.00',
+      amount: '100.00',
+    },
+    {
+      id: uuidv7(),
+      accountId: accountBId,
+      invoiceId: invoiceBId,
+      position: 1,
+      description: 'B line',
+      quantity: '1',
+      unitPrice: '50.00',
+      amount: '50.00',
+    },
+  ]);
+
+  return {
+    companyAId: companyA.id,
+    companyBId: companyB.id,
+    customerAId,
+    customerBId,
+    invoiceAId,
+    invoiceBId,
+  };
+}
+
+describe('RLS — invoices account isolation', () => {
+  let companyAId: string;
+  let companyBId: string;
+  let customerAId: string;
+  let customerBId: string;
+
+  beforeEach(async () => {
+    await resetDb();
+    await seedTwoTenants();
+    ({ companyAId, companyBId, customerAId, customerBId } = await seedInvoicesAndLines());
+  });
+
+  it('sees only its own account invoices when context is set', async () => {
+    const seen = await withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+      return tx.select().from(invoices);
+    });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.accountId).toBe(accountAId);
+    expect(seen[0]?.number).toBe('INV-A1');
+  });
+
+  it('sees no rows when no account context is set', async () => {
+    const seen = await getAppDb().select().from(invoices);
+    expect(seen).toEqual([]);
+  });
+
+  it('allows insert with matching account_id', async () => {
+    const id = uuidv7();
+    await expect(
+      withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+        await tx.insert(invoices).values({
+          id,
+          accountId: accountAId,
+          companyId: companyAId,
+          customerId: customerAId,
+          number: 'INV-A2',
+          issueDate: '2026-05-23',
+          dueDate: '2026-06-22',
+        });
+      }),
+    ).resolves.not.toThrow();
+    const found = await getTestDb().select().from(invoices).where(eq(invoices.id, id));
+    expect(found).toHaveLength(1);
+  });
+
+  it('blocks insert with a foreign account_id (WITH CHECK violation)', async () => {
+    const smuggledId = uuidv7();
+    await expect(
+      withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+        await tx.insert(invoices).values({
+          id: smuggledId,
+          accountId: accountBId,
+          companyId: companyBId,
+          customerId: customerBId,
+          number: 'INV-SMUGGLED',
+          issueDate: '2026-05-23',
+          dueDate: '2026-06-22',
+        });
+      }),
+    ).rejects.toThrow();
+    const found = await getTestDb().select().from(invoices).where(eq(invoices.id, smuggledId));
+    expect(found).toEqual([]);
+  });
+
+  it('cannot UPDATE invoices in another account', async () => {
+    await withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+      await tx.update(invoices).set({ status: 'paid' }).where(eq(invoices.accountId, accountBId));
+    });
+    const bRows = await getTestDb()
+      .select()
+      .from(invoices)
+      .where(eq(invoices.accountId, accountBId));
+    expect(bRows[0]?.status).toBe('draft');
+  });
+
+  it('cannot DELETE invoices in another account', async () => {
+    await withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+      await tx.delete(invoices).where(eq(invoices.accountId, accountBId));
+    });
+    const bRows = await getTestDb()
+      .select()
+      .from(invoices)
+      .where(eq(invoices.accountId, accountBId));
+    expect(bRows).toHaveLength(1);
+  });
+
+  it('allows tenant-scoped DELETE within own account', async () => {
+    await withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+      await tx.delete(invoices).where(eq(invoices.accountId, accountAId));
+    });
+    const aRows = await getTestDb()
+      .select()
+      .from(invoices)
+      .where(eq(invoices.accountId, accountAId));
+    expect(aRows).toEqual([]);
+  });
+});
+
+describe('RLS — invoice_line_items account isolation', () => {
+  let invoiceAId: string;
+  let invoiceBId: string;
+
+  beforeEach(async () => {
+    await resetDb();
+    await seedTwoTenants();
+    ({ invoiceAId, invoiceBId } = await seedInvoicesAndLines());
+  });
+
+  it('sees only its own account line items when context is set', async () => {
+    const seen = await withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+      return tx.select().from(invoiceLineItems);
+    });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.accountId).toBe(accountAId);
+    expect(seen[0]?.description).toBe('A line');
+  });
+
+  it('sees no rows when no account context is set', async () => {
+    const seen = await getAppDb().select().from(invoiceLineItems);
+    expect(seen).toEqual([]);
+  });
+
+  it('allows insert with matching account_id', async () => {
+    const id = uuidv7();
+    await expect(
+      withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+        await tx.insert(invoiceLineItems).values({
+          id,
+          accountId: accountAId,
+          invoiceId: invoiceAId,
+          position: 2,
+          description: 'A second line',
+          quantity: '1',
+          unitPrice: '25.00',
+          amount: '25.00',
+        });
+      }),
+    ).resolves.not.toThrow();
+    const found = await getTestDb()
+      .select()
+      .from(invoiceLineItems)
+      .where(eq(invoiceLineItems.id, id));
+    expect(found).toHaveLength(1);
+  });
+
+  it('blocks insert pointing line item at a foreign-tenant invoice (WITH CHECK)', async () => {
+    const smuggledId = uuidv7();
+    await expect(
+      withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+        await tx.insert(invoiceLineItems).values({
+          id: smuggledId,
+          accountId: accountBId,
+          invoiceId: invoiceBId,
+          position: 99,
+          description: 'Smuggled',
+          quantity: '1',
+          unitPrice: '0.01',
+          amount: '0.01',
+        });
+      }),
+    ).rejects.toThrow();
+    const found = await getTestDb()
+      .select()
+      .from(invoiceLineItems)
+      .where(eq(invoiceLineItems.id, smuggledId));
+    expect(found).toEqual([]);
+  });
+
+  it('cannot DELETE line items in another account', async () => {
+    await withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+      await tx.delete(invoiceLineItems).where(eq(invoiceLineItems.accountId, accountBId));
+    });
+    const bRows = await getTestDb()
+      .select()
+      .from(invoiceLineItems)
+      .where(eq(invoiceLineItems.accountId, accountBId));
+    expect(bRows).toHaveLength(1);
+  });
+});
+
+describe('RLS — invoices + line items under staff_readonly', () => {
+  beforeEach(async () => {
+    await resetDb();
+    await seedTwoTenants();
+    await seedInvoicesAndLines();
+  });
+
+  it('reads invoices across accounts (BYPASSRLS)', async () => {
+    const seen = await getStaffDb().select().from(invoices);
+    expect(seen).toHaveLength(2);
+  });
+
+  it('reads line items across accounts (BYPASSRLS)', async () => {
+    const seen = await getStaffDb().select().from(invoiceLineItems);
+    expect(seen).toHaveLength(2);
+  });
+
+  it('cannot INSERT invoices (privilege denied)', async () => {
+    const [companyA] = await getTestDb()
+      .select()
+      .from(companies)
+      .where(eq(companies.accountId, accountAId));
+    const [customerA] = await getTestDb()
+      .select()
+      .from(customers)
+      .where(eq(customers.accountId, accountAId));
+    await expect(
+      getStaffDb().insert(invoices).values({
+        id: uuidv7(),
+        accountId: accountAId,
+        // biome-ignore lint/style/noNonNullAssertion: seeded above
+        companyId: companyA!.id,
+        // biome-ignore lint/style/noNonNullAssertion: seeded above
+        customerId: customerA!.id,
+        number: 'INV-STAFF',
+        issueDate: '2026-05-23',
+        dueDate: '2026-06-22',
+      }),
+    ).rejects.toThrow();
+  });
+
+  it('cannot DELETE invoices (privilege denied)', async () => {
+    await expect(getStaffDb().delete(invoices)).rejects.toThrow();
+    const rows = await getTestDb().select().from(invoices);
     expect(rows).toHaveLength(2);
   });
 });
