@@ -64,7 +64,7 @@ describe('Phase 3 e2e pipeline', () => {
   it('signs up, bootstraps, writes audit + telemetry, schedules flush', async () => {
     const scheduleFlush = vi.fn();
     const { app, handle } = buildApp(scheduleFlush);
-    app.post('/api/invoices', async (c) => {
+    app.post('/api/__test/pipeline-write', async (c) => {
       await emit(c.var.tx, { name: 'invoice_created', line_item_count: 3 });
       await c.var.audit({
         entityType: 'invoice',
@@ -105,7 +105,7 @@ describe('Phase 3 e2e pipeline', () => {
       };
       expect(meAfterBody.memberships).toEqual([{ accountId, name: 'Pipeline Co' }]);
 
-      const res = await app.request('/api/invoices', {
+      const res = await app.request('/api/__test/pipeline-write', {
         method: 'POST',
         headers: { cookie, 'x-account-id': accountId },
       });

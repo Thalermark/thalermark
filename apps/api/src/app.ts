@@ -1,11 +1,24 @@
 import { randomBytes } from 'node:crypto';
-import { type Database, accounts, authUser, invitations, memberships } from '@thalermark/db';
-import { and, eq, isNull } from 'drizzle-orm';
+import {
+  type Database,
+  accounts,
+  authUser,
+  companies,
+  customers,
+  invitations,
+  invoiceLineItems,
+  invoices,
+  memberships,
+} from '@thalermark/db';
+import { customerCreateSchema, invoiceCreateSchema } from '@thalermark/validation';
+import { and, asc, eq, isNull } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { v7 as uuidv7 } from 'uuid';
 import type { ApiAuth } from './lib/auth.js';
 import { type RlsVariables, rlsContext } from './middleware/rls-context.js';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type AppDeps = {
   auth: ApiAuth;
@@ -126,6 +139,175 @@ export function createApp(deps: AppDeps) {
       });
 
       return c.json({ accountId: invite.accountId });
+    })
+    .get('/api/companies', async (c) => {
+      const tx = c.get('tx');
+      const accountId = c.get('accountId');
+      // Explicit account_id filter on every domain query — defense in depth
+      // for the case where the DB role bypasses RLS (the integration tests
+      // run as the testcontainer superuser; production currently does too
+      // until the api flips to thalermark_app). Belt + braces with the RLS
+      // policies.
+      const rows = await tx
+        .select({ id: companies.id, name: companies.name })
+        .from(companies)
+        .where(eq(companies.accountId, accountId))
+        .orderBy(asc(companies.createdAt));
+      return c.json({ companies: rows });
+    })
+    .post('/api/customers', async (c) => {
+      const body = await c.req.json().catch(() => null);
+      const parsed = customerCreateSchema.safeParse(body);
+      if (!parsed.success) {
+        return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+      }
+
+      const tx = c.get('tx');
+      const accountId = c.get('accountId');
+
+      const [company] = await tx
+        .select({ id: companies.id })
+        .from(companies)
+        .where(and(eq(companies.id, parsed.data.companyId), eq(companies.accountId, accountId)))
+        .limit(1);
+      if (!company) return c.json({ error: 'company_not_found' }, 404);
+
+      const id = uuidv7();
+      const row = { id, accountId, ...parsed.data };
+      await tx.insert(customers).values(row);
+      await c.var.audit({
+        entityType: 'customer',
+        entityId: id,
+        action: 'create',
+        after: row,
+        companyId: parsed.data.companyId,
+      });
+
+      return c.json(row, 201);
+    })
+    .get('/api/customers', async (c) => {
+      const tx = c.get('tx');
+      const accountId = c.get('accountId');
+      const companyId = c.req.query('companyId');
+      const conditions = [eq(customers.accountId, accountId)];
+      if (companyId) conditions.push(eq(customers.companyId, companyId));
+      const rows = await tx
+        .select()
+        .from(customers)
+        .where(and(...conditions));
+      return c.json({ customers: rows });
+    })
+    .get('/api/customers/:id', async (c) => {
+      const id = c.req.param('id');
+      if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+      const tx = c.get('tx');
+      const accountId = c.get('accountId');
+      const [row] = await tx
+        .select()
+        .from(customers)
+        .where(and(eq(customers.id, id), eq(customers.accountId, accountId)));
+      if (!row) return c.json({ error: 'customer_not_found' }, 404);
+      return c.json(row);
+    })
+    .post('/api/invoices', async (c) => {
+      const body = await c.req.json().catch(() => null);
+      const parsed = invoiceCreateSchema.safeParse(body);
+      if (!parsed.success) {
+        return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+      }
+
+      const tx = c.get('tx');
+      const accountId = c.get('accountId');
+      const { companyId, customerId, lineItems, ...header } = parsed.data;
+
+      // Customer must belong to this account AND match the requested companyId.
+      // The schema does not enforce the customer↔company link at the DB level
+      // (customers carry companyId; invoices independently set companyId), so
+      // we check it here to avoid an invoice that disagrees with its customer.
+      const [customer] = await tx
+        .select({ id: customers.id, companyId: customers.companyId })
+        .from(customers)
+        .where(and(eq(customers.id, customerId), eq(customers.accountId, accountId)))
+        .limit(1);
+      if (!customer) return c.json({ error: 'customer_not_found' }, 404);
+      if (customer.companyId !== companyId) {
+        return c.json({ error: 'customer_company_mismatch' }, 400);
+      }
+
+      // Pre-check the (company_id, number) unique constraint so we can return
+      // a clean 409 without aborting the tenant tx (a constraint violation
+      // would poison the tx and force the rls-context wrapper to roll back
+      // everything, including any audit row we'd want to write).
+      const [taken] = await tx
+        .select({ id: invoices.id })
+        .from(invoices)
+        .where(
+          and(
+            eq(invoices.accountId, accountId),
+            eq(invoices.companyId, companyId),
+            eq(invoices.number, header.number),
+          ),
+        )
+        .limit(1);
+      if (taken) return c.json({ error: 'invoice_number_taken' }, 409);
+
+      const invoiceId = uuidv7();
+      await tx.insert(invoices).values({
+        id: invoiceId,
+        accountId,
+        companyId,
+        customerId,
+        ...header,
+      });
+      const lineRows = lineItems.map((li) => ({
+        id: uuidv7(),
+        accountId,
+        invoiceId,
+        ...li,
+      }));
+      await tx.insert(invoiceLineItems).values(lineRows);
+
+      await c.var.audit({
+        entityType: 'invoice',
+        entityId: invoiceId,
+        action: 'create',
+        after: { id: invoiceId, ...parsed.data },
+        companyId,
+      });
+
+      return c.json({ id: invoiceId, ...parsed.data }, 201);
+    })
+    .get('/api/invoices', async (c) => {
+      const tx = c.get('tx');
+      const accountId = c.get('accountId');
+      const companyId = c.req.query('companyId');
+      const status = c.req.query('status');
+      const conditions = [eq(invoices.accountId, accountId)];
+      if (companyId) conditions.push(eq(invoices.companyId, companyId));
+      if (status) conditions.push(eq(invoices.status, status));
+      const rows = await tx
+        .select()
+        .from(invoices)
+        .where(and(...conditions))
+        .orderBy(asc(invoices.createdAt));
+      return c.json({ invoices: rows });
+    })
+    .get('/api/invoices/:id', async (c) => {
+      const id = c.req.param('id');
+      if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+      const tx = c.get('tx');
+      const accountId = c.get('accountId');
+      const [invoice] = await tx
+        .select()
+        .from(invoices)
+        .where(and(eq(invoices.id, id), eq(invoices.accountId, accountId)));
+      if (!invoice) return c.json({ error: 'invoice_not_found' }, 404);
+      const lines = await tx
+        .select()
+        .from(invoiceLineItems)
+        .where(and(eq(invoiceLineItems.invoiceId, id), eq(invoiceLineItems.accountId, accountId)))
+        .orderBy(asc(invoiceLineItems.position));
+      return c.json({ ...invoice, lineItems: lines });
     });
 }
 

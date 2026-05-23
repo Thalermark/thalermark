@@ -5,6 +5,7 @@ import {
   authSession,
   authUser,
   authVerification,
+  companies,
   memberships,
 } from '@thalermark/db';
 import { betterAuth } from 'better-auth';
@@ -23,11 +24,14 @@ export type CreateAuthOptions = {
 // — accounts/companies/memberships — not BA's). uuidv7 generateId keeps
 // auth row IDs aligned with the project-wide ID convention.
 //
-// On sign-up the user.create.after hook seeds a fresh `accounts` row + a
-// matching `memberships` row in one transaction. Without this every new user
-// would land on the 0-membership "sign-up-incomplete" screen because the
-// authed-shell middleware requires ≥1 membership. Accept-invite is the other
-// path to a membership and runs outside this hook.
+// On sign-up the user.create.after hook seeds an `accounts` row + a default
+// `companies` row + a `memberships` row in one transaction. Without the
+// account+membership every new user would land on the 0-membership
+// "sign-up-incomplete" screen (authed-shell middleware requires ≥1
+// membership). The default company keeps the invoice/customer flows usable
+// from minute one for the overwhelming single-company case; explicit
+// company management (rename, add side hustle) lands with that UI slice.
+// Accept-invite is the other path to a membership and runs outside this hook.
 export function createAuth(db: Database, options: CreateAuthOptions) {
   return betterAuth({
     secret: options.secret,
@@ -59,6 +63,11 @@ export function createAuth(db: Database, options: CreateAuthOptions) {
             await db.transaction(async (tx) => {
               const accountId = uuidv7();
               await tx.insert(accounts).values({ id: accountId, name: accountName });
+              await tx.insert(companies).values({
+                id: uuidv7(),
+                accountId,
+                name: accountName,
+              });
               await tx.insert(memberships).values({
                 id: uuidv7(),
                 userId: user.id,
