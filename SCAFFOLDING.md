@@ -1,6 +1,6 @@
 # Scaffolding Plan
 
-**Status:** Phases 0, 1, 2, 3, 4, 5, and 6 shipped (2026-05-22). Phase 7 (CI/CD and self-host story) is up next.
+**Status:** Phases 0–7 shipped (2026-05-23). Foundation is complete; the next merge starts the MVP feature phase (invoice → expense → payment → dashboard → AI).
 **Reads:** Assumes you've read PROJECT.md and TECH-STACK.md.
 
 The shape of work between "all decisions locked" and "writing actual MVP features." Eight phases, roughly sequential — each builds on the previous one. None of the actual MVP feature code is in here; this is just the foundation.
@@ -18,9 +18,9 @@ The shape of work between "all decisions locked" and "writing actual MVP feature
 | **4** | Shared packages (validation, AI, location, brand) | Web/mobile/api all consume them | ✅ Shipped (slice 4.1, PR #42 — others deferred to feature consumers) |
 | **5** | Web app shell (SvelteKit) | Auth flows, layout, empty home | ✅ Shipped (slices 5.1, 5.3–5.5, PRs #44, #50–#52 — 5.2 folded into 5.3) |
 | **6** | Mobile app shell (Expo) | Same shape, native shell | ✅ Shipped (slices 6.1–6.4, PRs #70, #71, #73, #74 — 6.2 from #71's commit, the other three each their own PR) |
-| **7** | CI/CD and self-host story | Docker compose for self-hosters, GHA for us | ⬅ Next |
+| **7** | CI/CD and self-host story | Docker compose for self-hosters, GHA for us | ✅ Shipped (slices 7.1–7.4, PRs #76, #77, #79, #80) |
 
-After Phase 7, the foundation is real and we start building actual MVP features (invoice → expense → payment → dashboard → AI).
+Foundation is complete. The next merge starts MVP features (invoice → expense → payment → dashboard → AI).
 
 ---
 
@@ -358,6 +358,24 @@ app/
 - `.env` file for config
 
 **Validation:** Fresh checkout, `docker compose up`, browser to `https://localhost`, full sign-up + sign-in flow works.
+
+**Realized (slice numbering):**
+
+| Slice | PR | What landed |
+|---|---|---|
+| 7.1 | #76 | `apps/web/Dockerfile` — 4-stage build mirroring `apps/api/Dockerfile` (base → deps → builder → runner). Non-root user, healthcheck probes `/sign-in` (public route — proves SSR is up without coupling web liveness to api). `apps/web/package.json` gains `files: ["build"]` + `start` script (parity with api). Critical side fix: `@thalermark/api` moves from `dependencies` → `devDependencies` in `packages/api-contract` because the re-export is `export type { AppType }` (erased at compile); without this `pnpm deploy --prod` for web drags in api's entire server tree (drizzle, pg, hono server middleware) and fails on `workspace_pkg_not_found`. |
+| 7.2 | #77 | `docker/Caddyfile` — same-origin reverse proxy, `/api/*` → `api:3000`, everything else → `web:3000`. Default `THALERMARK_DOMAIN=localhost` → Caddy auto-uses `tls internal` (self-signed via its embedded CA); set to a real hostname → ACME via Let's Encrypt on 80/443. `encode zstd gzip` so static asset responses aren't shipped raw. Validated via `caddy validate`. Compose service block deferred to 7.3 (services need each other to validate end-to-end). |
+| 7.3 | #79 | api + web + caddy compose wiring + same-origin routing + a Phase 3.x retrofit folded in. **Wiring:** `docker-compose.yml` uncomments api/web/caddy with env overrides (DATABASE_URL → `postgres:5432`, `MIGRATE_ON_BOOT=true`, `BETTER_AUTH_URL`/`TRUSTED_ORIGINS`/`PUBLIC_APP_URL` use `${THALERMARK_DOMAIN:-localhost}`); `caddy_data`/`caddy_config` volumes persist certs across restarts; `env_file: ../.env` pulls secrets from the project-root `.env`. **Same-origin URL split:** `apps/web/src/hooks.server.ts` reads a new server-only `INTERNAL_API_URL` via `$env/dynamic/private`, falls back to `PUBLIC_API_URL`. Browser uses relative `/api/*` (PUBLIC_API_URL=""), SSR uses `http://api:3000` (compose hostname). **Retrofit:** `packages/db` + `packages/auth` + `packages/telemetry` each get `tsconfig.build.json`, `main → dist/index.js`, `files: ["dist", ...]`, and a `build` script — mirroring the existing `@thalermark/logger` pattern. The api Dockerfile from 3.1 anticipated this (`pnpm --filter=...build` per dep) but 3.3/3.4/3.6 missed adding the lines, so workspace deps shipped as `.ts` in `node_modules` and Node 24's `--experimental-strip-types` refused to load them. Caddyfile drops the global `email` directive — Caddy's `${VAR:default}` substitution does NOT fall back when the env var is set to empty string, and compose was passing `ACME_EMAIL=""` through. ACME issuance works without a registered email; operators wanting renewal alerts add a global email block. **Validated:** fresh `docker compose up` brings the stack up; `curl -k https://localhost/sign-in` → 200, `POST /api/auth/sign-up/email` creates user + the BA hook seeds account+membership, `GET /api/me` round-trips through Caddy with the `__Secure-better-auth.session_token` cookie (`Secure`+`HttpOnly`, inferred from `BETTER_AUTH_URL=https://localhost` even though Caddy → api is plain HTTP). |
+| 7.4 | #80 | `docker-build` CI job — runs `docker compose -f docker/docker-compose.yml build api web` on every PR with Buildx + a staged `.env.example → .env` copy (compose validates the `env_file:` path at build time). Would have caught the 3.x Dockerfile drift fixed in 7.3 three slices earlier. README gains a Self-host section pointing operators at the same flow that validated 7.3 — `cp .env.example .env`, replace `BETTER_AUTH_SECRET`, `docker compose up`, hit `https://localhost`. Real-domain path notes the `THALERMARK_DOMAIN` knob and 80/443 reachability requirement. No CLA wiring — CLA Assistant is already installed at the GitHub org level per Phase 0 production-readiness. |
+
+**Realized structure differs from the plan above:**
+
+- **CI's test job did not gain a Postgres service container.** Testcontainers (wired in 1.2b) already spins up postgres-per-test-file via Docker socket access; layering a GHA service container on top would duplicate the same image pull without making any test faster. The new `docker-build` job is the only CI structure change Phase 7 adds.
+- **The api Dockerfile build chain expanded to four lines (logger, db, auth, telemetry), not "one new line per dep added in the future."** The 3.1 comment ("the list grows as upstream slices bring more packages…") implied a single-line append per phase, but 3.3/3.4/3.6 never appended. 7.3 paid the full retrofit in one go, mirroring `@thalermark/logger`'s `tsconfig.build.json` + `files: ["dist"]` pattern across all three packages. Future workspace deps that apps/api consumes at runtime must follow the same recipe and add their `pnpm --filter=...build` line.
+- **Same-origin URL split required a code change in `apps/web/src/hooks.server.ts`, not just compose env vars.** SvelteKit's `$env/dynamic/public` returns the same value to both SSR and browser; same-origin from the browser requires relative URLs, but SSR `fetch` needs an absolute URL. The fix splits the read across `$env/dynamic/private` (server-only `INTERNAL_API_URL`) and `$env/dynamic/public` (browser `PUBLIC_API_URL`, empty in self-host). `||` not `??` so an explicit empty string falls through to the dev fallback.
+- **`@thalermark/api` flipped from `dependencies` → `devDependencies` of `@thalermark/api-contract`.** The re-export is `export type { AppType }` — type-only, erased at compile. With it as a runtime dep, `pnpm deploy --prod /out` for web pulled the entire api server tree (drizzle, pg, hono server middleware) into the web runtime image and failed on `workspace_pkg_not_found`. Local typecheck still resolves the chain because pnpm dev installs transitive devDeps.
+- **Caddy global `email` directive dropped.** `${VAR:default}` substitution does not fall back when the env var is set to empty string, and compose's `${ACME_EMAIL:-}` interpolation passes empty when the var is unset in `.env`. ACME issuance works without a registered email (anonymous account); a real registered email can be added back as a global block when operators want renewal alerts. `ACME_EMAIL` is no longer wired through compose or `.env.example`.
+- **`docker compose -f docker/docker-compose.yml` is the canonical invocation.** Compose discovers files in cwd by default, but the file lives in `docker/`. The README, CI job, and validation runs all use the explicit `-f docker/docker-compose.yml` flag from the repo root so operators don't have to `cd docker` first.
 
 ---
 
