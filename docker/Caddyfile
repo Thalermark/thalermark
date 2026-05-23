@@ -9,11 +9,9 @@
 #     local-only host and serves with its internal CA (`tls internal`). Browser
 #     will warn once; trust the cert from /data/caddy/pki to silence it.
 #   - When THALERMARK_DOMAIN is a real hostname, Caddy attempts ACME via
-#     HTTP-01 / TLS-ALPN-01 on ports 80/443. ACME_EMAIL is required for
-#     Let's Encrypt issuance.
-{
-	email {$ACME_EMAIL:admin@localhost}
-}
+#     HTTP-01 / TLS-ALPN-01 on ports 80/443. ACME issuance works without a
+#     registered email (anonymous account); operators wanting renewal alerts
+#     can add a global `{ email user@example.com }` block above this site.
 
 {$THALERMARK_DOMAIN:localhost} {
 	encode zstd gzip

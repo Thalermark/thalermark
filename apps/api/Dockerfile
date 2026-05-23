@@ -32,6 +32,7 @@ FROM base AS deps
 # is added.
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY apps/api/package.json apps/api/
+COPY packages/auth/package.json packages/auth/
 COPY packages/db/package.json packages/db/
 COPY packages/logger/package.json packages/logger/
 COPY packages/telemetry/package.json packages/telemetry/
@@ -43,12 +44,15 @@ FROM deps AS builder
 COPY apps/api ./apps/api
 COPY packages ./packages
 COPY tsconfig.base.json ./
-# Build workspace deps that apps/api consumes at runtime first — Node 24's
-# --experimental-strip-types refuses to strip from files inside node_modules,
-# so every workspace dep must ship as JS in the deployed slice. The list
-# grows as upstream slices bring more packages into apps/api's import graph
-# (3.3 will add @thalermark/db, 3.6 will add @thalermark/telemetry).
-RUN pnpm --filter=@thalermark/logger build
+# Build every workspace dep apps/api consumes at runtime — Node 24's
+# --experimental-strip-types refuses to strip TS from files inside
+# node_modules, so each dep must ship as JS in the deployed slice.
+# Order respects the workspace dep graph: logger has no workspace deps;
+# db has no workspace deps; auth needs db; telemetry needs db+logger.
+RUN pnpm --filter=@thalermark/logger build \
+ && pnpm --filter=@thalermark/db build \
+ && pnpm --filter=@thalermark/auth build \
+ && pnpm --filter=@thalermark/telemetry build
 # Now compile @thalermark/api's own TypeScript to ./apps/api/dist.
 RUN pnpm --filter=@thalermark/api build
 # `pnpm deploy` materialises @thalermark/api with all of its prod deps copied
