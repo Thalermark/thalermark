@@ -113,6 +113,20 @@
       "when": 1779330257501,
       "tag": "0015_enable_rls_invitations",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1779546984827,
+      "tag": "0016_gray_sandman",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1779546984828,
+      "tag": "0017_enable_rls_customers",
+      "breakpoints": true
     }
   ]
 }

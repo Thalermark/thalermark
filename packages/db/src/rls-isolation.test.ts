@@ -7,6 +7,7 @@ import { accounts } from './schema/accounts.js';
 import { auditEvents } from './schema/audit_events.js';
 import { authUser } from './schema/auth.js';
 import { companies } from './schema/companies.js';
+import { customers } from './schema/customers.js';
 import { invitations } from './schema/invitations.js';
 import { memberships } from './schema/memberships.js';
 import { telemetryEvents } from './schema/telemetry_events.js';
@@ -669,5 +670,154 @@ describe('RLS — invitations under staff_readonly', () => {
           expiresAt: new Date(Date.now() + HOUR),
         }),
     ).rejects.toThrow();
+  });
+});
+
+// customers carry both account_id (RLS key) and company_id (FK only). Same
+// tenant idiom as the other domain tables; the app role gets full CRUD within
+// its account scope (unlike audit_events) because customers are user-mutable.
+
+async function seedCustomers(): Promise<{ companyAId: string; companyBId: string }> {
+  const db = getTestDb();
+  const [companyA] = await db.select().from(companies).where(eq(companies.accountId, accountAId));
+  const [companyB] = await db.select().from(companies).where(eq(companies.accountId, accountBId));
+  if (!companyA || !companyB) throw new Error('seedTwoTenants did not produce one company each');
+
+  await db.insert(customers).values([
+    { id: uuidv7(), accountId: accountAId, companyId: companyA.id, name: 'A Customer' },
+    { id: uuidv7(), accountId: accountBId, companyId: companyB.id, name: 'B Customer' },
+  ]);
+
+  return { companyAId: companyA.id, companyBId: companyB.id };
+}
+
+describe('RLS — customers account isolation', () => {
+  let companyAId: string;
+  let companyBId: string;
+
+  beforeEach(async () => {
+    await resetDb();
+    await seedTwoTenants();
+    ({ companyAId, companyBId } = await seedCustomers());
+  });
+
+  it('sees only its own account customers when context is set', async () => {
+    const seen = await withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+      return tx.select().from(customers);
+    });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.accountId).toBe(accountAId);
+    expect(seen[0]?.name).toBe('A Customer');
+  });
+
+  it('sees no rows when no account context is set', async () => {
+    const seen = await getAppDb().select().from(customers);
+    expect(seen).toEqual([]);
+  });
+
+  it('allows insert with matching account_id', async () => {
+    const id = uuidv7();
+    await expect(
+      withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+        await tx.insert(customers).values({
+          id,
+          accountId: accountAId,
+          companyId: companyAId,
+          name: 'A Customer #2',
+        });
+      }),
+    ).resolves.not.toThrow();
+    const found = await getTestDb().select().from(customers).where(eq(customers.id, id));
+    expect(found).toHaveLength(1);
+  });
+
+  it('blocks insert with a foreign account_id (WITH CHECK violation)', async () => {
+    const smuggledId = uuidv7();
+    await expect(
+      withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+        await tx.insert(customers).values({
+          id: smuggledId,
+          accountId: accountBId,
+          companyId: companyBId,
+          name: 'Smuggled B Customer',
+        });
+      }),
+    ).rejects.toThrow();
+    const found = await getTestDb().select().from(customers).where(eq(customers.id, smuggledId));
+    expect(found).toEqual([]);
+  });
+
+  it('cannot UPDATE customers in another account', async () => {
+    await withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+      await tx.update(customers).set({ name: 'pwned' }).where(eq(customers.accountId, accountBId));
+    });
+    const bRows = await getTestDb()
+      .select()
+      .from(customers)
+      .where(eq(customers.accountId, accountBId));
+    expect(bRows[0]?.name).toBe('B Customer');
+  });
+
+  it('cannot DELETE customers in another account', async () => {
+    await withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+      await tx.delete(customers).where(eq(customers.accountId, accountBId));
+    });
+    const bRows = await getTestDb()
+      .select()
+      .from(customers)
+      .where(eq(customers.accountId, accountBId));
+    expect(bRows).toHaveLength(1);
+  });
+
+  it('allows tenant-scoped DELETE within own account', async () => {
+    await withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+      await tx.delete(customers).where(eq(customers.accountId, accountAId));
+    });
+    const aRows = await getTestDb()
+      .select()
+      .from(customers)
+      .where(eq(customers.accountId, accountAId));
+    expect(aRows).toEqual([]);
+  });
+});
+
+describe('RLS — customers under staff_readonly', () => {
+  let companyAId: string;
+
+  beforeEach(async () => {
+    await resetDb();
+    await seedTwoTenants();
+    ({ companyAId } = await seedCustomers());
+  });
+
+  it('reads customers across accounts (BYPASSRLS)', async () => {
+    const seen = await getStaffDb().select().from(customers);
+    expect(seen).toHaveLength(2);
+  });
+
+  it('cannot INSERT (privilege denied)', async () => {
+    await expect(
+      getStaffDb().insert(customers).values({
+        id: uuidv7(),
+        accountId: accountAId,
+        companyId: companyAId,
+        name: 'Staff Wuz Here',
+      }),
+    ).rejects.toThrow();
+  });
+
+  it('cannot UPDATE (privilege denied)', async () => {
+    await expect(
+      getStaffDb()
+        .update(customers)
+        .set({ name: 'pwned' })
+        .where(eq(customers.accountId, accountAId)),
+    ).rejects.toThrow();
+  });
+
+  it('cannot DELETE (privilege denied)', async () => {
+    await expect(getStaffDb().delete(customers)).rejects.toThrow();
+    const rows = await getTestDb().select().from(customers);
+    expect(rows).toHaveLength(2);
   });
 });
