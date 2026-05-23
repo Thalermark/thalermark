@@ -38,6 +38,20 @@ pnpm dev
 
 The project is in early scaffolding — only the workspace plumbing is in place today. Phases 1–7 (database, telemetry, API, web/mobile shells, CI/CD) are tracked in [SCAFFOLDING.md](./SCAFFOLDING.md).
 
+## Self-host
+
+The full stack — postgres + api + web + caddy (TLS-terminating reverse proxy) — runs from a single Docker Compose file:
+
+```bash
+cp .env.example .env
+# At minimum, replace BETTER_AUTH_SECRET, e.g. openssl rand -base64 32
+docker compose -f docker/docker-compose.yml up -d
+```
+
+Open [https://localhost](https://localhost). Caddy serves with its internal CA on the default `localhost` host; the browser will warn once on first visit — accept and proceed.
+
+For a real domain, set `THALERMARK_DOMAIN=your.host.com` in `.env` before bringing the stack up. Caddy auto-issues a Let's Encrypt cert (requires ports 80 and 443 reachable from the public internet).
+
 ## Documentation
 
 - [PROJECT.md](./PROJECT.md) — what we're building and for whom

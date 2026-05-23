@@ -59,3 +59,23 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+  docker-build:
+    name: docker compose build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # docker-compose.yml references env_file: ../.env. The file doesn't need
+      # real values for a build-only check (env_file is consumed at runtime),
+      # but compose validates the path exists when building.
+      - name: Stage .env for compose path-validation
+        run: cp .env.example .env
+
+      - name: Build api + web images
+        run: docker compose -f docker/docker-compose.yml build api web
