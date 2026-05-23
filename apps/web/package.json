@@ -18,7 +18,7 @@
     "@thalermark/api-contract": "workspace:*",
     "@thalermark/brand": "workspace:*",
     "better-auth": "1.6.11",
-    "hono": "4.12.19"
+    "hono": "4.12.22"
   },
   "devDependencies": {
     "@sveltejs/adapter-node": "5.2.12",
