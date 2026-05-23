@@ -10,10 +10,8 @@
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf .turbo *.tsbuildinfo"
   },
-  "dependencies": {
-    "@thalermark/api": "workspace:*"
-  },
   "devDependencies": {
+    "@thalermark/api": "workspace:*",
     "hono": "4.12.19",
     "vitest": "4.1.7"
   }
