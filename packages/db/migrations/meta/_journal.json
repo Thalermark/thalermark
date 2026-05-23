@@ -127,6 +127,20 @@
       "when": 1779546984828,
       "tag": "0017_enable_rls_customers",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1779549184021,
+      "tag": "0018_bumpy_lady_bullseye",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1779549184022,
+      "tag": "0019_enable_rls_invoices",
+      "breakpoints": true
     }
   ]
 }
