@@ -1,8 +1,13 @@
-import { env } from '$env/dynamic/public';
+import { env as privateEnv } from '$env/dynamic/private';
+import { env as publicEnv } from '$env/dynamic/public';
 import { type Handle, redirect } from '@sveltejs/kit';
 import type { Session } from './app.d.ts';
 
-const apiUrl = env.PUBLIC_API_URL ?? 'http://localhost:3000';
+// SSR fetches need an absolute URL. Behind Caddy the browser uses relative
+// /api/* paths (PUBLIC_API_URL=""), so the server resolves a separate
+// INTERNAL_API_URL pointed at the api container's compose hostname. `||` not
+// `??` so an explicit empty PUBLIC_API_URL falls through to the dev fallback.
+const apiUrl = privateEnv.INTERNAL_API_URL || publicEnv.PUBLIC_API_URL || 'http://localhost:3000';
 
 const REDIRECT_IF_AUTHED = new Set(['/sign-in', '/sign-up']);
 const PUBLIC_PATHS = new Set([...REDIRECT_IF_AUTHED, '/accept-invite']);

@@ -1,6 +1,15 @@
 # Thalermark — self-host compose
+#
 # Goal: a single `docker compose up` brings up the full stack.
-# Phase 0 stub: only postgres is wired. api/web/caddy land in Phase 7.
+#   - postgres (with pgvector)
+#   - api      (Hono, migrations on boot)
+#   - web      (SvelteKit adapter-node)
+#   - caddy    (TLS-terminating reverse proxy, same-origin routing)
+#
+# All secrets + tunables live in the project-root .env file (see .env.example).
+# Self-host-specific overrides (DATABASE_URL host, BETTER_AUTH_URL scheme,
+# MIGRATE_ON_BOOT, internal vs public URL split) are set inline below so
+# operators don't have to maintain a parallel set of values per deploy mode.
 
 services:
   postgres:
@@ -12,44 +21,72 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-thalermark}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
+    # Postgres stays off the host network in self-host. Operators needing
+    # admin access can `docker compose exec postgres psql -U $POSTGRES_USER`.
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-thalermark}"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # --- Placeholders, filled in during Phase 7 -----------------------------
-  # api:
-  #   build:
-  #     context: ..
-  #     dockerfile: apps/api/Dockerfile
-  #   env_file: ../.env
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
-  #
-  # web:
-  #   build:
-  #     context: ..
-  #     dockerfile: apps/web/Dockerfile
-  #   env_file: ../.env
-  #   depends_on:
-  #     - api
-  #
-  # caddy:
-  #   image: caddy:2
-  #   restart: unless-stopped
-  #   ports:
-  #     - "80:80"
-  #     - "443:443"
-  #   volumes:
-  #     - ./Caddyfile:/etc/caddy/Caddyfile
-  #     - caddy_data:/data
-  #     - caddy_config:/config
+  api:
+    build:
+      context: ..
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      NODE_ENV: production
+      # Override the dev DATABASE_URL — inside the compose network postgres
+      # is reachable at its service name, not localhost.
+      DATABASE_URL: postgres://${POSTGRES_USER:-thalermark}:${POSTGRES_PASSWORD:-thalermark}@postgres:5432/${POSTGRES_DB:-thalermark}
+      MIGRATE_ON_BOOT: "true"
+      # External URL for cookies/redirects/invite links. BA uses this as its
+      # canonical baseURL; Caddy terminates TLS so requests reach api over
+      # plain HTTP, but BA still generates HTTPS-flavoured cookies because
+      # this value says so.
+      BETTER_AUTH_URL: "https://${THALERMARK_DOMAIN:-localhost}"
+      PUBLIC_APP_URL: "https://${THALERMARK_DOMAIN:-localhost}"
+      # CSRF allowlist — browser origin + mobile scheme.
+      TRUSTED_ORIGINS: "https://${THALERMARK_DOMAIN:-localhost},thalermark://"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ..
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      # Empty PUBLIC_API_URL makes the browser issue same-origin /api/* calls
+      # through Caddy. Server-side SSR (hooks.server.ts) reads
+      # INTERNAL_API_URL instead — Node fetch needs an absolute URL and
+      # cannot reach `api` via the public hostname from inside the network.
+      PUBLIC_API_URL: ""
+      INTERNAL_API_URL: "http://api:3000"
+    depends_on:
+      - api
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      THALERMARK_DOMAIN: ${THALERMARK_DOMAIN:-localhost}
+    depends_on:
+      - api
+      - web
 
 volumes:
   postgres_data:
-  # caddy_data:
-  # caddy_config:
+  caddy_data:
+  caddy_config:
