@@ -29,8 +29,23 @@ export const load: PageServerLoad = async (event) => {
   const { customers } = await customersRes.json();
   const company = companies[0];
   if (!company) throw error(500, 'no company on this account');
+
+  // Suggestion fetch is best-effort: a transient failure shouldn't block the
+  // page from rendering. The user can always type their own number, and the
+  // 8.4c fail-re-render path uses values?.number ?? data.suggestedNumber, so
+  // an empty suggestion just means an empty field.
+  let suggestedNumber = '';
+  const suggestRes = await client.api.invoices['next-number'].$get({
+    query: { companyId: company.id },
+  });
+  if (suggestRes.ok) {
+    const body = (await suggestRes.json()) as { suggestion: string };
+    suggestedNumber = body.suggestion;
+  }
+
   return {
     companyId: company.id,
+    suggestedNumber,
     customers: customers
       .map((c) => ({ id: c.id, name: c.name }))
       .sort((a, b) => a.name.localeCompare(b.name)),

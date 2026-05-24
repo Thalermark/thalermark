@@ -357,3 +357,113 @@ describe('GET /api/invoices and /api/invoices/:id', () => {
     }
   });
 });
+
+describe('GET /api/invoices/next-number', () => {
+  beforeEach(async () => resetDb());
+
+  it('returns INV-0001 when the company has no invoices yet', async () => {
+    const ctx = buildApp();
+    try {
+      const cookie = await signUp(ctx.app, 'first@example.com');
+      const { accountId, companyId } = await userContext('first@example.com');
+      const res = await ctx.app.request(`/api/invoices/next-number?companyId=${companyId}`, {
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ suggestion: 'INV-0001' });
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('increments the trailing integer while preserving prefix and width', async () => {
+    const ctx = buildApp();
+    try {
+      const cookie = await signUp(ctx.app, 'inc@example.com');
+      const { accountId, companyId } = await userContext('inc@example.com');
+      const customer = await createCustomer(ctx, cookie, accountId, companyId);
+      for (const number of ['INV-0041', 'INV-0042']) {
+        const post = await ctx.app.request('/api/invoices', {
+          method: 'POST',
+          headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+          body: JSON.stringify(invoiceBody(companyId, customer, number)),
+        });
+        expect(post.status).toBe(201);
+      }
+      const res = await ctx.app.request(`/api/invoices/next-number?companyId=${companyId}`, {
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(await res.json()).toEqual({ suggestion: 'INV-0043' });
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('honours alternate conventions (bare integer, year prefix)', async () => {
+    const ctx = buildApp();
+    try {
+      const cookie = await signUp(ctx.app, 'alt@example.com');
+      const { accountId, companyId } = await userContext('alt@example.com');
+      const customer = await createCustomer(ctx, cookie, accountId, companyId);
+
+      const post1 = await ctx.app.request('/api/invoices', {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify(invoiceBody(companyId, customer, '42')),
+      });
+      expect(post1.status).toBe(201);
+      const sug1 = await ctx.app.request(`/api/invoices/next-number?companyId=${companyId}`, {
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(await sug1.json()).toEqual({ suggestion: '43' });
+
+      const post2 = await ctx.app.request('/api/invoices', {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify(invoiceBody(companyId, customer, '2026-007')),
+      });
+      expect(post2.status).toBe(201);
+      const sug2 = await ctx.app.request(`/api/invoices/next-number?companyId=${companyId}`, {
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(await sug2.json()).toEqual({ suggestion: '2026-008' });
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('rejects a missing or malformed companyId with 400', async () => {
+    const ctx = buildApp();
+    try {
+      const cookie = await signUp(ctx.app, 'bad@example.com');
+      const { accountId } = await userContext('bad@example.com');
+      for (const q of ['', '?companyId=', '?companyId=not-a-uuid']) {
+        const res = await ctx.app.request(`/api/invoices/next-number${q}`, {
+          headers: { cookie, 'x-account-id': accountId },
+        });
+        expect(res.status).toBe(400);
+      }
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('returns 404 for a cross-tenant companyId', async () => {
+    const ctx = buildApp();
+    try {
+      const aCookie = await signUp(ctx.app, 'tenanta@example.com');
+      const aCtx = await userContext('tenanta@example.com');
+      const bCookie = await signUp(ctx.app, 'tenantb@example.com');
+      const bCtx = await userContext('tenantb@example.com');
+      const res = await ctx.app.request(`/api/invoices/next-number?companyId=${bCtx.companyId}`, {
+        headers: { cookie: aCookie, 'x-account-id': aCtx.accountId },
+      });
+      expect(res.status).toBe(404);
+      // Silence the unused-binding warning — b is set up purely to give us a
+      // valid companyId in the other tenant.
+      expect(bCookie.length).toBeGreaterThan(0);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+});

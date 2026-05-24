@@ -11,7 +11,7 @@ import {
   memberships,
 } from '@thalermark/db';
 import { customerCreateSchema, invoiceCreateSchema } from '@thalermark/validation';
-import { and, asc, eq, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { v7 as uuidv7 } from 'uuid';
@@ -19,6 +19,25 @@ import type { ApiAuth } from './lib/auth.js';
 import { type RlsVariables, rlsContext } from './middleware/rls-context.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Smart-detect: increment the trailing integer of the company's most recent
+// invoice number while keeping prefix + zero-padding intact. Preserves
+// whatever convention the user adopted ("INV-0042" → "INV-0043",
+// "2026-007" → "2026-008", "42" → "43"). No prior invoice OR no trailing
+// integer → the locked first-invoice default "INV-0001". Single source of
+// truth for the suggestion lives here in the API so mobile can hit the same
+// endpoint without re-deriving.
+const FIRST_INVOICE_DEFAULT = 'INV-0001';
+const TRAILING_INT_RE = /^(.*?)(\d+)$/;
+export function suggestNextInvoiceNumber(latest: string | undefined): string {
+  if (!latest) return FIRST_INVOICE_DEFAULT;
+  const match = TRAILING_INT_RE.exec(latest);
+  if (!match) return FIRST_INVOICE_DEFAULT;
+  const [, prefix, digits] = match;
+  const next = (BigInt(digits ?? '0') + 1n).toString();
+  const padded = next.padStart((digits ?? '').length, '0');
+  return `${prefix ?? ''}${padded}`;
+}
 
 export type AppDeps = {
   auth: ApiAuth;
@@ -308,6 +327,33 @@ export function createApp(deps: AppDeps) {
         .where(and(...conditions))
         .orderBy(asc(invoices.createdAt));
       return c.json({ invoices: rows });
+    })
+    .get('/api/invoices/next-number', async (c) => {
+      // Must be declared before /api/invoices/:id — Hono is first-match, and
+      // 'next-number' would otherwise hit the :id handler and fail the UUID
+      // regex with a 400.
+      const companyId = c.req.query('companyId');
+      if (!companyId || !UUID_RE.test(companyId)) {
+        return c.json({ error: 'invalid_company_id' }, 400);
+      }
+      const tx = c.get('tx');
+      const accountId = c.get('accountId');
+
+      const [company] = await tx
+        .select({ id: companies.id })
+        .from(companies)
+        .where(and(eq(companies.id, companyId), eq(companies.accountId, accountId)))
+        .limit(1);
+      if (!company) return c.json({ error: 'company_not_found' }, 404);
+
+      const [latest] = await tx
+        .select({ number: invoices.number })
+        .from(invoices)
+        .where(and(eq(invoices.accountId, accountId), eq(invoices.companyId, companyId)))
+        .orderBy(desc(invoices.createdAt))
+        .limit(1);
+
+      return c.json({ suggestion: suggestNextInvoiceNumber(latest?.number) });
     })
     .get('/api/invoices/:id', async (c) => {
       const id = c.req.param('id');
