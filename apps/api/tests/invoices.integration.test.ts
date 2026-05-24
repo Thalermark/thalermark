@@ -366,10 +366,9 @@ describe('GET /api/invoices/next-number', () => {
     try {
       const cookie = await signUp(ctx.app, 'first@example.com');
       const { accountId, companyId } = await userContext('first@example.com');
-      const res = await ctx.app.request(
-        `/api/invoices/next-number?companyId=${companyId}`,
-        { headers: { cookie, 'x-account-id': accountId } },
-      );
+      const res = await ctx.app.request(`/api/invoices/next-number?companyId=${companyId}`, {
+        headers: { cookie, 'x-account-id': accountId },
+      });
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ suggestion: 'INV-0001' });
     } finally {
@@ -391,10 +390,9 @@ describe('GET /api/invoices/next-number', () => {
         });
         expect(post.status).toBe(201);
       }
-      const res = await ctx.app.request(
-        `/api/invoices/next-number?companyId=${companyId}`,
-        { headers: { cookie, 'x-account-id': accountId } },
-      );
+      const res = await ctx.app.request(`/api/invoices/next-number?companyId=${companyId}`, {
+        headers: { cookie, 'x-account-id': accountId },
+      });
       expect(await res.json()).toEqual({ suggestion: 'INV-0043' });
     } finally {
       await ctx.handle.close();
@@ -414,10 +412,9 @@ describe('GET /api/invoices/next-number', () => {
         body: JSON.stringify(invoiceBody(companyId, customer, '42')),
       });
       expect(post1.status).toBe(201);
-      const sug1 = await ctx.app.request(
-        `/api/invoices/next-number?companyId=${companyId}`,
-        { headers: { cookie, 'x-account-id': accountId } },
-      );
+      const sug1 = await ctx.app.request(`/api/invoices/next-number?companyId=${companyId}`, {
+        headers: { cookie, 'x-account-id': accountId },
+      });
       expect(await sug1.json()).toEqual({ suggestion: '43' });
 
       const post2 = await ctx.app.request('/api/invoices', {
@@ -426,10 +423,9 @@ describe('GET /api/invoices/next-number', () => {
         body: JSON.stringify(invoiceBody(companyId, customer, '2026-007')),
       });
       expect(post2.status).toBe(201);
-      const sug2 = await ctx.app.request(
-        `/api/invoices/next-number?companyId=${companyId}`,
-        { headers: { cookie, 'x-account-id': accountId } },
-      );
+      const sug2 = await ctx.app.request(`/api/invoices/next-number?companyId=${companyId}`, {
+        headers: { cookie, 'x-account-id': accountId },
+      });
       expect(await sug2.json()).toEqual({ suggestion: '2026-008' });
     } finally {
       await ctx.handle.close();
@@ -459,10 +455,9 @@ describe('GET /api/invoices/next-number', () => {
       const aCtx = await userContext('tenanta@example.com');
       const bCookie = await signUp(ctx.app, 'tenantb@example.com');
       const bCtx = await userContext('tenantb@example.com');
-      const res = await ctx.app.request(
-        `/api/invoices/next-number?companyId=${bCtx.companyId}`,
-        { headers: { cookie: aCookie, 'x-account-id': aCtx.accountId } },
-      );
+      const res = await ctx.app.request(`/api/invoices/next-number?companyId=${bCtx.companyId}`, {
+        headers: { cookie: aCookie, 'x-account-id': aCtx.accountId },
+      });
       expect(res.status).toBe(404);
       // Silence the unused-binding warning — b is set up purely to give us a
       // valid companyId in the other tenant.
