@@ -16,6 +16,8 @@ const testEnv: Env = {
   errorTrackingDsn: undefined,
   release: undefined,
   databaseUrl: '',
+  appDatabaseUrl: '',
+  appRolePassword: undefined,
   migrateOnBoot: false,
   betterAuthSecret: 'test-secret-at-least-32-characters-long',
   betterAuthUrl: 'http://localhost:3000',

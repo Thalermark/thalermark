@@ -14,7 +14,16 @@ export type Env = {
   logLevel: LogLevel;
   errorTrackingDsn: string | undefined;
   release: string | undefined;
+  // Superuser connection. Used for DDL only — migrations on boot and
+  // app-role provisioning. Not for runtime traffic.
   databaseUrl: string;
+  // Runtime connection — must point at the non-BYPASSRLS thalermark_app role
+  // (created in migration 0005). RLS policies fire as the primary tenancy
+  // fence; the explicit account_id filter in every SELECT is the second.
+  appDatabaseUrl: string;
+  // When set, server.ts runs `ALTER ROLE thalermark_app WITH LOGIN PASSWORD`
+  // at boot. Leave blank if the role is provisioned out-of-band.
+  appRolePassword: string | undefined;
   migrateOnBoot: boolean;
   betterAuthSecret: string;
   betterAuthUrl: string;
@@ -37,6 +46,8 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
   }
   const databaseUrl = source.DATABASE_URL;
   if (!databaseUrl) throw new Error('DATABASE_URL is required');
+  const appDatabaseUrl = source.APP_DATABASE_URL;
+  if (!appDatabaseUrl) throw new Error('APP_DATABASE_URL is required');
   const betterAuthSecret = source.BETTER_AUTH_SECRET;
   if (!betterAuthSecret) throw new Error('BETTER_AUTH_SECRET is required');
   const betterAuthUrl = source.BETTER_AUTH_URL;
@@ -48,6 +59,8 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     errorTrackingDsn: source.ERROR_TRACKING_DSN || undefined,
     release: source.RELEASE || undefined,
     databaseUrl,
+    appDatabaseUrl,
+    appRolePassword: source.THALERMARK_APP_PASSWORD || undefined,
     migrateOnBoot: parseBool(source.MIGRATE_ON_BOOT),
     betterAuthSecret,
     betterAuthUrl,
