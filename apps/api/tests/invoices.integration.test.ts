@@ -468,6 +468,248 @@ describe('GET /api/invoices/next-number', () => {
   });
 });
 
+describe('PATCH /api/invoices/:id', () => {
+  beforeEach(resetDb);
+
+  async function seedDraftInvoice(
+    ctx: CtxApp,
+    email: string,
+  ): Promise<{
+    cookie: string;
+    accountId: string;
+    companyId: string;
+    customerId: string;
+    invoiceId: string;
+  }> {
+    const cookie = await signUp(ctx.app, email);
+    const { accountId, companyId } = await userContext(email);
+    const customerId = await createCustomer(ctx, cookie, accountId, companyId);
+    const create = await ctx.app.request('/api/invoices', {
+      method: 'POST',
+      headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+      body: JSON.stringify(invoiceBody(companyId, customerId)),
+    });
+    if (create.status !== 201) throw new Error(`seed invoice failed: ${create.status}`);
+    const { id } = (await create.json()) as { id: string };
+    return { cookie, accountId, companyId, customerId, invoiceId: id };
+  }
+
+  it('replaces header + line items in one tx and writes an update audit', async () => {
+    const ctx = buildApp();
+    try {
+      const { cookie, accountId, companyId, customerId, invoiceId } = await seedDraftInvoice(
+        ctx,
+        'invedit@example.com',
+      );
+
+      const newBody = {
+        customerId,
+        number: 'INV-002',
+        issueDate: '2026-06-01',
+        dueDate: '2026-07-01',
+        subtotal: '220.00',
+        tax: '17.00',
+        total: '237.00',
+        notes: 'Revised scope',
+        lineItems: [
+          {
+            position: 1,
+            description: 'Power washing — front + side',
+            quantity: '3',
+            unitPrice: '60.00',
+            amount: '180.00',
+          },
+          {
+            position: 2,
+            description: 'Travel',
+            quantity: '1',
+            unitPrice: '40.00',
+            amount: '40.00',
+          },
+        ],
+      };
+      const res = await ctx.app.request(`/api/invoices/${invoiceId}`, {
+        method: 'PATCH',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify(newBody),
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        number: string;
+        total: string;
+        lineItems: { description: string }[];
+      };
+      expect(body.number).toBe('INV-002');
+      expect(body.total).toBe('237.00');
+      expect(body.lineItems.map((l) => l.description).sort()).toEqual(
+        ['Power washing — front + side', 'Travel'].sort(),
+      );
+
+      const db = getTestDb();
+      const lines = await db
+        .select()
+        .from(invoiceLineItems)
+        .where(eq(invoiceLineItems.invoiceId, invoiceId));
+      expect(lines).toHaveLength(2);
+
+      const audits = await db.select().from(auditEvents).where(eq(auditEvents.entityId, invoiceId));
+      expect(audits.map((a) => a.action).sort()).toEqual(['create', 'update']);
+      const update = audits.find((a) => a.action === 'update');
+      expect(update?.before).toMatchObject({ number: 'INV-001' });
+      expect(update?.after).toMatchObject({ number: 'INV-002' });
+      expect(companyId).toBeDefined();
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('rejects edits on a sent invoice with 409 not_editable', async () => {
+    const ctx = buildApp();
+    try {
+      const { cookie, accountId, customerId, invoiceId } = await seedDraftInvoice(
+        ctx,
+        'locked@example.com',
+      );
+      const sentRes = await ctx.app.request(`/api/invoices/${invoiceId}/mark-sent`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(sentRes.status).toBe(200);
+
+      const res = await ctx.app.request(`/api/invoices/${invoiceId}`, {
+        method: 'PATCH',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          customerId,
+          number: 'INV-002',
+          issueDate: '2026-06-01',
+          dueDate: '2026-07-01',
+          subtotal: '100.00',
+          tax: '0',
+          total: '100.00',
+          lineItems: [
+            { position: 1, description: 'X', quantity: '1', unitPrice: '100.00', amount: '100.00' },
+          ],
+        }),
+      });
+      expect(res.status).toBe(409);
+      const body = (await res.json()) as { error: string; status: string };
+      expect(body.error).toBe('not_editable');
+      expect(body.status).toBe('sent');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('returns 409 if the new number collides with another invoice in the same company', async () => {
+    const ctx = buildApp();
+    try {
+      const { cookie, accountId, companyId, customerId, invoiceId } = await seedDraftInvoice(
+        ctx,
+        'collide@example.com',
+      );
+      // Create a second invoice with a different number to collide against
+      const second = await ctx.app.request('/api/invoices', {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify(invoiceBody(companyId, customerId, 'INV-002')),
+      });
+      expect(second.status).toBe(201);
+
+      const res = await ctx.app.request(`/api/invoices/${invoiceId}`, {
+        method: 'PATCH',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          ...invoiceBody(companyId, customerId, 'INV-002'),
+          companyId: undefined,
+        }),
+      });
+      expect(res.status).toBe(409);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toBe('invoice_number_taken');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('rejects a customerId from a different company in the same account with 400', async () => {
+    const ctx = buildApp();
+    try {
+      const { cookie, accountId, companyId, invoiceId } = await seedDraftInvoice(
+        ctx,
+        'crosscompany@example.com',
+      );
+      // Seed a second company + a customer over there
+      const otherCompanyId = (await import('uuid')).v7();
+      await getTestDb()
+        .insert(companies)
+        .values({ id: otherCompanyId, accountId, name: 'Side Hustle' });
+      const otherCustomerId = await createCustomer(
+        ctx,
+        cookie,
+        accountId,
+        otherCompanyId,
+        'Other Co Customer',
+      );
+      expect(companyId).not.toBe(otherCompanyId);
+
+      const res = await ctx.app.request(`/api/invoices/${invoiceId}`, {
+        method: 'PATCH',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          customerId: otherCustomerId,
+          number: 'INV-001',
+          issueDate: '2026-05-23',
+          dueDate: '2026-06-22',
+          subtotal: '100.00',
+          tax: '0',
+          total: '100.00',
+          lineItems: [
+            { position: 1, description: 'Y', quantity: '1', unitPrice: '100.00', amount: '100.00' },
+          ],
+        }),
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toBe('customer_company_mismatch');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('returns 404 for a cross-tenant invoice id', async () => {
+    const ctx = buildApp();
+    try {
+      const a = await seedDraftInvoice(ctx, 'inv-a@example.com');
+      const bCookie = await signUp(ctx.app, 'inv-b@example.com');
+      const bCtx = await userContext('inv-b@example.com');
+      const res = await ctx.app.request(`/api/invoices/${a.invoiceId}`, {
+        method: 'PATCH',
+        headers: {
+          cookie: bCookie,
+          'x-account-id': bCtx.accountId,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          customerId: a.customerId,
+          number: 'INV-XX',
+          issueDate: '2026-05-23',
+          dueDate: '2026-06-22',
+          subtotal: '1.00',
+          tax: '0',
+          total: '1.00',
+          lineItems: [
+            { position: 1, description: 'Z', quantity: '1', unitPrice: '1.00', amount: '1.00' },
+          ],
+        }),
+      });
+      expect(res.status).toBe(404);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+});
+
 describe('invoice status transitions', () => {
   beforeEach(resetDb);
 

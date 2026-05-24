@@ -40,3 +40,17 @@ export const invoiceCreateSchema = z.object({
 });
 
 export type InvoiceCreateInput = z.infer<typeof invoiceCreateSchema>;
+
+// Input schema for PATCH /api/invoices/:id. Same shape as create minus
+// companyId — an invoice cannot move between companies (the
+// (company_id, number) uniqueness is scoped to that company, and the
+// customer↔company invariant the create endpoint enforces would break).
+// customerId stays mutable: a user can reassign a draft invoice to a
+// different customer in the same company. line items submitted on PATCH
+// replace the existing set wholesale (delete + insert in one tx); the
+// schema mirrors create rather than supporting partial line-item edits,
+// because partial-line-item semantics get hairy fast (renumber? merge?
+// preserve ids?) and full-replacement is what the edit form sends anyway.
+export const invoiceUpdateSchema = invoiceCreateSchema.omit({ companyId: true });
+
+export type InvoiceUpdateInput = z.infer<typeof invoiceUpdateSchema>;

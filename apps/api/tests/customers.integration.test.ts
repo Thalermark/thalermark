@@ -1,4 +1,4 @@
-import { authUser, companies, customers, memberships } from '@thalermark/db';
+import { auditEvents, authUser, companies, customers, memberships } from '@thalermark/db';
 import { eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
@@ -271,6 +271,131 @@ describe('GET /api/customers/:id', () => {
         headers: { cookie, 'x-account-id': accountId },
       });
       expect(res.status).toBe(400);
+    } finally {
+      await handle.close();
+    }
+  });
+});
+
+describe('PATCH /api/customers/:id', () => {
+  beforeEach(resetDb);
+
+  async function seedCustomer(
+    app: ReturnType<typeof createApp>,
+    email: string,
+  ): Promise<{ cookie: string; accountId: string; companyId: string; customerId: string }> {
+    const cookie = await signUp(app, email);
+    const { accountId, companyId } = await userContext(email);
+    const create = await app.request('/api/customers', {
+      method: 'POST',
+      headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        companyId,
+        name: 'Original Name',
+        email: 'orig@example.com',
+        city: 'Tucson',
+      }),
+    });
+    if (create.status !== 201) throw new Error(`seed customer failed: ${create.status}`);
+    const { id } = (await create.json()) as { id: string };
+    return { cookie, accountId, companyId, customerId: id };
+  }
+
+  it('replaces fields and writes an update audit row', async () => {
+    const { app, handle } = buildApp();
+    try {
+      const { cookie, accountId, companyId, customerId } = await seedCustomer(
+        app,
+        'patcher@example.com',
+      );
+      const res = await app.request(`/api/customers/${customerId}`, {
+        method: 'PATCH',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Renamed Coyote',
+          email: 'new@example.com',
+          city: 'Phoenix',
+        }),
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        name: string;
+        email: string | null;
+        phone: string | null;
+        city: string | null;
+        companyId: string;
+      };
+      expect(body.name).toBe('Renamed Coyote');
+      expect(body.email).toBe('new@example.com');
+      expect(body.city).toBe('Phoenix');
+      // Field omitted on the second submit was on the original (phone: null)
+      // — still null, no change to the prior absent state.
+      expect(body.phone).toBeNull();
+      expect(body.companyId).toBe(companyId);
+
+      const db = getTestDb();
+      const audits = await db
+        .select()
+        .from(auditEvents)
+        .where(eq(auditEvents.entityId, customerId));
+      expect(audits.map((a) => a.action).sort()).toEqual(['create', 'update']);
+      const update = audits.find((a) => a.action === 'update');
+      expect(update?.before).toMatchObject({ name: 'Original Name' });
+      expect(update?.after).toMatchObject({ name: 'Renamed Coyote' });
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('clears optional fields when omitted on the next submit', async () => {
+    const { app, handle } = buildApp();
+    try {
+      const { cookie, accountId, customerId } = await seedCustomer(app, 'clear@example.com');
+      const res = await app.request(`/api/customers/${customerId}`, {
+        method: 'PATCH',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Only Name' }),
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { email: string | null; city: string | null };
+      expect(body.email).toBeNull();
+      expect(body.city).toBeNull();
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('rejects a malformed body with 400', async () => {
+    const { app, handle } = buildApp();
+    try {
+      const { cookie, accountId, customerId } = await seedCustomer(app, 'bad@example.com');
+      const res = await app.request(`/api/customers/${customerId}`, {
+        method: 'PATCH',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify({ name: '' }),
+      });
+      expect(res.status).toBe(400);
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('returns 404 for a cross-tenant customer id', async () => {
+    const { app, handle } = buildApp();
+    try {
+      const a = await seedCustomer(app, 'tenant-a@example.com');
+      const bCookie = await signUp(app, 'tenant-b@example.com');
+      const bCtx = await userContext('tenant-b@example.com');
+      const res = await app.request(`/api/customers/${a.customerId}`, {
+        method: 'PATCH',
+        headers: {
+          cookie: bCookie,
+          'x-account-id': bCtx.accountId,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ name: 'Hijack' }),
+      });
+      expect(res.status).toBe(404);
     } finally {
       await handle.close();
     }
