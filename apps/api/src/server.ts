@@ -49,11 +49,19 @@ if (env.appRolePassword) {
 }
 
 const dbHandle = createApiDatabase(env.appDatabaseUrl);
-const auth = createApiAuth(dbHandle.db, env);
+// Superuser handle for the narrow bootstrap surface: the BA signup hook
+// (creates accounts/companies/memberships before any tenant context exists)
+// plus the reads in /api/me and rls-context's membership probe (both run
+// before x-account-id, and the RLS policies on accounts/memberships gate
+// visibility on `app.current_account_id`, which isn't set yet). Tenant
+// routes still use dbHandle (thalermark_app) so RLS fires as designed.
+const bootstrapDbHandle = createApiDatabase(env.databaseUrl);
+const auth = createApiAuth(bootstrapDbHandle.db, env);
 
 const app = createApp({
   auth,
   db: dbHandle.db,
+  bootstrapDb: bootstrapDbHandle.db,
   trustedOrigins: env.trustedOrigins,
   publicAppUrl: env.publicAppUrl,
 });
@@ -79,7 +87,7 @@ function shutdown(signal: NodeJS.Signals) {
   shuttingDown = true;
   log.info('received {signal}, draining', { signal });
   server.close(() => {
-    dbHandle.close().then(
+    Promise.all([dbHandle.close(), bootstrapDbHandle.close()]).then(
       () => process.exit(0),
       () => process.exit(1),
     );
