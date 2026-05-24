@@ -23,6 +23,14 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 export type AppDeps = {
   auth: ApiAuth;
   db: Database;
+  // Superuser/BYPASSRLS handle for the narrow bootstrap surface that runs
+  // before a tenant context exists: /api/me's "what accounts do I belong to"
+  // and rls-context's membership probe. The RLS policies on accounts and
+  // memberships gate visibility on `app.current_account_id`, which isn't set
+  // on these requests, so under the tenant role they'd return zero rows.
+  // Optional because integration tests run as the testcontainer superuser
+  // and have nothing to distinguish; production server.ts passes both.
+  bootstrapDb?: Database;
   scheduleFlush?: (db: Database, accountId: string) => void;
   trustedOrigins?: string[];
   publicAppUrl?: string;
@@ -41,6 +49,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export function createApp(deps: AppDeps) {
   const origins = deps.trustedOrigins ?? [];
   const logInviteUrl = deps.logInviteUrl ?? ((msg: string) => console.log(msg));
+  const bootstrapDb = deps.bootstrapDb ?? deps.db;
   return new Hono<{ Variables: RlsVariables }>()
     .get('/health', (c) => c.json({ status: 'ok' }))
     .use(
@@ -57,10 +66,18 @@ export function createApp(deps: AppDeps) {
       }),
     )
     .on(['GET', 'POST'], '/api/auth/*', (c) => deps.auth.handler(c.req.raw))
-    .use('/api/*', rlsContext({ auth: deps.auth, db: deps.db, scheduleFlush: deps.scheduleFlush }))
+    .use(
+      '/api/*',
+      rlsContext({
+        auth: deps.auth,
+        db: deps.db,
+        bootstrapDb,
+        scheduleFlush: deps.scheduleFlush,
+      }),
+    )
     .get('/api/me', async (c) => {
       const userId = c.get('userId');
-      const [user] = await deps.db
+      const [user] = await bootstrapDb
         .select({
           id: authUser.id,
           email: authUser.email,
@@ -70,7 +87,7 @@ export function createApp(deps: AppDeps) {
         .from(authUser)
         .where(eq(authUser.id, userId));
       if (!user) return c.json({ error: 'unauthorized' }, 401);
-      const rows = await deps.db
+      const rows = await bootstrapDb
         .select({ accountId: memberships.accountId, name: accounts.name })
         .from(memberships)
         .innerJoin(accounts, eq(memberships.accountId, accounts.id))
