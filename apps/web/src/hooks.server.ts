@@ -12,10 +12,7 @@ const apiUrl = privateEnv.INTERNAL_API_URL || publicEnv.PUBLIC_API_URL || 'http:
 const REDIRECT_IF_AUTHED = new Set(['/sign-in', '/sign-up']);
 const PUBLIC_PATHS = new Set([...REDIRECT_IF_AUTHED, '/accept-invite']);
 const SELECT_COMPANY_PATH = '/select-company';
-const ACTIVE_COOKIE = 'active_company_id';
-// Plan-locked cookie name. The value currently holds an account UUID because
-// memberships are at the account level in MVP; a future companies-level
-// picker can promote this without renaming the cookie.
+const ACTIVE_COOKIE = 'active_account_id';
 
 async function loadSession(cookieHeader: string | null): Promise<Session | null> {
   if (!cookieHeader) return null;
@@ -61,12 +58,12 @@ export const handle: Handle = async ({ event, resolve }) => {
         maxAge: 60 * 60 * 24 * 365,
       });
     }
-    if (only) event.locals.activeCompanyId = only.accountId;
+    if (only) event.locals.activeAccountId = only.accountId;
     return resolve(event);
   }
 
   if (cookieValue && memberships.some((m) => m.accountId === cookieValue)) {
-    event.locals.activeCompanyId = cookieValue;
+    event.locals.activeAccountId = cookieValue;
     return resolve(event);
   }
 
