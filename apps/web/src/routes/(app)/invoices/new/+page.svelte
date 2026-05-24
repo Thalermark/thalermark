@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { addMoney, multiplyMoney, sumMoney } from '@thalermark/validation';
   import type { PageProps } from './$types';
 
@@ -20,41 +21,40 @@
     return d.toISOString().slice(0, 10);
   }
 
-  // State seeded with empty defaults on mount; the $effect below re-seeds
-  // from `form.values` whenever the action returns a `fail(...)` re-render
-  // (validation error, 409 number-taken, etc.). Reading form?.values inline
-  // in the $state inits would only capture the *initial* prop value and the
-  // form would lose user-typed data on every fail re-render.
-  let customerId = $state<string>('');
-  let number = $state<string>('');
-  let issueDate = $state<string>(todayIso());
-  let dueDate = $state<string>(plusDaysIso(30));
-  let tax = $state<string>('');
-  let notes = $state<string>('');
-  let rows = $state<Row[]>([blankRow()]);
+  // Re-seeding values into the form after a fail() re-render needs to happen
+  // in SSR — without use:enhance, SK responds with a freshly server-rendered
+  // page on every POST, and a client-only $effect would leave the no-JS path
+  // (and the pre-hydration paint) showing empty inputs. Two-prong approach:
+  //
+  // 1. Static inputs (customerId, number, dates, notes) render via
+  //    `value={form?.values?.X ?? default}` directly — SSR-correct, no local
+  //    state needed because the user's typing is captured at POST via the
+  //    name attribute.
+  // 2. Inputs whose values feed the live total preview (tax, line item
+  //    rows) need $state so $derived(total) can react. Their initializers
+  //    read form?.values via untrack() so Svelte doesn't fire the
+  //    state_referenced_locally warning — the read is intentional, and the
+  //    SSR script re-runs on every plain-POST fail, so "captures initial
+  //    value" is exactly the seeding behavior we want.
+  const values = $derived(form?.values);
 
-  $effect(() => {
-    const v = form?.values;
-    if (!v) return;
-    customerId = v.customerId;
-    number = v.number;
-    issueDate = v.issueDate;
-    dueDate = v.dueDate;
-    tax = v.tax;
-    notes = v.notes;
-    rows =
-      v.lineItems.length > 0
-        ? v.lineItems.map((li) => ({
+  let tax = $state<string>(untrack(() => form?.values?.tax ?? ''));
+  let rows = $state<Row[]>(
+    untrack(() => {
+      const seeded = form?.values?.lineItems;
+      return seeded && seeded.length > 0
+        ? seeded.map((li) => ({
             description: li.description,
             quantity: li.quantity,
             unitPrice: li.unitPrice,
           }))
         : [blankRow()];
-  });
+    }),
+  );
 
   // Live preview mirrors the server's compute path so the user sees exactly
   // what'll be stored before submitting. Without JS, these stay at the SSR
-  // values (zero or restored from prior submit) and the server recomputes
+  // values (zero, or restored from prior submit) and the server recomputes
   // on POST — the form still works, just without per-keystroke feedback.
   const computedRows = $derived(
     rows.map((r) => ({ ...r, amount: multiplyMoney(r.quantity, r.unitPrice) })),
@@ -111,12 +111,11 @@
           id="customerId"
           name="customerId"
           required
-          bind:value={customerId}
           class="mt-1 w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
         >
-          <option value="" disabled>Select a customer…</option>
+          <option value="" disabled selected={!values?.customerId}>Select a customer…</option>
           {#each data.customers as c (c.id)}
-            <option value={c.id}>{c.name}</option>
+            <option value={c.id} selected={values?.customerId === c.id}>{c.name}</option>
           {/each}
         </select>
         {#if err('customerId')}
@@ -134,7 +133,7 @@
           type="text"
           required
           maxlength="50"
-          bind:value={number}
+          value={values?.number ?? ''}
           class="mt-1 w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
         />
         {#if err('number')}
@@ -151,7 +150,7 @@
           name="issueDate"
           type="date"
           required
-          bind:value={issueDate}
+          value={values?.issueDate ?? todayIso()}
           class="mt-1 w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
         />
         {#if err('issueDate')}
@@ -168,7 +167,7 @@
           name="dueDate"
           type="date"
           required
-          bind:value={dueDate}
+          value={values?.dueDate ?? plusDaysIso(30)}
           class="mt-1 w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
         />
         {#if err('dueDate')}
@@ -293,9 +292,9 @@
         name="notes"
         rows="4"
         maxlength="5000"
-        bind:value={notes}
         class="mt-1 w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
-      ></textarea>
+        >{values?.notes ?? ''}</textarea
+      >
     </div>
 
     <div class="flex items-center gap-4">
