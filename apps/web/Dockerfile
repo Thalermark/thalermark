@@ -35,6 +35,7 @@ COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY apps/web/package.json apps/web/
 COPY packages/brand/package.json packages/brand/
 COPY packages/api-contract/package.json packages/api-contract/
+COPY packages/validation/package.json packages/validation/
 RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
     pnpm install --frozen-lockfile
 
@@ -43,6 +44,11 @@ FROM deps AS builder
 COPY apps/web ./apps/web
 COPY packages ./packages
 COPY tsconfig.base.json ./
+# @thalermark/validation ships compiled JS (main → dist/index.js) per the
+# api-runtime invariant. Vite needs dist/ to exist when it resolves the import
+# during web build, so build the dep first. brand + api-contract main their
+# .ts sources directly and Vite handles those without a prior build.
+RUN pnpm --filter=@thalermark/validation build
 RUN pnpm --filter=@thalermark/web build
 # `pnpm deploy` materialises @thalermark/web with all of its prod deps copied
 # (not symlinked) into /out. The package's `files` field constrains the local
