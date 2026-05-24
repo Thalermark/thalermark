@@ -1,9 +1,9 @@
 # Scaffolding Plan
 
-**Status:** Phases 0–7 shipped (2026-05-23). Foundation is complete; the next merge starts the MVP feature phase (invoice → expense → payment → dashboard → AI).
+**Status:** Phases 0–7 shipped (2026-05-23); Phase 8 (MVP features) in progress — slices 8.1–8.4b merged (2026-05-24).
 **Reads:** Assumes you've read PROJECT.md and TECH-STACK.md.
 
-The shape of work between "all decisions locked" and "writing actual MVP features." Eight phases, roughly sequential — each builds on the previous one. None of the actual MVP feature code is in here; this is just the foundation.
+The shape of work between "all decisions locked" and shipping the MVP. Eight foundation phases plus a Phase 8 for the first MVP-feature slices — roughly sequential, each builds on the previous one. Phases 0–7 are the foundation; Phase 8 is where the product becomes visible.
 
 ---
 
@@ -19,8 +19,9 @@ The shape of work between "all decisions locked" and "writing actual MVP feature
 | **5** | Web app shell (SvelteKit) | Auth flows, layout, empty home | ✅ Shipped (slices 5.1, 5.3–5.5, PRs #44, #50–#52 — 5.2 folded into 5.3) |
 | **6** | Mobile app shell (Expo) | Same shape, native shell | ✅ Shipped (slices 6.1–6.4, PRs #70, #71, #73, #74 — 6.2 from #71's commit, the other three each their own PR) |
 | **7** | CI/CD and self-host story | Docker compose for self-hosters, GHA for us | ✅ Shipped (slices 7.1–7.4, PRs #76, #77, #79, #80) |
+| **8** | MVP features — customers + invoices first, then estimates / expenses / dashboard / AI | This is where the product becomes visible | 🚧 In progress (slices 8.1–8.4b, PRs #82–#84, #86, #92 — plus mid-phase footguns #87, #88, #90, #91) |
 
-Foundation is complete. The next merge starts MVP features (invoice → expense → payment → dashboard → AI).
+Foundation shipped (Phases 0–7). Phase 8 began with customers + invoices and continues toward the locked MVP scope (PROJECT.md).
 
 ---
 
@@ -376,6 +377,32 @@ app/
 - **`@thalermark/api` flipped from `dependencies` → `devDependencies` of `@thalermark/api-contract`.** The re-export is `export type { AppType }` — type-only, erased at compile. With it as a runtime dep, `pnpm deploy --prod /out` for web pulled the entire api server tree (drizzle, pg, hono server middleware) into the web runtime image and failed on `workspace_pkg_not_found`. Local typecheck still resolves the chain because pnpm dev installs transitive devDeps.
 - **Caddy global `email` directive dropped.** `${VAR:default}` substitution does not fall back when the env var is set to empty string, and compose's `${ACME_EMAIL:-}` interpolation passes empty when the var is unset in `.env`. ACME issuance works without a registered email (anonymous account); a real registered email can be added back as a global block when operators want renewal alerts. `ACME_EMAIL` is no longer wired through compose or `.env.example`.
 - **`docker compose -f docker/docker-compose.yml` is the canonical invocation.** Compose discovers files in cwd by default, but the file lives in `docker/`. The README, CI job, and validation runs all use the explicit `-f docker/docker-compose.yml` flag from the repo root so operators don't have to `cd docker` first.
+
+---
+
+## Phase 8 — MVP features begin (customers + invoices)
+
+The first MVP-feature slice. Customers + invoices land together because customers must exist before an invoice can name one. DB → API → web read → web write, in that order, so each layer ships against a real upstream. Estimates / recurring invoices / public view / expenses / dashboard / AI follow in later 8.x slices; mobile catches up after the web flow is feature-complete.
+
+Phase 8 has no pre-phase plan block in this doc — slices are scoped JIT off PROJECT.md's locked MVP list, and SCAFFOLDING.md picks up tracking once each slice merges.
+
+**Validation:** Sign up → land on an empty home → `/customers` lists the auto-seeded company's customers (initially none) → `/customers/new` creates one → `/invoices` lists invoices and `/invoices/[id]` shows header + line items. End-to-end exercises BA cookie → web SSR `hc<AppType>` client → `x-account-id` → API tenant tx → RLS-fenced rows.
+
+**Realized (slice numbering):**
+
+| Slice | PR | What landed |
+|---|---|---|
+| 8.1 | #82 | `customers` table (migration 0016) + RLS (0017) — first MVP-feature table. Standard tenant-isolation policy via the NULLIF idiom. `account_id` carried for RLS uniformity, `company_id` FK NOT NULL, flat address columns (Mapbox / Nominatim autocomplete will write structured response straight into them — JSONB would need an unwrap on every render). Email / phone / notes optional; tax-id and exemption deliberately absent because compliance is a pluggable module, not a column set. App role gets full CRUD within tenant; `staff_readonly` stays SELECT-only. |
+| 8.2 | #83 | `invoices` + `invoice_line_items` tables (migrations 0018 / 0019) with the same tenant-isolation policy. Money columns are `numeric(15,2)` (returned as decimal strings — exact-precision math in Postgres, multi-currency option open). `issue_date` / `due_date` are bare dates (no TZ — keeps "due on the 15th" out of the timezone rabbit hole). `customer_id` is `ON DELETE RESTRICT` so customers with invoices can't be hard-deleted. `(company_id, number)` unique within an account; the same number is allowed across companies on one account. Line items denormalize `account_id` for RLS uniformity with the rest of the schema — one redundant column saves one subquery on every read. Status transitions, `sent_at` / `paid_at` / `voided_at`, and the public-view token defer to the slice that actually transitions status. |
+| 8.3 | #84 | First MVP-feature API slice. JIT-spawns `@thalermark/validation` (zod, ships as JS per Phase 7.3 invariant) with the first shared schemas: `customerCreateSchema`, `invoiceCreateSchema`, `invoiceLineItemInputSchema` + `moneyString` / `quantityString` / `isoDateString` primitives. Routes (all account-scoped via slice 3.5 `rls-context`): `GET /api/companies`, `POST` / `GET /api/customers` + `/api/customers/:id`, `POST` / `GET /api/invoices` + `/api/invoices/:id`. Invoice POST writes header + line items in the existing tenant tx; pre-checks the `(company_id, number)` unique constraint so a duplicate returns a clean 409 instead of poisoning the tx (a constraint throw would roll back the audit row written ahead of the business writes). Customer↔company mismatch → 400; cross-tenant IDs → 404 under RLS. Every SELECT carries an explicit `eq(table.accountId, accountId)` filter — defense in depth ahead of the role swap in #88. Signup hook now seeds a default `companies` row alongside accounts + memberships in one tx; without it new users had no `companyId` to invoice against and the flow was production-unreachable. |
+| 8.4a | #86 | First web round-trip against Phase 8 data. Read-only list + detail pages for customers and invoices, wired through a new server-side `hc<AppType>` client at `apps/web/src/lib/api.server.ts` that forwards the BA cookie and stamps `x-account-id` from `locals.activeAccountId` (post-#87 rename). Money rendered as the API returns it (decimal strings, no `Number()` coercion — silent precision-loss risk). Nav links added to the `(app)` header. List omits `companyId` query param — single-company MVP users get all rows in their account, which is the one company. |
+| 8.4b | #92 | Customer create form. New `/customers/new` route with a SvelteKit server action that posts to `POST /api/customers`. Reuses `customerCreateSchema` from `@thalermark/validation` for server-side parse + per-field error rendering. Form posts plain HTML (no `use:enhance`) so it works without JS, in line with the mobile-first / slow-network thesis — the redirect → detail page is one full nav, no spinner, no flash. Auto-picks the only company for single-company MVP users; multi-company picker deferred. List page gains a `+ New customer` header CTA. Web pulls in `@thalermark/validation` as a workspace dep; Dockerfile builds that package before the web build so Vite can resolve `dist/index.js` (the ship-as-JS invariant from slice 7.3 now applies to web-runtime deps, not just api). |
+
+**Mid-phase footguns surfaced and fixed:**
+
+- **#87 — `active_company_id` → `active_account_id` cookie rename.** The cookie name from slice 5.4 implied a future company-level picker, but the value has always carried an `account_id` UUID (memberships are account-level in MVP) and the misnaming kept biting every consumer that touched it. Hard-cut rename — no production users, no migration needed. Touched `hooks.server.ts`, `app.d.ts`, the `select-company` action, and the new `api.server.ts` reader. The Phase 5 §5.4 deltas note now reflects the renamed name.
+- **#88 — api connects as `thalermark_app`, not the superuser.** Production runtime now uses the non-BYPASSRLS `thalermark_app` role (created back in migration 0005) so RLS policies actually fire as the primary tenancy fence rather than as quiet defense-in-depth behind a superuser pool. Two connection strings: `DATABASE_URL` (superuser, DDL only — migrations + boot-time role provisioning); `APP_DATABASE_URL` (runtime, `thalermark_app`). When `THALERMARK_APP_PASSWORD` is set, `server.ts` runs `ALTER ROLE thalermark_app WITH LOGIN PASSWORD <env>` at boot — idempotent, so rotation is a redeploy; operators with out-of-band role provisioning leave the password empty. Self-host compose threads both env vars in with sensible defaults so out-of-box `docker compose up` keeps working. Integration tests stay on the testcontainer-superuser pattern; promoting them is a worthwhile follow-up. **Self-host operators with an existing `.env` must add `THALERMARK_APP_PASSWORD` on next pull** (or accept the `thalermark_app` default).
+- **#90 + #91 — bootstrap reads under `thalermark_app`.** #88 swapped the runtime pool but left `/api/me` and `rls-context`'s pre-tx membership probe on the tenant handle. Both run before `x-account-id`, and the accounts / memberships RLS policies gate visibility on `app.current_account_id` (unset on bootstrap), so every authed request to a tenant route 403'd and `/api/me` reported zero memberships even when rows existed — the sign-up hook was correctly creating account + company + membership, but the bootstrap reads couldn't see them, so the web shell bounced every new user to `/select-company`'s "not set up" screen. #90 added an optional `bootstrapDb` on `AppDeps` + `RlsContextDeps` (defaults to `db` for the testcontainer-superuser tests) and routed the two reads through it. #90 was incomplete — it shipped without the `apps/api/src/server.ts` hunk that constructs the second pool and passes it in, so `bootstrapDb` fell back to `db` and the bug stayed live on main. #91 added that hunk and renamed `authDbHandle` → `bootstrapDbHandle` since it now serves more than BA. **Watch this pattern** — any future API surface that reads before tenant context (a future `/api/me/*` route, an unauthed public-invoice fetch) must go through `bootstrapDb`, not `db`, or it will silently return zero rows under RLS.
 
 ---
 
