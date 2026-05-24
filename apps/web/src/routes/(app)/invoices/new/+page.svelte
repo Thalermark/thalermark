@@ -133,7 +133,7 @@
           type="text"
           required
           maxlength="50"
-          value={values?.number ?? ''}
+          value={values?.number ?? data.suggestedNumber}
           class="mt-1 w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
         />
         {#if err('number')}
