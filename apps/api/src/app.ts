@@ -13,6 +13,7 @@ import {
 import { customerCreateSchema, invoiceCreateSchema } from '@thalermark/validation';
 import { and, asc, desc, eq, isNull } from 'drizzle-orm';
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { cors } from 'hono/cors';
 import { v7 as uuidv7 } from 'uuid';
 import type { ApiAuth } from './lib/auth.js';
@@ -29,6 +30,85 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // endpoint without re-deriving.
 const FIRST_INVOICE_DEFAULT = 'INV-0001';
 const TRAILING_INT_RE = /^(.*?)(\d+)$/;
+// Invoice status state machine. Allowed transitions:
+//   draft → sent     (mark-sent)
+//   draft → paid     (mark-paid, manual mark-paid without sending)
+//   sent  → paid     (mark-paid)
+//   draft → voided   (void)
+//   sent  → voided   (void)
+// `paid` and `voided` are terminal. Each transition stamps its dedicated
+// timestamp column; the stamps are write-once via the state machine. Driven
+// off a single table so the three endpoints below stay symmetric and any
+// future transition (e.g. `unvoid`) is a one-line addition here.
+type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'voided';
+type TransitionKey = 'mark-sent' | 'mark-paid' | 'void';
+type TransitionSpec = {
+  from: readonly InvoiceStatus[];
+  to: InvoiceStatus;
+  stamp: 'sentAt' | 'paidAt' | 'voidedAt';
+};
+const INVOICE_TRANSITIONS: Record<TransitionKey, TransitionSpec> = {
+  'mark-sent': { from: ['draft'], to: 'sent', stamp: 'sentAt' },
+  'mark-paid': { from: ['draft', 'sent'], to: 'paid', stamp: 'paidAt' },
+  void: { from: ['draft', 'sent'], to: 'voided', stamp: 'voidedAt' },
+};
+
+async function transitionInvoice(
+  c: Context<{ Variables: RlsVariables }>,
+  id: string,
+  key: TransitionKey,
+  spec: TransitionSpec,
+) {
+  if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+  const tx = c.get('tx');
+  const accountId = c.get('accountId');
+
+  const [current] = await tx
+    .select()
+    .from(invoices)
+    .where(and(eq(invoices.id, id), eq(invoices.accountId, accountId)))
+    .limit(1);
+  if (!current) return c.json({ error: 'invoice_not_found' }, 404);
+
+  if (!(spec.from as readonly string[]).includes(current.status)) {
+    return c.json({ error: 'invalid_transition', from: current.status, to: spec.to }, 409);
+  }
+
+  const now = new Date();
+  const patch: Record<string, unknown> = {
+    status: spec.to,
+    updatedAt: now,
+    [spec.stamp]: now,
+  };
+  const [updated] = await tx
+    .update(invoices)
+    .set(patch)
+    .where(and(eq(invoices.id, id), eq(invoices.accountId, accountId)))
+    .returning();
+  if (!updated) return c.json({ error: 'invoice_not_found' }, 404);
+
+  await c.var.audit({
+    entityType: 'invoice',
+    entityId: id,
+    action: key,
+    before: {
+      status: current.status,
+      sentAt: current.sentAt,
+      paidAt: current.paidAt,
+      voidedAt: current.voidedAt,
+    },
+    after: {
+      status: updated.status,
+      sentAt: updated.sentAt,
+      paidAt: updated.paidAt,
+      voidedAt: updated.voidedAt,
+    },
+    companyId: updated.companyId,
+  });
+
+  return c.json(updated);
+}
+
 export function suggestNextInvoiceNumber(latest: string | undefined): string {
   if (!latest) return FIRST_INVOICE_DEFAULT;
   const match = TRAILING_INT_RE.exec(latest);
@@ -371,7 +451,16 @@ export function createApp(deps: AppDeps) {
         .where(and(eq(invoiceLineItems.invoiceId, id), eq(invoiceLineItems.accountId, accountId)))
         .orderBy(asc(invoiceLineItems.position));
       return c.json({ ...invoice, lineItems: lines });
-    });
+    })
+    .post('/api/invoices/:id/mark-sent', (c) =>
+      transitionInvoice(c, c.req.param('id'), 'mark-sent', INVOICE_TRANSITIONS['mark-sent']),
+    )
+    .post('/api/invoices/:id/mark-paid', (c) =>
+      transitionInvoice(c, c.req.param('id'), 'mark-paid', INVOICE_TRANSITIONS['mark-paid']),
+    )
+    .post('/api/invoices/:id/void', (c) =>
+      transitionInvoice(c, c.req.param('id'), 'void', INVOICE_TRANSITIONS.void),
+    );
 }
 
 export type AppType = ReturnType<typeof createApp>;

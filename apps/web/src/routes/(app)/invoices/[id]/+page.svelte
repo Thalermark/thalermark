@@ -1,9 +1,17 @@
 <script lang="ts">
   import type { PageProps } from './$types';
 
-  let { data }: PageProps = $props();
+  let { data, form }: PageProps = $props();
   const inv = $derived(data.invoice);
   const customer = $derived(data.customer);
+
+  // Mirrors the API state machine: draft can be sent / paid / voided;
+  // sent can be paid / voided; paid and voided are terminal. The buttons
+  // disappear on terminal states so the UI doesn't tempt a 409 round-trip.
+  const canMarkSent = $derived(inv.status === 'draft');
+  const canMarkPaid = $derived(inv.status === 'draft' || inv.status === 'sent');
+  const canVoid = $derived(inv.status === 'draft' || inv.status === 'sent');
+  const hasActions = $derived(canMarkSent || canMarkPaid || canVoid);
 </script>
 
 <a href="/invoices" class="eyebrow text-ink/60 hover:text-ink">← Invoices</a>
@@ -13,6 +21,47 @@
   </h1>
   <span class="font-mono text-xs uppercase tracking-widest text-ink/60">{inv.status}</span>
 </div>
+
+{#if form?.transitionError}
+  <div class="mt-6 rounded-sm border border-oxblood/30 bg-oxblood/5 px-4 py-3 text-sm text-oxblood">
+    {form.transitionError}
+  </div>
+{/if}
+
+{#if hasActions}
+  <div class="mt-6 flex flex-wrap items-center gap-3">
+    {#if canMarkSent}
+      <form method="post" action="?/markSent">
+        <button
+          type="submit"
+          class="rounded-sm bg-ink px-4 py-2 text-sm font-medium text-cream transition-colors hover:bg-gold-deep"
+        >
+          Mark sent
+        </button>
+      </form>
+    {/if}
+    {#if canMarkPaid}
+      <form method="post" action="?/markPaid">
+        <button
+          type="submit"
+          class="rounded-sm border border-ink/20 bg-cream-warm px-4 py-2 text-sm font-medium text-ink transition-colors hover:border-gold-deep hover:text-gold-deep"
+        >
+          Mark paid
+        </button>
+      </form>
+    {/if}
+    {#if canVoid}
+      <form method="post" action="?/void">
+        <button
+          type="submit"
+          class="rounded-sm border border-oxblood/30 px-4 py-2 text-sm font-medium text-oxblood transition-colors hover:bg-oxblood/5"
+        >
+          Void
+        </button>
+      </form>
+    {/if}
+  </div>
+{/if}
 
 <dl class="mt-8 grid grid-cols-1 gap-x-12 gap-y-6 sm:grid-cols-3">
   <div>

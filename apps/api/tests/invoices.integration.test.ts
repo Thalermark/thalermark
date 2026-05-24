@@ -467,3 +467,163 @@ describe('GET /api/invoices/next-number', () => {
     }
   });
 });
+
+describe('invoice status transitions', () => {
+  beforeEach(resetDb);
+
+  async function seedDraftInvoice(
+    ctx: CtxApp,
+    email: string,
+  ): Promise<{ cookie: string; accountId: string; invoiceId: string }> {
+    const cookie = await signUp(ctx.app, email);
+    const { accountId, companyId } = await userContext(email);
+    const customerId = await createCustomer(ctx, cookie, accountId, companyId);
+    const create = await ctx.app.request('/api/invoices', {
+      method: 'POST',
+      headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+      body: JSON.stringify(invoiceBody(companyId, customerId)),
+    });
+    if (create.status !== 201) throw new Error(`seed invoice failed: ${create.status}`);
+    const { id } = (await create.json()) as { id: string };
+    return { cookie, accountId, invoiceId: id };
+  }
+
+  it('mark-sent flips draft → sent and stamps sent_at + writes audit', async () => {
+    const ctx = buildApp();
+    try {
+      const { cookie, accountId, invoiceId } = await seedDraftInvoice(ctx, 'send@example.com');
+      const res = await ctx.app.request(`/api/invoices/${invoiceId}/mark-sent`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { status: string; sentAt: string | null };
+      expect(body.status).toBe('sent');
+      expect(body.sentAt).not.toBeNull();
+
+      const db = getTestDb();
+      const [row] = await db.select().from(invoices).where(eq(invoices.id, invoiceId));
+      expect(row?.status).toBe('sent');
+      expect(row?.sentAt).not.toBeNull();
+      expect(row?.paidAt).toBeNull();
+      expect(row?.voidedAt).toBeNull();
+
+      const audits = await db.select().from(auditEvents).where(eq(auditEvents.entityId, invoiceId));
+      expect(audits.map((a) => a.action).sort()).toEqual(['create', 'mark-sent']);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('mark-paid from draft skips sent_at; from sent fills both', async () => {
+    const ctx = buildApp();
+    try {
+      const { cookie, accountId, invoiceId } = await seedDraftInvoice(ctx, 'paid@example.com');
+      const direct = await ctx.app.request(`/api/invoices/${invoiceId}/mark-paid`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(direct.status).toBe(200);
+      const db = getTestDb();
+      const [paidFromDraft] = await db.select().from(invoices).where(eq(invoices.id, invoiceId));
+      expect(paidFromDraft?.status).toBe('paid');
+      expect(paidFromDraft?.paidAt).not.toBeNull();
+      expect(paidFromDraft?.sentAt).toBeNull();
+
+      const second = await seedDraftInvoice(ctx, 'paid2@example.com');
+      await ctx.app.request(`/api/invoices/${second.invoiceId}/mark-sent`, {
+        method: 'POST',
+        headers: { cookie: second.cookie, 'x-account-id': second.accountId },
+      });
+      const markPaid = await ctx.app.request(`/api/invoices/${second.invoiceId}/mark-paid`, {
+        method: 'POST',
+        headers: { cookie: second.cookie, 'x-account-id': second.accountId },
+      });
+      expect(markPaid.status).toBe(200);
+      const [paidFromSent] = await db
+        .select()
+        .from(invoices)
+        .where(eq(invoices.id, second.invoiceId));
+      expect(paidFromSent?.status).toBe('paid');
+      expect(paidFromSent?.sentAt).not.toBeNull();
+      expect(paidFromSent?.paidAt).not.toBeNull();
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('void from draft stamps voided_at', async () => {
+    const ctx = buildApp();
+    try {
+      const { cookie, accountId, invoiceId } = await seedDraftInvoice(ctx, 'void@example.com');
+      const res = await ctx.app.request(`/api/invoices/${invoiceId}/void`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(res.status).toBe(200);
+      const db = getTestDb();
+      const [row] = await db.select().from(invoices).where(eq(invoices.id, invoiceId));
+      expect(row?.status).toBe('voided');
+      expect(row?.voidedAt).not.toBeNull();
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('rejects mark-paid on a voided invoice with 409', async () => {
+    const ctx = buildApp();
+    try {
+      const { cookie, accountId, invoiceId } = await seedDraftInvoice(ctx, 'terminal@example.com');
+      const voidRes = await ctx.app.request(`/api/invoices/${invoiceId}/void`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(voidRes.status).toBe(200);
+      const replay = await ctx.app.request(`/api/invoices/${invoiceId}/mark-paid`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(replay.status).toBe(409);
+      const body = (await replay.json()) as { error: string; from: string; to: string };
+      expect(body.error).toBe('invalid_transition');
+      expect(body.from).toBe('voided');
+      expect(body.to).toBe('paid');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('rejects mark-sent on an already-sent invoice with 409', async () => {
+    const ctx = buildApp();
+    try {
+      const { cookie, accountId, invoiceId } = await seedDraftInvoice(ctx, 'resend@example.com');
+      await ctx.app.request(`/api/invoices/${invoiceId}/mark-sent`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      const replay = await ctx.app.request(`/api/invoices/${invoiceId}/mark-sent`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(replay.status).toBe(409);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('returns 404 for a cross-tenant invoice id', async () => {
+    const ctx = buildApp();
+    try {
+      const a = await seedDraftInvoice(ctx, 'tx-a@example.com');
+      const bCookie = await signUp(ctx.app, 'tx-b@example.com');
+      const bCtx = await userContext('tx-b@example.com');
+      const res = await ctx.app.request(`/api/invoices/${a.invoiceId}/mark-sent`, {
+        method: 'POST',
+        headers: { cookie: bCookie, 'x-account-id': bCtx.accountId },
+      });
+      expect(res.status).toBe(404);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+});
