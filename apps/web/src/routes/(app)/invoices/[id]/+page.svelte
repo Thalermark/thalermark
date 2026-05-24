@@ -11,6 +11,9 @@
   const canMarkSent = $derived(inv.status === 'draft');
   const canMarkPaid = $derived(inv.status === 'draft' || inv.status === 'sent');
   const canVoid = $derived(inv.status === 'draft' || inv.status === 'sent');
+  // Edit gate matches the API's draft-only rule — once sent/paid/voided the
+  // invoice belongs to the audit trail, not the editor.
+  const canEdit = $derived(inv.status === 'draft');
   const hasActions = $derived(canMarkSent || canMarkPaid || canVoid);
 </script>
 
@@ -19,7 +22,17 @@
   <h1 class="font-serif text-4xl font-light leading-none tracking-tight text-ink">
     Invoice {inv.number}<span class="text-gold-deep">.</span>
   </h1>
-  <span class="font-mono text-xs uppercase tracking-widest text-ink/60">{inv.status}</span>
+  <div class="flex items-center gap-3">
+    {#if canEdit}
+      <a
+        href="/invoices/{inv.id}/edit"
+        class="rounded-sm border border-ink/20 px-3 py-1 font-mono text-xs uppercase tracking-widest text-ink/70 hover:border-gold-deep hover:text-gold-deep"
+      >
+        Edit
+      </a>
+    {/if}
+    <span class="font-mono text-xs uppercase tracking-widest text-ink/60">{inv.status}</span>
+  </div>
 </div>
 
 {#if form?.transitionError}

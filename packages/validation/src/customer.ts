@@ -22,3 +22,15 @@ export const customerCreateSchema = z.object({
 });
 
 export type CustomerCreateInput = z.infer<typeof customerCreateSchema>;
+
+// Input schema for PATCH /api/customers/:id. Same shape as create minus
+// companyId — a customer cannot move between companies because their
+// invoices are scoped to the original company (would invalidate the
+// invoice↔customer↔company invariant the create endpoint enforces). The
+// edit form re-submits every field, so undefined optionals clear the
+// existing value rather than leaving it untouched; this keeps the wire
+// format symmetric with create and avoids the "did the user mean blank or
+// unchanged" ambiguity of sparse PATCH.
+export const customerUpdateSchema = customerCreateSchema.omit({ companyId: true });
+
+export type CustomerUpdateInput = z.infer<typeof customerUpdateSchema>;

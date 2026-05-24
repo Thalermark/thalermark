@@ -15,9 +15,17 @@
 </script>
 
 <a href="/customers" class="eyebrow text-ink/60 hover:text-ink">← Customers</a>
-<h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-ink">
-  {c.name}<span class="text-gold-deep">.</span>
-</h1>
+<div class="mt-3 flex items-baseline justify-between gap-6">
+  <h1 class="font-serif text-4xl font-light leading-none tracking-tight text-ink">
+    {c.name}<span class="text-gold-deep">.</span>
+  </h1>
+  <a
+    href="/customers/{c.id}/edit"
+    class="rounded-sm border border-ink/20 px-3 py-1 font-mono text-xs uppercase tracking-widest text-ink/70 hover:border-gold-deep hover:text-gold-deep"
+  >
+    Edit
+  </a>
+</div>
 
 <dl class="mt-8 grid grid-cols-1 gap-x-12 gap-y-6 sm:grid-cols-2">
   {#if c.email}
