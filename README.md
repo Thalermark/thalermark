@@ -44,7 +44,9 @@ The full stack — postgres + api + web + caddy (TLS-terminating reverse proxy) 
 
 ```bash
 cp .env.example .env
-# At minimum, replace BETTER_AUTH_SECRET, e.g. openssl rand -base64 32
+# At minimum, replace BETTER_AUTH_SECRET (openssl rand -base64 32) and
+# THALERMARK_APP_PASSWORD (any long random string — used as the password
+# for the non-superuser thalermark_app Postgres role the api runs as).
 docker compose -f docker/docker-compose.yml up -d
 ```
 

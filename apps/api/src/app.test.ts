@@ -36,6 +36,7 @@ describe('env loader', () => {
   const baseEnv = {
     NODE_ENV: 'test',
     DATABASE_URL: 'postgres://test/test',
+    APP_DATABASE_URL: 'postgres://thalermark_app:pw@test/test',
     BETTER_AUTH_SECRET: 'test-secret',
     BETTER_AUTH_URL: 'http://localhost:3000',
   };
@@ -72,6 +73,22 @@ describe('env loader', () => {
     const { loadEnv } = await import('./env.js');
     const { DATABASE_URL: _drop, ...rest } = baseEnv;
     expect(() => loadEnv(rest)).toThrow(/DATABASE_URL/);
+  });
+
+  it('rejects missing APP_DATABASE_URL', async () => {
+    const { loadEnv } = await import('./env.js');
+    const { APP_DATABASE_URL: _drop, ...rest } = baseEnv;
+    expect(() => loadEnv(rest)).toThrow(/APP_DATABASE_URL/);
+  });
+
+  it('appRolePassword is undefined when THALERMARK_APP_PASSWORD is unset', async () => {
+    const { loadEnv } = await import('./env.js');
+    expect(loadEnv(baseEnv).appRolePassword).toBeUndefined();
+  });
+
+  it('appRolePassword reads THALERMARK_APP_PASSWORD when set', async () => {
+    const { loadEnv } = await import('./env.js');
+    expect(loadEnv({ ...baseEnv, THALERMARK_APP_PASSWORD: 'shh' }).appRolePassword).toBe('shh');
   });
 
   it('rejects missing BETTER_AUTH_SECRET', async () => {

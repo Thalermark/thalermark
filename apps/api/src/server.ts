@@ -8,6 +8,7 @@ import { loadEnv } from './env.js';
 import { createApiAuth } from './lib/auth.js';
 import { createApiDatabase } from './lib/db.js';
 import { initErrorTracking } from './lib/error-tracking.js';
+import { provisionAppRole } from './lib/role-provision.js';
 
 // Project-root .env is the dev convention (see drizzle.config.ts). Resolved
 // from this file because pnpm --filter runs with cwd=apps/api/, not the root.
@@ -38,7 +39,16 @@ if (env.migrateOnBoot) {
   await runMigrations(env.databaseUrl);
 }
 
-const dbHandle = createApiDatabase(env.databaseUrl);
+// Promote thalermark_app to LOGIN with the configured password before the
+// runtime pool opens against it. Idempotent — re-runs on every boot, so
+// rotating the secret is just a redeploy. Skipped when the operator manages
+// the role's credentials out-of-band (no THALERMARK_APP_PASSWORD set).
+if (env.appRolePassword) {
+  log.info('provisioning thalermark_app role');
+  await provisionAppRole(env.databaseUrl, env.appRolePassword);
+}
+
+const dbHandle = createApiDatabase(env.appDatabaseUrl);
 const auth = createApiAuth(dbHandle.db, env);
 
 const app = createApp({

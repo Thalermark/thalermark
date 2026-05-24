@@ -38,9 +38,14 @@ services:
       - ../.env
     environment:
       NODE_ENV: production
-      # Override the dev DATABASE_URL — inside the compose network postgres
-      # is reachable at its service name, not localhost.
+      # DATABASE_URL is the superuser handle — used for migrations and for
+      # the boot-time ALTER ROLE that promotes thalermark_app to LOGIN.
+      # APP_DATABASE_URL is the runtime handle and points at the non-
+      # BYPASSRLS app role so RLS policies actually fire. Inside the compose
+      # network postgres is reachable at its service name, not localhost.
       DATABASE_URL: postgres://${POSTGRES_USER:-thalermark}:${POSTGRES_PASSWORD:-thalermark}@postgres:5432/${POSTGRES_DB:-thalermark}
+      APP_DATABASE_URL: postgres://thalermark_app:${THALERMARK_APP_PASSWORD:-thalermark_app}@postgres:5432/${POSTGRES_DB:-thalermark}
+      THALERMARK_APP_PASSWORD: ${THALERMARK_APP_PASSWORD:-thalermark_app}
       MIGRATE_ON_BOOT: "true"
       # External URL for cookies/redirects/invite links. BA uses this as its
       # canonical baseURL; Caddy terminates TLS so requests reach api over
