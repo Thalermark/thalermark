@@ -86,6 +86,14 @@ async function transitionInvoice(
     updatedAt: now,
     [spec.stamp]: now,
   };
+  // mark-sent mints the public-view token if the invoice doesn't have one
+  // yet. 32 random bytes hex matches the invitation token pattern (large
+  // enough that brute-force enumeration is uneconomical even without rate
+  // limiting). Idempotent: a future re-send transition would keep the same
+  // token so the shared URL stays stable for the recipient.
+  if (key === 'mark-sent' && !current.publicToken) {
+    patch.publicToken = randomBytes(32).toString('hex');
+  }
   const [updated] = await tx
     .update(invoices)
     .set(patch)
@@ -102,12 +110,14 @@ async function transitionInvoice(
       sentAt: current.sentAt,
       paidAt: current.paidAt,
       voidedAt: current.voidedAt,
+      publicToken: current.publicToken,
     },
     after: {
       status: updated.status,
       sentAt: updated.sentAt,
       paidAt: updated.paidAt,
       voidedAt: updated.voidedAt,
+      publicToken: updated.publicToken,
     },
     companyId: updated.companyId,
   });
@@ -660,6 +670,62 @@ export function createApp(deps: AppDeps) {
       .post('/api/invoices/:id/void', (c) =>
         transitionInvoice(c, c.req.param('id'), 'void', INVOICE_TRANSITIONS.void),
       )
+      // Public invoice view — unauthed, gated only by the random token in
+      // the URL. rls-context skips this path entirely (no session, no
+      // tenant), so the handler reads via bootstrapDb (RLS would hide
+      // every row under the missing app.current_account_id setting).
+      // The recipient sees what a paper invoice would show: header, line
+      // items, customer name, sender company name. Account / company ids
+      // and the audit trail stay out of the response.
+      .get('/api/public/invoices/:token', async (c) => {
+        const token = c.req.param('token');
+        const [invoice] = await bootstrapDb
+          .select()
+          .from(invoices)
+          .where(eq(invoices.publicToken, token))
+          .limit(1);
+        if (!invoice) return c.json({ error: 'invoice_not_found' }, 404);
+
+        const [company] = await bootstrapDb
+          .select({ name: companies.name })
+          .from(companies)
+          .where(eq(companies.id, invoice.companyId))
+          .limit(1);
+        const [customer] = await bootstrapDb
+          .select({ name: customers.name })
+          .from(customers)
+          .where(eq(customers.id, invoice.customerId))
+          .limit(1);
+        const lines = await bootstrapDb
+          .select({
+            id: invoiceLineItems.id,
+            position: invoiceLineItems.position,
+            description: invoiceLineItems.description,
+            quantity: invoiceLineItems.quantity,
+            unitPrice: invoiceLineItems.unitPrice,
+            amount: invoiceLineItems.amount,
+          })
+          .from(invoiceLineItems)
+          .where(eq(invoiceLineItems.invoiceId, invoice.id))
+          .orderBy(asc(invoiceLineItems.position));
+
+        return c.json({
+          number: invoice.number,
+          status: invoice.status,
+          issueDate: invoice.issueDate,
+          dueDate: invoice.dueDate,
+          currency: invoice.currency,
+          subtotal: invoice.subtotal,
+          tax: invoice.tax,
+          total: invoice.total,
+          notes: invoice.notes,
+          sentAt: invoice.sentAt,
+          paidAt: invoice.paidAt,
+          companyName: company?.name ?? null,
+          customerName: customer?.name ?? null,
+          lineItems: lines,
+        });
+      })
   );
 }
 

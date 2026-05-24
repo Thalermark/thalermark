@@ -26,8 +26,10 @@ import { customers } from './customers.js';
 // soft-delete / archival is a v1.x decision.
 //
 // sent_at / paid_at / voided_at record when each transition fired (timestamptz,
-// nullable, set once by the state machine). The public-view token stays
-// absent — it lands with the slice that serves the public view + email send.
+// nullable, set once by the state machine). public_token is set on the
+// draft → sent transition (32 random bytes hex, same pattern as the invite
+// token) and gates the unauthed /api/public/invoices/:token route — drafts
+// don't have one, so they're never publicly addressable.
 export const invoices = pgTable(
   'invoices',
   {
@@ -53,6 +55,7 @@ export const invoices = pgTable(
     sentAt: timestamp('sent_at', { withTimezone: true }),
     paidAt: timestamp('paid_at', { withTimezone: true }),
     voidedAt: timestamp('voided_at', { withTimezone: true }),
+    publicToken: text('public_token'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -62,6 +65,7 @@ export const invoices = pgTable(
     customerIdIdx: index('invoices_customer_id_idx').on(table.customerId),
     statusIdx: index('invoices_status_idx').on(table.status),
     companyNumberUq: uniqueIndex('invoices_company_number_uq').on(table.companyId, table.number),
+    publicTokenUq: uniqueIndex('invoices_public_token_uq').on(table.publicToken),
   }),
 );
 

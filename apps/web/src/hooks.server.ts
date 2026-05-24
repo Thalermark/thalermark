@@ -11,8 +11,17 @@ const apiUrl = privateEnv.INTERNAL_API_URL || publicEnv.PUBLIC_API_URL || 'http:
 
 const REDIRECT_IF_AUTHED = new Set(['/sign-in', '/sign-up']);
 const PUBLIC_PATHS = new Set([...REDIRECT_IF_AUTHED, '/accept-invite']);
+// Parameterized public paths. The public invoice view at /i/[token] needs
+// to render without a session — the recipient of an invoice email has no
+// account here. Prefix-matched so each new public route is visible at this
+// top-level config rather than buried in per-route +layout guards.
+const PUBLIC_PREFIXES = ['/i/'];
 const SELECT_COMPANY_PATH = '/select-company';
 const ACTIVE_COOKIE = 'active_account_id';
+
+function isPublicPrefix(path: string): boolean {
+  return PUBLIC_PREFIXES.some((p) => path.startsWith(p));
+}
 
 async function loadSession(cookieHeader: string | null): Promise<Session | null> {
   if (!cookieHeader) return null;
@@ -34,6 +43,10 @@ export const handle: Handle = async ({ event, resolve }) => {
     if (REDIRECT_IF_AUTHED.has(path) && event.locals.session) {
       throw redirect(303, '/');
     }
+    return resolve(event);
+  }
+
+  if (isPublicPrefix(path)) {
     return resolve(event);
   }
 

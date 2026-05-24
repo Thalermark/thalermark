@@ -869,3 +869,114 @@ describe('invoice status transitions', () => {
     }
   });
 });
+
+describe('public invoice view', () => {
+  beforeEach(resetDb);
+
+  async function seedDraftInvoice(
+    ctx: CtxApp,
+    email: string,
+  ): Promise<{ cookie: string; accountId: string; invoiceId: string }> {
+    const cookie = await signUp(ctx.app, email);
+    const { accountId, companyId } = await userContext(email);
+    const customerId = await createCustomer(ctx, cookie, accountId, companyId);
+    const create = await ctx.app.request('/api/invoices', {
+      method: 'POST',
+      headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+      body: JSON.stringify(invoiceBody(companyId, customerId)),
+    });
+    if (create.status !== 201) throw new Error(`seed invoice failed: ${create.status}`);
+    const { id } = (await create.json()) as { id: string };
+    return { cookie, accountId, invoiceId: id };
+  }
+
+  it('mark-sent mints a public_token; other transitions leave it alone', async () => {
+    const ctx = buildApp();
+    try {
+      const { cookie, accountId, invoiceId } = await seedDraftInvoice(ctx, 'pub-mint@example.com');
+      const db = getTestDb();
+
+      const [draftRow] = await db.select().from(invoices).where(eq(invoices.id, invoiceId));
+      expect(draftRow?.publicToken).toBeNull();
+
+      const sent = await ctx.app.request(`/api/invoices/${invoiceId}/mark-sent`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(sent.status).toBe(200);
+      const [sentRow] = await db.select().from(invoices).where(eq(invoices.id, invoiceId));
+      expect(sentRow?.publicToken).toBeTypeOf('string');
+      expect(sentRow?.publicToken?.length).toBe(64);
+      const mintedToken = sentRow?.publicToken;
+
+      const paid = await ctx.app.request(`/api/invoices/${invoiceId}/mark-paid`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(paid.status).toBe(200);
+      const [paidRow] = await db.select().from(invoices).where(eq(invoices.id, invoiceId));
+      expect(paidRow?.publicToken).toBe(mintedToken);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('GET /api/public/invoices/:token returns the rendered invoice without a session', async () => {
+    const ctx = buildApp();
+    try {
+      const { cookie, accountId, invoiceId } = await seedDraftInvoice(ctx, 'pub-view@example.com');
+      await ctx.app.request(`/api/invoices/${invoiceId}/mark-sent`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      const db = getTestDb();
+      const [row] = await db.select().from(invoices).where(eq(invoices.id, invoiceId));
+      const token = row?.publicToken;
+      expect(token).toBeTypeOf('string');
+
+      // Unauthed — no cookie, no x-account-id header.
+      const res = await ctx.app.request(`/api/public/invoices/${token}`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        number: string;
+        status: string;
+        companyName: string | null;
+        customerName: string | null;
+        lineItems: unknown[];
+      };
+      expect(body.number).toBe('INV-001');
+      expect(body.status).toBe('sent');
+      expect(body.customerName).toBe('Wile E. Coyote');
+      expect(body.companyName).toBe('pub-view@example.com');
+      expect(body.lineItems).toHaveLength(1);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('returns 404 for an unknown token', async () => {
+    const ctx = buildApp();
+    try {
+      const res = await ctx.app.request('/api/public/invoices/not-a-real-token');
+      expect(res.status).toBe(404);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('draft invoices have no token and are not publicly reachable', async () => {
+    const ctx = buildApp();
+    try {
+      const { invoiceId } = await seedDraftInvoice(ctx, 'pub-draft@example.com');
+      const db = getTestDb();
+      const [row] = await db.select().from(invoices).where(eq(invoices.id, invoiceId));
+      expect(row?.publicToken).toBeNull();
+      // No token to address the row by, so the only way to reach it via the
+      // public route is to guess — covered by the unknown-token 404 above.
+      // This assertion captures the invariant: drafts never get a token,
+      // even by accident.
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+});

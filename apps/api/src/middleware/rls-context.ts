@@ -36,8 +36,19 @@ const BOOTSTRAP_PATH_PATTERNS: RegExp[] = [
   /^\/api\/invitations\/[^/]+\/accept$/,
 ];
 
+// Unauthed public endpoints: no session, no tenant context. Token in the URL
+// is the only thing gating access — by design, because the recipient of an
+// invoice email has no account here. The handler is on the hook for treating
+// the token as the only credential and reading via bootstrapDb (RLS would
+// hide everything under the missing app.current_account_id setting).
+const PUBLIC_PATH_PATTERNS: RegExp[] = [/^\/api\/public\//];
+
 function isBootstrapPath(path: string): boolean {
   return BOOTSTRAP_PATH_PATTERNS.some((p) => p.test(path));
+}
+
+function isPublicPath(path: string): boolean {
+  return PUBLIC_PATH_PATTERNS.some((p) => p.test(path));
 }
 
 export function rlsContext({
@@ -48,6 +59,10 @@ export function rlsContext({
 }: RlsContextDeps): MiddlewareHandler {
   const probeDb = bootstrapDb ?? db;
   return async (c, next) => {
+    // Public paths skip auth entirely — token in URL is the sole credential
+    // and the handler does its own lookup (necessarily via bootstrapDb).
+    if (isPublicPath(c.req.path)) return next();
+
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (!session) return c.json({ error: 'unauthorized' }, 401);
 
