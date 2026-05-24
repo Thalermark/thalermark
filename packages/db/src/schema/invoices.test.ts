@@ -51,6 +51,9 @@ describe('invoices', () => {
     expect(row?.issueDate).toBe('2026-05-23');
     expect(row?.dueDate).toBe('2026-06-22');
     expect(row?.notes).toBeNull();
+    expect(row?.sentAt).toBeNull();
+    expect(row?.paidAt).toBeNull();
+    expect(row?.voidedAt).toBeNull();
   });
 
   it('rejects insert with non-existent customer_id (FK constraint)', async () => {

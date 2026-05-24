@@ -15,19 +15,19 @@ import { customers } from './customers.js';
 
 // Invoice header. Money columns are numeric(15,2) — exact-precision arithmetic
 // in Postgres, returned as string in TS to dodge JS float precision. Status is
-// a plain text column ('draft' default; 'sent' / 'paid' / 'void' transitions
-// land with the API slice that wires them). issue_date and due_date are bare
-// dates (no time-of-day, no TZ) to keep "due on the 15th" out of the timezone
-// rabbit hole. number is unique within (account_id, company_id) — invoice
-// numbers belong to the company, not the workspace.
+// a plain text column ('draft' default; 'sent' / 'paid' / 'voided' set by the
+// transition endpoints). issue_date and due_date are bare dates (no
+// time-of-day, no TZ) to keep "due on the 15th" out of the timezone rabbit
+// hole. number is unique within (account_id, company_id) — invoice numbers
+// belong to the company, not the workspace.
 //
 // customer_id is RESTRICT on delete: customers with invoices cannot be
 // hard-deleted. The MVP path is to keep customers around for invoice history;
 // soft-delete / archival is a v1.x decision.
 //
-// Status-transition timestamps (sent_at, paid_at, voided_at) and the public
-// view token are intentionally absent — they land with the slice that
-// actually transitions status or serves the public view.
+// sent_at / paid_at / voided_at record when each transition fired (timestamptz,
+// nullable, set once by the state machine). The public-view token stays
+// absent — it lands with the slice that serves the public view + email send.
 export const invoices = pgTable(
   'invoices',
   {
@@ -50,6 +50,9 @@ export const invoices = pgTable(
     tax: numeric('tax', { precision: 15, scale: 2 }).notNull().default('0'),
     total: numeric('total', { precision: 15, scale: 2 }).notNull().default('0'),
     notes: text('notes'),
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+    paidAt: timestamp('paid_at', { withTimezone: true }),
+    voidedAt: timestamp('voided_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
