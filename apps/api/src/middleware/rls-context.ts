@@ -8,6 +8,12 @@ import { type AuditWriter, createAuditWriter } from './audit.js';
 export type RlsContextDeps = {
   auth: ApiAuth;
   db: Database;
+  // Superuser handle for the pre-tenant-context membership probe below. The
+  // memberships RLS policy gates SELECT on `app.current_account_id`, which
+  // isn't set yet here, so under the tenant role the lookup would always
+  // return zero rows and every authenticated request would 403. Defaults to
+  // `db` for integration tests that run as the testcontainer superuser.
+  bootstrapDb?: Database;
   scheduleFlush?: (db: Database, accountId: string) => void;
 };
 
@@ -37,8 +43,10 @@ function isBootstrapPath(path: string): boolean {
 export function rlsContext({
   auth,
   db,
+  bootstrapDb,
   scheduleFlush = scheduleTelemetryFlush,
 }: RlsContextDeps): MiddlewareHandler {
+  const probeDb = bootstrapDb ?? db;
   return async (c, next) => {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (!session) return c.json({ error: 'unauthorized' }, 401);
@@ -52,7 +60,7 @@ export function rlsContext({
       return c.json({ error: 'account_required' }, 400);
     }
 
-    const found = await db
+    const found = await probeDb
       .select({ id: memberships.id })
       .from(memberships)
       .where(and(eq(memberships.userId, session.user.id), eq(memberships.accountId, accountId)))
