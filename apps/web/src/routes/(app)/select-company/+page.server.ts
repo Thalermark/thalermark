@@ -1,7 +1,7 @@
 import { error, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 
-const ACTIVE_COOKIE = 'active_company_id';
+const ACTIVE_COOKIE = 'active_account_id';
 
 export const load: PageServerLoad = ({ locals }) => {
   return {
