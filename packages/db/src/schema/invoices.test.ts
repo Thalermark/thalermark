@@ -54,6 +54,7 @@ describe('invoices', () => {
     expect(row?.sentAt).toBeNull();
     expect(row?.paidAt).toBeNull();
     expect(row?.voidedAt).toBeNull();
+    expect(row?.publicToken).toBeNull();
   });
 
   it('rejects insert with non-existent customer_id (FK constraint)', async () => {

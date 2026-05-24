@@ -14,7 +14,11 @@ export const load: PageServerLoad = async (event) => {
   });
   const customer = customerRes.ok ? await customerRes.json() : null;
 
-  return { invoice, customer };
+  // origin is what the recipient will see in the URL — derived from the
+  // incoming request so it works behind any reverse-proxy / custom domain
+  // without an extra env var. Passed alongside the invoice so the share
+  // panel can render the full absolute URL the user copies.
+  return { invoice, customer, origin: event.url.origin };
 };
 
 // Status-transition actions. Each posts to the matching API endpoint and

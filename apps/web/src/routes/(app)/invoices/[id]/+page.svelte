@@ -15,6 +15,12 @@
   // invoice belongs to the audit trail, not the editor.
   const canEdit = $derived(inv.status === 'draft');
   const hasActions = $derived(canMarkSent || canMarkPaid || canVoid);
+
+  // Public share URL is available once mark-sent mints the token. Built
+  // server-side off event.url.origin so it works behind any proxy. The
+  // email-send slice will inline this URL in the invoice email; until
+  // then the user copies it manually from the share panel below.
+  const publicUrl = $derived(inv.publicToken ? `${data.origin}/i/${inv.publicToken}` : null);
 </script>
 
 <a href="/invoices" class="eyebrow text-ink/60 hover:text-ink">← Invoices</a>
@@ -73,6 +79,20 @@
         </button>
       </form>
     {/if}
+  </div>
+{/if}
+
+{#if publicUrl}
+  <div class="mt-6 rounded-sm border border-ink/10 bg-cream-warm p-4">
+    <p class="font-mono text-xs uppercase tracking-widest text-ink/50">Share link</p>
+    <div class="mt-2 flex flex-wrap items-center gap-3 text-sm">
+      <a href={publicUrl} target="_blank" rel="noopener" class="break-all text-gold-deep hover:underline">
+        {publicUrl}
+      </a>
+    </div>
+    <p class="mt-2 text-xs text-ink/50">
+      Anyone with this link can view the invoice. Email delivery lands in a follow-up.
+    </p>
   </div>
 {/if}
 
