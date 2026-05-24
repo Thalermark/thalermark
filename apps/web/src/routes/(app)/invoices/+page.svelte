@@ -4,10 +4,20 @@
   let { data }: PageProps = $props();
 </script>
 
-<span class="eyebrow">Invoices</span>
-<h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-ink">
-  All invoices<span class="text-gold-deep">.</span>
-</h1>
+<div class="flex items-baseline justify-between gap-6">
+  <div>
+    <span class="eyebrow">Invoices</span>
+    <h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-ink">
+      All invoices<span class="text-gold-deep">.</span>
+    </h1>
+  </div>
+  <a
+    href="/invoices/new"
+    class="rounded-sm bg-ink px-4 py-2 text-sm font-medium text-cream transition-colors hover:bg-gold-deep"
+  >
+    + New invoice
+  </a>
+</div>
 
 {#if data.invoices.length === 0}
   <p class="mt-8 text-ink/70">No invoices yet.</p>
