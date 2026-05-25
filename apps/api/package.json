@@ -15,7 +15,7 @@
     "clean": "rm -rf .turbo dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@hono/node-server": "2.0.3",
+    "@hono/node-server": "2.0.4",
     "@sentry/node": "10.53.1",
     "@thalermark/auth": "workspace:*",
     "@thalermark/db": "workspace:*",
@@ -23,7 +23,7 @@
     "@thalermark/telemetry": "workspace:*",
     "@thalermark/validation": "workspace:*",
     "drizzle-orm": "0.45.2",
-    "hono": "4.12.19",
+    "hono": "4.12.23",
     "pg": "8.21.0",
     "uuid": "14.0.0"
   },
