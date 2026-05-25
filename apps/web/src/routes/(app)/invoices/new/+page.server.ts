@@ -1,4 +1,5 @@
 import { serverApiClient } from '$lib/api.server';
+import { findEmailDupe } from '$lib/customer-dupes';
 import { error, fail, redirect } from '@sveltejs/kit';
 import {
   type InvoiceCreateInput,
@@ -54,8 +55,11 @@ export const load: PageServerLoad = async (event) => {
   return {
     companyId: company.id,
     suggestedNumber,
+    // email is loaded alongside name so the dupe-detection helper (8.6b)
+    // can match against it client-side without an extra round-trip. The
+    // dropdown render only uses {id, name}; the rest is opaque to the UI.
     customers: customers
-      .map((c) => ({ id: c.id, name: c.name }))
+      .map((c) => ({ id: c.id, name: c.name, email: c.email ?? null }))
       .sort((a, b) => a.name.localeCompare(b.name)),
   };
 };
@@ -125,6 +129,24 @@ export const actions: Actions = {
         }
         return fail(400, { values, customerErrors });
       }
+
+      // Dupe-detect: HARD BLOCK on email exact match. Re-fetch the list
+      // server-side to close the race where another tab created the dupe
+      // between load() and this POST. Name fuzzy match stays advisory and
+      // is handled client-side only (live hint, no submit block).
+      const listRes = await client.api.customers.$get();
+      if (listRes.ok) {
+        const { customers: list } = await listRes.json();
+        const emailDupe = findEmailDupe(parsedCust.data.email, list);
+        if (emailDupe) {
+          return fail(409, {
+            values,
+            customerErrors: { email: 'email_dupe' },
+            dupeCustomer: { id: emailDupe.id, name: emailDupe.name },
+          });
+        }
+      }
+
       const custRes = await client.api.customers.$post({ json: parsedCust.data });
       if (!custRes.ok) {
         const body = (await custRes.json().catch(() => null)) as { error?: string } | null;

@@ -1,7 +1,9 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
+  import { findEmailDupe, findNameDupes } from '$lib/customer-dupes';
   import type { PageProps } from './$types';
 
-  let { form }: PageProps = $props();
+  let { data, form }: PageProps = $props();
   const values = $derived(form?.values ?? {});
   const fieldErrors = $derived(form?.fieldErrors ?? {});
 
@@ -24,6 +26,15 @@
   function err(key: FieldKey): string | undefined {
     return (fieldErrors as Record<string, string>)[key];
   }
+
+  // Live dupe-hints (mirrors the inline-create path on /invoices/new).
+  // Name match is advisory — shown as a suggestion list with a link to the
+  // existing customer; user can ignore and create anyway. Email match is
+  // also enforced server-side as a hard block.
+  let nameInput = $state<string>(untrack(() => v('name')));
+  let emailInput = $state<string>(untrack(() => v('email')));
+  const liveEmailDupe = $derived(findEmailDupe(emailInput, data.customers));
+  const liveNameDupes = $derived(findNameDupes(nameInput, data.customers));
 </script>
 
 <a href="/customers" class="eyebrow text-ink/60 hover:text-ink">← Customers</a>
@@ -48,11 +59,31 @@
       type="text"
       required
       maxlength="200"
-      value={v('name')}
+      bind:value={nameInput}
       class="mt-1 w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
     />
     {#if err('name')}
       <p class="mt-1 text-xs text-oxblood">{err('name')}</p>
+    {/if}
+    {#if liveNameDupes.length > 0}
+      <div class="mt-2 rounded-sm border border-ink/10 bg-cream-warm/60 p-2 text-xs">
+        <p class="text-ink/60">
+          Looks like {liveNameDupes.length === 1 ? 'an existing customer' : 'existing customers'}:
+        </p>
+        <ul class="mt-1 space-y-1">
+          {#each liveNameDupes as dupe (dupe.id)}
+            <li class="flex items-center justify-between gap-2">
+              <span class="text-ink">{dupe.name}{#if dupe.email}<span class="text-ink/50"> · {dupe.email}</span>{/if}</span>
+              <a
+                href="/customers/{dupe.id}"
+                class="rounded-sm border border-ink/15 bg-cream-warm px-2 py-1 text-xs uppercase tracking-wider text-ink/70 hover:border-gold-deep hover:text-gold-deep"
+              >
+                Open
+              </a>
+            </li>
+          {/each}
+        </ul>
+      </div>
     {/if}
   </div>
 
@@ -64,11 +95,39 @@
         name="email"
         type="email"
         maxlength="320"
-        value={v('email')}
+        bind:value={emailInput}
         class="mt-1 w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
       />
-      {#if err('email')}
+      {#if err('email') && err('email') !== 'email_dupe'}
         <p class="mt-1 text-xs text-oxblood">{err('email')}</p>
+      {/if}
+      {#if form?.dupeCustomer}
+        <div class="mt-2 rounded-sm border border-oxblood/30 bg-oxblood/5 p-3 text-sm">
+          <p class="text-ink">
+            <span class="font-medium">{form.dupeCustomer.name}</span> already uses this email.
+          </p>
+          <div class="mt-2 flex flex-wrap items-center gap-3">
+            <a
+              href="/customers/{form.dupeCustomer.id}"
+              class="rounded-sm bg-ink px-3 py-1 text-xs uppercase tracking-wider text-cream hover:bg-gold-deep"
+            >
+              Open {form.dupeCustomer.name}
+            </a>
+            <span class="text-xs text-ink/50">or change the email to create a different customer.</span>
+          </div>
+        </div>
+      {:else if liveEmailDupe}
+        <div class="mt-2 rounded-sm border border-gold-deep/30 bg-gold-deep/5 p-3 text-sm">
+          <p class="text-ink">
+            <span class="font-medium">{liveEmailDupe.name}</span> already uses this email.
+          </p>
+          <a
+            href="/customers/{liveEmailDupe.id}"
+            class="mt-2 inline-block rounded-sm border border-ink/20 bg-cream-warm px-3 py-1 text-xs uppercase tracking-wider text-ink/70 hover:border-gold-deep hover:text-gold-deep"
+          >
+            Open {liveEmailDupe.name}
+          </a>
+        </div>
       {/if}
     </div>
     <div>
