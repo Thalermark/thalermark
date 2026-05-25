@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
+  import AddressLookup from '$lib/components/AddressLookup.svelte';
   import type { PageProps } from './$types';
 
   let { data, form }: PageProps = $props();
@@ -29,6 +31,18 @@
   function err(key: FieldKey): string | undefined {
     return (fieldErrors as Record<string, string>)[key];
   }
+
+  // Address fields move from uncontrolled value={...} to bind:value so the
+  // AddressLookup component can write a picked suggestion across all five.
+  // v() already encodes the form?.values → data.customer precedence; reading
+  // it via untrack() at $state init captures the SSR-time value without
+  // re-triggering on subsequent form prop changes.
+  let addressLine1 = $state<string>(untrack(() => v('addressLine1')));
+  let addressLine2 = $state<string>(untrack(() => v('addressLine2')));
+  let city = $state<string>(untrack(() => v('city')));
+  let region = $state<string>(untrack(() => v('region')));
+  let postalCode = $state<string>(untrack(() => v('postalCode')));
+  let country = $state<string>(untrack(() => v('country')));
 </script>
 
 <a href="/customers/{data.customer.id}" class="eyebrow text-ink/60 hover:text-ink">← {data.customer.name}</a>
@@ -94,12 +108,19 @@
 
   <fieldset class="space-y-4">
     <legend class="font-mono text-xs uppercase tracking-widest text-ink/50">Address</legend>
+    <AddressLookup
+      bind:addressLine1
+      bind:city
+      bind:region
+      bind:postalCode
+      bind:country
+    />
     <input
       name="addressLine1"
       type="text"
       maxlength="200"
       placeholder="Street"
-      value={v('addressLine1')}
+      bind:value={addressLine1}
       class="w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
     />
     <input
@@ -107,7 +128,7 @@
       type="text"
       maxlength="200"
       placeholder="Suite, unit, etc."
-      value={v('addressLine2')}
+      bind:value={addressLine2}
       class="w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
     />
     <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -116,7 +137,7 @@
         type="text"
         maxlength="100"
         placeholder="City"
-        value={v('city')}
+        bind:value={city}
         class="rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
       />
       <input
@@ -124,7 +145,7 @@
         type="text"
         maxlength="100"
         placeholder="State / Region"
-        value={v('region')}
+        bind:value={region}
         class="rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
       />
       <input
@@ -132,7 +153,7 @@
         type="text"
         maxlength="20"
         placeholder="Postal code"
-        value={v('postalCode')}
+        bind:value={postalCode}
         class="rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
       />
     </div>
@@ -141,7 +162,7 @@
       type="text"
       maxlength="2"
       placeholder="Country (ISO, e.g. US)"
-      value={v('country')}
+      bind:value={country}
       class="w-32 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 uppercase text-ink focus:border-gold-deep focus:outline-none"
     />
   </fieldset>

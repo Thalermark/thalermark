@@ -175,6 +175,9 @@ importers:
       '@thalermark/brand':
         specifier: workspace:*
         version: link:../../packages/brand
+      '@thalermark/location':
+        specifier: workspace:*
+        version: link:../../packages/location
       '@thalermark/validation':
         specifier: workspace:*
         version: link:../../packages/validation
@@ -292,6 +295,15 @@ importers:
       '@types/uuid':
         specifier: 11.0.0
         version: 11.0.0
+      vitest:
+        specifier: 4.1.7
+        version: 4.1.7(@opentelemetry/api@1.9.1)(@types/node@25.9.0)(vite@8.0.14(@types/node@25.9.0)(esbuild@0.28.0)(jiti@1.21.7)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))
+
+  packages/location:
+    devDependencies:
+      '@types/node':
+        specifier: 25.9.0
+        version: 25.9.0
       vitest:
         specifier: 4.1.7
         version: 4.1.7(@opentelemetry/api@1.9.1)(@types/node@25.9.0)(vite@8.0.14(@types/node@25.9.0)(esbuild@0.28.0)(jiti@1.21.7)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))
