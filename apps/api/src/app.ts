@@ -14,6 +14,7 @@ import {
   customerCreateSchema,
   customerUpdateSchema,
   invoiceCreateSchema,
+  invoiceSendSchema,
   invoiceUpdateSchema,
 } from '@thalermark/validation';
 import { and, asc, desc, eq, isNull } from 'drizzle-orm';
@@ -23,9 +24,23 @@ import { cors } from 'hono/cors';
 import { validator } from 'hono/validator';
 import { v7 as uuidv7 } from 'uuid';
 import type { ApiAuth } from './lib/auth.js';
+import type { Mailer } from './lib/mailer.js';
 import { type RlsVariables, rlsContext } from './middleware/rls-context.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Inline HTML escaper for the invoice-send email body. The recipient's mail
+// client renders the HTML, and number / customer name / company name are
+// all user-supplied free text — a `<script>` in a company name would
+// otherwise ride out to every customer.
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 // Smart-detect: increment the trailing integer of the company's most recent
 // invoice number while keeping prefix + zero-padding intact. Preserves
@@ -152,6 +167,11 @@ export type AppDeps = {
   // Test seam: swap the invite-link logger. Defaults to console.log so dev
   // operators can grab the token from API stdout without an email transport.
   logInviteUrl?: (msg: string) => void;
+  // Email transport for the invoice-send endpoint. Optional so integration
+  // tests that don't exercise /send can omit it; routes that need it fail
+  // fast with 500 when called without a mailer wired in.
+  mailer?: Mailer;
+  emailFrom?: string;
 };
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -669,6 +689,154 @@ export function createApp(deps: AppDeps) {
       )
       .post('/api/invoices/:id/void', (c) =>
         transitionInvoice(c, c.req.param('id'), 'void', INVOICE_TRANSITIONS.void),
+      )
+      // Send the invoice via email. Distinct from /mark-sent (pure status
+      // transition, no I/O) because this endpoint adds a real side-effect
+      // and an optional recipient override. State machine: draft → sent +
+      // email; sent → email only (resend, public_token already idempotent
+      // from 8.5a); paid/voided → 409. Email I/O runs after the status
+      // transition + status audit row but BEFORE the email-sent audit row;
+      // mailer failure surfaces as a 502 and the tx still commits the flip
+      // (a Resend 5xx must not silently roll back a successful mark-sent
+      // and leave the audit trail lying about what happened — the user
+      // retries the send from the UI).
+      .post(
+        '/api/invoices/:id/send',
+        // validator middleware needed for the same reason PATCH endpoints
+        // use it (slice 8.4f): path-param routes type Input as `{ param }`
+        // and TS rejects `{ param, json }` from hc<AppType>() without the
+        // validator lifting the body into the typed Input. Body is fully
+        // optional (no override → defaults to customer.email server-side)
+        // so empty `{}` is valid.
+        validator('json', (value, c) => {
+          const parsed = invoiceSendSchema.safeParse(value ?? {});
+          if (!parsed.success) {
+            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+          }
+          return parsed.data;
+        }),
+        async (c) => {
+          const id = c.req.param('id');
+          if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+          if (!deps.mailer) return c.json({ error: 'email_not_configured' }, 500);
+
+          const { to: toOverrideRaw } = c.req.valid('json');
+          const toOverride = toOverrideRaw?.trim() || null;
+
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+
+          const [current] = await tx
+            .select()
+            .from(invoices)
+            .where(and(eq(invoices.id, id), eq(invoices.accountId, accountId)))
+            .limit(1);
+          if (!current) return c.json({ error: 'invoice_not_found' }, 404);
+          if (current.status === 'paid' || current.status === 'voided') {
+            return c.json({ error: 'invalid_transition', from: current.status, to: 'sent' }, 409);
+          }
+
+          const [customer] = await tx
+            .select({ id: customers.id, name: customers.name, email: customers.email })
+            .from(customers)
+            .where(and(eq(customers.id, current.customerId), eq(customers.accountId, accountId)))
+            .limit(1);
+          if (!customer) return c.json({ error: 'customer_not_found' }, 404);
+
+          const to = (toOverride ?? customer.email ?? '').trim();
+          if (!to || !EMAIL_RE.test(to)) return c.json({ error: 'invalid_recipient' }, 400);
+
+          const [company] = await tx
+            .select({ name: companies.name })
+            .from(companies)
+            .where(and(eq(companies.id, current.companyId), eq(companies.accountId, accountId)))
+            .limit(1);
+
+          // First-send transition: draft → sent, stamps sent_at, mints the
+          // public token if missing (same idempotent pattern as mark-sent).
+          // Resend leaves status / sent_at / public_token untouched.
+          let invoice = current;
+          if (current.status === 'draft') {
+            const now = new Date();
+            const [updated] = await tx
+              .update(invoices)
+              .set({
+                status: 'sent',
+                sentAt: now,
+                updatedAt: now,
+                publicToken: current.publicToken ?? randomBytes(32).toString('hex'),
+              })
+              .where(and(eq(invoices.id, id), eq(invoices.accountId, accountId)))
+              .returning();
+            if (!updated) return c.json({ error: 'invoice_not_found' }, 404);
+            invoice = updated;
+
+            await c.var.audit({
+              entityType: 'invoice',
+              entityId: id,
+              action: 'mark-sent',
+              before: {
+                status: current.status,
+                sentAt: current.sentAt,
+                paidAt: current.paidAt,
+                voidedAt: current.voidedAt,
+                publicToken: current.publicToken,
+              },
+              after: {
+                status: updated.status,
+                sentAt: updated.sentAt,
+                paidAt: updated.paidAt,
+                voidedAt: updated.voidedAt,
+                publicToken: updated.publicToken,
+              },
+              companyId: updated.companyId,
+            });
+          }
+
+          if (!invoice.publicToken) {
+            return c.json({ error: 'invoice_state_invalid' }, 500);
+          }
+
+          const companyName = company?.name ?? 'Thalermark';
+          const publicUrl = deps.publicAppUrl
+            ? `${deps.publicAppUrl}/i/${invoice.publicToken}`
+            : `/i/${invoice.publicToken}`;
+          const subject = `Invoice ${invoice.number} from ${companyName}`;
+          const greeting = customer.name ? `Hi ${customer.name},` : 'Hi,';
+          const text =
+            `${greeting}\n\n` +
+            `Invoice ${invoice.number} for ${invoice.total} ${invoice.currency} is ready.\n` +
+            `Due ${invoice.dueDate}.\n\n` +
+            `View it: ${publicUrl}\n\n` +
+            `— ${companyName}`;
+          // Escape user-controlled fields before embedding in HTML — invoice
+          // number, customer name, and company name are all free text and a
+          // recipient's email client will render the HTML body.
+          const html =
+            `<p>${escapeHtml(greeting)}</p>` +
+            `<p>Invoice <strong>${escapeHtml(invoice.number)}</strong> for ` +
+            `<strong>${escapeHtml(invoice.total)} ${escapeHtml(invoice.currency)}</strong> is ready. ` +
+            `Due ${escapeHtml(invoice.dueDate)}.</p>` +
+            `<p><a href="${escapeHtml(publicUrl)}">View invoice</a></p>` +
+            `<p>— ${escapeHtml(companyName)}</p>`;
+
+          try {
+            await deps.mailer.send({ to, subject, html, text });
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return c.json({ error: 'email_failed', detail: message }, 502);
+          }
+
+          await c.var.audit({
+            entityType: 'invoice',
+            entityId: id,
+            action: 'email-sent',
+            after: { to, subject },
+            companyId: invoice.companyId,
+          });
+
+          return c.json({ ...invoice, sentTo: to });
+        },
       )
       // Public invoice view — unauthed, gated only by the random token in
       // the URL. rls-context skips this path entirely (no session, no

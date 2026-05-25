@@ -32,6 +32,8 @@ describe('POST /api/auth/sign-up/email', () => {
         betterAuthUrl: 'http://localhost:3000',
         trustedOrigins: [],
         publicAppUrl: '',
+        resendApiKey: undefined,
+        emailFrom: 'Thalermark <test@thalermark.test>',
       });
       const app = createApp({ auth, db: handle.db });
 
@@ -83,6 +85,8 @@ describe('POST /api/auth/sign-up/email', () => {
         betterAuthUrl: 'http://localhost:3000',
         trustedOrigins: [],
         publicAppUrl: '',
+        resendApiKey: undefined,
+        emailFrom: 'Thalermark <test@thalermark.test>',
       });
       const app = createApp({ auth, db: handle.db });
 

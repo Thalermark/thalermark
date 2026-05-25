@@ -28,6 +28,8 @@ const testEnv: Env = {
   betterAuthUrl: 'http://localhost:3000',
   trustedOrigins: [],
   publicAppUrl: 'http://localhost:5173',
+  resendApiKey: undefined,
+  emailFrom: 'Thalermark <test@thalermark.test>',
 };
 
 function extractSessionCookie(res: Response): string {
@@ -71,7 +73,7 @@ async function userContext(email: string): Promise<{
   return { userId: user.id, accountId: m.accountId, companyId: company.id };
 }
 
-function buildApp() {
+function buildApp(opts: { mailer?: import('../src/lib/mailer.js').Mailer } = {}) {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL not set');
   const handle = createApiDatabase(url);
@@ -81,6 +83,8 @@ function buildApp() {
     db: handle.db,
     publicAppUrl: testEnv.publicAppUrl,
     logInviteUrl: () => {},
+    mailer: opts.mailer,
+    emailFrom: 'Thalermark <test@thalermark.test>',
   });
   return { app, handle };
 }
@@ -93,11 +97,12 @@ async function createCustomer(
   accountId: string,
   companyId: string,
   name = 'Wile E. Coyote',
+  email?: string,
 ): Promise<string> {
   const res = await app.request('/api/customers', {
     method: 'POST',
     headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
-    body: JSON.stringify({ companyId, name }),
+    body: JSON.stringify(email ? { companyId, name, email } : { companyId, name }),
   });
   if (res.status !== 201) throw new Error(`customer create failed: ${res.status}`);
   const body = (await res.json()) as { id: string };
@@ -975,6 +980,263 @@ describe('public invoice view', () => {
       // public route is to guess — covered by the unknown-token 404 above.
       // This assertion captures the invariant: drafts never get a token,
       // even by accident.
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+});
+
+describe('POST /api/invoices/:id/send', () => {
+  beforeEach(resetDb);
+
+  // Recorder mailer: same test-seam shape as logInviteUrl. Each .send() call
+  // appends to `sent`; the throws flag flips the next send into a failure to
+  // exercise the 502 path without coupling to Resend or fetch internals.
+  type SentMail = { to: string; subject: string; html: string; text: string };
+  function makeRecorder(opts: { throws?: boolean } = {}) {
+    const sent: SentMail[] = [];
+    return {
+      sent,
+      mailer: {
+        async send(msg: SentMail) {
+          if (opts.throws) throw new Error('mailer_down');
+          sent.push(msg);
+        },
+      },
+    };
+  }
+
+  async function seedDraftInvoiceWithEmail(
+    ctx: CtxApp,
+    signupEmail: string,
+    customerEmail: string | null = 'wile@acme.test',
+  ): Promise<{ cookie: string; accountId: string; invoiceId: string; customerId: string }> {
+    const cookie = await signUp(ctx.app, signupEmail);
+    const { accountId, companyId } = await userContext(signupEmail);
+    const customerId = await createCustomer(
+      ctx,
+      cookie,
+      accountId,
+      companyId,
+      'Wile E. Coyote',
+      customerEmail ?? undefined,
+    );
+    const create = await ctx.app.request('/api/invoices', {
+      method: 'POST',
+      headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+      body: JSON.stringify(invoiceBody(companyId, customerId)),
+    });
+    if (create.status !== 201) throw new Error(`seed invoice failed: ${create.status}`);
+    const { id } = (await create.json()) as { id: string };
+    return { cookie, accountId, invoiceId: id, customerId };
+  }
+
+  it('first send transitions draft → sent, emails the customer, writes both audit rows', async () => {
+    const rec = makeRecorder();
+    const ctx = buildApp({ mailer: rec.mailer });
+    try {
+      const { cookie, accountId, invoiceId } = await seedDraftInvoiceWithEmail(
+        ctx,
+        'sender@example.com',
+      );
+      const res = await ctx.app.request(`/api/invoices/${invoiceId}/send`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: '{}',
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        status: string;
+        sentAt: string | null;
+        publicToken: string | null;
+        sentTo: string;
+      };
+      expect(body.status).toBe('sent');
+      expect(body.sentAt).not.toBeNull();
+      expect(body.publicToken).toBeTypeOf('string');
+      expect(body.sentTo).toBe('wile@acme.test');
+
+      expect(rec.sent).toHaveLength(1);
+      const mail = rec.sent[0];
+      expect(mail?.to).toBe('wile@acme.test');
+      expect(mail?.subject).toMatch(/Invoice INV-001/);
+      // Body links to the public view using the token the API just minted.
+      expect(mail?.html).toContain(`/i/${body.publicToken}`);
+      expect(mail?.text).toContain(`/i/${body.publicToken}`);
+
+      const db = getTestDb();
+      const audits = await db.select().from(auditEvents).where(eq(auditEvents.entityId, invoiceId));
+      expect(audits.map((a) => a.action).sort()).toEqual(['create', 'email-sent', 'mark-sent']);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('resend on a sent invoice emails again without transitioning or re-minting the token', async () => {
+    const rec = makeRecorder();
+    const ctx = buildApp({ mailer: rec.mailer });
+    try {
+      const { cookie, accountId, invoiceId } = await seedDraftInvoiceWithEmail(
+        ctx,
+        'resend@example.com',
+      );
+      const first = await ctx.app.request(`/api/invoices/${invoiceId}/send`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: '{}',
+      });
+      expect(first.status).toBe(200);
+      const db = getTestDb();
+      const [afterFirst] = await db.select().from(invoices).where(eq(invoices.id, invoiceId));
+      const firstSentAt = afterFirst?.sentAt;
+      const mintedToken = afterFirst?.publicToken;
+
+      const second = await ctx.app.request(`/api/invoices/${invoiceId}/send`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: '{}',
+      });
+      expect(second.status).toBe(200);
+      expect(rec.sent).toHaveLength(2);
+
+      const [afterSecond] = await db.select().from(invoices).where(eq(invoices.id, invoiceId));
+      expect(afterSecond?.status).toBe('sent');
+      expect(afterSecond?.publicToken).toBe(mintedToken);
+      expect(afterSecond?.sentAt?.toISOString()).toBe(firstSentAt?.toISOString());
+
+      // Two email-sent rows, still only one mark-sent.
+      const audits = await db.select().from(auditEvents).where(eq(auditEvents.entityId, invoiceId));
+      expect(audits.filter((a) => a.action === 'mark-sent')).toHaveLength(1);
+      expect(audits.filter((a) => a.action === 'email-sent')).toHaveLength(2);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('sends to the body override when provided', async () => {
+    const rec = makeRecorder();
+    const ctx = buildApp({ mailer: rec.mailer });
+    try {
+      const { cookie, accountId, invoiceId } = await seedDraftInvoiceWithEmail(
+        ctx,
+        'override@example.com',
+      );
+      const res = await ctx.app.request(`/api/invoices/${invoiceId}/send`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify({ to: 'bookkeeper@acme.test' }),
+      });
+      expect(res.status).toBe(200);
+      expect(rec.sent).toHaveLength(1);
+      expect(rec.sent[0]?.to).toBe('bookkeeper@acme.test');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('returns 400 invalid_recipient when neither override nor customer email is present', async () => {
+    const rec = makeRecorder();
+    const ctx = buildApp({ mailer: rec.mailer });
+    try {
+      const { cookie, accountId, invoiceId } = await seedDraftInvoiceWithEmail(
+        ctx,
+        'no-email@example.com',
+        null, // customer has no email
+      );
+      const res = await ctx.app.request(`/api/invoices/${invoiceId}/send`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: '{}',
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toBe('invalid_recipient');
+      expect(rec.sent).toHaveLength(0);
+
+      // Draft stays draft on a 400 — no transition, no audit row.
+      const db = getTestDb();
+      const [row] = await db.select().from(invoices).where(eq(invoices.id, invoiceId));
+      expect(row?.status).toBe('draft');
+      expect(row?.sentAt).toBeNull();
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('rejects send on a paid invoice with 409 invalid_transition', async () => {
+    const rec = makeRecorder();
+    const ctx = buildApp({ mailer: rec.mailer });
+    try {
+      const { cookie, accountId, invoiceId } = await seedDraftInvoiceWithEmail(
+        ctx,
+        'paid-send@example.com',
+      );
+      await ctx.app.request(`/api/invoices/${invoiceId}/mark-paid`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      const res = await ctx.app.request(`/api/invoices/${invoiceId}/send`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: '{}',
+      });
+      expect(res.status).toBe(409);
+      const body = (await res.json()) as { error: string; from: string };
+      expect(body.error).toBe('invalid_transition');
+      expect(body.from).toBe('paid');
+      expect(rec.sent).toHaveLength(0);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('mailer failure surfaces 502 BUT the status transition still commits', async () => {
+    const rec = makeRecorder({ throws: true });
+    const ctx = buildApp({ mailer: rec.mailer });
+    try {
+      const { cookie, accountId, invoiceId } = await seedDraftInvoiceWithEmail(
+        ctx,
+        'bad-mailer@example.com',
+      );
+      const res = await ctx.app.request(`/api/invoices/${invoiceId}/send`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: '{}',
+      });
+      expect(res.status).toBe(502);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toBe('email_failed');
+
+      // Status flip + token mint + mark-sent audit row all commit; only the
+      // email-sent audit row is absent so the user can retry the send.
+      const db = getTestDb();
+      const [row] = await db.select().from(invoices).where(eq(invoices.id, invoiceId));
+      expect(row?.status).toBe('sent');
+      expect(row?.sentAt).not.toBeNull();
+      expect(row?.publicToken).toBeTypeOf('string');
+
+      const audits = await db.select().from(auditEvents).where(eq(auditEvents.entityId, invoiceId));
+      expect(audits.map((a) => a.action).sort()).toEqual(['create', 'mark-sent']);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('returns 500 email_not_configured when no mailer is wired in', async () => {
+    const ctx = buildApp(); // no mailer
+    try {
+      const { cookie, accountId, invoiceId } = await seedDraftInvoiceWithEmail(
+        ctx,
+        'no-mailer@example.com',
+      );
+      const res = await ctx.app.request(`/api/invoices/${invoiceId}/send`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: '{}',
+      });
+      expect(res.status).toBe(500);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toBe('email_not_configured');
     } finally {
       await ctx.handle.close();
     }
