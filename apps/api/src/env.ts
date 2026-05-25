@@ -35,6 +35,13 @@ export type Env = {
   // on every outbound message.
   resendApiKey: string | undefined;
   emailFrom: string;
+  // Stripe credentials for the pay-link flow. All three must be set for
+  // Stripe to be wired in — server.ts builds the bundle lazily and the
+  // pay-button hides itself when null. Keeps dev / self-host runnable
+  // without a Stripe account.
+  stripeSecretKey: string | undefined;
+  stripePublishableKey: string | undefined;
+  stripeWebhookSecret: string | undefined;
 };
 
 const DEFAULT_PORT = 3000;
@@ -74,6 +81,9 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     publicAppUrl: source.PUBLIC_APP_URL ?? '',
     resendApiKey: source.RESEND_API_KEY || undefined,
     emailFrom: source.EMAIL_FROM ?? 'Thalermark <hello@thalermark.com>',
+    stripeSecretKey: source.STRIPE_SECRET_KEY || undefined,
+    stripePublishableKey: source.STRIPE_PUBLISHABLE_KEY || undefined,
+    stripeWebhookSecret: source.STRIPE_WEBHOOK_SECRET || undefined,
   });
 }
 

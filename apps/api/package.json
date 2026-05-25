@@ -25,6 +25,7 @@
     "drizzle-orm": "0.45.2",
     "hono": "4.12.19",
     "pg": "8.21.0",
+    "stripe": "22.1.1",
     "uuid": "14.0.0"
   },
   "devDependencies": {

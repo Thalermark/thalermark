@@ -41,7 +41,12 @@ const BOOTSTRAP_PATH_PATTERNS: RegExp[] = [
 // invoice email has no account here. The handler is on the hook for treating
 // the token as the only credential and reading via bootstrapDb (RLS would
 // hide everything under the missing app.current_account_id setting).
-const PUBLIC_PATH_PATTERNS: RegExp[] = [/^\/api\/public\//];
+//
+// /api/public/* — invoice-recipient-facing reads / Stripe Checkout session
+//                  mints, gated by the random invoice publicToken.
+// /api/webhooks/* — server-to-server callbacks (Stripe, future providers),
+//                  gated by the provider's signature scheme on the raw body.
+const PUBLIC_PATH_PATTERNS: RegExp[] = [/^\/api\/public\//, /^\/api\/webhooks\//];
 
 function isBootstrapPath(path: string): boolean {
   return BOOTSTRAP_PATH_PATTERNS.some((p) => p.test(path));

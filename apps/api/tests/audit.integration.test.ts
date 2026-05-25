@@ -24,6 +24,9 @@ const testEnv: Env = {
   publicAppUrl: '',
   resendApiKey: undefined,
   emailFrom: 'Thalermark <test@thalermark.test>',
+  stripeSecretKey: undefined,
+  stripePublishableKey: undefined,
+  stripeWebhookSecret: undefined,
 };
 
 function extractSessionCookie(res: Response): string {

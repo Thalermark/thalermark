@@ -1,7 +1,9 @@
 import { randomBytes } from 'node:crypto';
 import {
   type Database,
+  SYSTEM_USER_ID,
   accounts,
+  auditEvents,
   authUser,
   companies,
   customers,
@@ -25,6 +27,7 @@ import { validator } from 'hono/validator';
 import { v7 as uuidv7 } from 'uuid';
 import type { ApiAuth } from './lib/auth.js';
 import type { Mailer } from './lib/mailer.js';
+import { type StripeBundle, decimalDollarsToCents } from './lib/stripe.js';
 import { type RlsVariables, rlsContext } from './middleware/rls-context.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -172,6 +175,11 @@ export type AppDeps = {
   // fast with 500 when called without a mailer wired in.
   mailer?: Mailer;
   emailFrom?: string;
+  // Stripe SDK bundle (client + publishable key + webhook secret). Null
+  // when the operator hasn't configured STRIPE_* env vars — the public-
+  // invoice view checks for null and hides the Pay button rather than
+  // erroring; the webhook route returns 503 in that state.
+  stripe?: StripeBundle | null;
 };
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -892,7 +900,142 @@ export function createApp(deps: AppDeps) {
           companyName: company?.name ?? null,
           customerName: customer?.name ?? null,
           lineItems: lines,
+          // Tell the client whether the Pay button is wirable. Avoids a
+          // separate config probe; the recipient's page can branch on this
+          // alone without inferring from a 503 on the session-mint call.
+          payable: deps.stripe != null && invoice.status === 'sent',
         });
+      })
+      // Stripe Embedded Checkout session mint. Lazy — the public-view page
+      // only POSTs here when the recipient clicks Pay, so we don't bill a
+      // Stripe API call on every passive page load. Status guard mirrors
+      // the public-invoice GET's `payable` flag; the duplicate check is
+      // deliberate (the client could be stale or hand-crafted).
+      .post('/api/public/invoices/:token/checkout-session', async (c) => {
+        if (!deps.stripe) return c.json({ error: 'stripe_not_configured' }, 503);
+        if (!deps.publicAppUrl) return c.json({ error: 'public_url_not_configured' }, 503);
+        const token = c.req.param('token');
+        const [invoice] = await bootstrapDb
+          .select()
+          .from(invoices)
+          .where(eq(invoices.publicToken, token))
+          .limit(1);
+        if (!invoice) return c.json({ error: 'invoice_not_found' }, 404);
+        if (invoice.status !== 'sent') {
+          return c.json({ error: 'not_payable', status: invoice.status }, 409);
+        }
+        const amountCents = decimalDollarsToCents(invoice.total);
+        if (amountCents <= 0) return c.json({ error: 'invalid_amount' }, 400);
+
+        const session = await deps.stripe.client.checkout.sessions.create({
+          // Stripe 22.x renamed this from the older 'embedded' literal; same
+          // flow — mounts Stripe-hosted UI inside our page via stripe.js'
+          // initEmbeddedCheckout.
+          ui_mode: 'embedded_page',
+          mode: 'payment',
+          // Stripe navigates the parent window here after success. Includes
+          // ?paid=1 so the page can render a "payment received, processing"
+          // banner immediately even if the webhook hasn't fired yet.
+          return_url: `${deps.publicAppUrl}/i/${invoice.publicToken}?paid=1`,
+          line_items: [
+            {
+              price_data: {
+                currency: invoice.currency.toLowerCase(),
+                product_data: { name: `Invoice ${invoice.number}` },
+                unit_amount: amountCents,
+              },
+              quantity: 1,
+            },
+          ],
+          // Echoed on the webhook event — primary lookup for the
+          // invoice-id → mark-paid transition. Metadata duplicated so a
+          // human reading the Stripe dashboard can also resolve the
+          // invoice without poking at our DB.
+          client_reference_id: invoice.id,
+          metadata: { invoiceId: invoice.id, accountId: invoice.accountId },
+        });
+
+        return c.json({
+          clientSecret: session.client_secret,
+          publishableKey: deps.stripe.publishableKey,
+        });
+      })
+      // Stripe webhook. Signature-verified against the raw body — the JSON
+      // parse must come from the SDK, not Hono's, so we read text() and
+      // hand it straight to constructEventAsync. No tenant context; the
+      // signature IS the auth. Acknowledges with 200 for any state that
+      // doesn't need action (already-paid, missing invoice, non-completion
+      // event) so Stripe stops the retry loop.
+      .post('/api/webhooks/stripe', async (c) => {
+        if (!deps.stripe) return c.json({ error: 'stripe_not_configured' }, 503);
+        const sig = c.req.header('stripe-signature');
+        if (!sig) return c.json({ error: 'missing_signature' }, 400);
+        const rawBody = await c.req.text();
+        let event: import('stripe').Stripe.Event;
+        try {
+          event = await deps.stripe.client.webhooks.constructEventAsync(
+            rawBody,
+            sig,
+            deps.stripe.webhookSecret,
+          );
+        } catch {
+          return c.json({ error: 'invalid_signature' }, 400);
+        }
+
+        if (event.type !== 'checkout.session.completed') {
+          return c.json({ received: true });
+        }
+        const session = event.data.object;
+        if (session.payment_status !== 'paid') {
+          return c.json({ received: true });
+        }
+        const invoiceId = session.client_reference_id;
+        if (!invoiceId || !UUID_RE.test(invoiceId)) {
+          return c.json({ received: true });
+        }
+
+        const [current] = await bootstrapDb
+          .select()
+          .from(invoices)
+          .where(eq(invoices.id, invoiceId))
+          .limit(1);
+        if (!current) return c.json({ received: true });
+        // Already-paid is the idempotent case (Stripe re-delivery, double-
+        // submit). 200 so Stripe stops retrying; no audit row.
+        if (current.status === 'paid') return c.json({ received: true });
+        // Other terminal states (voided, draft-without-send) — should not
+        // happen because checkout-session mint guards on status=sent, but
+        // a future PI created out-of-band could land here. 200 + no-op so
+        // the webhook queue drains; the manual reconciliation is on the
+        // operator at that point.
+        if (current.status !== 'sent') return c.json({ received: true });
+
+        const now = new Date();
+        const [updated] = await bootstrapDb
+          .update(invoices)
+          .set({ status: 'paid', paidAt: now, updatedAt: now })
+          .where(eq(invoices.id, invoiceId))
+          .returning();
+        if (!updated) return c.json({ received: true });
+
+        // Audit row attributed to the synthetic system user (migration
+        // 0009 seeded it specifically for this kind of provider callback).
+        // bootstrapDb path — RLS would otherwise hide the row from the
+        // tenant role on read; the policy on audit_events allows the
+        // superuser unconditionally.
+        await bootstrapDb.insert(auditEvents).values({
+          id: uuidv7(),
+          accountId: current.accountId,
+          companyId: current.companyId,
+          actorUserId: SYSTEM_USER_ID,
+          entityType: 'invoice',
+          entityId: invoiceId,
+          action: 'stripe-paid',
+          before: { status: current.status, paidAt: current.paidAt },
+          after: { status: updated.status, paidAt: updated.paidAt },
+        });
+
+        return c.json({ received: true });
       })
   );
 }
