@@ -8,6 +8,7 @@ import { loadEnv } from './env.js';
 import { createApiAuth } from './lib/auth.js';
 import { createApiDatabase } from './lib/db.js';
 import { initErrorTracking } from './lib/error-tracking.js';
+import { type Mailer, createConsoleMailer, createResendMailer } from './lib/mailer.js';
 import { provisionAppRole } from './lib/role-provision.js';
 
 // Project-root .env is the dev convention (see drizzle.config.ts). Resolved
@@ -58,12 +59,25 @@ const dbHandle = createApiDatabase(env.appDatabaseUrl);
 const bootstrapDbHandle = createApiDatabase(env.databaseUrl);
 const auth = createApiAuth(bootstrapDbHandle.db, env);
 
+// Resend when an API key is configured; console driver otherwise. The console
+// driver is the dev / self-host fallback so operators can grab the message
+// from stdout without provisioning SMTP. SMTP via nodemailer lands when a
+// real self-host operator needs it.
+const mailer: Mailer = env.resendApiKey
+  ? createResendMailer({ apiKey: env.resendApiKey, from: env.emailFrom })
+  : createConsoleMailer({ from: env.emailFrom });
+if (!env.resendApiKey) {
+  log.info('email transport: console (RESEND_API_KEY unset)');
+}
+
 const app = createApp({
   auth,
   db: dbHandle.db,
   bootstrapDb: bootstrapDbHandle.db,
   trustedOrigins: env.trustedOrigins,
   publicAppUrl: env.publicAppUrl,
+  mailer,
+  emailFrom: env.emailFrom,
 });
 
 const server = serve(

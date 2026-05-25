@@ -54,3 +54,13 @@ export type InvoiceCreateInput = z.infer<typeof invoiceCreateSchema>;
 export const invoiceUpdateSchema = invoiceCreateSchema.omit({ companyId: true });
 
 export type InvoiceUpdateInput = z.infer<typeof invoiceUpdateSchema>;
+
+// Input schema for POST /api/invoices/:id/send. `to` is an optional
+// recipient override — defaults to the customer's email server-side. Empty
+// body (no override) is valid and the schema reflects that with an
+// optional everything object.
+export const invoiceSendSchema = z.object({
+  to: z.string().email().optional(),
+});
+
+export type InvoiceSendInput = z.infer<typeof invoiceSendSchema>;

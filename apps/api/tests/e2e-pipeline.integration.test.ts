@@ -23,6 +23,8 @@ const testEnv: Env = {
   betterAuthUrl: 'http://localhost:3000',
   trustedOrigins: [],
   publicAppUrl: '',
+  resendApiKey: undefined,
+  emailFrom: 'Thalermark <test@thalermark.test>',
 };
 
 function extractSessionCookie(res: Response): string {

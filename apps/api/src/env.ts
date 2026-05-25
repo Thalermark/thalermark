@@ -29,6 +29,12 @@ export type Env = {
   betterAuthUrl: string;
   trustedOrigins: string[];
   publicAppUrl: string;
+  // Email transport. When resendApiKey is set, server.ts wires the Resend
+  // driver; otherwise it falls back to the console driver (logs the message
+  // — fine for dev / self-host without SMTP). emailFrom is the From header
+  // on every outbound message.
+  resendApiKey: string | undefined;
+  emailFrom: string;
 };
 
 const DEFAULT_PORT = 3000;
@@ -66,6 +72,8 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     betterAuthUrl,
     trustedOrigins: parseOrigins(source.TRUSTED_ORIGINS),
     publicAppUrl: source.PUBLIC_APP_URL ?? '',
+    resendApiKey: source.RESEND_API_KEY || undefined,
+    emailFrom: source.EMAIL_FROM ?? 'Thalermark <hello@thalermark.com>',
   });
 }
 

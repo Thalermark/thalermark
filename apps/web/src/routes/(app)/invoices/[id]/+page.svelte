@@ -8,19 +8,26 @@
   // Mirrors the API state machine: draft can be sent / paid / voided;
   // sent can be paid / voided; paid and voided are terminal. The buttons
   // disappear on terminal states so the UI doesn't tempt a 409 round-trip.
+  // canSend covers both first-send (draft → sent + email) and resend
+  // (sent → email only); the API handles the dispatch.
+  const canSend = $derived(inv.status === 'draft' || inv.status === 'sent');
   const canMarkSent = $derived(inv.status === 'draft');
   const canMarkPaid = $derived(inv.status === 'draft' || inv.status === 'sent');
   const canVoid = $derived(inv.status === 'draft' || inv.status === 'sent');
   // Edit gate matches the API's draft-only rule — once sent/paid/voided the
   // invoice belongs to the audit trail, not the editor.
   const canEdit = $derived(inv.status === 'draft');
-  const hasActions = $derived(canMarkSent || canMarkPaid || canVoid);
+  const hasActions = $derived(canSend || canMarkSent || canMarkPaid || canVoid);
 
   // Public share URL is available once mark-sent mints the token. Built
-  // server-side off event.url.origin so it works behind any proxy. The
-  // email-send slice will inline this URL in the invoice email; until
-  // then the user copies it manually from the share panel below.
+  // server-side off event.url.origin so it works behind any proxy. Shown
+  // alongside the email send so the user can also share the link directly.
   const publicUrl = $derived(inv.publicToken ? `${data.origin}/i/${inv.publicToken}` : null);
+
+  // Send-form state: collapsed `to` override field, opens on a click.
+  // Default `to` mirrors the customer's email when available.
+  let showOverride = $state(false);
+  const sendLabel = $derived(inv.status === 'sent' ? 'Resend invoice' : 'Send invoice');
 </script>
 
 <a href="/invoices" class="eyebrow text-ink/60 hover:text-ink">← Invoices</a>
@@ -47,16 +54,41 @@
   </div>
 {/if}
 
+{#if data.sentTo}
+  <div class="mt-6 rounded-sm border border-gold-deep/30 bg-gold-deep/5 px-4 py-3 text-sm text-ink">
+    Sent to <span class="font-medium">{data.sentTo}</span>.
+  </div>
+{/if}
+
 {#if hasActions}
   <div class="mt-6 flex flex-wrap items-center gap-3">
-    {#if canMarkSent}
-      <form method="post" action="?/markSent">
+    {#if canSend}
+      <form method="post" action="?/send" class="flex flex-wrap items-center gap-2">
+        {#if showOverride}
+          <input
+            type="email"
+            name="to"
+            placeholder={customer?.email ?? 'recipient@example.com'}
+            class="rounded-sm border border-ink/20 bg-cream-warm px-3 py-2 text-sm text-ink placeholder:text-ink/40 focus:border-gold-deep focus:outline-none"
+          />
+        {/if}
         <button
           type="submit"
           class="rounded-sm bg-ink px-4 py-2 text-sm font-medium text-cream transition-colors hover:bg-gold-deep"
         >
-          Mark sent
+          {sendLabel}
         </button>
+        {#if !showOverride}
+          <button
+            type="button"
+            onclick={() => {
+              showOverride = true;
+            }}
+            class="text-xs uppercase tracking-widest text-ink/50 hover:text-gold-deep"
+          >
+            Send to another address
+          </button>
+        {/if}
       </form>
     {/if}
     {#if canMarkPaid}
@@ -80,6 +112,16 @@
       </form>
     {/if}
   </div>
+  {#if canMarkSent}
+    <form method="post" action="?/markSent" class="mt-2">
+      <button
+        type="submit"
+        class="text-xs uppercase tracking-widest text-ink/50 hover:text-gold-deep"
+      >
+        Mark sent without email
+      </button>
+    </form>
+  {/if}
 {/if}
 
 {#if publicUrl}
@@ -91,7 +133,7 @@
       </a>
     </div>
     <p class="mt-2 text-xs text-ink/50">
-      Anyone with this link can view the invoice. Email delivery lands in a follow-up.
+      Anyone with this link can view the invoice.
     </p>
   </div>
 {/if}
