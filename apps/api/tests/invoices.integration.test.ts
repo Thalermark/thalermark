@@ -85,7 +85,6 @@ function buildApp(opts: { mailer?: import('../src/lib/mailer.js').Mailer } = {})
     auth,
     db: handle.db,
     publicAppUrl: testEnv.publicAppUrl,
-    logInviteUrl: () => {},
     mailer: opts.mailer,
     emailFrom: 'Thalermark <test@thalermark.test>',
   });
@@ -992,7 +991,7 @@ describe('public invoice view', () => {
 describe('POST /api/invoices/:id/send', () => {
   beforeEach(resetDb);
 
-  // Recorder mailer: same test-seam shape as logInviteUrl. Each .send() call
+  // Recorder mailer: capture .send() calls instead of hitting the wire. Each
   // appends to `sent`; the throws flag flips the next send into a failure to
   // exercise the 502 path without coupling to Resend or fetch internals.
   type SentMail = { to: string; subject: string; html: string; text: string };
