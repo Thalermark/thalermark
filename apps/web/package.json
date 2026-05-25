@@ -19,9 +19,9 @@
     "@thalermark/brand": "workspace:*",
     "@thalermark/location": "workspace:*",
     "@thalermark/validation": "workspace:*",
-    "@stripe/stripe-js": "9.1.0",
+    "@stripe/stripe-js": "9.6.0",
     "better-auth": "1.6.11",
-    "hono": "4.12.19"
+    "hono": "4.12.23"
   },
   "devDependencies": {
     "@sveltejs/adapter-node": "5.2.12",
