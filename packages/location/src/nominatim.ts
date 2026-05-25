@@ -39,7 +39,8 @@ export interface NominatimProviderConfig {
 export function createNominatimProvider(
   config: NominatimProviderConfig = {},
 ): AddressAutocompleteProvider {
-  const baseUrl = (config.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '');
+  let baseUrl = config.baseUrl ?? DEFAULT_BASE_URL;
+  while (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
   const userAgent = config.userAgent ?? 'Thalermark/1.0 (https://thalermark.com)';
   const fetchImpl = config.fetchImpl ?? fetch;
 
