@@ -78,7 +78,6 @@ function buildApp() {
     auth,
     db: handle.db,
     publicAppUrl: testEnv.publicAppUrl,
-    logInviteUrl: () => {},
   });
   return { app, handle };
 }

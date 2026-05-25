@@ -1,11 +1,28 @@
 import { accounts, authUser, invitations, memberships } from '@thalermark/db';
 import { eq } from 'drizzle-orm';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
 import type { Env } from '../src/env.js';
 import { createApiAuth } from '../src/lib/auth.js';
 import { createApiDatabase } from '../src/lib/db.js';
+import type { Mailer } from '../src/lib/mailer.js';
 import { getTestDb, resetDb } from './test-helper.js';
+
+// Recorder mailer mirrors the shape used in invoices.integration.test.ts —
+// each .send() call appends to `sent`; the throws flag flips the next send
+// into a failure to exercise the 502 path without coupling to Resend or
+// fetch internals.
+type SentMail = { to: string; subject: string; html: string; text: string };
+function makeRecorder(opts: { throws?: boolean } = {}) {
+  const sent: SentMail[] = [];
+  const mailer: Mailer = {
+    async send(msg: SentMail) {
+      if (opts.throws) throw new Error('mailer_down');
+      sent.push(msg);
+    },
+  };
+  return { sent, mailer };
+}
 
 const testEnv: Env = {
   nodeEnv: 'test',
@@ -60,7 +77,7 @@ async function userAndAccount(email: string): Promise<{ userId: string; accountI
   return { userId: user.id, accountId: m.accountId };
 }
 
-function buildApp(logInviteUrl?: (msg: string) => void) {
+function buildApp(opts: { mailer?: Mailer } = {}) {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL not set');
   const handle = createApiDatabase(url);
@@ -69,7 +86,8 @@ function buildApp(logInviteUrl?: (msg: string) => void) {
     auth,
     db: handle.db,
     publicAppUrl: testEnv.publicAppUrl,
-    logInviteUrl,
+    mailer: opts.mailer ?? makeRecorder().mailer,
+    emailFrom: testEnv.emailFrom,
   });
   return { app, handle };
 }
@@ -77,9 +95,9 @@ function buildApp(logInviteUrl?: (msg: string) => void) {
 describe('POST /api/invitations', () => {
   beforeEach(resetDb);
 
-  it('creates an invitation row and logs the accept URL', async () => {
-    const logInviteUrl = vi.fn();
-    const { app, handle } = buildApp(logInviteUrl);
+  it('creates an invitation row and emails the accept URL', async () => {
+    const { sent, mailer } = makeRecorder();
+    const { app, handle } = buildApp({ mailer });
     try {
       const cookie = await signUp(app, 'inviter@example.com');
       const { accountId } = await userAndAccount('inviter@example.com');
@@ -102,17 +120,46 @@ describe('POST /api/invitations', () => {
       expect(rows[0]?.email).toBe('new@example.com');
       expect(rows[0]?.acceptedAt).toBeNull();
 
-      expect(logInviteUrl).toHaveBeenCalledTimes(1);
-      expect(logInviteUrl.mock.calls[0]?.[0]).toContain(
-        `http://localhost:5173/accept-invite?token=${body.token}`,
-      );
+      expect(sent).toHaveLength(1);
+      const msg = sent[0];
+      expect(msg?.to).toBe('new@example.com');
+      expect(msg?.subject).toContain('Thalermark');
+      expect(msg?.text).toContain(`http://localhost:5173/accept-invite?token=${body.token}`);
+      expect(msg?.html).toContain(`http://localhost:5173/accept-invite?token=${body.token}`);
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('returns 502 with the row still committed when the mailer fails', async () => {
+    const { mailer } = makeRecorder({ throws: true });
+    const { app, handle } = buildApp({ mailer });
+    try {
+      const cookie = await signUp(app, 'fail-inviter@example.com');
+      const { accountId } = await userAndAccount('fail-inviter@example.com');
+
+      const res = await app.request('/api/invitations', {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify({ email: 'recipient@example.com' }),
+      });
+      expect(res.status).toBe(502);
+
+      // Insert sat in the tenant tx and committed because the handler
+      // returned normally — the user can recover by retrying.
+      const rows = await getTestDb()
+        .select()
+        .from(invitations)
+        .where(eq(invitations.accountId, accountId));
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.email).toBe('recipient@example.com');
     } finally {
       await handle.close();
     }
   });
 
   it('rejects malformed emails with 400', async () => {
-    const { app, handle } = buildApp(() => {});
+    const { app, handle } = buildApp();
     try {
       const cookie = await signUp(app, 'inviter2@example.com');
       const { accountId } = await userAndAccount('inviter2@example.com');
@@ -128,7 +175,7 @@ describe('POST /api/invitations', () => {
   });
 
   it('refuses unauthed requests', async () => {
-    const { app, handle } = buildApp(() => {});
+    const { app, handle } = buildApp();
     try {
       const res = await app.request('/api/invitations', {
         method: 'POST',
@@ -146,7 +193,7 @@ describe('POST /api/invitations/:token/accept', () => {
   beforeEach(resetDb);
 
   it('creates a membership for the invitee and stamps the invitation', async () => {
-    const { app, handle } = buildApp(() => {});
+    const { app, handle } = buildApp();
     try {
       const inviterCookie = await signUp(app, 'host@example.com');
       const { accountId } = await userAndAccount('host@example.com');
@@ -192,7 +239,7 @@ describe('POST /api/invitations/:token/accept', () => {
   });
 
   it('rejects when the authed user email does not match the invitation', async () => {
-    const { app, handle } = buildApp(() => {});
+    const { app, handle } = buildApp();
     try {
       const inviterCookie = await signUp(app, 'host2@example.com');
       const { accountId } = await userAndAccount('host2@example.com');
@@ -219,7 +266,7 @@ describe('POST /api/invitations/:token/accept', () => {
   });
 
   it('returns 404 for an unknown token', async () => {
-    const { app, handle } = buildApp(() => {});
+    const { app, handle } = buildApp();
     try {
       const cookie = await signUp(app, 'lookup@example.com');
       const res = await app.request('/api/invitations/deadbeef/accept', {
@@ -233,7 +280,7 @@ describe('POST /api/invitations/:token/accept', () => {
   });
 
   it('returns 410 for an expired invitation', async () => {
-    const { app, handle } = buildApp(() => {});
+    const { app, handle } = buildApp();
     try {
       const inviterCookie = await signUp(app, 'host3@example.com');
       const { accountId } = await userAndAccount('host3@example.com');
@@ -269,7 +316,7 @@ describe('createApp returns an account with the auto-seeded account name', () =>
   beforeEach(resetDb);
 
   it('signup → /api/me lists exactly the seeded membership', async () => {
-    const { app, handle } = buildApp(() => {});
+    const { app, handle } = buildApp();
     try {
       const cookie = await signUp(app, 'fresh@example.com');
       const res = await app.request('/api/me', { headers: { cookie } });

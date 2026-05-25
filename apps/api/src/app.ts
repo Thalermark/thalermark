@@ -167,12 +167,9 @@ export type AppDeps = {
   scheduleFlush?: (db: Database, accountId: string) => void;
   trustedOrigins?: string[];
   publicAppUrl?: string;
-  // Test seam: swap the invite-link logger. Defaults to console.log so dev
-  // operators can grab the token from API stdout without an email transport.
-  logInviteUrl?: (msg: string) => void;
-  // Email transport for the invoice-send endpoint. Optional so integration
-  // tests that don't exercise /send can omit it; routes that need it fail
-  // fast with 500 when called without a mailer wired in.
+  // Email transport for the invoice-send + invitation endpoints. Optional so
+  // integration tests that don't exercise either can omit it; routes that
+  // need it fail fast with 500 when called without a mailer wired in.
   mailer?: Mailer;
   emailFrom?: string;
   // Stripe SDK bundle (client + publishable key + webhook secret). Null
@@ -191,7 +188,6 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // erases that schema back to an empty Hono.
 export function createApp(deps: AppDeps) {
   const origins = deps.trustedOrigins ?? [];
-  const logInviteUrl = deps.logInviteUrl ?? ((msg: string) => console.log(msg));
   const bootstrapDb = deps.bootstrapDb ?? deps.db;
   return (
     new Hono<{ Variables: RlsVariables }>()
@@ -261,7 +257,28 @@ export function createApp(deps: AppDeps) {
 
         const path = `/accept-invite?token=${token}`;
         const url = deps.publicAppUrl ? `${deps.publicAppUrl}${path}` : path;
-        logInviteUrl(`[invite] account=${accountId} email=${email} url=${url}`);
+
+        if (!deps.mailer) {
+          // server.ts always wires a mailer (console driver is the fallback
+          // when RESEND_API_KEY is unset), so reaching this branch means the
+          // caller built createApp without wiring one — misconfig, fail fast.
+          return c.json({ error: 'mailer_not_configured' }, 500);
+        }
+        try {
+          // Email I/O sits outside the tenant tx: the invitation row already
+          // committed when this returns, and a mailer 5xx surfaces as 502
+          // without rolling back the insert. The token is recoverable from
+          // the row if the user retries; the alternative (rollback) silently
+          // discards an invitation the caller saw acknowledged.
+          await deps.mailer.send({
+            to: email,
+            subject: 'You have been invited to Thalermark',
+            text: `You have been invited to join an account on Thalermark.\n\nAccept the invitation: ${url}\n\nThe link expires in 7 days.\n`,
+            html: `<p>You have been invited to join an account on Thalermark.</p><p><a href="${escapeHtml(url)}">Accept invitation</a></p><p>The link expires in 7 days.</p>`,
+          });
+        } catch {
+          return c.json({ error: 'mailer_send_failed' }, 502);
+        }
 
         return c.json({ id, email, token, expiresAt: expiresAt.toISOString() }, 201);
       })
