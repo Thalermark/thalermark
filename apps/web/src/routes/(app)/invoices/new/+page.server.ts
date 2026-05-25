@@ -4,11 +4,19 @@ import {
   type InvoiceCreateInput,
   type InvoiceLineItemInput,
   addMoney,
+  customerCreateSchema,
   invoiceCreateSchema,
   multiplyMoney,
   sumMoney,
 } from '@thalermark/validation';
 import type { Actions, PageServerLoad } from './$types';
+
+// Sentinel customerId value emitted by the "+ Add new customer" option in
+// the invoice form's dropdown. The action branches on it: instead of
+// treating the value as a UUID, it pulls the inline name + email fields
+// and creates the customer first, then uses the returned id for the
+// invoice POST. Mirrors the literal in +page.svelte.
+const NEW_CUSTOMER_SENTINEL = '__new__';
 
 // Line item field names on the form. Each is a multi-value input (one per
 // row); the server zips them by index. Matches the names emitted by
@@ -54,6 +62,8 @@ export const load: PageServerLoad = async (event) => {
 
 type FormValues = {
   customerId: string;
+  newCustomerName: string;
+  newCustomerEmail: string;
   number: string;
   issueDate: string;
   dueDate: string;
@@ -74,6 +84,8 @@ function readForm(data: FormData): FormValues {
   }));
   return {
     customerId: String(data.get('customerId') ?? '').trim(),
+    newCustomerName: String(data.get('newCustomerName') ?? '').trim(),
+    newCustomerEmail: String(data.get('newCustomerEmail') ?? '').trim(),
     number: String(data.get('number') ?? '').trim(),
     issueDate: String(data.get('issueDate') ?? '').trim(),
     dueDate: String(data.get('dueDate') ?? '').trim(),
@@ -88,6 +100,43 @@ export const actions: Actions = {
     const client = serverApiClient(event);
     const data = await event.request.formData();
     const values = readForm(data);
+    const companyId = (await loadCompanyId(event)) ?? '';
+
+    // Inline-create branch: validate the customer fields, POST /api/customers,
+    // and swap the returned UUID into `customerId` before continuing to the
+    // invoice POST. Schema reuses customerCreateSchema (same shape as the
+    // standalone /customers/new form, just with fewer fields surfaced).
+    // On failure, render the form back in new-mode with field errors —
+    // values.customerId stays as the sentinel so the inline block re-opens.
+    let resolvedCustomerId = values.customerId;
+    let extraCustomer: { id: string; name: string } | undefined;
+    if (values.customerId === NEW_CUSTOMER_SENTINEL) {
+      const customerInput = {
+        companyId,
+        name: values.newCustomerName,
+        email: values.newCustomerEmail === '' ? undefined : values.newCustomerEmail,
+      };
+      const parsedCust = customerCreateSchema.safeParse(customerInput);
+      if (!parsedCust.success) {
+        const customerErrors: Record<string, string> = {};
+        for (const issue of parsedCust.error.issues) {
+          const key = String(issue.path[0] ?? '_');
+          if (!customerErrors[key]) customerErrors[key] = issue.message;
+        }
+        return fail(400, { values, customerErrors });
+      }
+      const custRes = await client.api.customers.$post({ json: parsedCust.data });
+      if (!custRes.ok) {
+        const body = (await custRes.json().catch(() => null)) as { error?: string } | null;
+        return fail(custRes.status, {
+          values,
+          customerErrors: { _: body?.error ?? 'customer_create_failed' },
+        });
+      }
+      const createdCustomer = await custRes.json();
+      resolvedCustomerId = createdCustomer.id;
+      extraCustomer = { id: createdCustomer.id, name: createdCustomer.name };
+    }
 
     // Server is authority for money math — same helpers the page uses for
     // live preview, so the form works without JS (zero-row totals still
@@ -103,10 +152,9 @@ export const actions: Actions = {
     const tax = values.tax === '' ? undefined : values.tax;
     const total = addMoney(subtotal, tax ?? '0');
 
-    const companyId = (await loadCompanyId(event)) ?? '';
     const payload: InvoiceCreateInput = {
       companyId,
-      customerId: values.customerId,
+      customerId: resolvedCustomerId,
       number: values.number,
       issueDate: values.issueDate,
       dueDate: values.dueDate,
@@ -127,7 +175,14 @@ export const actions: Actions = {
         const key = top === 'lineItems' ? 'lineItems' : top;
         if (!fieldErrors[key]) fieldErrors[key] = issue.message;
       }
-      return fail(400, { values, fieldErrors });
+      // If we got here via the inline-create branch, the customer was already
+      // persisted — swap the sentinel for the real id so the re-render
+      // pre-selects them and surfaces extraCustomer in the dropdown.
+      return fail(400, {
+        values: extraCustomer ? { ...values, customerId: extraCustomer.id } : values,
+        fieldErrors,
+        extraCustomer,
+      });
     }
 
     const res = await client.api.invoices.$post({ json: parsed.data });
@@ -142,7 +197,14 @@ export const actions: Actions = {
             : code === 'customer_not_found'
               ? 'Selected customer no longer exists.'
               : code;
-      return fail(res.status, { values, formError });
+      // Same recovery as schema fail above: if a customer was just created,
+      // pre-select them on the re-render so the user doesn't lose them or
+      // accidentally duplicate via a second sentinel pick.
+      return fail(res.status, {
+        values: extraCustomer ? { ...values, customerId: extraCustomer.id } : values,
+        formError,
+        extraCustomer,
+      });
     }
     const created = await res.json();
     redirect(303, `/invoices/${created.id}`);
