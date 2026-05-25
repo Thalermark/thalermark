@@ -23,6 +23,9 @@ const testEnv: Env = {
   publicAppUrl: 'http://localhost:5173',
   resendApiKey: undefined,
   emailFrom: 'Thalermark <test@thalermark.test>',
+  stripeSecretKey: undefined,
+  stripePublishableKey: undefined,
+  stripeWebhookSecret: undefined,
 };
 
 function extractSessionCookie(res: Response): string {

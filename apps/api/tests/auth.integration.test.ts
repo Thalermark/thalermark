@@ -34,6 +34,9 @@ describe('POST /api/auth/sign-up/email', () => {
         publicAppUrl: '',
         resendApiKey: undefined,
         emailFrom: 'Thalermark <test@thalermark.test>',
+        stripeSecretKey: undefined,
+        stripePublishableKey: undefined,
+        stripeWebhookSecret: undefined,
       });
       const app = createApp({ auth, db: handle.db });
 
@@ -87,6 +90,9 @@ describe('POST /api/auth/sign-up/email', () => {
         publicAppUrl: '',
         resendApiKey: undefined,
         emailFrom: 'Thalermark <test@thalermark.test>',
+        stripeSecretKey: undefined,
+        stripePublishableKey: undefined,
+        stripeWebhookSecret: undefined,
       });
       const app = createApp({ auth, db: handle.db });
 

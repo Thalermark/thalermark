@@ -1,7 +1,7 @@
 import { env as privateEnv } from '$env/dynamic/private';
 import { env as publicEnv } from '$env/dynamic/public';
-import { error } from '@sveltejs/kit';
-import type { PageServerLoad } from './$types';
+import { error, fail } from '@sveltejs/kit';
+import type { Actions, PageServerLoad } from './$types';
 
 // Direct fetch — the typed hc client from $lib/api.server stamps the
 // session cookie + x-account-id which we deliberately don't have here.
@@ -16,6 +16,34 @@ export const load: PageServerLoad = async (event) => {
   if (!res.ok) throw error(res.status, 'failed to load invoice');
   const invoice = (await res.json()) as PublicInvoice;
   return { invoice };
+};
+
+// Pay action: lazy-mints a Stripe Embedded Checkout session when the
+// recipient actually clicks Pay (vs. on every passive page load — saves
+// Stripe API quota and keeps the dashboard free of abandoned sessions).
+// The page POSTs here via use:enhance, gets back clientSecret +
+// publishableKey, and hands them to stripe.js' initEmbeddedCheckout.
+export const actions: Actions = {
+  createSession: async (event) => {
+    const res = await event.fetch(
+      `${apiUrl()}/api/public/invoices/${event.params.token}/checkout-session`,
+      { method: 'POST' },
+    );
+    if (res.status === 503) {
+      return fail(503, { formError: 'Payment is not configured for this invoice.' });
+    }
+    if (res.status === 409) {
+      // Race: invoice no longer in `sent` (already paid, voided). The
+      // load() snapshot the user saw is stale; a refresh shows the right
+      // state.
+      return fail(409, { formError: 'This invoice is no longer payable. Refresh the page.' });
+    }
+    if (!res.ok) {
+      return fail(res.status, { formError: 'Could not start payment. Please try again.' });
+    }
+    const body = (await res.json()) as { clientSecret: string; publishableKey: string };
+    return { clientSecret: body.clientSecret, publishableKey: body.publishableKey };
+  },
 };
 
 type PublicInvoiceLine = {
@@ -42,4 +70,5 @@ type PublicInvoice = {
   companyName: string | null;
   customerName: string | null;
   lineItems: PublicInvoiceLine[];
+  payable: boolean;
 };

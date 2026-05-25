@@ -10,6 +10,7 @@ import { createApiDatabase } from './lib/db.js';
 import { initErrorTracking } from './lib/error-tracking.js';
 import { type Mailer, createConsoleMailer, createResendMailer } from './lib/mailer.js';
 import { provisionAppRole } from './lib/role-provision.js';
+import { createStripeBundle } from './lib/stripe.js';
 
 // Project-root .env is the dev convention (see drizzle.config.ts). Resolved
 // from this file because pnpm --filter runs with cwd=apps/api/, not the root.
@@ -70,6 +71,19 @@ if (!env.resendApiKey) {
   log.info('email transport: console (RESEND_API_KEY unset)');
 }
 
+// Stripe is opt-in: bundle is null when any of the three env vars is unset,
+// in which case the public invoice view hides Pay and the webhook 503s. Lets
+// dev / self-host without a Stripe account boot and exercise everything
+// except payment.
+const stripe = createStripeBundle({
+  secretKey: env.stripeSecretKey,
+  publishableKey: env.stripePublishableKey,
+  webhookSecret: env.stripeWebhookSecret,
+});
+if (!stripe) {
+  log.info('Stripe disabled (STRIPE_SECRET_KEY / PUBLISHABLE_KEY / WEBHOOK_SECRET incomplete)');
+}
+
 const app = createApp({
   auth,
   db: dbHandle.db,
@@ -78,6 +92,7 @@ const app = createApp({
   publicAppUrl: env.publicAppUrl,
   mailer,
   emailFrom: env.emailFrom,
+  stripe,
 });
 
 const server = serve(
