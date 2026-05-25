@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
+  import { findEmailDupe, findNameDupes } from '$lib/customer-dupes';
   import { addMoney, multiplyMoney, sumMoney } from '@thalermark/validation';
   import type { PageProps } from './$types';
 
@@ -109,6 +110,22 @@
   function custErr(key: string): string | undefined {
     return (customerErrors as Record<string, string>)[key];
   }
+
+  // Live dupe-hints in inline mode. As the user types name/email, find
+  // matches against the already-loaded customer list. Email match is the
+  // strong signal (also enforced server-side as a hard block); name match
+  // is advisory. Bound to inputs via $state so the suggestions reactively
+  // narrow. Initial values seed from form?.values to survive a fail()
+  // re-render — server may have just rejected the submit, and re-showing
+  // the warning helps the user understand why.
+  let inlineNewName = $state<string>(untrack(() => form?.values?.newCustomerName ?? ''));
+  let inlineNewEmail = $state<string>(untrack(() => form?.values?.newCustomerEmail ?? ''));
+  const liveEmailDupe = $derived(findEmailDupe(inlineNewEmail, data.customers));
+  const liveNameDupes = $derived(findNameDupes(inlineNewName, data.customers));
+
+  function useExisting(id: string) {
+    customerId = id;
+  }
 </script>
 
 <a href="/invoices" class="eyebrow text-ink/60 hover:text-ink">← Invoices</a>
@@ -158,11 +175,32 @@
               type="text"
               maxlength="200"
               required={inlineMode}
-              value={values?.newCustomerName ?? ''}
+              bind:value={inlineNewName}
               class="mt-1 w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
             />
             {#if custErr('name')}
               <p class="mt-1 text-xs text-oxblood">{custErr('name')}</p>
+            {/if}
+            {#if liveNameDupes.length > 0}
+              <div class="mt-2 rounded-sm border border-ink/10 bg-cream p-2 text-xs">
+                <p class="text-ink/60">
+                  Looks like {liveNameDupes.length === 1 ? 'an existing customer' : 'existing customers'}:
+                </p>
+                <ul class="mt-1 space-y-1">
+                  {#each liveNameDupes as dupe (dupe.id)}
+                    <li class="flex items-center justify-between gap-2">
+                      <span class="text-ink">{dupe.name}{#if dupe.email}<span class="text-ink/50"> · {dupe.email}</span>{/if}</span>
+                      <button
+                        type="button"
+                        onclick={() => useExisting(dupe.id)}
+                        class="rounded-sm border border-ink/15 bg-cream-warm px-2 py-1 text-xs uppercase tracking-wider text-ink/70 hover:border-gold-deep hover:text-gold-deep"
+                      >
+                        Use
+                      </button>
+                    </li>
+                  {/each}
+                </ul>
+              </div>
             {/if}
           </div>
           <div>
@@ -174,16 +212,46 @@
               name="newCustomerEmail"
               type="email"
               maxlength="320"
-              value={values?.newCustomerEmail ?? ''}
+              bind:value={inlineNewEmail}
               class="mt-1 w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
             />
-            {#if custErr('email')}
+            {#if custErr('email') && custErr('email') !== 'email_dupe'}
               <p class="mt-1 text-xs text-oxblood">{custErr('email')}</p>
             {/if}
             <p class="mt-1 text-xs text-ink/50">
               Optional, but needed to send the invoice by email.
             </p>
           </div>
+          {#if form?.dupeCustomer}
+            <div class="rounded-sm border border-oxblood/30 bg-oxblood/5 p-3 text-sm">
+              <p class="text-ink">
+                <span class="font-medium">{form.dupeCustomer.name}</span> already uses this email.
+              </p>
+              <div class="mt-2 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onclick={() => useExisting(form!.dupeCustomer!.id)}
+                  class="rounded-sm bg-ink px-3 py-1 text-xs uppercase tracking-wider text-cream hover:bg-gold-deep"
+                >
+                  Use {form.dupeCustomer.name}
+                </button>
+                <span class="text-xs text-ink/50">or change the email above to create a different customer.</span>
+              </div>
+            </div>
+          {:else if liveEmailDupe}
+            <div class="rounded-sm border border-gold-deep/30 bg-gold-deep/5 p-3 text-sm">
+              <p class="text-ink">
+                <span class="font-medium">{liveEmailDupe.name}</span> already uses this email.
+              </p>
+              <button
+                type="button"
+                onclick={() => useExisting(liveEmailDupe.id)}
+                class="mt-2 rounded-sm border border-ink/20 bg-cream-warm px-3 py-1 text-xs uppercase tracking-wider text-ink/70 hover:border-gold-deep hover:text-gold-deep"
+              >
+                Use {liveEmailDupe.name}
+              </button>
+            </div>
+          {/if}
           {#if custErr('_')}
             <p class="text-xs text-oxblood">{custErr('_')}</p>
           {/if}

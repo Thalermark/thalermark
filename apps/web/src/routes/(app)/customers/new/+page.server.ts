@@ -1,7 +1,21 @@
 import { serverApiClient } from '$lib/api.server';
+import { findEmailDupe } from '$lib/customer-dupes';
 import { error, fail, redirect } from '@sveltejs/kit';
 import { customerCreateSchema } from '@thalermark/validation';
-import type { Actions } from './$types';
+import type { Actions, PageServerLoad } from './$types';
+
+// Load the customer list so the page can run live dupe-detection hints as
+// the user types name/email. The action re-fetches the list to close the
+// race where a dupe was created in another tab between load and submit.
+export const load: PageServerLoad = async (event) => {
+  const client = serverApiClient(event);
+  const res = await client.api.customers.$get();
+  if (!res.ok) throw error(res.status, 'failed to load customers');
+  const { customers } = await res.json();
+  return {
+    customers: customers.map((c) => ({ id: c.id, name: c.name, email: c.email ?? null })),
+  };
+};
 
 // Optional string-field fields that should round-trip as undefined when the
 // user leaves the input empty — empty strings would otherwise fail the zod
@@ -51,6 +65,23 @@ export const actions: Actions = {
         if (!fieldErrors[key]) fieldErrors[key] = issue.message;
       }
       return fail(400, { values, fieldErrors });
+    }
+
+    // Dupe-detect: HARD BLOCK on email exact match. Re-fetch the list to
+    // close the race where another tab created the dupe between load() and
+    // this POST. Name fuzzy match stays advisory and is handled client-side
+    // only.
+    const listRes = await client.api.customers.$get();
+    if (listRes.ok) {
+      const { customers: list } = await listRes.json();
+      const emailDupe = findEmailDupe(parsed.data.email, list);
+      if (emailDupe) {
+        return fail(409, {
+          values,
+          fieldErrors: { email: 'email_dupe' },
+          dupeCustomer: { id: emailDupe.id, name: emailDupe.name },
+        });
+      }
     }
 
     const res = await client.api.customers.$post({ json: parsed.data });
