@@ -7,6 +7,8 @@ import {
   authUser,
   companies,
   customers,
+  estimateLineItems,
+  estimates,
   invitations,
   invoiceLineItems,
   invoices,
@@ -15,6 +17,8 @@ import {
 import {
   customerCreateSchema,
   customerUpdateSchema,
+  estimateCreateSchema,
+  estimateUpdateSchema,
   invoiceCreateSchema,
   invoiceSendSchema,
   invoiceUpdateSchema,
@@ -53,7 +57,19 @@ function escapeHtml(s: string): string {
 // truth for the suggestion lives here in the API so mobile can hit the same
 // endpoint without re-deriving.
 const FIRST_INVOICE_DEFAULT = 'INV-0001';
+const FIRST_ESTIMATE_DEFAULT = 'EST-0001';
 const TRAILING_INT_RE = /^(.*?)(\d+)$/;
+
+function nextNumberWithDefault(latest: string | undefined, defaultValue: string): string {
+  if (!latest) return defaultValue;
+  const match = TRAILING_INT_RE.exec(latest);
+  if (!match) return defaultValue;
+  const [, prefix, digits] = match;
+  const next = (BigInt(digits ?? '0') + 1n).toString();
+  const padded = next.padStart((digits ?? '').length, '0');
+  return `${prefix ?? ''}${padded}`;
+}
+
 // Invoice status state machine. Allowed transitions:
 //   draft → sent     (mark-sent)
 //   draft → paid     (mark-paid, manual mark-paid without sending)
@@ -144,13 +160,97 @@ async function transitionInvoice(
 }
 
 export function suggestNextInvoiceNumber(latest: string | undefined): string {
-  if (!latest) return FIRST_INVOICE_DEFAULT;
-  const match = TRAILING_INT_RE.exec(latest);
-  if (!match) return FIRST_INVOICE_DEFAULT;
-  const [, prefix, digits] = match;
-  const next = (BigInt(digits ?? '0') + 1n).toString();
-  const padded = next.padStart((digits ?? '').length, '0');
-  return `${prefix ?? ''}${padded}`;
+  return nextNumberWithDefault(latest, FIRST_INVOICE_DEFAULT);
+}
+
+export function suggestNextEstimateNumber(latest: string | undefined): string {
+  return nextNumberWithDefault(latest, FIRST_ESTIMATE_DEFAULT);
+}
+
+// Estimate status state machine. Allowed transitions:
+//   draft → sent      (mark-sent — mints public_token, same pattern as invoice)
+//   draft → accepted  (mark-accepted — operator captured a verbal close)
+//   sent  → accepted  (mark-accepted — customer agreed; public-page route in 8.7e)
+//   draft → declined  (mark-declined — operator captured a verbal decline)
+//   sent  → declined  (mark-declined — customer said no; public-page in 8.7e)
+// `accepted` and `declined` are operationally terminal in MVP (convert-to-
+// invoice is a separate link action, not a status change). `expired` flips
+// advisory-at-read off expires_on; no transition endpoint until pg-boss
+// lands a background sweep.
+type EstimateStatus = 'draft' | 'sent' | 'accepted' | 'declined' | 'expired';
+type EstimateTransitionKey = 'mark-sent' | 'mark-accepted' | 'mark-declined';
+type EstimateTransitionSpec = {
+  from: readonly EstimateStatus[];
+  to: EstimateStatus;
+  stamp: 'sentAt' | 'acceptedAt' | 'declinedAt';
+};
+const ESTIMATE_TRANSITIONS: Record<EstimateTransitionKey, EstimateTransitionSpec> = {
+  'mark-sent': { from: ['draft'], to: 'sent', stamp: 'sentAt' },
+  'mark-accepted': { from: ['draft', 'sent'], to: 'accepted', stamp: 'acceptedAt' },
+  'mark-declined': { from: ['draft', 'sent'], to: 'declined', stamp: 'declinedAt' },
+};
+
+async function transitionEstimate(
+  c: Context<{ Variables: RlsVariables }>,
+  id: string,
+  key: EstimateTransitionKey,
+  spec: EstimateTransitionSpec,
+) {
+  if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+  const tx = c.get('tx');
+  const accountId = c.get('accountId');
+
+  const [current] = await tx
+    .select()
+    .from(estimates)
+    .where(and(eq(estimates.id, id), eq(estimates.accountId, accountId)))
+    .limit(1);
+  if (!current) return c.json({ error: 'estimate_not_found' }, 404);
+
+  if (!(spec.from as readonly string[]).includes(current.status)) {
+    return c.json({ error: 'invalid_transition', from: current.status, to: spec.to }, 409);
+  }
+
+  const now = new Date();
+  const patch: Record<string, unknown> = {
+    status: spec.to,
+    updatedAt: now,
+    [spec.stamp]: now,
+  };
+  // mark-sent mints the public-view token (same 32-byte pattern as the
+  // invoice public token); idempotent for a future resend.
+  if (key === 'mark-sent' && !current.publicToken) {
+    patch.publicToken = randomBytes(32).toString('hex');
+  }
+  const [updated] = await tx
+    .update(estimates)
+    .set(patch)
+    .where(and(eq(estimates.id, id), eq(estimates.accountId, accountId)))
+    .returning();
+  if (!updated) return c.json({ error: 'estimate_not_found' }, 404);
+
+  await c.var.audit({
+    entityType: 'estimate',
+    entityId: id,
+    action: key,
+    before: {
+      status: current.status,
+      sentAt: current.sentAt,
+      acceptedAt: current.acceptedAt,
+      declinedAt: current.declinedAt,
+      publicToken: current.publicToken,
+    },
+    after: {
+      status: updated.status,
+      sentAt: updated.sentAt,
+      acceptedAt: updated.acceptedAt,
+      declinedAt: updated.declinedAt,
+      publicToken: updated.publicToken,
+    },
+    companyId: updated.companyId,
+  });
+
+  return c.json(updated);
 }
 
 export type AppDeps = {
@@ -714,6 +814,263 @@ export function createApp(deps: AppDeps) {
       )
       .post('/api/invoices/:id/void', (c) =>
         transitionInvoice(c, c.req.param('id'), 'void', INVOICE_TRANSITIONS.void),
+      )
+      // Estimates — same shape as invoices minus dueDate and minus the pay
+      // path. Mirrors invoices.* closely (status state machine, audit rows,
+      // customer↔company invariant, (company_id, number) uniqueness pre-
+      // check, draft-only PATCH). Public route + email send + accept/decline
+      // land in slice 8.7e; convert-to-invoice in 8.7d.
+      .post('/api/estimates', async (c) => {
+        const body = await c.req.json().catch(() => null);
+        const parsed = estimateCreateSchema.safeParse(body);
+        if (!parsed.success) {
+          return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+        }
+
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+        const { companyId, customerId, lineItems, ...header } = parsed.data;
+
+        const [customer] = await tx
+          .select({ id: customers.id, companyId: customers.companyId })
+          .from(customers)
+          .where(and(eq(customers.id, customerId), eq(customers.accountId, accountId)))
+          .limit(1);
+        if (!customer) return c.json({ error: 'customer_not_found' }, 404);
+        if (customer.companyId !== companyId) {
+          return c.json({ error: 'customer_company_mismatch' }, 400);
+        }
+
+        // (company_id, number) pre-check — same reasoning as invoice POST: a
+        // constraint throw would poison the tenant tx and roll back the
+        // audit row alongside the business write.
+        const [taken] = await tx
+          .select({ id: estimates.id })
+          .from(estimates)
+          .where(
+            and(
+              eq(estimates.accountId, accountId),
+              eq(estimates.companyId, companyId),
+              eq(estimates.number, header.number),
+            ),
+          )
+          .limit(1);
+        if (taken) return c.json({ error: 'estimate_number_taken' }, 409);
+
+        const estimateId = uuidv7();
+        await tx.insert(estimates).values({
+          id: estimateId,
+          accountId,
+          companyId,
+          customerId,
+          ...header,
+        });
+        const lineRows = lineItems.map((li) => ({
+          id: uuidv7(),
+          accountId,
+          estimateId,
+          ...li,
+        }));
+        await tx.insert(estimateLineItems).values(lineRows);
+
+        await c.var.audit({
+          entityType: 'estimate',
+          entityId: estimateId,
+          action: 'create',
+          after: { id: estimateId, ...parsed.data },
+          companyId,
+        });
+
+        return c.json({ id: estimateId, ...parsed.data }, 201);
+      })
+      .get('/api/estimates', async (c) => {
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+        const companyId = c.req.query('companyId');
+        const status = c.req.query('status');
+        const conditions = [eq(estimates.accountId, accountId)];
+        if (companyId) conditions.push(eq(estimates.companyId, companyId));
+        if (status) conditions.push(eq(estimates.status, status));
+        const rows = await tx
+          .select()
+          .from(estimates)
+          .where(and(...conditions))
+          .orderBy(asc(estimates.createdAt));
+        return c.json({ estimates: rows });
+      })
+      .get('/api/estimates/next-number', async (c) => {
+        // Declared before /api/estimates/:id — Hono is first-match, same as
+        // the invoice next-number route. Without this ordering 'next-number'
+        // would land in the :id handler and 400 on the UUID regex.
+        const companyId = c.req.query('companyId');
+        if (!companyId || !UUID_RE.test(companyId)) {
+          return c.json({ error: 'invalid_company_id' }, 400);
+        }
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+
+        const [company] = await tx
+          .select({ id: companies.id })
+          .from(companies)
+          .where(and(eq(companies.id, companyId), eq(companies.accountId, accountId)))
+          .limit(1);
+        if (!company) return c.json({ error: 'company_not_found' }, 404);
+
+        const [latest] = await tx
+          .select({ number: estimates.number })
+          .from(estimates)
+          .where(and(eq(estimates.accountId, accountId), eq(estimates.companyId, companyId)))
+          .orderBy(desc(estimates.createdAt))
+          .limit(1);
+
+        return c.json({ suggestion: suggestNextEstimateNumber(latest?.number) });
+      })
+      .get('/api/estimates/:id', async (c) => {
+        const id = c.req.param('id');
+        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+        const [estimate] = await tx
+          .select()
+          .from(estimates)
+          .where(and(eq(estimates.id, id), eq(estimates.accountId, accountId)));
+        if (!estimate) return c.json({ error: 'estimate_not_found' }, 404);
+        const lines = await tx
+          .select()
+          .from(estimateLineItems)
+          .where(
+            and(eq(estimateLineItems.estimateId, id), eq(estimateLineItems.accountId, accountId)),
+          )
+          .orderBy(asc(estimateLineItems.position));
+        return c.json({ ...estimate, lineItems: lines });
+      })
+      .patch(
+        '/api/estimates/:id',
+        validator('json', (value, c) => {
+          const parsed = estimateUpdateSchema.safeParse(value);
+          if (!parsed.success) {
+            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+          }
+          return parsed.data;
+        }),
+        async (c) => {
+          const id = c.req.param('id');
+          if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+          const data = c.req.valid('json');
+
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+          const { customerId, lineItems, ...header } = data;
+
+          const [current] = await tx
+            .select()
+            .from(estimates)
+            .where(and(eq(estimates.id, id), eq(estimates.accountId, accountId)))
+            .limit(1);
+          if (!current) return c.json({ error: 'estimate_not_found' }, 404);
+
+          // Draft-only edits, mirroring invoices. Once an estimate has been
+          // sent the recipient has a copy; mutating silently is a footgun
+          // (and an audit-trail misdirection). Accepted / declined are
+          // terminal records; expired is advisory.
+          if (current.status !== 'draft') {
+            return c.json({ error: 'not_editable', status: current.status }, 409);
+          }
+
+          const [customer] = await tx
+            .select({ id: customers.id, companyId: customers.companyId })
+            .from(customers)
+            .where(and(eq(customers.id, customerId), eq(customers.accountId, accountId)))
+            .limit(1);
+          if (!customer) return c.json({ error: 'customer_not_found' }, 404);
+          if (customer.companyId !== current.companyId) {
+            return c.json({ error: 'customer_company_mismatch' }, 400);
+          }
+
+          if (header.number !== current.number) {
+            const [taken] = await tx
+              .select({ id: estimates.id })
+              .from(estimates)
+              .where(
+                and(
+                  eq(estimates.accountId, accountId),
+                  eq(estimates.companyId, current.companyId),
+                  eq(estimates.number, header.number),
+                ),
+              )
+              .limit(1);
+            if (taken) return c.json({ error: 'estimate_number_taken' }, 409);
+          }
+
+          const beforeLines = await tx
+            .select()
+            .from(estimateLineItems)
+            .where(
+              and(eq(estimateLineItems.estimateId, id), eq(estimateLineItems.accountId, accountId)),
+            )
+            .orderBy(asc(estimateLineItems.position));
+
+          await tx
+            .delete(estimateLineItems)
+            .where(
+              and(eq(estimateLineItems.estimateId, id), eq(estimateLineItems.accountId, accountId)),
+            );
+          const newLineRows = lineItems.map((li) => ({
+            id: uuidv7(),
+            accountId,
+            estimateId: id,
+            ...li,
+          }));
+          await tx.insert(estimateLineItems).values(newLineRows);
+
+          const [updated] = await tx
+            .update(estimates)
+            .set({
+              customerId,
+              number: header.number,
+              issueDate: header.issueDate,
+              expiresOn: header.expiresOn ?? null,
+              currency: header.currency ?? current.currency,
+              subtotal: header.subtotal,
+              tax: header.tax ?? '0',
+              total: header.total,
+              notes: header.notes ?? null,
+              updatedAt: new Date(),
+            })
+            .where(and(eq(estimates.id, id), eq(estimates.accountId, accountId)))
+            .returning();
+          if (!updated) return c.json({ error: 'estimate_not_found' }, 404);
+
+          await c.var.audit({
+            entityType: 'estimate',
+            entityId: id,
+            action: 'update',
+            before: { ...current, lineItems: beforeLines },
+            after: { ...updated, lineItems: newLineRows },
+            companyId: current.companyId,
+          });
+
+          return c.json({ ...updated, lineItems: newLineRows });
+        },
+      )
+      .post('/api/estimates/:id/mark-sent', (c) =>
+        transitionEstimate(c, c.req.param('id'), 'mark-sent', ESTIMATE_TRANSITIONS['mark-sent']),
+      )
+      .post('/api/estimates/:id/mark-accepted', (c) =>
+        transitionEstimate(
+          c,
+          c.req.param('id'),
+          'mark-accepted',
+          ESTIMATE_TRANSITIONS['mark-accepted'],
+        ),
+      )
+      .post('/api/estimates/:id/mark-declined', (c) =>
+        transitionEstimate(
+          c,
+          c.req.param('id'),
+          'mark-declined',
+          ESTIMATE_TRANSITIONS['mark-declined'],
+        ),
       )
       // Send the invoice via email. Distinct from /mark-sent (pure status
       // transition, no I/O) because this endpoint adds a real side-effect
