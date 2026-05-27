@@ -8,6 +8,7 @@ import { auditEvents } from './schema/audit_events.js';
 import { authUser } from './schema/auth.js';
 import { companies } from './schema/companies.js';
 import { customers } from './schema/customers.js';
+import { estimateLineItems, estimates } from './schema/estimates.js';
 import { invitations } from './schema/invitations.js';
 import { invoiceLineItems, invoices } from './schema/invoices.js';
 import { memberships } from './schema/memberships.js';
@@ -1128,6 +1129,313 @@ describe('RLS — invoices + line items under staff_readonly', () => {
   it('cannot DELETE invoices (privilege denied)', async () => {
     await expect(getStaffDb().delete(invoices)).rejects.toThrow();
     const rows = await getTestDb().select().from(invoices);
+    expect(rows).toHaveLength(2);
+  });
+});
+
+// estimates + estimate_line_items mirror invoices for RLS purposes: both carry
+// account_id directly and use the standard NULLIF tenant idiom. App role gets
+// full CRUD within its tenant; staff_readonly bypasses RLS for SELECT only.
+
+async function seedEstimatesAndLines(): Promise<{
+  companyAId: string;
+  companyBId: string;
+  customerAId: string;
+  customerBId: string;
+  estimateAId: string;
+  estimateBId: string;
+}> {
+  const db = getTestDb();
+  const [companyA] = await db.select().from(companies).where(eq(companies.accountId, accountAId));
+  const [companyB] = await db.select().from(companies).where(eq(companies.accountId, accountBId));
+  if (!companyA || !companyB) throw new Error('seedTwoTenants did not produce one company each');
+
+  const customerAId = uuidv7();
+  const customerBId = uuidv7();
+  await db.insert(customers).values([
+    { id: customerAId, accountId: accountAId, companyId: companyA.id, name: 'A Customer' },
+    { id: customerBId, accountId: accountBId, companyId: companyB.id, name: 'B Customer' },
+  ]);
+
+  const estimateAId = uuidv7();
+  const estimateBId = uuidv7();
+  await db.insert(estimates).values([
+    {
+      id: estimateAId,
+      accountId: accountAId,
+      companyId: companyA.id,
+      customerId: customerAId,
+      number: 'EST-A1',
+      issueDate: '2026-05-23',
+      total: '100.00',
+    },
+    {
+      id: estimateBId,
+      accountId: accountBId,
+      companyId: companyB.id,
+      customerId: customerBId,
+      number: 'EST-B1',
+      issueDate: '2026-05-23',
+      total: '50.00',
+    },
+  ]);
+  await db.insert(estimateLineItems).values([
+    {
+      id: uuidv7(),
+      accountId: accountAId,
+      estimateId: estimateAId,
+      position: 1,
+      description: 'A line',
+      quantity: '1',
+      unitPrice: '100.00',
+      amount: '100.00',
+    },
+    {
+      id: uuidv7(),
+      accountId: accountBId,
+      estimateId: estimateBId,
+      position: 1,
+      description: 'B line',
+      quantity: '1',
+      unitPrice: '50.00',
+      amount: '50.00',
+    },
+  ]);
+
+  return {
+    companyAId: companyA.id,
+    companyBId: companyB.id,
+    customerAId,
+    customerBId,
+    estimateAId,
+    estimateBId,
+  };
+}
+
+describe('RLS — estimates account isolation', () => {
+  let companyAId: string;
+  let companyBId: string;
+  let customerAId: string;
+  let customerBId: string;
+
+  beforeEach(async () => {
+    await resetDb();
+    await seedTwoTenants();
+    ({ companyAId, companyBId, customerAId, customerBId } = await seedEstimatesAndLines());
+  });
+
+  it('sees only its own account estimates when context is set', async () => {
+    const seen = await withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+      return tx.select().from(estimates);
+    });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.accountId).toBe(accountAId);
+    expect(seen[0]?.number).toBe('EST-A1');
+  });
+
+  it('sees no rows when no account context is set', async () => {
+    const seen = await getAppDb().select().from(estimates);
+    expect(seen).toEqual([]);
+  });
+
+  it('allows insert with matching account_id', async () => {
+    const id = uuidv7();
+    await expect(
+      withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+        await tx.insert(estimates).values({
+          id,
+          accountId: accountAId,
+          companyId: companyAId,
+          customerId: customerAId,
+          number: 'EST-A2',
+          issueDate: '2026-05-23',
+        });
+      }),
+    ).resolves.not.toThrow();
+    const found = await getTestDb().select().from(estimates).where(eq(estimates.id, id));
+    expect(found).toHaveLength(1);
+  });
+
+  it('blocks insert with a foreign account_id (WITH CHECK violation)', async () => {
+    const smuggledId = uuidv7();
+    await expect(
+      withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+        await tx.insert(estimates).values({
+          id: smuggledId,
+          accountId: accountBId,
+          companyId: companyBId,
+          customerId: customerBId,
+          number: 'EST-SMUGGLED',
+          issueDate: '2026-05-23',
+        });
+      }),
+    ).rejects.toThrow();
+    const found = await getTestDb().select().from(estimates).where(eq(estimates.id, smuggledId));
+    expect(found).toEqual([]);
+  });
+
+  it('cannot UPDATE estimates in another account', async () => {
+    await withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+      await tx
+        .update(estimates)
+        .set({ status: 'accepted' })
+        .where(eq(estimates.accountId, accountBId));
+    });
+    const bRows = await getTestDb()
+      .select()
+      .from(estimates)
+      .where(eq(estimates.accountId, accountBId));
+    expect(bRows[0]?.status).toBe('draft');
+  });
+
+  it('cannot DELETE estimates in another account', async () => {
+    await withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+      await tx.delete(estimates).where(eq(estimates.accountId, accountBId));
+    });
+    const bRows = await getTestDb()
+      .select()
+      .from(estimates)
+      .where(eq(estimates.accountId, accountBId));
+    expect(bRows).toHaveLength(1);
+  });
+
+  it('allows tenant-scoped DELETE within own account', async () => {
+    await withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+      await tx.delete(estimates).where(eq(estimates.accountId, accountAId));
+    });
+    const aRows = await getTestDb()
+      .select()
+      .from(estimates)
+      .where(eq(estimates.accountId, accountAId));
+    expect(aRows).toEqual([]);
+  });
+});
+
+describe('RLS — estimate_line_items account isolation', () => {
+  let estimateAId: string;
+  let estimateBId: string;
+
+  beforeEach(async () => {
+    await resetDb();
+    await seedTwoTenants();
+    ({ estimateAId, estimateBId } = await seedEstimatesAndLines());
+  });
+
+  it('sees only its own account line items when context is set', async () => {
+    const seen = await withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+      return tx.select().from(estimateLineItems);
+    });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.accountId).toBe(accountAId);
+    expect(seen[0]?.description).toBe('A line');
+  });
+
+  it('sees no rows when no account context is set', async () => {
+    const seen = await getAppDb().select().from(estimateLineItems);
+    expect(seen).toEqual([]);
+  });
+
+  it('allows insert with matching account_id', async () => {
+    const id = uuidv7();
+    await expect(
+      withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+        await tx.insert(estimateLineItems).values({
+          id,
+          accountId: accountAId,
+          estimateId: estimateAId,
+          position: 2,
+          description: 'A second line',
+          quantity: '1',
+          unitPrice: '25.00',
+          amount: '25.00',
+        });
+      }),
+    ).resolves.not.toThrow();
+    const found = await getTestDb()
+      .select()
+      .from(estimateLineItems)
+      .where(eq(estimateLineItems.id, id));
+    expect(found).toHaveLength(1);
+  });
+
+  it('blocks insert pointing line item at a foreign-tenant estimate (WITH CHECK)', async () => {
+    const smuggledId = uuidv7();
+    await expect(
+      withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+        await tx.insert(estimateLineItems).values({
+          id: smuggledId,
+          accountId: accountBId,
+          estimateId: estimateBId,
+          position: 99,
+          description: 'Smuggled',
+          quantity: '1',
+          unitPrice: '0.01',
+          amount: '0.01',
+        });
+      }),
+    ).rejects.toThrow();
+    const found = await getTestDb()
+      .select()
+      .from(estimateLineItems)
+      .where(eq(estimateLineItems.id, smuggledId));
+    expect(found).toEqual([]);
+  });
+
+  it('cannot DELETE line items in another account', async () => {
+    await withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+      await tx.delete(estimateLineItems).where(eq(estimateLineItems.accountId, accountBId));
+    });
+    const bRows = await getTestDb()
+      .select()
+      .from(estimateLineItems)
+      .where(eq(estimateLineItems.accountId, accountBId));
+    expect(bRows).toHaveLength(1);
+  });
+});
+
+describe('RLS — estimates + line items under staff_readonly', () => {
+  beforeEach(async () => {
+    await resetDb();
+    await seedTwoTenants();
+    await seedEstimatesAndLines();
+  });
+
+  it('reads estimates across accounts (BYPASSRLS)', async () => {
+    const seen = await getStaffDb().select().from(estimates);
+    expect(seen).toHaveLength(2);
+  });
+
+  it('reads line items across accounts (BYPASSRLS)', async () => {
+    const seen = await getStaffDb().select().from(estimateLineItems);
+    expect(seen).toHaveLength(2);
+  });
+
+  it('cannot INSERT estimates (privilege denied)', async () => {
+    const [companyA] = await getTestDb()
+      .select()
+      .from(companies)
+      .where(eq(companies.accountId, accountAId));
+    const [customerA] = await getTestDb()
+      .select()
+      .from(customers)
+      .where(eq(customers.accountId, accountAId));
+    await expect(
+      getStaffDb().insert(estimates).values({
+        id: uuidv7(),
+        accountId: accountAId,
+        // biome-ignore lint/style/noNonNullAssertion: seeded above
+        companyId: companyA!.id,
+        // biome-ignore lint/style/noNonNullAssertion: seeded above
+        customerId: customerA!.id,
+        number: 'EST-STAFF',
+        issueDate: '2026-05-23',
+      }),
+    ).rejects.toThrow();
+  });
+
+  it('cannot DELETE estimates (privilege denied)', async () => {
+    await expect(getStaffDb().delete(estimates)).rejects.toThrow();
+    const rows = await getTestDb().select().from(estimates);
     expect(rows).toHaveLength(2);
   });
 });

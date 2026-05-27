@@ -3,6 +3,7 @@ export * from './audit_events.js';
 export * from './auth.js';
 export * from './companies.js';
 export * from './customers.js';
+export * from './estimates.js';
 export * from './invitations.js';
 export * from './invoices.js';
 export * from './memberships.js';
