@@ -24,7 +24,7 @@ import {
   invoiceSendSchema,
   invoiceUpdateSchema,
 } from '@thalermark/validation';
-import { and, asc, desc, eq, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { cors } from 'hono/cors';
@@ -1556,30 +1556,70 @@ export function createApp(deps: AppDeps) {
           return c.json({ ...estimate, sentTo: to });
         },
       )
-      // Per-entity audit history. Tenant-scoped read into audit_events
-      // filtered by (entityType, entityId) — uses the entity index on the
-      // table. Resolves actor_user_id → display name in one join; the
+      // Audit-events read endpoint. Two modes off the same surface:
+      //   - **Per-entity** (entityType + entityId): full history for one
+      //     record; used by the per-entity History sections on
+      //     customer/invoice/estimate detail pages (slice 8.8a).
+      //   - **Feed** (both omitted): account-wide recent activity, used by
+      //     the /activity page (slice 8.8b). Bounded by `limit` (default 50,
+      //     max 200) so a hot account doesn't ship the entire audit table.
+      // Both modes resolve actor_user_id → display name in one join; the
       // synthetic system user (auth_user.is_system, seeded migration 0009)
       // renders as "System" so provider-driven rows (stripe-paid,
-      // public-accept/decline) are visually attributed without leaking the
-      // system uuid. Ordering is desc — newest first matches how the
-      // per-entity history section will render.
+      // public-accept/decline) are attributed without leaking the system
+      // uuid. Feed mode additionally enriches each row with `entityLabel`
+      // — invoice/estimate `number` or customer `name` — via one inArray
+      // lookup per entity type (3 small queries, not N+1) so the feed UI
+      // can render "Invoice INV-0042" without the consumer doing per-row
+      // resolution.
       .get('/api/audit-events', async (c) => {
-        const entityType = c.req.query('entityType');
-        const entityId = c.req.query('entityId');
-        if (!entityType || !['customer', 'invoice', 'estimate'].includes(entityType)) {
-          return c.json({ error: 'invalid_entity_type' }, 400);
+        const entityTypeRaw = c.req.query('entityType');
+        const entityIdRaw = c.req.query('entityId');
+        const limitRaw = c.req.query('limit');
+        const ALLOWED_TYPES = ['customer', 'invoice', 'estimate'] as const;
+        type EntityType = (typeof ALLOWED_TYPES)[number];
+
+        // Validation: entityId requires entityType (a bare id is ambiguous);
+        // entityType alone is allowed but rare. Empty query = feed mode.
+        if (entityTypeRaw !== undefined) {
+          if (!(ALLOWED_TYPES as readonly string[]).includes(entityTypeRaw)) {
+            return c.json({ error: 'invalid_entity_type' }, 400);
+          }
         }
-        if (!entityId || !UUID_RE.test(entityId)) {
-          return c.json({ error: 'invalid_entity_id' }, 400);
+        if (entityIdRaw !== undefined) {
+          if (entityTypeRaw === undefined) {
+            return c.json({ error: 'entity_id_requires_entity_type' }, 400);
+          }
+          if (!UUID_RE.test(entityIdRaw)) {
+            return c.json({ error: 'invalid_entity_id' }, 400);
+          }
         }
+        let limit = 50;
+        if (limitRaw !== undefined) {
+          const parsed = Number.parseInt(limitRaw, 10);
+          if (!Number.isFinite(parsed) || parsed <= 0) {
+            return c.json({ error: 'invalid_limit' }, 400);
+          }
+          limit = Math.min(parsed, 200);
+        }
+
         const tx = c.get('tx');
         const accountId = c.get('accountId');
+
+        const conditions = [eq(auditEvents.accountId, accountId)];
+        if (entityTypeRaw !== undefined) {
+          conditions.push(eq(auditEvents.entityType, entityTypeRaw));
+        }
+        if (entityIdRaw !== undefined) {
+          conditions.push(eq(auditEvents.entityId, entityIdRaw));
+        }
+
         const rows = await tx
           .select({
             id: auditEvents.id,
             action: auditEvents.action,
-            actorUserId: auditEvents.actorUserId,
+            entityType: auditEvents.entityType,
+            entityId: auditEvents.entityId,
             actorName: authUser.name,
             actorIsSystem: authUser.isSystem,
             createdAt: auditEvents.createdAt,
@@ -1588,18 +1628,62 @@ export function createApp(deps: AppDeps) {
           })
           .from(auditEvents)
           .leftJoin(authUser, eq(authUser.id, auditEvents.actorUserId))
-          .where(
-            and(
-              eq(auditEvents.accountId, accountId),
-              eq(auditEvents.entityType, entityType),
-              eq(auditEvents.entityId, entityId),
-            ),
-          )
-          .orderBy(desc(auditEvents.createdAt));
+          .where(and(...conditions))
+          .orderBy(desc(auditEvents.createdAt))
+          .limit(limit);
+
+        // Entity-label enrichment — feed mode needs human labels next to
+        // the action; per-entity mode already knows the entity. Skip the
+        // lookups when no rows came back to dodge zero-id `inArray`.
+        const feedMode = entityTypeRaw === undefined;
+        const labelMap = new Map<string, string>();
+        if (feedMode && rows.length > 0) {
+          const idsByType: Record<EntityType, string[]> = {
+            customer: [],
+            invoice: [],
+            estimate: [],
+          };
+          for (const r of rows) {
+            if ((ALLOWED_TYPES as readonly string[]).includes(r.entityType)) {
+              idsByType[r.entityType as EntityType].push(r.entityId);
+            }
+          }
+          if (idsByType.invoice.length > 0) {
+            const invRows = await tx
+              .select({ id: invoices.id, label: invoices.number })
+              .from(invoices)
+              .where(
+                and(eq(invoices.accountId, accountId), inArray(invoices.id, idsByType.invoice)),
+              );
+            for (const r of invRows) labelMap.set(`invoice:${r.id}`, r.label);
+          }
+          if (idsByType.estimate.length > 0) {
+            const estRows = await tx
+              .select({ id: estimates.id, label: estimates.number })
+              .from(estimates)
+              .where(
+                and(eq(estimates.accountId, accountId), inArray(estimates.id, idsByType.estimate)),
+              );
+            for (const r of estRows) labelMap.set(`estimate:${r.id}`, r.label);
+          }
+          if (idsByType.customer.length > 0) {
+            const custRows = await tx
+              .select({ id: customers.id, label: customers.name })
+              .from(customers)
+              .where(
+                and(eq(customers.accountId, accountId), inArray(customers.id, idsByType.customer)),
+              );
+            for (const r of custRows) labelMap.set(`customer:${r.id}`, r.label);
+          }
+        }
+
         return c.json({
           events: rows.map((r) => ({
             id: r.id,
             action: r.action,
+            entityType: r.entityType,
+            entityId: r.entityId,
+            entityLabel: feedMode ? (labelMap.get(`${r.entityType}:${r.entityId}`) ?? null) : null,
             actorName: r.actorIsSystem ? 'System' : (r.actorName ?? 'Unknown'),
             createdAt: r.createdAt,
             before: r.before,

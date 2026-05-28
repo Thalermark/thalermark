@@ -238,4 +238,168 @@ describe('GET /api/audit-events', () => {
       await ctx.handle.close();
     }
   });
+
+  it('rejects entityId without entityType with 400', async () => {
+    const ctx = buildApp();
+    try {
+      const cookie = await signUp(ctx.app, 'auditbarid@example.com');
+      const { accountId } = await userContext('auditbarid@example.com');
+      const someUuid = uuidv7();
+      const res = await ctx.app.request(`/api/audit-events?entityId=${someUuid}`, {
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(res.status).toBe(400);
+      expect((await res.json()) as { error: string }).toEqual({
+        error: 'entity_id_requires_entity_type',
+      });
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+});
+
+describe('GET /api/audit-events — feed mode (no entity filter)', () => {
+  beforeEach(resetDb);
+
+  async function createInvoice(
+    app: ReturnType<typeof createApp>,
+    cookie: string,
+    accountId: string,
+    companyId: string,
+    customerId: string,
+    number = 'INV-001',
+  ): Promise<string> {
+    const res = await app.request('/api/invoices', {
+      method: 'POST',
+      headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        companyId,
+        customerId,
+        number,
+        issueDate: '2026-05-23',
+        dueDate: '2026-06-22',
+        subtotal: '100.00',
+        tax: '0.00',
+        total: '100.00',
+        lineItems: [
+          {
+            position: 1,
+            description: 'Work',
+            quantity: '1',
+            unitPrice: '100.00',
+            amount: '100.00',
+          },
+        ],
+      }),
+    });
+    if (res.status !== 201) throw new Error(`invoice create failed: ${res.status}`);
+    return ((await res.json()) as { id: string }).id;
+  }
+
+  it('returns the account-wide feed with entity labels resolved', async () => {
+    const ctx = buildApp();
+    try {
+      const cookie = await signUp(ctx.app, 'feed@example.com');
+      const { accountId, companyId } = await userContext('feed@example.com');
+      const customerId = await createCustomer(ctx.app, cookie, accountId, companyId, 'Acme Co.');
+      const invoiceId = await createInvoice(
+        ctx.app,
+        cookie,
+        accountId,
+        companyId,
+        customerId,
+        'INV-042',
+      );
+
+      const res = await ctx.app.request('/api/audit-events', {
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        events: {
+          entityType: string;
+          entityId: string;
+          entityLabel: string | null;
+          action: string;
+          actorName: string;
+        }[];
+      };
+      // Two create events (customer, invoice) — invoice is newer so first
+      expect(body.events.length).toBeGreaterThanOrEqual(2);
+      const invEvent = body.events.find(
+        (e) => e.entityType === 'invoice' && e.entityId === invoiceId,
+      );
+      expect(invEvent?.entityLabel).toBe('INV-042');
+      expect(invEvent?.action).toBe('create');
+      const custEvent = body.events.find(
+        (e) => e.entityType === 'customer' && e.entityId === customerId,
+      );
+      expect(custEvent?.entityLabel).toBe('Acme Co.');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('respects the limit query param and clamps to 200', async () => {
+    const ctx = buildApp();
+    try {
+      const cookie = await signUp(ctx.app, 'feedlim@example.com');
+      const { accountId, companyId } = await userContext('feedlim@example.com');
+      // Three customers → three create rows
+      await createCustomer(ctx.app, cookie, accountId, companyId, 'A');
+      await createCustomer(ctx.app, cookie, accountId, companyId, 'B');
+      await createCustomer(ctx.app, cookie, accountId, companyId, 'C');
+
+      const limited = await ctx.app.request('/api/audit-events?limit=2', {
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(limited.status).toBe(200);
+      const limitedBody = (await limited.json()) as { events: unknown[] };
+      expect(limitedBody.events).toHaveLength(2);
+
+      // limit=999 should be silently clamped to 200, not 400
+      const huge = await ctx.app.request('/api/audit-events?limit=999', {
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(huge.status).toBe(200);
+
+      // limit=0 / negative / non-numeric are 400
+      const zero = await ctx.app.request('/api/audit-events?limit=0', {
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(zero.status).toBe(400);
+      const bad = await ctx.app.request('/api/audit-events?limit=abc', {
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(bad.status).toBe(400);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('does not include other accounts in the feed', async () => {
+    const ctx = buildApp();
+    try {
+      const aCookie = await signUp(ctx.app, 'feedxa@example.com');
+      const aCtx = await userContext('feedxa@example.com');
+      await createCustomer(ctx.app, aCookie, aCtx.accountId, aCtx.companyId, 'A-only');
+
+      const bCookie = await signUp(ctx.app, 'feedxb@example.com');
+      const bCtx = await userContext('feedxb@example.com');
+      await createCustomer(ctx.app, bCookie, bCtx.accountId, bCtx.companyId, 'B-only');
+
+      const res = await ctx.app.request('/api/audit-events', {
+        headers: { cookie: bCookie, 'x-account-id': bCtx.accountId },
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        events: { entityLabel: string | null }[];
+      };
+      const labels = body.events.map((e) => e.entityLabel);
+      expect(labels).toContain('B-only');
+      expect(labels).not.toContain('A-only');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
 });
