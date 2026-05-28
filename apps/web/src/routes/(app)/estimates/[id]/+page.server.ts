@@ -42,8 +42,26 @@ async function runTransition(
   redirect(303, `/estimates/${id}`);
 }
 
+// Convert is a link action, not a status transition — slice 8.7d. Gated to
+// accepted estimates server-side; idempotent (a re-call returns the existing
+// invoice id). On either 201 (new) or 200 (already converted) the API returns
+// `{ id }` and we redirect straight to the new invoice's detail page.
+async function runConvert(event: Parameters<Actions[string]>[0]) {
+  const client = serverApiClient(event);
+  const id = event.params.id;
+  const res = await client.api.estimates[':id'].convert.$post({ param: { id } });
+  if (res.status === 404) throw error(404, 'estimate not found');
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { error?: string } | null;
+    return fail(res.status, { transitionError: body?.error ?? 'convert_failed' });
+  }
+  const { id: invoiceId } = (await res.json()) as { id: string };
+  redirect(303, `/invoices/${invoiceId}`);
+}
+
 export const actions: Actions = {
   markSent: (event) => runTransition(event, 'mark-sent'),
   markAccepted: (event) => runTransition(event, 'mark-accepted'),
   markDeclined: (event) => runTransition(event, 'mark-declined'),
+  convert: (event) => runConvert(event),
 };

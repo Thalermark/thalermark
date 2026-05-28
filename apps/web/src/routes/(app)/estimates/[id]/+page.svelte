@@ -13,7 +13,13 @@
   const canMarkAccepted = $derived(est.status === 'draft' || est.status === 'sent');
   const canMarkDeclined = $derived(est.status === 'draft' || est.status === 'sent');
   const canEdit = $derived(est.status === 'draft');
-  const hasActions = $derived(canMarkSent || canMarkAccepted || canMarkDeclined);
+  // Convert is the "estimate → invoice" link action (slice 8.7d). Gated to
+  // accepted estimates with no existing converted invoice; once converted,
+  // the button is replaced with a link to the new invoice further down.
+  const canConvert = $derived(est.status === 'accepted' && est.convertedInvoiceId == null);
+  const hasActions = $derived(
+    canMarkSent || canMarkAccepted || canMarkDeclined || canConvert,
+  );
 
   // Advisory expiry: status doesn't flip to 'expired' in MVP (no background
   // sweep yet). Read sites compute the warning off expires_on < today, but
@@ -94,6 +100,25 @@
         </button>
       </form>
     {/if}
+    {#if canConvert}
+      <form method="post" action="?/convert">
+        <button
+          type="submit"
+          class="rounded-sm bg-ink px-4 py-2 text-sm font-medium text-cream transition-colors hover:bg-gold-deep"
+        >
+          Convert to invoice
+        </button>
+      </form>
+    {/if}
+  </div>
+{/if}
+
+{#if est.convertedInvoiceId}
+  <div class="mt-6 rounded-sm border border-gold-deep/40 bg-gold-deep/5 px-4 py-3 text-sm text-ink">
+    Converted to
+    <a href="/invoices/{est.convertedInvoiceId}" class="font-medium text-gold-deep hover:underline">
+      invoice →
+    </a>
   </div>
 {/if}
 

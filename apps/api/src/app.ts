@@ -1072,6 +1072,148 @@ export function createApp(deps: AppDeps) {
           ESTIMATE_TRANSITIONS['mark-declined'],
         ),
       )
+      // Convert an accepted estimate into a draft invoice. Gated to status
+      // 'accepted' — the "estimate → agreement → invoice" flow. Idempotent:
+      // a second call (or a re-load that fires the action twice) returns the
+      // existing invoice id instead of creating a duplicate. The estimate's
+      // status does not change here; convert is a link action, not a status
+      // transition (the comment on ESTIMATE_TRANSITIONS up top calls this
+      // out). Invoice number is auto-generated server-side via the same
+      // suggestNextInvoiceNumber pipeline the /next-number endpoint uses;
+      // (companyId, number) is pre-checked inside the tx for the same
+      // reason the invoice POST pre-checks — a constraint throw would
+      // poison the tenant tx and roll back the audit rows.
+      .post('/api/estimates/:id/convert', async (c) => {
+        const id = c.req.param('id');
+        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+
+        const [estimate] = await tx
+          .select()
+          .from(estimates)
+          .where(and(eq(estimates.id, id), eq(estimates.accountId, accountId)))
+          .limit(1);
+        if (!estimate) return c.json({ error: 'estimate_not_found' }, 404);
+
+        // Idempotent re-call: if the link is already set, return that
+        // invoice id without writing anything. Keeps double-submits + the
+        // browser back/forward pattern from minting a second invoice.
+        if (estimate.convertedInvoiceId) {
+          return c.json({ id: estimate.convertedInvoiceId });
+        }
+
+        if (estimate.status !== 'accepted') {
+          return c.json(
+            { error: 'invalid_transition', from: estimate.status, to: 'converted' },
+            409,
+          );
+        }
+
+        const estimateLines = await tx
+          .select()
+          .from(estimateLineItems)
+          .where(
+            and(eq(estimateLineItems.estimateId, id), eq(estimateLineItems.accountId, accountId)),
+          )
+          .orderBy(asc(estimateLineItems.position));
+
+        // Server-side defaults for the new invoice. Issue date is today,
+        // due date is today + 30d (Net 30). Operator can edit either via
+        // the draft invoice's PATCH path before sending.
+        const today = new Date();
+        const todayIso = today.toISOString().slice(0, 10);
+        const dueIso = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000)
+          .toISOString()
+          .slice(0, 10);
+
+        const [latest] = await tx
+          .select({ number: invoices.number })
+          .from(invoices)
+          .where(and(eq(invoices.accountId, accountId), eq(invoices.companyId, estimate.companyId)))
+          .orderBy(desc(invoices.createdAt))
+          .limit(1);
+        const invoiceNumber = suggestNextInvoiceNumber(latest?.number);
+
+        const [taken] = await tx
+          .select({ id: invoices.id })
+          .from(invoices)
+          .where(
+            and(
+              eq(invoices.accountId, accountId),
+              eq(invoices.companyId, estimate.companyId),
+              eq(invoices.number, invoiceNumber),
+            ),
+          )
+          .limit(1);
+        if (taken) return c.json({ error: 'invoice_number_collision', number: invoiceNumber }, 409);
+
+        const invoiceId = uuidv7();
+        await tx.insert(invoices).values({
+          id: invoiceId,
+          accountId,
+          companyId: estimate.companyId,
+          customerId: estimate.customerId,
+          number: invoiceNumber,
+          issueDate: todayIso,
+          dueDate: dueIso,
+          currency: estimate.currency,
+          subtotal: estimate.subtotal,
+          tax: estimate.tax,
+          total: estimate.total,
+          notes: estimate.notes,
+        });
+        if (estimateLines.length > 0) {
+          await tx.insert(invoiceLineItems).values(
+            estimateLines.map((li) => ({
+              id: uuidv7(),
+              accountId,
+              invoiceId,
+              position: li.position,
+              description: li.description,
+              quantity: li.quantity,
+              unitPrice: li.unitPrice,
+              amount: li.amount,
+            })),
+          );
+        }
+
+        await tx
+          .update(estimates)
+          .set({ convertedInvoiceId: invoiceId, updatedAt: today })
+          .where(and(eq(estimates.id, id), eq(estimates.accountId, accountId)));
+
+        await c.var.audit({
+          entityType: 'estimate',
+          entityId: id,
+          action: 'convert',
+          before: { convertedInvoiceId: null },
+          after: { convertedInvoiceId: invoiceId },
+          companyId: estimate.companyId,
+        });
+        await c.var.audit({
+          entityType: 'invoice',
+          entityId: invoiceId,
+          action: 'create',
+          after: {
+            id: invoiceId,
+            companyId: estimate.companyId,
+            customerId: estimate.customerId,
+            number: invoiceNumber,
+            issueDate: todayIso,
+            dueDate: dueIso,
+            currency: estimate.currency,
+            subtotal: estimate.subtotal,
+            tax: estimate.tax,
+            total: estimate.total,
+            notes: estimate.notes,
+            convertedFromEstimateId: id,
+          },
+          companyId: estimate.companyId,
+        });
+
+        return c.json({ id: invoiceId }, 201);
+      })
       // Send the invoice via email. Distinct from /mark-sent (pure status
       // transition, no I/O) because this endpoint adds a real side-effect
       // and an optional recipient override. State machine: draft → sent +
