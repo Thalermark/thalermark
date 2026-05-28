@@ -36,6 +36,8 @@
     'email-sent': 'emailed',
     convert: 'converted to invoice',
     'stripe-paid': 'paid via Stripe',
+    'stripe-connect-create': 'connected Stripe account',
+    'stripe-connect-update': 'updated Stripe Connect status',
     'public-accept': 'accepted by recipient',
     'public-decline': 'declined by recipient',
   };
@@ -45,11 +47,13 @@
     customer: 'Customer',
     invoice: 'Invoice',
     estimate: 'Estimate',
+    company: 'Company',
   };
   const ENTITY_PATHS: Record<string, string> = {
     customer: '/customers',
     invoice: '/invoices',
     estimate: '/estimates',
+    company: '/settings/payments',
   };
 
   function actionLabel(action: string): string {

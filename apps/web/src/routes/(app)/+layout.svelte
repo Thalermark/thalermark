@@ -18,7 +18,6 @@
         <a href="/invoices" class="hover:text-ink">Invoices</a>
         <a href="/estimates" class="hover:text-ink">Estimates</a>
         <a href="/customers" class="hover:text-ink">Customers</a>
-        <a href="/activity" class="hover:text-ink">Activity</a>
       </nav>
       <UserMenu name={session.user.name} email={session.user.email} />
     {/if}

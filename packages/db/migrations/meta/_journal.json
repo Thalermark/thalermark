@@ -169,6 +169,13 @@
       "when": 1779855127298,
       "tag": "0023_enable_rls_estimates",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1779970410932,
+      "tag": "0024_daily_hardball",
+      "breakpoints": true
     }
   ]
 }

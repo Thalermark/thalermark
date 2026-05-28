@@ -9,6 +9,8 @@ export const COPY = {
   },
   signOut: 'Sign out',
   account: 'Account',
+  activity: 'Activity',
+  settings: 'Settings',
   selectCompany: {
     title: 'Choose a company',
     empty: 'You have no companies yet.',

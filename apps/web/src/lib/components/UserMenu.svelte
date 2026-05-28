@@ -69,6 +69,14 @@
       >
         {COPY.account}
       </a>
+      <a
+        href="/settings"
+        role="menuitem"
+        onclick={close}
+        class="block px-4 py-2 text-sm text-ink/80 transition-colors hover:bg-cream-warm hover:text-ink"
+      >
+        {COPY.settings}
+      </a>
       <button
         type="button"
         role="menuitem"
