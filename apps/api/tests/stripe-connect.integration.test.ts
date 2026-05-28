@@ -180,7 +180,7 @@ describe('POST /api/companies/:id/stripe-connect/onboard', () => {
       expect(body.accountId).toBe('acct_alpha');
 
       expect(createAccount).toHaveBeenCalledTimes(1);
-      const [params, opts] = createAccount.mock.calls[0] as [
+      const [params, opts] = createAccount.mock.calls[0] as unknown as [
         Stripe.AccountCreateParams,
         { idempotencyKey?: string },
       ];
