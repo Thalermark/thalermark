@@ -71,4 +71,5 @@ type PublicInvoice = {
   customerName: string | null;
   lineItems: PublicInvoiceLine[];
   payable: boolean;
+  connectPending: boolean;
 };

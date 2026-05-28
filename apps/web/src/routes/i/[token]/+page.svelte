@@ -98,6 +98,10 @@
     >
       Payment received — finalizing. Refresh in a moment if this banner doesn't update.
     </div>
+  {:else if inv.connectPending && inv.status === 'sent'}
+    <div class="mt-6 rounded-sm border border-ink/15 bg-cream-warm px-4 py-3 text-sm text-ink/80">
+      {inv.companyName ?? 'This business'} is finishing setting up online payments. Online pay will appear here once that's complete — usually a few minutes. You can still reach out to them directly in the meantime.
+    </div>
   {/if}
 
   <dl class="mt-8 grid grid-cols-1 gap-x-12 gap-y-6 sm:grid-cols-3">

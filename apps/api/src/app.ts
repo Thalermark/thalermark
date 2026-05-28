@@ -1806,7 +1806,11 @@ export function createApp(deps: AppDeps) {
         if (!invoice) return c.json({ error: 'invoice_not_found' }, 404);
 
         const [company] = await bootstrapDb
-          .select({ name: companies.name })
+          .select({
+            name: companies.name,
+            stripeConnectAccountId: companies.stripeConnectAccountId,
+            stripeConnectChargesEnabled: companies.stripeConnectChargesEnabled,
+          })
           .from(companies)
           .where(eq(companies.id, invoice.companyId))
           .limit(1);
@@ -1828,6 +1832,17 @@ export function createApp(deps: AppDeps) {
           .where(eq(invoiceLineItems.invoiceId, invoice.id))
           .orderBy(asc(invoiceLineItems.position));
 
+        // Connect routing: if the company has onboarded a connected account,
+        // the pay button requires Stripe to have flipped charges_enabled on
+        // their side. Self-host companies (no connectAccountId) pay through
+        // the platform's STRIPE_SECRET_KEY — 8.5c behavior preserved.
+        // connectPending surfaces the mid-onboarding state to the recipient
+        // so the page can render a friendly "setting up payments" banner
+        // rather than just hiding the Pay button without explanation.
+        const hasConnect = !!company?.stripeConnectAccountId;
+        const connectReady = !hasConnect || company?.stripeConnectChargesEnabled === true;
+        const connectPending = hasConnect && !connectReady;
+
         return c.json({
           number: invoice.number,
           status: invoice.status,
@@ -1846,7 +1861,8 @@ export function createApp(deps: AppDeps) {
           // Tell the client whether the Pay button is wirable. Avoids a
           // separate config probe; the recipient's page can branch on this
           // alone without inferring from a 503 on the session-mint call.
-          payable: deps.stripe != null && invoice.status === 'sent',
+          payable: deps.stripe != null && invoice.status === 'sent' && connectReady,
+          connectPending,
         });
       })
       // Stripe Embedded Checkout session mint. Lazy — the public-view page
@@ -1870,33 +1886,60 @@ export function createApp(deps: AppDeps) {
         const amountCents = decimalDollarsToCents(invoice.total);
         if (amountCents <= 0) return c.json({ error: 'invalid_amount' }, 400);
 
-        const session = await deps.stripe.client.checkout.sessions.create({
-          // Stripe 22.x renamed this from the older 'embedded' literal; same
-          // flow — mounts Stripe-hosted UI inside our page via stripe.js'
-          // initEmbeddedCheckout.
-          ui_mode: 'embedded_page',
-          mode: 'payment',
-          // Stripe navigates the parent window here after success. Includes
-          // ?paid=1 so the page can render a "payment received, processing"
-          // banner immediately even if the webhook hasn't fired yet.
-          return_url: `${deps.publicAppUrl}/i/${invoice.publicToken}?paid=1`,
-          line_items: [
-            {
-              price_data: {
-                currency: invoice.currency.toLowerCase(),
-                product_data: { name: `Invoice ${invoice.number}` },
-                unit_amount: amountCents,
+        // Connect routing decision. A company that has onboarded Connect must
+        // have Stripe-side charges_enabled before we'll mint a session — Stripe
+        // will reject it otherwise, and a clean 503 here surfaces the wait
+        // state to the recipient instead of a generic Stripe error. Self-host
+        // companies (no stripeConnectAccountId) keep the 8.5c platform-account
+        // path: stripeAccount is not passed, so Checkout runs on the operator's
+        // own STRIPE_SECRET_KEY.
+        const [company] = await bootstrapDb
+          .select({
+            stripeConnectAccountId: companies.stripeConnectAccountId,
+            stripeConnectChargesEnabled: companies.stripeConnectChargesEnabled,
+          })
+          .from(companies)
+          .where(eq(companies.id, invoice.companyId))
+          .limit(1);
+        if (company?.stripeConnectAccountId && !company.stripeConnectChargesEnabled) {
+          return c.json({ error: 'connect_not_ready' }, 503);
+        }
+        const requestOptions = company?.stripeConnectAccountId
+          ? { stripeAccount: company.stripeConnectAccountId }
+          : undefined;
+
+        const session = await deps.stripe.client.checkout.sessions.create(
+          {
+            // Stripe 22.x renamed this from the older 'embedded' literal; same
+            // flow — mounts Stripe-hosted UI inside our page via stripe.js'
+            // initEmbeddedCheckout.
+            ui_mode: 'embedded_page',
+            mode: 'payment',
+            // Stripe navigates the parent window here after success. Includes
+            // ?paid=1 so the page can render a "payment received, processing"
+            // banner immediately even if the webhook hasn't fired yet.
+            return_url: `${deps.publicAppUrl}/i/${invoice.publicToken}?paid=1`,
+            line_items: [
+              {
+                price_data: {
+                  currency: invoice.currency.toLowerCase(),
+                  product_data: { name: `Invoice ${invoice.number}` },
+                  unit_amount: amountCents,
+                },
+                quantity: 1,
               },
-              quantity: 1,
-            },
-          ],
-          // Echoed on the webhook event — primary lookup for the
-          // invoice-id → mark-paid transition. Metadata duplicated so a
-          // human reading the Stripe dashboard can also resolve the
-          // invoice without poking at our DB.
-          client_reference_id: invoice.id,
-          metadata: { invoiceId: invoice.id, accountId: invoice.accountId },
-        });
+            ],
+            // Echoed on the webhook event — primary lookup for the
+            // invoice-id → mark-paid transition. The webhook resolves the
+            // invoice purely by client_reference_id regardless of which
+            // account ran the session, so no change is needed on that side.
+            // Metadata duplicated so a human reading the Stripe dashboard can
+            // also resolve the invoice without poking at our DB.
+            client_reference_id: invoice.id,
+            metadata: { invoiceId: invoice.id, accountId: invoice.accountId },
+          },
+          requestOptions,
+        );
 
         return c.json({
           clientSecret: session.client_secret,

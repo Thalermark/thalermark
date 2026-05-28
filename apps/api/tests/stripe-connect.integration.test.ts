@@ -4,6 +4,8 @@ import {
   auditEvents,
   authUser,
   companies,
+  customers,
+  invoices,
   memberships,
 } from '@thalermark/db';
 import { eq } from 'drizzle-orm';
@@ -85,6 +87,7 @@ async function userContext(email: string): Promise<{ accountId: string; companyI
 type ConnectStubs = {
   createAccount?: ReturnType<typeof vi.fn>;
   createAccountLink?: ReturnType<typeof vi.fn>;
+  createCheckoutSession?: ReturnType<typeof vi.fn>;
 };
 
 function makeStubStripe(stubs: ConnectStubs = {}): StripeBundle {
@@ -92,9 +95,13 @@ function makeStubStripe(stubs: ConnectStubs = {}): StripeBundle {
   const createAccountLink =
     stubs.createAccountLink ??
     vi.fn(async () => ({ url: 'https://connect.stripe.com/setup/s/test' }));
+  const createCheckoutSession =
+    stubs.createCheckoutSession ??
+    vi.fn(async () => ({ client_secret: 'cs_secret_test', id: 'cs_test' }));
   const client = {
     accounts: { create: createAccount },
     accountLinks: { create: createAccountLink },
+    checkout: { sessions: { create: createCheckoutSession } },
   } as unknown as Stripe;
   return {
     client,
@@ -427,6 +434,228 @@ describe('Stripe webhook — account.updated', () => {
         body: payload,
       });
       expect(res.status).toBe(200);
+    } finally {
+      await handle.close();
+    }
+  });
+});
+
+// Direct DB seed for the public checkout-session route. The route is unauth'd
+// and reads via bootstrapDb, so we mirror the seed shape from
+// stripe-webhook.integration.test.ts. `connect` configures the company's Stripe
+// Connect state — null = self-host (no stripeAccount header), populated = SaaS
+// (stripeAccount required, gated on chargesEnabled).
+async function seedPayableInvoice(connect: {
+  accountId: string | null;
+  chargesEnabled: boolean;
+}): Promise<{ publicToken: string; invoiceId: string; companyId: string }> {
+  const db = getTestDb();
+  const userId = uuidv7();
+  const acctId = uuidv7();
+  const companyId = uuidv7();
+  const customerId = uuidv7();
+  const invoiceId = uuidv7();
+  const publicToken = `tok_${invoiceId}`;
+  await db
+    .insert(authUser)
+    .values({ id: userId, email: `${userId}@test.com`, emailVerified: false, name: 'T' });
+  await db.insert(accounts).values({ id: acctId, name: 'Acc' });
+  await db.insert(memberships).values({ id: uuidv7(), accountId: acctId, userId });
+  await db.insert(companies).values({
+    id: companyId,
+    accountId: acctId,
+    name: 'Co',
+    stripeConnectAccountId: connect.accountId,
+    stripeConnectChargesEnabled: connect.chargesEnabled,
+    stripeConnectDetailsSubmitted: connect.chargesEnabled,
+  });
+  await db.insert(customers).values({ id: customerId, accountId: acctId, companyId, name: 'Bob' });
+  await db.insert(invoices).values({
+    id: invoiceId,
+    accountId: acctId,
+    companyId,
+    customerId,
+    number: 'INV-1',
+    status: 'sent',
+    issueDate: '2026-05-28',
+    dueDate: '2026-06-27',
+    currency: 'USD',
+    subtotal: '100.00',
+    tax: '0.00',
+    total: '100.00',
+    publicToken,
+    sentAt: new Date(),
+  });
+  return { publicToken, invoiceId, companyId };
+}
+
+describe('POST /api/public/invoices/:token/checkout-session — slice 8.5e', () => {
+  beforeEach(resetDb);
+
+  it('threads stripeAccount when the company has onboarded Connect', async () => {
+    const createCheckoutSession = vi.fn(async () => ({
+      client_secret: 'cs_secret_connect',
+      id: 'cs_connect',
+    }));
+    const stripe = makeStubStripe({ createCheckoutSession });
+    const { app, handle } = buildApp(stripe);
+    try {
+      const { publicToken } = await seedPayableInvoice({
+        accountId: 'acct_live_5e',
+        chargesEnabled: true,
+      });
+      const res = await app.request(`/api/public/invoices/${publicToken}/checkout-session`, {
+        method: 'POST',
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { clientSecret: string };
+      expect(body.clientSecret).toBe('cs_secret_connect');
+
+      expect(createCheckoutSession).toHaveBeenCalledTimes(1);
+      const [, opts] = createCheckoutSession.mock.calls[0] as unknown as [
+        unknown,
+        { stripeAccount?: string },
+      ];
+      expect(opts.stripeAccount).toBe('acct_live_5e');
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('returns 503 connect_not_ready when the company has onboarded but Stripe has not enabled charges', async () => {
+    const createCheckoutSession = vi.fn();
+    const stripe = makeStubStripe({ createCheckoutSession });
+    const { app, handle } = buildApp(stripe);
+    try {
+      const { publicToken } = await seedPayableInvoice({
+        accountId: 'acct_pending_5e',
+        chargesEnabled: false,
+      });
+      const res = await app.request(`/api/public/invoices/${publicToken}/checkout-session`, {
+        method: 'POST',
+      });
+      expect(res.status).toBe(503);
+      expect(await res.json()).toMatchObject({ error: 'connect_not_ready' });
+      expect(createCheckoutSession).not.toHaveBeenCalled();
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('does not pass stripeAccount on the self-host path (no connectAccountId)', async () => {
+    const createCheckoutSession = vi.fn(async () => ({
+      client_secret: 'cs_secret_selfhost',
+      id: 'cs_selfhost',
+    }));
+    const stripe = makeStubStripe({ createCheckoutSession });
+    const { app, handle } = buildApp(stripe);
+    try {
+      const { publicToken } = await seedPayableInvoice({
+        accountId: null,
+        chargesEnabled: false,
+      });
+      const res = await app.request(`/api/public/invoices/${publicToken}/checkout-session`, {
+        method: 'POST',
+      });
+      expect(res.status).toBe(200);
+      // Two-arg call with second undefined preserves Stripe SDK default
+      // routing to the platform account — exactly the 8.5c behavior.
+      expect(createCheckoutSession).toHaveBeenCalledTimes(1);
+      const [, opts] = createCheckoutSession.mock.calls[0] as unknown as [unknown, unknown];
+      expect(opts).toBeUndefined();
+    } finally {
+      await handle.close();
+    }
+  });
+});
+
+describe('GET /api/public/invoices/:token — payable gate on Connect (slice 8.5e)', () => {
+  beforeEach(resetDb);
+
+  it('reports payable=false and connectPending=true when Connect is mid-onboarding', async () => {
+    const stripe = makeStubStripe();
+    const { app, handle } = buildApp(stripe);
+    try {
+      const { publicToken } = await seedPayableInvoice({
+        accountId: 'acct_payable_gate',
+        chargesEnabled: false,
+      });
+      const res = await app.request(`/api/public/invoices/${publicToken}`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { payable: boolean; connectPending: boolean };
+      expect(body.payable).toBe(false);
+      expect(body.connectPending).toBe(true);
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('reports payable=true and connectPending=false when Connect is enabled', async () => {
+    const stripe = makeStubStripe();
+    const { app, handle } = buildApp(stripe);
+    try {
+      const { publicToken } = await seedPayableInvoice({
+        accountId: 'acct_ready_gate',
+        chargesEnabled: true,
+      });
+      const res = await app.request(`/api/public/invoices/${publicToken}`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { payable: boolean; connectPending: boolean };
+      expect(body.payable).toBe(true);
+      expect(body.connectPending).toBe(false);
+    } finally {
+      await handle.close();
+    }
+  });
+});
+
+describe('Stripe webhook — checkout.session.completed from a connected account (slice 8.5e)', () => {
+  beforeEach(resetDb);
+
+  it('marks the invoice paid even when the event carries account=acct_<connected>', async () => {
+    const { app, handle, stripe } = buildAppWithRealStripe();
+    try {
+      // Seed the invoice with Connect onboarded + enabled, mirroring the
+      // shape a connected-account session completion would resolve against.
+      const { invoiceId } = await seedPayableInvoice({
+        accountId: 'acct_connected_paid',
+        chargesEnabled: true,
+      });
+
+      // Stripe Connect events carry `account: 'acct_<connected>'` at the
+      // top level. The handler resolves the invoice purely by
+      // client_reference_id, so this field shouldn't matter — but a
+      // regression test pins that property in.
+      const payload = JSON.stringify({
+        id: 'evt_connected',
+        object: 'event',
+        type: 'checkout.session.completed',
+        account: 'acct_connected_paid',
+        data: {
+          object: {
+            id: 'cs_connected_session',
+            object: 'checkout.session',
+            payment_status: 'paid',
+            client_reference_id: invoiceId,
+          },
+        },
+      });
+      const sig = stripe.client.webhooks.generateTestHeaderString({
+        payload,
+        secret: TEST_WEBHOOK_SECRET,
+      });
+
+      const res = await app.request('/api/webhooks/stripe', {
+        method: 'POST',
+        headers: { 'stripe-signature': sig },
+        body: payload,
+      });
+      expect(res.status).toBe(200);
+
+      const db = getTestDb();
+      const [row] = await db.select().from(invoices).where(eq(invoices.id, invoiceId));
+      expect(row?.status).toBe('paid');
+      expect(row?.paidAt).toBeInstanceOf(Date);
     } finally {
       await handle.close();
     }
