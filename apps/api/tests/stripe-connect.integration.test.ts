@@ -137,7 +137,11 @@ function buildAppWithRealStripe() {
   return { app, handle, stripe };
 }
 
-function accountUpdatedPayload(accountId: string, chargesEnabled: boolean, detailsSubmitted: boolean): string {
+function accountUpdatedPayload(
+  accountId: string,
+  chargesEnabled: boolean,
+  detailsSubmitted: boolean,
+): string {
   return JSON.stringify({
     id: `evt_${accountId}`,
     object: 'event',
@@ -188,10 +192,7 @@ describe('POST /api/companies/:id/stripe-connect/onboard', () => {
       const [row] = await db.select().from(companies).where(eq(companies.id, companyId));
       expect(row?.stripeConnectAccountId).toBe('acct_alpha');
 
-      const audits = await db
-        .select()
-        .from(auditEvents)
-        .where(eq(auditEvents.entityId, companyId));
+      const audits = await db.select().from(auditEvents).where(eq(auditEvents.entityId, companyId));
       const created = audits.find((a) => a.action === 'stripe-connect-create');
       expect(created).toBeDefined();
       expect(created?.after).toMatchObject({ stripeConnectAccountId: 'acct_alpha' });
@@ -225,10 +226,7 @@ describe('POST /api/companies/:id/stripe-connect/onboard', () => {
       expect(createAccountLink).toHaveBeenCalledTimes(2);
 
       const db = getTestDb();
-      const audits = await db
-        .select()
-        .from(auditEvents)
-        .where(eq(auditEvents.entityId, companyId));
+      const audits = await db.select().from(auditEvents).where(eq(auditEvents.entityId, companyId));
       expect(audits.filter((a) => a.action === 'stripe-connect-create')).toHaveLength(1);
     } finally {
       await handle.close();
@@ -262,7 +260,9 @@ describe('POST /api/companies/:id/stripe-connect/onboard', () => {
       const otherCompanyId = uuidv7();
       const db = getTestDb();
       await db.insert(accounts).values({ id: otherAccountId, name: 'Other' });
-      await db.insert(companies).values({ id: otherCompanyId, accountId: otherAccountId, name: 'Other Co' });
+      await db
+        .insert(companies)
+        .values({ id: otherCompanyId, accountId: otherAccountId, name: 'Other Co' });
 
       const res = await app.request(`/api/companies/${otherCompanyId}/stripe-connect/onboard`, {
         method: 'POST',
@@ -355,10 +355,7 @@ describe('Stripe webhook — account.updated', () => {
       expect(row?.stripeConnectChargesEnabled).toBe(true);
       expect(row?.stripeConnectDetailsSubmitted).toBe(true);
 
-      const audits = await db
-        .select()
-        .from(auditEvents)
-        .where(eq(auditEvents.entityId, companyId));
+      const audits = await db.select().from(auditEvents).where(eq(auditEvents.entityId, companyId));
       const update = audits.find((a) => a.action === 'stripe-connect-update');
       expect(update).toBeDefined();
       expect(update?.actorUserId).toBe(SYSTEM_USER_ID);
@@ -409,10 +406,7 @@ describe('Stripe webhook — account.updated', () => {
       });
       expect(res.status).toBe(200);
 
-      const audits = await db
-        .select()
-        .from(auditEvents)
-        .where(eq(auditEvents.entityId, companyId));
+      const audits = await db.select().from(auditEvents).where(eq(auditEvents.entityId, companyId));
       expect(audits.filter((a) => a.action === 'stripe-connect-update')).toHaveLength(0);
     } finally {
       await handle.close();

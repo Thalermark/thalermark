@@ -17,6 +17,9 @@
       "**/.turbo",
       "**/coverage",
       "**/migrations/meta/**",
+      "**/Pods",
+      "**/*.xcassets",
+      "**/expo-env.d.ts",
       "_archive",
       "genai",
       "spikes"

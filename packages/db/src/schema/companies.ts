@@ -17,9 +17,7 @@ export const companies = pgTable(
     // connected account; details_submitted surfaces the "review in progress"
     // intermediate state Stripe puts a freshly-onboarded account in.
     stripeConnectAccountId: text('stripe_connect_account_id'),
-    stripeConnectChargesEnabled: boolean('stripe_connect_charges_enabled')
-      .notNull()
-      .default(false),
+    stripeConnectChargesEnabled: boolean('stripe_connect_charges_enabled').notNull().default(false),
     stripeConnectDetailsSubmitted: boolean('stripe_connect_details_submitted')
       .notNull()
       .default(false),
