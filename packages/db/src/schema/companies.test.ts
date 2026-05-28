@@ -50,4 +50,40 @@ describe('companies', () => {
     const remaining = await db.select().from(companies).where(eq(companies.id, companyId));
     expect(remaining).toHaveLength(0);
   });
+
+  it('defaults stripe connect fields to disabled / null on insert', async () => {
+    const db = getTestDb();
+    const accountId = uuidv7();
+    const companyId = uuidv7();
+
+    await db.insert(accounts).values({ id: accountId, name: 'Acct' });
+    await db.insert(companies).values({ id: companyId, accountId, name: 'New' });
+
+    const [row] = await db.select().from(companies).where(eq(companies.id, companyId));
+    expect(row?.stripeConnectAccountId).toBeNull();
+    expect(row?.stripeConnectChargesEnabled).toBe(false);
+    expect(row?.stripeConnectDetailsSubmitted).toBe(false);
+  });
+
+  it('enforces uniqueness on stripe_connect_account_id (null allowed many times)', async () => {
+    const db = getTestDb();
+    const accountId = uuidv7();
+    await db.insert(accounts).values({ id: accountId, name: 'Acct' });
+
+    // Two companies with null connect ids — allowed (btree unique tolerates nulls).
+    await db.insert(companies).values({ id: uuidv7(), accountId, name: 'A' });
+    await db.insert(companies).values({ id: uuidv7(), accountId, name: 'B' });
+
+    // First populated id is fine.
+    await db
+      .insert(companies)
+      .values({ id: uuidv7(), accountId, name: 'C', stripeConnectAccountId: 'acct_dup' });
+
+    // Second attempt with same id violates the unique index.
+    await expect(
+      db
+        .insert(companies)
+        .values({ id: uuidv7(), accountId, name: 'D', stripeConnectAccountId: 'acct_dup' }),
+    ).rejects.toThrow();
+  });
 });

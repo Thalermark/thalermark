@@ -497,6 +497,104 @@ export function createApp(deps: AppDeps) {
           .orderBy(asc(companies.createdAt));
         return c.json({ companies: rows });
       })
+      // Stripe Connect onboarding — kicks off (or refreshes) the Stripe-hosted
+      // onboarding flow for SaaS multi-tenant payment routing. Lazily creates
+      // an Express connected account on first call, stamps its id on the
+      // company, and mints an Account Link the client redirects to. Idempotent
+      // — subsequent calls reuse the stored acct_xxx and just mint a fresh
+      // link (the previous one will have expired or been consumed). The
+      // checkout-session minter at /api/public/invoices/:token/checkout-session
+      // doesn't change in this slice; flipping it to route via stripeAccount
+      // is 8.5e's job.
+      .post('/api/companies/:id/stripe-connect/onboard', async (c) => {
+        const id = c.req.param('id');
+        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+        if (!deps.stripe) return c.json({ error: 'stripe_not_configured' }, 503);
+        if (!deps.publicAppUrl) return c.json({ error: 'public_url_not_configured' }, 503);
+
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+
+        const [company] = await tx
+          .select()
+          .from(companies)
+          .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
+          .limit(1);
+        if (!company) return c.json({ error: 'company_not_found' }, 404);
+
+        let connectAccountId = company.stripeConnectAccountId;
+        if (!connectAccountId) {
+          // Idempotency key on the Stripe call guards against double-click
+          // racing two concurrent POSTs through both branches before either
+          // UPDATE wins. Stripe returns the same account id on retry rather
+          // than creating a second one.
+          const created = await deps.stripe.client.accounts.create(
+            {
+              type: 'express',
+              country: 'US',
+              capabilities: {
+                card_payments: { requested: true },
+                transfers: { requested: true },
+              },
+              business_profile: { name: company.name },
+            },
+            { idempotencyKey: `company-${id}-create-account` },
+          );
+          connectAccountId = created.id;
+          const now = new Date();
+          await tx
+            .update(companies)
+            .set({ stripeConnectAccountId: connectAccountId, updatedAt: now })
+            .where(and(eq(companies.id, id), eq(companies.accountId, accountId)));
+          await c.var.audit({
+            entityType: 'company',
+            entityId: id,
+            action: 'stripe-connect-create',
+            before: { stripeConnectAccountId: null },
+            after: { stripeConnectAccountId: connectAccountId },
+            companyId: id,
+          });
+        }
+
+        const link = await deps.stripe.client.accountLinks.create({
+          account: connectAccountId,
+          refresh_url: `${deps.publicAppUrl}/settings/payments?stripe=refresh`,
+          return_url: `${deps.publicAppUrl}/settings/payments?stripe=return`,
+          type: 'account_onboarding',
+        });
+
+        return c.json({ url: link.url, accountId: connectAccountId });
+      })
+      // Current state of the Connect onboarding for this company. The web
+      // /settings/payments page polls this on the ?stripe=return landing so
+      // it can resolve "submitted, waiting on Stripe verification" vs
+      // "charges enabled" without forcing another round-trip to Stripe.
+      // The flags are kept fresh by the account.updated webhook branch.
+      .get('/api/companies/:id/stripe-connect/status', async (c) => {
+        const id = c.req.param('id');
+        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+
+        const [company] = await tx
+          .select({
+            stripeConnectAccountId: companies.stripeConnectAccountId,
+            stripeConnectChargesEnabled: companies.stripeConnectChargesEnabled,
+            stripeConnectDetailsSubmitted: companies.stripeConnectDetailsSubmitted,
+          })
+          .from(companies)
+          .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
+          .limit(1);
+        if (!company) return c.json({ error: 'company_not_found' }, 404);
+
+        return c.json({
+          stripeConfigured: deps.stripe != null,
+          stripeConnectAccountId: company.stripeConnectAccountId,
+          stripeConnectChargesEnabled: company.stripeConnectChargesEnabled,
+          stripeConnectDetailsSubmitted: company.stripeConnectDetailsSubmitted,
+        });
+      })
       .post('/api/customers', async (c) => {
         const body = await c.req.json().catch(() => null);
         const parsed = customerCreateSchema.safeParse(body);
@@ -1900,58 +1998,126 @@ export function createApp(deps: AppDeps) {
           return c.json({ error: 'invalid_signature' }, 400);
         }
 
-        if (event.type !== 'checkout.session.completed') {
-          return c.json({ received: true });
-        }
-        const session = event.data.object;
-        if (session.payment_status !== 'paid') {
-          return c.json({ received: true });
-        }
-        const invoiceId = session.client_reference_id;
-        if (!invoiceId || !UUID_RE.test(invoiceId)) {
+        if (event.type === 'checkout.session.completed') {
+          const session = event.data.object;
+          if (session.payment_status !== 'paid') {
+            return c.json({ received: true });
+          }
+          const invoiceId = session.client_reference_id;
+          if (!invoiceId || !UUID_RE.test(invoiceId)) {
+            return c.json({ received: true });
+          }
+
+          const [current] = await bootstrapDb
+            .select()
+            .from(invoices)
+            .where(eq(invoices.id, invoiceId))
+            .limit(1);
+          if (!current) return c.json({ received: true });
+          // Already-paid is the idempotent case (Stripe re-delivery, double-
+          // submit). 200 so Stripe stops retrying; no audit row.
+          if (current.status === 'paid') return c.json({ received: true });
+          // Other terminal states (voided, draft-without-send) — should not
+          // happen because checkout-session mint guards on status=sent, but
+          // a future PI created out-of-band could land here. 200 + no-op so
+          // the webhook queue drains; the manual reconciliation is on the
+          // operator at that point.
+          if (current.status !== 'sent') return c.json({ received: true });
+
+          const now = new Date();
+          const [updated] = await bootstrapDb
+            .update(invoices)
+            .set({ status: 'paid', paidAt: now, updatedAt: now })
+            .where(eq(invoices.id, invoiceId))
+            .returning();
+          if (!updated) return c.json({ received: true });
+
+          // Audit row attributed to the synthetic system user (migration
+          // 0009 seeded it specifically for this kind of provider callback).
+          // bootstrapDb path — RLS would otherwise hide the row from the
+          // tenant role on read; the policy on audit_events allows the
+          // superuser unconditionally.
+          await bootstrapDb.insert(auditEvents).values({
+            id: uuidv7(),
+            accountId: current.accountId,
+            companyId: current.companyId,
+            actorUserId: SYSTEM_USER_ID,
+            entityType: 'invoice',
+            entityId: invoiceId,
+            action: 'stripe-paid',
+            before: { status: current.status, paidAt: current.paidAt },
+            after: { status: updated.status, paidAt: updated.paidAt },
+          });
+
           return c.json({ received: true });
         }
 
-        const [current] = await bootstrapDb
-          .select()
-          .from(invoices)
-          .where(eq(invoices.id, invoiceId))
-          .limit(1);
-        if (!current) return c.json({ received: true });
-        // Already-paid is the idempotent case (Stripe re-delivery, double-
-        // submit). 200 so Stripe stops retrying; no audit row.
-        if (current.status === 'paid') return c.json({ received: true });
-        // Other terminal states (voided, draft-without-send) — should not
-        // happen because checkout-session mint guards on status=sent, but
-        // a future PI created out-of-band could land here. 200 + no-op so
-        // the webhook queue drains; the manual reconciliation is on the
-        // operator at that point.
-        if (current.status !== 'sent') return c.json({ received: true });
+        // Connect onboarding lifecycle — Stripe pushes account.updated as the
+        // connected account moves through details_submitted → charges_enabled.
+        // The status route polls our flags rather than calling Stripe, so we
+        // need to keep them current. Event.account carries the connected
+        // account id; for account.updated, data.object IS the Account, so we
+        // could use either — staying with data.object for symmetry with the
+        // session branch.
+        if (event.type === 'account.updated') {
+          const account = event.data.object;
+          if (!account.id) return c.json({ received: true });
 
-        const now = new Date();
-        const [updated] = await bootstrapDb
-          .update(invoices)
-          .set({ status: 'paid', paidAt: now, updatedAt: now })
-          .where(eq(invoices.id, invoiceId))
-          .returning();
-        if (!updated) return c.json({ received: true });
+          const [company] = await bootstrapDb
+            .select()
+            .from(companies)
+            .where(eq(companies.stripeConnectAccountId, account.id))
+            .limit(1);
+          // Not finding a company is the expected case for the very first
+          // account.updated Stripe sends before our /onboard POST has even
+          // landed the UPDATE — and for cross-platform misconfiguration
+          // where another platform's webhook hits us. 200 so Stripe stops
+          // retrying; we'll catch up on the next event.
+          if (!company) return c.json({ received: true });
 
-        // Audit row attributed to the synthetic system user (migration
-        // 0009 seeded it specifically for this kind of provider callback).
-        // bootstrapDb path — RLS would otherwise hide the row from the
-        // tenant role on read; the policy on audit_events allows the
-        // superuser unconditionally.
-        await bootstrapDb.insert(auditEvents).values({
-          id: uuidv7(),
-          accountId: current.accountId,
-          companyId: current.companyId,
-          actorUserId: SYSTEM_USER_ID,
-          entityType: 'invoice',
-          entityId: invoiceId,
-          action: 'stripe-paid',
-          before: { status: current.status, paidAt: current.paidAt },
-          after: { status: updated.status, paidAt: updated.paidAt },
-        });
+          const nextCharges = account.charges_enabled === true;
+          const nextDetails = account.details_submitted === true;
+          if (
+            company.stripeConnectChargesEnabled === nextCharges &&
+            company.stripeConnectDetailsSubmitted === nextDetails
+          ) {
+            // No-op delivery (Stripe re-fires events liberally). Idempotent,
+            // no audit row.
+            return c.json({ received: true });
+          }
+
+          const now = new Date();
+          const [updated] = await bootstrapDb
+            .update(companies)
+            .set({
+              stripeConnectChargesEnabled: nextCharges,
+              stripeConnectDetailsSubmitted: nextDetails,
+              updatedAt: now,
+            })
+            .where(eq(companies.id, company.id))
+            .returning();
+          if (!updated) return c.json({ received: true });
+
+          await bootstrapDb.insert(auditEvents).values({
+            id: uuidv7(),
+            accountId: company.accountId,
+            companyId: company.id,
+            actorUserId: SYSTEM_USER_ID,
+            entityType: 'company',
+            entityId: company.id,
+            action: 'stripe-connect-update',
+            before: {
+              stripeConnectChargesEnabled: company.stripeConnectChargesEnabled,
+              stripeConnectDetailsSubmitted: company.stripeConnectDetailsSubmitted,
+            },
+            after: {
+              stripeConnectChargesEnabled: updated.stripeConnectChargesEnabled,
+              stripeConnectDetailsSubmitted: updated.stripeConnectDetailsSubmitted,
+            },
+          });
+
+          return c.json({ received: true });
+        }
 
         return c.json({ received: true });
       })
