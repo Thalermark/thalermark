@@ -19,9 +19,27 @@ export const load: PageServerLoad = async (event) => {
   // flash. Same pattern as the invoice detail page (8.5b).
   const sentTo = event.url.searchParams.get('sent');
 
+  // Audit trail (slice 8.8a). Best-effort: a non-OK response renders an
+  // empty history rather than failing the whole page.
+  const auditRes = await client.api['audit-events'].$get({
+    query: { entityType: 'estimate', entityId: event.params.id },
+  });
+  const auditEvents = auditRes.ok
+    ? ((await auditRes.json()) as { events: AuditEvent[] }).events
+    : [];
+
   // origin derives from the incoming request so the share URL works behind
   // any proxy. Same pattern as the invoice detail page (8.5a).
-  return { estimate, customer, origin: event.url.origin, sentTo };
+  return { estimate, customer, origin: event.url.origin, sentTo, auditEvents };
+};
+
+type AuditEvent = {
+  id: string;
+  action: string;
+  actorName: string;
+  createdAt: string;
+  before: unknown;
+  after: unknown;
 };
 
 // Status-transition actions. Each posts to the matching API endpoint and

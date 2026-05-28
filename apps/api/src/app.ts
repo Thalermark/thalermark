@@ -1556,6 +1556,57 @@ export function createApp(deps: AppDeps) {
           return c.json({ ...estimate, sentTo: to });
         },
       )
+      // Per-entity audit history. Tenant-scoped read into audit_events
+      // filtered by (entityType, entityId) — uses the entity index on the
+      // table. Resolves actor_user_id → display name in one join; the
+      // synthetic system user (auth_user.is_system, seeded migration 0009)
+      // renders as "System" so provider-driven rows (stripe-paid,
+      // public-accept/decline) are visually attributed without leaking the
+      // system uuid. Ordering is desc — newest first matches how the
+      // per-entity history section will render.
+      .get('/api/audit-events', async (c) => {
+        const entityType = c.req.query('entityType');
+        const entityId = c.req.query('entityId');
+        if (!entityType || !['customer', 'invoice', 'estimate'].includes(entityType)) {
+          return c.json({ error: 'invalid_entity_type' }, 400);
+        }
+        if (!entityId || !UUID_RE.test(entityId)) {
+          return c.json({ error: 'invalid_entity_id' }, 400);
+        }
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+        const rows = await tx
+          .select({
+            id: auditEvents.id,
+            action: auditEvents.action,
+            actorUserId: auditEvents.actorUserId,
+            actorName: authUser.name,
+            actorIsSystem: authUser.isSystem,
+            createdAt: auditEvents.createdAt,
+            before: auditEvents.before,
+            after: auditEvents.after,
+          })
+          .from(auditEvents)
+          .leftJoin(authUser, eq(authUser.id, auditEvents.actorUserId))
+          .where(
+            and(
+              eq(auditEvents.accountId, accountId),
+              eq(auditEvents.entityType, entityType),
+              eq(auditEvents.entityId, entityId),
+            ),
+          )
+          .orderBy(desc(auditEvents.createdAt));
+        return c.json({
+          events: rows.map((r) => ({
+            id: r.id,
+            action: r.action,
+            actorName: r.actorIsSystem ? 'System' : (r.actorName ?? 'Unknown'),
+            createdAt: r.createdAt,
+            before: r.before,
+            after: r.after,
+          })),
+        });
+      })
       // Public invoice view — unauthed, gated only by the random token in
       // the URL. rls-context skips this path entirely (no session, no
       // tenant), so the handler reads via bootstrapDb (RLS would hide

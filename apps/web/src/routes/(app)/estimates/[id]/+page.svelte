@@ -1,4 +1,5 @@
 <script lang="ts">
+  import AuditHistory from '$lib/components/AuditHistory.svelte';
   import type { PageProps } from './$types';
 
   let { data, form }: PageProps = $props();
@@ -249,3 +250,5 @@
     <p class="mt-2 whitespace-pre-wrap text-ink/80">{est.notes}</p>
   </div>
 {/if}
+
+<AuditHistory events={data.auditEvents} />
