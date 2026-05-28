@@ -15,7 +15,7 @@ const PUBLIC_PATHS = new Set([...REDIRECT_IF_AUTHED, '/accept-invite']);
 // to render without a session — the recipient of an invoice email has no
 // account here. Prefix-matched so each new public route is visible at this
 // top-level config rather than buried in per-route +layout guards.
-const PUBLIC_PREFIXES = ['/i/'];
+const PUBLIC_PREFIXES = ['/i/', '/e/'];
 const SELECT_COMPANY_PATH = '/select-company';
 const ACTIVE_COOKIE = 'active_account_id';
 

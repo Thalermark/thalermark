@@ -18,6 +18,7 @@ import {
   customerCreateSchema,
   customerUpdateSchema,
   estimateCreateSchema,
+  estimateSendSchema,
   estimateUpdateSchema,
   invoiceCreateSchema,
   invoiceSendSchema,
@@ -251,6 +252,68 @@ async function transitionEstimate(
   });
 
   return c.json(updated);
+}
+
+// Public accept/decline handler. Lives outside createApp so the two POST
+// routes share a single implementation and the audit row + state machine
+// stay symmetric. Bootstrap-db path: rls-context skips /api/public/*, so
+// there's no tenant tx and no c.var.audit — we insert the row directly,
+// attributed to the SYSTEM_USER_ID seeded by migration 0009. Status guard
+// is sent-only: any other state (draft / accepted / declined / expired)
+// returns 409 so a stale page POSTing twice can't accidentally flip a
+// closed estimate.
+async function publicEstimateRespond(
+  c: Context,
+  bootstrapDb: Database,
+  decision: 'accept' | 'decline',
+) {
+  const token = c.req.param('token');
+  if (!token) return c.json({ error: 'estimate_not_found' }, 404);
+  const [current] = await bootstrapDb
+    .select()
+    .from(estimates)
+    .where(eq(estimates.publicToken, token))
+    .limit(1);
+  if (!current) return c.json({ error: 'estimate_not_found' }, 404);
+  if (current.status !== 'sent') {
+    return c.json({ error: 'invalid_transition', from: current.status, to: decision }, 409);
+  }
+
+  const now = new Date();
+  const targetStatus = decision === 'accept' ? 'accepted' : 'declined';
+  const stampPatch = decision === 'accept' ? { acceptedAt: now } : { declinedAt: now };
+  const [updated] = await bootstrapDb
+    .update(estimates)
+    .set({ status: targetStatus, updatedAt: now, ...stampPatch })
+    .where(eq(estimates.id, current.id))
+    .returning();
+  if (!updated) return c.json({ error: 'estimate_not_found' }, 404);
+
+  await bootstrapDb.insert(auditEvents).values({
+    id: uuidv7(),
+    accountId: current.accountId,
+    companyId: current.companyId,
+    actorUserId: SYSTEM_USER_ID,
+    entityType: 'estimate',
+    entityId: current.id,
+    action: `public-${decision}`,
+    before: {
+      status: current.status,
+      acceptedAt: current.acceptedAt,
+      declinedAt: current.declinedAt,
+    },
+    after: {
+      status: updated.status,
+      acceptedAt: updated.acceptedAt,
+      declinedAt: updated.declinedAt,
+    },
+  });
+
+  return c.json({
+    status: updated.status,
+    acceptedAt: updated.acceptedAt,
+    declinedAt: updated.declinedAt,
+  });
 }
 
 export type AppDeps = {
@@ -1362,6 +1425,137 @@ export function createApp(deps: AppDeps) {
           return c.json({ ...invoice, sentTo: to });
         },
       )
+      // Send the estimate via email. Mirrors invoice /send: draft → sent
+      // first call (stamps sent_at, mints public_token), resend on sent
+      // emails only without mutating state. Accepted / declined / expired
+      // are terminal for the send action — 409. The estimate body links to
+      // the unauthed /e/<token> page that accept/decline POST against.
+      .post(
+        '/api/estimates/:id/send',
+        validator('json', (value, c) => {
+          const parsed = estimateSendSchema.safeParse(value ?? {});
+          if (!parsed.success) {
+            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+          }
+          return parsed.data;
+        }),
+        async (c) => {
+          const id = c.req.param('id');
+          if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+          if (!deps.mailer) return c.json({ error: 'email_not_configured' }, 500);
+
+          const { to: toOverrideRaw } = c.req.valid('json');
+          const toOverride = toOverrideRaw?.trim() || null;
+
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+
+          const [current] = await tx
+            .select()
+            .from(estimates)
+            .where(and(eq(estimates.id, id), eq(estimates.accountId, accountId)))
+            .limit(1);
+          if (!current) return c.json({ error: 'estimate_not_found' }, 404);
+          // Accepted / declined / expired are operationally closed — sending
+          // again would muddle the audit trail. Operator who wants a fresh
+          // round of correspondence should duplicate the estimate.
+          if (
+            current.status === 'accepted' ||
+            current.status === 'declined' ||
+            current.status === 'expired'
+          ) {
+            return c.json({ error: 'invalid_transition', from: current.status, to: 'sent' }, 409);
+          }
+
+          const [customer] = await tx
+            .select({ id: customers.id, name: customers.name, email: customers.email })
+            .from(customers)
+            .where(and(eq(customers.id, current.customerId), eq(customers.accountId, accountId)))
+            .limit(1);
+          if (!customer) return c.json({ error: 'customer_not_found' }, 404);
+
+          const to = (toOverride ?? customer.email ?? '').trim();
+          if (!to || !EMAIL_RE.test(to)) return c.json({ error: 'invalid_recipient' }, 400);
+
+          const [company] = await tx
+            .select({ name: companies.name })
+            .from(companies)
+            .where(and(eq(companies.id, current.companyId), eq(companies.accountId, accountId)))
+            .limit(1);
+
+          let estimate = current;
+          if (current.status === 'draft') {
+            const now = new Date();
+            const [updated] = await tx
+              .update(estimates)
+              .set({
+                status: 'sent',
+                sentAt: now,
+                updatedAt: now,
+                publicToken: current.publicToken ?? randomBytes(32).toString('hex'),
+              })
+              .where(and(eq(estimates.id, id), eq(estimates.accountId, accountId)))
+              .returning();
+            if (!updated) return c.json({ error: 'estimate_not_found' }, 404);
+            estimate = updated;
+
+            await c.var.audit({
+              entityType: 'estimate',
+              entityId: id,
+              action: 'mark-sent',
+              before: {
+                status: current.status,
+                sentAt: current.sentAt,
+                acceptedAt: current.acceptedAt,
+                declinedAt: current.declinedAt,
+                publicToken: current.publicToken,
+              },
+              after: {
+                status: updated.status,
+                sentAt: updated.sentAt,
+                acceptedAt: updated.acceptedAt,
+                declinedAt: updated.declinedAt,
+                publicToken: updated.publicToken,
+              },
+              companyId: updated.companyId,
+            });
+          }
+
+          if (!estimate.publicToken) {
+            return c.json({ error: 'estimate_state_invalid' }, 500);
+          }
+
+          const companyName = company?.name ?? 'Thalermark';
+          const publicUrl = deps.publicAppUrl
+            ? `${deps.publicAppUrl}/e/${estimate.publicToken}`
+            : `/e/${estimate.publicToken}`;
+          const subject = `Estimate ${estimate.number} from ${companyName}`;
+          const greeting = customer.name ? `Hi ${customer.name},` : 'Hi,';
+          const expiresLine = estimate.expiresOn ? `Valid until ${estimate.expiresOn}.\n` : '';
+          const text = `${greeting}\n\nEstimate ${estimate.number} for ${estimate.total} ${estimate.currency} is ready for your review.\n${expiresLine}\nView it: ${publicUrl}\n\n— ${companyName}`;
+          const expiresHtml = estimate.expiresOn
+            ? ` Valid until ${escapeHtml(estimate.expiresOn)}.`
+            : '';
+          const html = `<p>${escapeHtml(greeting)}</p><p>Estimate <strong>${escapeHtml(estimate.number)}</strong> for <strong>${escapeHtml(estimate.total)} ${escapeHtml(estimate.currency)}</strong> is ready for your review.${expiresHtml}</p><p><a href="${escapeHtml(publicUrl)}">View estimate</a></p><p>— ${escapeHtml(companyName)}</p>`;
+
+          try {
+            await deps.mailer.send({ to, subject, html, text });
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return c.json({ error: 'email_failed', detail: message }, 502);
+          }
+
+          await c.var.audit({
+            entityType: 'estimate',
+            entityId: id,
+            action: 'email-sent',
+            after: { to, subject },
+            companyId: estimate.companyId,
+          });
+
+          return c.json({ ...estimate, sentTo: to });
+        },
+      )
       // Public invoice view — unauthed, gated only by the random token in
       // the URL. rls-context skips this path entirely (no session, no
       // tenant), so the handler reads via bootstrapDb (RLS would hide
@@ -1476,6 +1670,79 @@ export function createApp(deps: AppDeps) {
           publishableKey: deps.stripe.publishableKey,
         });
       })
+      // Public estimate view — mirror of the public invoice route, minus
+      // payable / Stripe wiring (estimates aren't a debt). Bootstrap reads
+      // for the same reason: rls-context skips /api/public/* and no tenant
+      // context is set. Returns customer-facing fields only — account /
+      // company ids and the audit trail stay out.
+      .get('/api/public/estimates/:token', async (c) => {
+        const token = c.req.param('token');
+        const [estimate] = await bootstrapDb
+          .select()
+          .from(estimates)
+          .where(eq(estimates.publicToken, token))
+          .limit(1);
+        if (!estimate) return c.json({ error: 'estimate_not_found' }, 404);
+
+        const [company] = await bootstrapDb
+          .select({ name: companies.name })
+          .from(companies)
+          .where(eq(companies.id, estimate.companyId))
+          .limit(1);
+        const [customer] = await bootstrapDb
+          .select({ name: customers.name })
+          .from(customers)
+          .where(eq(customers.id, estimate.customerId))
+          .limit(1);
+        const lines = await bootstrapDb
+          .select({
+            id: estimateLineItems.id,
+            position: estimateLineItems.position,
+            description: estimateLineItems.description,
+            quantity: estimateLineItems.quantity,
+            unitPrice: estimateLineItems.unitPrice,
+            amount: estimateLineItems.amount,
+          })
+          .from(estimateLineItems)
+          .where(eq(estimateLineItems.estimateId, estimate.id))
+          .orderBy(asc(estimateLineItems.position));
+
+        return c.json({
+          number: estimate.number,
+          status: estimate.status,
+          issueDate: estimate.issueDate,
+          expiresOn: estimate.expiresOn,
+          currency: estimate.currency,
+          subtotal: estimate.subtotal,
+          tax: estimate.tax,
+          total: estimate.total,
+          notes: estimate.notes,
+          sentAt: estimate.sentAt,
+          acceptedAt: estimate.acceptedAt,
+          declinedAt: estimate.declinedAt,
+          companyName: company?.name ?? null,
+          customerName: customer?.name ?? null,
+          lineItems: lines,
+          // Tells the public page whether to render Accept/Decline. Only
+          // 'sent' is responsive — the customer hasn't decided yet. Once
+          // accepted/declined the buttons hide and the banner shows.
+          canRespond: estimate.status === 'sent',
+        });
+      })
+      // Public accept/decline. Unauthed; the random token IS the auth (same
+      // posture as the public GET above). Status-guarded to 'sent' so a
+      // re-submit lands on the same response shape as the first call (the
+      // status banner the page renders after refresh). Audit row is
+      // attributed to the synthetic system user — same pattern the Stripe
+      // webhook uses for provider-driven mutations — and goes through
+      // bootstrapDb because RLS would otherwise hide the audit row from
+      // the tenant role without app.current_account_id set.
+      .post('/api/public/estimates/:token/accept', async (c) =>
+        publicEstimateRespond(c, bootstrapDb, 'accept'),
+      )
+      .post('/api/public/estimates/:token/decline', async (c) =>
+        publicEstimateRespond(c, bootstrapDb, 'decline'),
+      )
       // Stripe webhook. Signature-verified against the raw body — the JSON
       // parse must come from the SDK, not Hono's, so we read text() and
       // hand it straight to constructEventAsync. No tenant context; the

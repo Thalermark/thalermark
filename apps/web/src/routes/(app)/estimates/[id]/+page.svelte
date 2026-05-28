@@ -9,6 +9,11 @@
   // mark-accepted / mark-declined fire from draft or sent (the operator
   // can capture a verbal close without going through send). Accepted +
   // declined are terminal, so their buttons disappear.
+  // Send covers both first-send (draft → sent + email) and resend (sent →
+  // email only) — API handles the dispatch. /mark-sent stays for the
+  // delivered-out-of-band path so a paper handoff still flips status
+  // without firing an email.
+  const canSend = $derived(est.status === 'draft' || est.status === 'sent');
   const canMarkSent = $derived(est.status === 'draft');
   const canMarkAccepted = $derived(est.status === 'draft' || est.status === 'sent');
   const canMarkDeclined = $derived(est.status === 'draft' || est.status === 'sent');
@@ -18,8 +23,11 @@
   // the button is replaced with a link to the new invoice further down.
   const canConvert = $derived(est.status === 'accepted' && est.convertedInvoiceId == null);
   const hasActions = $derived(
-    canMarkSent || canMarkAccepted || canMarkDeclined || canConvert,
+    canSend || canMarkSent || canMarkAccepted || canMarkDeclined || canConvert,
   );
+
+  let showOverride = $state(false);
+  const sendLabel = $derived(est.status === 'sent' ? 'Resend estimate' : 'Send estimate');
 
   // Advisory expiry: status doesn't flip to 'expired' in MVP (no background
   // sweep yet). Read sites compute the warning off expires_on < today, but
@@ -62,6 +70,12 @@
   </div>
 {/if}
 
+{#if data.sentTo}
+  <div class="mt-6 rounded-sm border border-gold-deep/30 bg-gold-deep/5 px-4 py-3 text-sm text-ink">
+    Sent to <span class="font-medium">{data.sentTo}</span>.
+  </div>
+{/if}
+
 {#if isExpired}
   <div class="mt-6 rounded-sm border border-oxblood/30 bg-oxblood/5 px-4 py-3 text-sm text-oxblood">
     This estimate's validity expired on <span class="font-medium">{est.expiresOn}</span>.
@@ -70,14 +84,33 @@
 
 {#if hasActions}
   <div class="mt-6 flex flex-wrap items-center gap-3">
-    {#if canMarkSent}
-      <form method="post" action="?/markSent">
+    {#if canSend}
+      <form method="post" action="?/send" class="flex flex-wrap items-center gap-2">
+        {#if showOverride}
+          <input
+            type="email"
+            name="to"
+            placeholder={customer?.email ?? 'recipient@example.com'}
+            class="rounded-sm border border-ink/20 bg-cream-warm px-3 py-2 text-sm text-ink placeholder:text-ink/40 focus:border-gold-deep focus:outline-none"
+          />
+        {/if}
         <button
           type="submit"
           class="rounded-sm bg-ink px-4 py-2 text-sm font-medium text-cream transition-colors hover:bg-gold-deep"
         >
-          Mark sent
+          {sendLabel}
         </button>
+        {#if !showOverride}
+          <button
+            type="button"
+            onclick={() => {
+              showOverride = true;
+            }}
+            class="text-xs uppercase tracking-widest text-ink/50 hover:text-gold-deep"
+          >
+            Send to another address
+          </button>
+        {/if}
       </form>
     {/if}
     {#if canMarkAccepted}
@@ -111,6 +144,16 @@
       </form>
     {/if}
   </div>
+  {#if canMarkSent}
+    <form method="post" action="?/markSent" class="mt-2">
+      <button
+        type="submit"
+        class="text-xs uppercase tracking-widest text-ink/50 hover:text-gold-deep"
+      >
+        Mark sent without email
+      </button>
+    </form>
+  {/if}
 {/if}
 
 {#if est.convertedInvoiceId}
