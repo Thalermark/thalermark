@@ -1,4 +1,5 @@
 <script lang="ts">
+  import AuditHistory from '$lib/components/AuditHistory.svelte';
   import type { PageProps } from './$types';
 
   let { data }: PageProps = $props();
@@ -57,3 +58,5 @@
     </div>
   {/if}
 </dl>
+
+<AuditHistory events={data.auditEvents} />

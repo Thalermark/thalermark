@@ -19,11 +19,29 @@ export const load: PageServerLoad = async (event) => {
   // session flash; the URL stays one-shot (refresh clears it).
   const sentTo = event.url.searchParams.get('sent');
 
+  // Audit trail (slice 8.8a). Best-effort: a non-OK response renders an
+  // empty history rather than failing the whole page.
+  const auditRes = await client.api['audit-events'].$get({
+    query: { entityType: 'invoice', entityId: event.params.id },
+  });
+  const auditEvents = auditRes.ok
+    ? ((await auditRes.json()) as { events: AuditEvent[] }).events
+    : [];
+
   // origin is what the recipient will see in the URL — derived from the
   // incoming request so it works behind any reverse-proxy / custom domain
   // without an extra env var. Passed alongside the invoice so the share
   // panel can render the full absolute URL the user copies.
-  return { invoice, customer, origin: event.url.origin, sentTo };
+  return { invoice, customer, origin: event.url.origin, sentTo, auditEvents };
+};
+
+type AuditEvent = {
+  id: string;
+  action: string;
+  actorName: string;
+  createdAt: string;
+  before: unknown;
+  after: unknown;
 };
 
 // Status-transition actions. Each posts to the matching API endpoint and
