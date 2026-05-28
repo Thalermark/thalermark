@@ -4,6 +4,8 @@ import {
   companies,
   estimateLineItems,
   estimates,
+  invoiceLineItems,
+  invoices,
   memberships,
 } from '@thalermark/db';
 import { eq } from 'drizzle-orm';
@@ -658,6 +660,195 @@ describe('Estimate transitions', () => {
         headers: { cookie, 'x-account-id': accountId },
       });
       expect(res.status).toBe(404);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+});
+
+describe('POST /api/estimates/:id/convert', () => {
+  beforeEach(resetDb);
+
+  async function seedAccepted(ctx: CtxApp, email: string) {
+    const cookie = await signUp(ctx.app, email);
+    const { accountId, companyId } = await userContext(email);
+    const customerId = await createCustomer(ctx, cookie, accountId, companyId);
+    const create = await ctx.app.request('/api/estimates', {
+      method: 'POST',
+      headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+      body: JSON.stringify(estimateBody(companyId, customerId)),
+    });
+    if (create.status !== 201) throw new Error(`seed estimate failed: ${create.status}`);
+    const { id: estimateId } = (await create.json()) as { id: string };
+    const acc = await ctx.app.request(`/api/estimates/${estimateId}/mark-accepted`, {
+      method: 'POST',
+      headers: { cookie, 'x-account-id': accountId },
+    });
+    if (acc.status !== 200) throw new Error(`mark-accepted failed: ${acc.status}`);
+    return { cookie, accountId, companyId, customerId, estimateId };
+  }
+
+  it('copies header + line items into a draft invoice and links the estimate', async () => {
+    const ctx = buildApp();
+    try {
+      const { cookie, accountId, companyId, customerId, estimateId } = await seedAccepted(
+        ctx,
+        'convok@example.com',
+      );
+
+      const res = await ctx.app.request(`/api/estimates/${estimateId}/convert`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(res.status).toBe(201);
+      const { id: invoiceId } = (await res.json()) as { id: string };
+
+      const db = getTestDb();
+      const [inv] = await db.select().from(invoices).where(eq(invoices.id, invoiceId));
+      expect(inv).toBeDefined();
+      expect(inv?.companyId).toBe(companyId);
+      expect(inv?.customerId).toBe(customerId);
+      expect(inv?.status).toBe('draft');
+      expect(inv?.subtotal).toBe('100.00');
+      expect(inv?.tax).toBe('8.25');
+      expect(inv?.total).toBe('108.25');
+      expect(inv?.number).toBe('INV-0001');
+      // dueDate is issueDate + 30d
+      const issued = new Date(`${inv?.issueDate}T00:00:00Z`).getTime();
+      const due = new Date(`${inv?.dueDate}T00:00:00Z`).getTime();
+      expect(due - issued).toBe(30 * 24 * 60 * 60 * 1000);
+
+      const lines = await db
+        .select()
+        .from(invoiceLineItems)
+        .where(eq(invoiceLineItems.invoiceId, invoiceId));
+      expect(lines).toHaveLength(1);
+      expect(lines[0]?.description).toBe('Quote — service');
+      expect(lines[0]?.amount).toBe('100.00');
+
+      const [est] = await db.select().from(estimates).where(eq(estimates.id, estimateId));
+      expect(est?.convertedInvoiceId).toBe(invoiceId);
+      expect(est?.status).toBe('accepted'); // convert does not flip status
+
+      const audits = await db.select().from(auditEvents);
+      const estAudit = audits.find((a) => a.entityId === estimateId && a.action === 'convert');
+      expect(estAudit).toBeDefined();
+      const invAudit = audits.find((a) => a.entityId === invoiceId && a.action === 'create');
+      expect(invAudit).toBeDefined();
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('is idempotent — a second call returns the same invoice id without creating another', async () => {
+    const ctx = buildApp();
+    try {
+      const { cookie, accountId, estimateId } = await seedAccepted(ctx, 'convidem@example.com');
+
+      const first = await ctx.app.request(`/api/estimates/${estimateId}/convert`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(first.status).toBe(201);
+      const { id: firstId } = (await first.json()) as { id: string };
+
+      const second = await ctx.app.request(`/api/estimates/${estimateId}/convert`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(second.status).toBe(200);
+      const { id: secondId } = (await second.json()) as { id: string };
+      expect(secondId).toBe(firstId);
+
+      const db = getTestDb();
+      const allInvoices = await db.select().from(invoices);
+      expect(allInvoices).toHaveLength(1);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('rejects convert on draft / sent / declined with 409 invalid_transition', async () => {
+    const ctx = buildApp();
+    try {
+      const cookie = await signUp(ctx.app, 'convgate@example.com');
+      const { accountId, companyId } = await userContext('convgate@example.com');
+      const customerId = await createCustomer(ctx, cookie, accountId, companyId);
+
+      async function makeEstimate(number: string): Promise<string> {
+        const r = await ctx.app.request('/api/estimates', {
+          method: 'POST',
+          headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+          body: JSON.stringify(estimateBody(companyId, customerId, number)),
+        });
+        if (r.status !== 201) throw new Error(`seed ${number} failed: ${r.status}`);
+        return ((await r.json()) as { id: string }).id;
+      }
+
+      const draftId = await makeEstimate('EST-DRAFT');
+      const sentId = await makeEstimate('EST-SENT');
+      const declinedId = await makeEstimate('EST-DECL');
+      await ctx.app.request(`/api/estimates/${sentId}/mark-sent`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      await ctx.app.request(`/api/estimates/${declinedId}/mark-declined`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId },
+      });
+
+      for (const id of [draftId, sentId, declinedId]) {
+        const res = await ctx.app.request(`/api/estimates/${id}/convert`, {
+          method: 'POST',
+          headers: { cookie, 'x-account-id': accountId },
+        });
+        expect(res.status).toBe(409);
+        const body = (await res.json()) as { error: string };
+        expect(body.error).toBe('invalid_transition');
+      }
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('returns 404 for a non-existent estimate id', async () => {
+    const ctx = buildApp();
+    try {
+      const cookie = await signUp(ctx.app, 'conv404@example.com');
+      const { accountId } = await userContext('conv404@example.com');
+      const fakeId = (await import('uuid')).v7();
+      const res = await ctx.app.request(`/api/estimates/${fakeId}/convert`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(res.status).toBe(404);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('returns 404 when the estimate belongs to another account', async () => {
+    const ctx = buildApp();
+    try {
+      const {
+        cookie: aCookie,
+        accountId: aAccountId,
+        estimateId,
+      } = await seedAccepted(ctx, 'convxa@example.com');
+      // Sanity — a's own convert works
+      const own = await ctx.app.request(`/api/estimates/${estimateId}/convert`, {
+        method: 'POST',
+        headers: { cookie: aCookie, 'x-account-id': aAccountId },
+      });
+      expect(own.status).toBe(201);
+
+      const bCookie = await signUp(ctx.app, 'convxb@example.com');
+      const bCtx = await userContext('convxb@example.com');
+      const cross = await ctx.app.request(`/api/estimates/${estimateId}/convert`, {
+        method: 'POST',
+        headers: { cookie: bCookie, 'x-account-id': bCtx.accountId },
+      });
+      expect(cross.status).toBe(404);
     } finally {
       await ctx.handle.close();
     }
