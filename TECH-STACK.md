@@ -15,7 +15,7 @@ We are building an open source, AI-first accounting tool for freelancers and tra
 
 | Layer | Pick | Why |
 |---|---|---|
-| **Database** | PostgreSQL 17, single DB, single schema | ACID for double-entry, JSONB for documents, pgvector for embeddings, one datastore to run. PG 17 over 18 — drizzle-kit shipping PG 18 fixes flagged it as too fresh for financial software; revisit in 6-12 months. |
+| **Database** | PostgreSQL 17, single DB, single schema | ACID for the hidden double-entry ledger (see PROJECT.md "How the books work"), JSONB for documents, pgvector for embeddings, one datastore to run. PG 17 over 18 — drizzle-kit shipping PG 18 fixes flagged it as too fresh for financial software; revisit in 6-12 months. |
 | **Multitenancy** | Row-level via Postgres RLS, `account_id` + `company_id` | DB-enforced isolation, fintech standard, same code path SH and SaaS |
 | **Web frontend** | SvelteKit | Engineer preference, lighter than Next, excellent DX, SSR + client hydration built in |
 | **Mobile** | React Native + Expo | One codebase iOS+Android, native camera for receipts, Expo EAS removes native build pain |

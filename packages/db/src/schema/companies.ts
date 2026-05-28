@@ -9,6 +9,15 @@ export const companies = pgTable(
       .notNull()
       .references(() => accounts.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
+    // Business entity type — picked at company creation; drives which
+    // chart-of-accounts gets seeded and which tax reports surface. MVP
+    // seeds the sole-prop COA regardless of value (other types fall
+    // back to sole-prop until v1.x adds their seeds + reports). Null
+    // is treated as 'sole_prop' by the application layer so pre-ledger
+    // rows keep working. Allowed values enforced at the app layer for
+    // now; CHECK constraint deferred until the wizard slice locks the
+    // enum.
+    businessType: text('business_type'),
     // Stripe Connect (SaaS multi-tenant payment routing). Lazily populated
     // when the company owner kicks off onboarding from /settings/payments —
     // self-host operators using a single STRIPE_SECRET_KEY leave these null

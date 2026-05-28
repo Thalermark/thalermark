@@ -18,6 +18,19 @@ Ours asks: *"You have 3 unpaid invoices totalling $1,240 — want me to send rem
 
 ---
 
+## How the books work
+
+**Hidden double-entry.** Under the hood, Thalermark keeps a real general ledger — every invoice send, payment received, expense logged, voids, refunds — posted as balanced journal entries against a per-company chart of accounts. Above the hood, users never see "debit," "credit," "journal entry," or "chart of accounts." They see invoices, expenses, customers, and answers.
+
+This matters for two reasons:
+
+1. **Accountants can actually verify the books.** A real GL trial-balances. A flat list of categorized transactions doesn't. Users who hand off to a tax preparer get something their accountant trusts at face value — not a pile to re-categorize.
+2. **The growth path is open.** Sole proprietors today; single-member LLCs, partnerships, S-corps tomorrow. All four entity types need the same underlying ledger; only the chart-of-accounts seed and which reports surface change. A single-entry system would foreclose this — single-entry → double-entry migration after launch is lossy, because flat transactions can't reconstruct a journal.
+
+Business type is picked once at company creation (sole prop / single-member LLC / partnership / S-corp / C-corp) in the same wizard as company name and address. That choice seeds the chart of accounts. The MVP only ships the sole-prop seed; other entity types fall back to it until v1.x adds their seeds and reports. The user never has to know the difference.
+
+---
+
 ## Name
 
 **Thalermark.** Locked in. Domain `thalermark.com` registered.

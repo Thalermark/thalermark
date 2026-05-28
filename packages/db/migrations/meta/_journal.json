@@ -176,6 +176,20 @@
       "when": 1779970410932,
       "tag": "0024_daily_hardball",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1780005063031,
+      "tag": "0025_magenta_lord_tyger",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1780005063032,
+      "tag": "0026_ledger_rls_and_balance_constraint",
+      "breakpoints": true
     }
   ]
 }

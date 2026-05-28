@@ -76,6 +76,14 @@ Key constraints behind the picks:
 
 ---
 
+## How the books work
+
+**Hidden double-entry.** Thalermark keeps a real general ledger under the hood — every invoice/payment/expense state change posts balanced journal entries against a per-company chart of accounts. Users never see "debit," "credit," or "journal entry." They see invoices, expenses, customers, and answers. See PROJECT.md "How the books work" for the full rationale and TECH-STACK.md "Database" row for the ACID justification.
+
+Business type (sole prop / LLC / partnership / S-corp / C-corp) is picked once at company creation and drives the COA seed. MVP ships the sole-prop seed only; other types fall back until v1.x.
+
+---
+
 ## MVP Scope — Keep It Tight
 
 **Locked 2026-05-10.** Full spec in PROJECT.md. No additions without explicit decision.
