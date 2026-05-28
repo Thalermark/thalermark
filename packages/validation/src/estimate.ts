@@ -44,3 +44,12 @@ export type EstimateCreateInput = z.infer<typeof estimateCreateSchema>;
 export const estimateUpdateSchema = estimateCreateSchema.omit({ companyId: true });
 
 export type EstimateUpdateInput = z.infer<typeof estimateUpdateSchema>;
+
+// Input schema for POST /api/estimates/:id/send. Mirrors invoiceSendSchema —
+// `to` is an optional recipient override; absent body defaults to the
+// customer's email server-side.
+export const estimateSendSchema = z.object({
+  to: z.string().email().optional(),
+});
+
+export type EstimateSendInput = z.infer<typeof estimateSendSchema>;

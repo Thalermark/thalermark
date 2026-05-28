@@ -78,7 +78,7 @@ async function userContext(email: string): Promise<{
   return { userId: user.id, accountId: m.accountId, companyId: company.id };
 }
 
-function buildApp() {
+function buildApp(opts: { mailer?: import('../src/lib/mailer.js').Mailer } = {}) {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL not set');
   const handle = createApiDatabase(url);
@@ -88,6 +88,7 @@ function buildApp() {
     db: handle.db,
     publicAppUrl: testEnv.publicAppUrl,
     emailFrom: 'Thalermark <test@thalermark.test>',
+    mailer: opts.mailer,
   });
   return { app, handle };
 }
@@ -100,15 +101,18 @@ async function createCustomer(
   accountId: string,
   companyId: string,
   name = 'Wile E. Coyote',
+  email?: string,
 ): Promise<string> {
+  const body: Record<string, string> = { companyId, name };
+  if (email) body.email = email;
   const res = await app.request('/api/customers', {
     method: 'POST',
     headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
-    body: JSON.stringify({ companyId, name }),
+    body: JSON.stringify(body),
   });
   if (res.status !== 201) throw new Error(`customer create failed: ${res.status}`);
-  const body = (await res.json()) as { id: string };
-  return body.id;
+  const out = (await res.json()) as { id: string };
+  return out.id;
 }
 
 function estimateBody(companyId: string, customerId: string, number = 'EST-001') {
@@ -849,6 +853,394 @@ describe('POST /api/estimates/:id/convert', () => {
         headers: { cookie: bCookie, 'x-account-id': bCtx.accountId },
       });
       expect(cross.status).toBe(404);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+});
+
+describe('POST /api/estimates/:id/send', () => {
+  beforeEach(resetDb);
+
+  type SentMail = { to: string; subject: string; html: string; text: string };
+  function makeRecorder(opts: { throws?: boolean } = {}) {
+    const sent: SentMail[] = [];
+    return {
+      sent,
+      mailer: {
+        async send(msg: SentMail) {
+          if (opts.throws) throw new Error('mailer_down');
+          sent.push(msg);
+        },
+      },
+    };
+  }
+
+  async function seedDraftWithEmail(
+    ctx: CtxApp,
+    signupEmail: string,
+    customerEmail: string | null = 'recipient@example.test',
+  ): Promise<{ cookie: string; accountId: string; estimateId: string }> {
+    const cookie = await signUp(ctx.app, signupEmail);
+    const { accountId, companyId } = await userContext(signupEmail);
+    const customerId = await createCustomer(
+      ctx,
+      cookie,
+      accountId,
+      companyId,
+      'Wile E. Coyote',
+      customerEmail ?? undefined,
+    );
+    const create = await ctx.app.request('/api/estimates', {
+      method: 'POST',
+      headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+      body: JSON.stringify(estimateBody(companyId, customerId)),
+    });
+    if (create.status !== 201) throw new Error(`seed estimate failed: ${create.status}`);
+    const { id } = (await create.json()) as { id: string };
+    return { cookie, accountId, estimateId: id };
+  }
+
+  it('first send transitions draft → sent, emails the customer, writes both audit rows', async () => {
+    const rec = makeRecorder();
+    const ctx = buildApp({ mailer: rec.mailer });
+    try {
+      const { cookie, accountId, estimateId } = await seedDraftWithEmail(
+        ctx,
+        'estsend@example.com',
+      );
+      const res = await ctx.app.request(`/api/estimates/${estimateId}/send`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: '{}',
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        status: string;
+        sentAt: string | null;
+        publicToken: string | null;
+        sentTo: string;
+      };
+      expect(body.status).toBe('sent');
+      expect(body.sentAt).not.toBeNull();
+      expect(body.publicToken).toBeTypeOf('string');
+      expect(body.sentTo).toBe('recipient@example.test');
+
+      expect(rec.sent).toHaveLength(1);
+      const mail = rec.sent[0];
+      expect(mail?.to).toBe('recipient@example.test');
+      expect(mail?.subject).toMatch(/Estimate EST-001/);
+      expect(mail?.html).toContain(`/e/${body.publicToken}`);
+      expect(mail?.text).toContain(`/e/${body.publicToken}`);
+
+      const db = getTestDb();
+      const audits = await db
+        .select()
+        .from(auditEvents)
+        .where(eq(auditEvents.entityId, estimateId));
+      expect(audits.map((a) => a.action).sort()).toEqual(['create', 'email-sent', 'mark-sent']);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('resend on a sent estimate emails again without re-minting the token', async () => {
+    const rec = makeRecorder();
+    const ctx = buildApp({ mailer: rec.mailer });
+    try {
+      const { cookie, accountId, estimateId } = await seedDraftWithEmail(
+        ctx,
+        'estresend@example.com',
+      );
+      const first = await ctx.app.request(`/api/estimates/${estimateId}/send`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: '{}',
+      });
+      expect(first.status).toBe(200);
+      const db = getTestDb();
+      const [afterFirst] = await db.select().from(estimates).where(eq(estimates.id, estimateId));
+      const minted = afterFirst?.publicToken;
+      const firstSentAt = afterFirst?.sentAt;
+
+      const second = await ctx.app.request(`/api/estimates/${estimateId}/send`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: '{}',
+      });
+      expect(second.status).toBe(200);
+      expect(rec.sent).toHaveLength(2);
+
+      const [afterSecond] = await db.select().from(estimates).where(eq(estimates.id, estimateId));
+      expect(afterSecond?.publicToken).toBe(minted);
+      expect(afterSecond?.sentAt?.getTime()).toBe(firstSentAt?.getTime());
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('rejects send on accepted with 409', async () => {
+    const rec = makeRecorder();
+    const ctx = buildApp({ mailer: rec.mailer });
+    try {
+      const { cookie, accountId, estimateId } = await seedDraftWithEmail(
+        ctx,
+        'estsend409@example.com',
+      );
+      const accept = await ctx.app.request(`/api/estimates/${estimateId}/mark-accepted`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(accept.status).toBe(200);
+
+      const res = await ctx.app.request(`/api/estimates/${estimateId}/send`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: '{}',
+      });
+      expect(res.status).toBe(409);
+      const body = (await res.json()) as { error: string; from: string };
+      expect(body.error).toBe('invalid_transition');
+      expect(body.from).toBe('accepted');
+      expect(rec.sent).toHaveLength(0);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('mailer failure surfaces 502 BUT the status transition still commits', async () => {
+    const rec = makeRecorder({ throws: true });
+    const ctx = buildApp({ mailer: rec.mailer });
+    try {
+      const { cookie, accountId, estimateId } = await seedDraftWithEmail(
+        ctx,
+        'estmailerfail@example.com',
+      );
+      const res = await ctx.app.request(`/api/estimates/${estimateId}/send`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: '{}',
+      });
+      expect(res.status).toBe(502);
+
+      const db = getTestDb();
+      const [row] = await db.select().from(estimates).where(eq(estimates.id, estimateId));
+      expect(row?.status).toBe('sent');
+      expect(row?.publicToken).toBeTruthy();
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('returns 500 email_not_configured when no mailer is wired in', async () => {
+    const ctx = buildApp();
+    try {
+      const { cookie, accountId, estimateId } = await seedDraftWithEmail(
+        ctx,
+        'estnomailer@example.com',
+      );
+      const res = await ctx.app.request(`/api/estimates/${estimateId}/send`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: '{}',
+      });
+      expect(res.status).toBe(500);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toBe('email_not_configured');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('uses the `to` override when supplied', async () => {
+    const rec = makeRecorder();
+    const ctx = buildApp({ mailer: rec.mailer });
+    try {
+      const { cookie, accountId, estimateId } = await seedDraftWithEmail(
+        ctx,
+        'estoverride@example.com',
+      );
+      const res = await ctx.app.request(`/api/estimates/${estimateId}/send`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify({ to: 'somebody.else@example.test' }),
+      });
+      expect(res.status).toBe(200);
+      expect(rec.sent[0]?.to).toBe('somebody.else@example.test');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+});
+
+describe('Public estimate routes', () => {
+  beforeEach(resetDb);
+
+  // Builds a fresh ctx wired with a recorder mailer + seeds a sent estimate
+  // (draft → sent via /send, which mints the public_token). Returns the
+  // token and ids for assertion. The seed helper closes/swaps the caller's
+  // ctx in place so each test still owns a single connection lifecycle.
+  async function seedSent(
+    ctx: CtxApp,
+    email: string,
+  ): Promise<{ token: string; estimateId: string; accountId: string }> {
+    const rec = {
+      sent: [] as { to: string; subject: string; html: string; text: string }[],
+      mailer: {
+        async send(msg: { to: string; subject: string; html: string; text: string }) {
+          rec.sent.push(msg);
+        },
+      },
+    };
+    await ctx.handle.close();
+    const next = buildApp({ mailer: rec.mailer });
+    ctx.app = next.app;
+    ctx.handle = next.handle;
+
+    const cookie = await signUp(ctx.app, email);
+    const { accountId, companyId } = await userContext(email);
+    const customerId = await createCustomer(
+      ctx,
+      cookie,
+      accountId,
+      companyId,
+      'Wile E. Coyote',
+      'recipient@example.test',
+    );
+    const create = await ctx.app.request('/api/estimates', {
+      method: 'POST',
+      headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+      body: JSON.stringify(estimateBody(companyId, customerId)),
+    });
+    if (create.status !== 201) throw new Error(`seed estimate failed: ${create.status}`);
+    const { id: estimateId } = (await create.json()) as { id: string };
+    const send = await ctx.app.request(`/api/estimates/${estimateId}/send`, {
+      method: 'POST',
+      headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+      body: '{}',
+    });
+    if (send.status !== 200) throw new Error(`seed send failed: ${send.status}`);
+    const [row] = await getTestDb().select().from(estimates).where(eq(estimates.id, estimateId));
+    if (!row?.publicToken) throw new Error('seed: no public_token minted');
+    return { token: row.publicToken, estimateId, accountId };
+  }
+
+  it('GET /api/public/estimates/:token returns the rendered estimate without a session', async () => {
+    const ctx = buildApp();
+    try {
+      const { token } = await seedSent(ctx, 'pubview@example.com');
+      const res = await ctx.app.request(`/api/public/estimates/${token}`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        number: string;
+        status: string;
+        total: string;
+        customerName: string | null;
+        companyName: string | null;
+        lineItems: { description: string }[];
+        canRespond: boolean;
+      };
+      expect(body.number).toBe('EST-001');
+      expect(body.status).toBe('sent');
+      expect(body.total).toBe('108.25');
+      expect(body.customerName).toBe('Wile E. Coyote');
+      expect(body.lineItems).toHaveLength(1);
+      expect(body.canRespond).toBe(true);
+      // No account/company ids leak to the recipient
+      expect(body as Record<string, unknown>).not.toHaveProperty('accountId');
+      expect(body as Record<string, unknown>).not.toHaveProperty('companyId');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('GET returns 404 for an unknown token', async () => {
+    const ctx = buildApp();
+    try {
+      const res = await ctx.app.request('/api/public/estimates/not-a-real-token');
+      expect(res.status).toBe(404);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('POST /accept transitions sent → accepted and writes a public-accept audit', async () => {
+    const ctx = buildApp();
+    try {
+      const { token, estimateId, accountId } = await seedSent(ctx, 'pubacc@example.com');
+      const res = await ctx.app.request(`/api/public/estimates/${token}/accept`, {
+        method: 'POST',
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { status: string; acceptedAt: string | null };
+      expect(body.status).toBe('accepted');
+      expect(body.acceptedAt).not.toBeNull();
+
+      const db = getTestDb();
+      const [row] = await db.select().from(estimates).where(eq(estimates.id, estimateId));
+      expect(row?.status).toBe('accepted');
+
+      const audits = await db
+        .select()
+        .from(auditEvents)
+        .where(eq(auditEvents.entityId, estimateId));
+      const pub = audits.find((a) => a.action === 'public-accept');
+      expect(pub).toBeDefined();
+      expect(pub?.accountId).toBe(accountId);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('POST /decline transitions sent → declined and writes a public-decline audit', async () => {
+    const ctx = buildApp();
+    try {
+      const { token, estimateId } = await seedSent(ctx, 'pubdec@example.com');
+      const res = await ctx.app.request(`/api/public/estimates/${token}/decline`, {
+        method: 'POST',
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { status: string; declinedAt: string | null };
+      expect(body.status).toBe('declined');
+      expect(body.declinedAt).not.toBeNull();
+
+      const db = getTestDb();
+      const audits = await db
+        .select()
+        .from(auditEvents)
+        .where(eq(auditEvents.entityId, estimateId));
+      expect(audits.some((a) => a.action === 'public-decline')).toBe(true);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('POST /accept on a non-sent estimate returns 409 invalid_transition', async () => {
+    const ctx = buildApp();
+    try {
+      const { token } = await seedSent(ctx, 'pubacc409@example.com');
+      // First accept lands; second hits a non-sent state.
+      const first = await ctx.app.request(`/api/public/estimates/${token}/accept`, {
+        method: 'POST',
+      });
+      expect(first.status).toBe(200);
+      const second = await ctx.app.request(`/api/public/estimates/${token}/accept`, {
+        method: 'POST',
+      });
+      expect(second.status).toBe(409);
+      const body = (await second.json()) as { error: string; from: string };
+      expect(body.error).toBe('invalid_transition');
+      expect(body.from).toBe('accepted');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('POST /accept on an unknown token returns 404', async () => {
+    const ctx = buildApp();
+    try {
+      const res = await ctx.app.request('/api/public/estimates/nope/accept', { method: 'POST' });
+      expect(res.status).toBe(404);
     } finally {
       await ctx.handle.close();
     }

@@ -14,9 +14,14 @@ export const load: PageServerLoad = async (event) => {
   });
   const customer = customerRes.ok ? await customerRes.json() : null;
 
+  // After a successful send, the action redirects back with ?sent=<email>
+  // so the success banner survives the post/redirect without a session
+  // flash. Same pattern as the invoice detail page (8.5b).
+  const sentTo = event.url.searchParams.get('sent');
+
   // origin derives from the incoming request so the share URL works behind
   // any proxy. Same pattern as the invoice detail page (8.5a).
-  return { estimate, customer, origin: event.url.origin };
+  return { estimate, customer, origin: event.url.origin, sentTo };
 };
 
 // Status-transition actions. Each posts to the matching API endpoint and
@@ -42,6 +47,30 @@ async function runTransition(
   redirect(303, `/estimates/${id}`);
 }
 
+// /send is the primary CTA for getting an estimate in front of the customer:
+// it transitions draft → sent AND emails the recipient with the public
+// /e/<token> link. /mark-sent stays for the "delivered out-of-band" case
+// (handed off in person). Plain HTML POST with an optional `to` override.
+async function runSend(event: Parameters<Actions[string]>[0]) {
+  const client = serverApiClient(event);
+  const id = event.params.id;
+  const formData = await event.request.formData();
+  const toRaw = formData.get('to');
+  const to = typeof toRaw === 'string' && toRaw.trim() ? toRaw.trim() : undefined;
+  const res = await client.api.estimates[':id'].send.$post({
+    param: { id },
+    json: to ? { to } : {},
+  });
+  if (res.status === 404) throw error(404, 'estimate not found');
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { error?: string } | null;
+    return fail(res.status, { transitionError: body?.error ?? 'send_failed' });
+  }
+  const body = (await res.json()) as { sentTo?: string };
+  const qs = body.sentTo ? `?sent=${encodeURIComponent(body.sentTo)}` : '';
+  redirect(303, `/estimates/${id}${qs}`);
+}
+
 // Convert is a link action, not a status transition — slice 8.7d. Gated to
 // accepted estimates server-side; idempotent (a re-call returns the existing
 // invoice id). On either 201 (new) or 200 (already converted) the API returns
@@ -60,6 +89,7 @@ async function runConvert(event: Parameters<Actions[string]>[0]) {
 }
 
 export const actions: Actions = {
+  send: runSend,
   markSent: (event) => runTransition(event, 'mark-sent'),
   markAccepted: (event) => runTransition(event, 'mark-accepted'),
   markDeclined: (event) => runTransition(event, 'mark-declined'),
