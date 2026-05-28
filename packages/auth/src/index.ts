@@ -7,6 +7,7 @@ import {
   authVerification,
   companies,
   memberships,
+  seedChartOfAccounts,
 } from '@thalermark/db';
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
@@ -62,9 +63,10 @@ export function createAuth(db: Database, options: CreateAuthOptions) {
             const accountName = user.name?.trim() || user.email.split('@')[0] || 'My account';
             await db.transaction(async (tx) => {
               const accountId = uuidv7();
+              const companyId = uuidv7();
               await tx.insert(accounts).values({ id: accountId, name: accountName });
               await tx.insert(companies).values({
-                id: uuidv7(),
+                id: companyId,
                 accountId,
                 name: accountName,
               });
@@ -73,6 +75,12 @@ export function createAuth(db: Database, options: CreateAuthOptions) {
                 userId: user.id,
                 accountId,
               });
+              // Seed the sole-prop chart of accounts into the default
+              // company so the ledger (per [[project_ledger_decision]])
+              // has somewhere to post from the first mark-sent. Business
+              // type stays null until the L3 wizard surfaces the picker;
+              // the seeder maps null → sole-prop today.
+              await seedChartOfAccounts(tx, { accountId, companyId });
             });
           },
         },
