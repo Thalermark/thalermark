@@ -15,6 +15,7 @@ import {
   memberships,
 } from '@thalermark/db';
 import {
+  companyUpdateSchema,
   customerCreateSchema,
   customerUpdateSchema,
   estimateCreateSchema,
@@ -505,12 +506,73 @@ export function createApp(deps: AppDeps) {
         // until the api flips to thalermark_app). Belt + braces with the RLS
         // policies.
         const rows = await tx
-          .select({ id: companies.id, name: companies.name })
+          .select({
+            id: companies.id,
+            name: companies.name,
+            businessType: companies.businessType,
+          })
           .from(companies)
           .where(eq(companies.accountId, accountId))
           .orderBy(asc(companies.createdAt));
         return c.json({ companies: rows });
       })
+      // PATCH company — slice L3. Sparse semantics: only the keys present in
+      // the body get written. Used by the post-signup business-type wizard
+      // (sends { businessType, name? }) and any future rename surface from
+      // settings. validator middleware lifts the json body into the typed
+      // Input so hc<AppType>() sees `{ param, json }` on .$patch (same shape
+      // as the customer/invoice PATCHes).
+      .patch(
+        '/api/companies/:id',
+        validator('json', (value, c) => {
+          const parsed = companyUpdateSchema.safeParse(value);
+          if (!parsed.success) {
+            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+          }
+          return parsed.data;
+        }),
+        async (c) => {
+          const id = c.req.param('id');
+          if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+          const data = c.req.valid('json');
+
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+
+          const [before] = await tx
+            .select()
+            .from(companies)
+            .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
+            .limit(1);
+          if (!before) return c.json({ error: 'company_not_found' }, 404);
+
+          const patch: Record<string, unknown> = { updatedAt: new Date() };
+          if (data.name !== undefined) patch.name = data.name;
+          if (data.businessType !== undefined) patch.businessType = data.businessType;
+
+          const [after] = await tx
+            .update(companies)
+            .set(patch)
+            .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
+            .returning();
+          if (!after) return c.json({ error: 'company_not_found' }, 404);
+
+          await c.var.audit({
+            entityType: 'company',
+            entityId: id,
+            action: 'update',
+            before: { name: before.name, businessType: before.businessType },
+            after: { name: after.name, businessType: after.businessType },
+            companyId: id,
+          });
+
+          return c.json({
+            id: after.id,
+            name: after.name,
+            businessType: after.businessType,
+          });
+        },
+      )
       // Stripe Connect onboarding — kicks off (or refreshes) the Stripe-hosted
       // onboarding flow for SaaS multi-tenant payment routing. Lazily creates
       // an Express connected account on first call, stamps its id on the

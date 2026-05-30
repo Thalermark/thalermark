@@ -94,10 +94,125 @@ describe('GET /api/companies', () => {
         headers: { cookie, 'x-account-id': accountId },
       });
       expect(res.status).toBe(200);
-      const body = (await res.json()) as { companies: { id: string; name: string }[] };
+      const body = (await res.json()) as {
+        companies: { id: string; name: string; businessType: string | null }[];
+      };
       expect(body.companies).toHaveLength(1);
       expect(body.companies[0]?.id).toBe(companyId);
       expect(body.companies[0]?.name).toBe('alice@example.com');
+      expect(body.companies[0]?.businessType).toBeNull();
+    } finally {
+      await handle.close();
+    }
+  });
+});
+
+describe('PATCH /api/companies/:id', () => {
+  beforeEach(resetDb);
+
+  it('writes name + businessType and an audit row', async () => {
+    const { app, handle } = buildApp();
+    try {
+      const cookie = await signUp(app, 'patcher@example.com');
+      const { accountId, companyId } = await userContext('patcher@example.com');
+      const res = await app.request(`/api/companies/${companyId}`, {
+        method: 'PATCH',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Acme LLC', businessType: 'llc_single_member' }),
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        id: string;
+        name: string;
+        businessType: string;
+      };
+      expect(body.name).toBe('Acme LLC');
+      expect(body.businessType).toBe('llc_single_member');
+
+      const db = getTestDb();
+      const [row] = await db.select().from(companies).where(eq(companies.id, companyId));
+      expect(row?.businessType).toBe('llc_single_member');
+
+      const audits = await db.select().from(auditEvents).where(eq(auditEvents.entityId, companyId));
+      const update = audits.find((a) => a.action === 'update');
+      expect(update).toBeDefined();
+      expect(update?.before).toMatchObject({ businessType: null });
+      expect(update?.after).toMatchObject({ businessType: 'llc_single_member', name: 'Acme LLC' });
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('accepts a businessType-only sparse PATCH (leaves name alone)', async () => {
+    const { app, handle } = buildApp();
+    try {
+      const cookie = await signUp(app, 'sparse@example.com');
+      const { accountId, companyId } = await userContext('sparse@example.com');
+      const res = await app.request(`/api/companies/${companyId}`, {
+        method: 'PATCH',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify({ businessType: 's_corp' }),
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { name: string; businessType: string };
+      expect(body.name).toBe('sparse@example.com');
+      expect(body.businessType).toBe('s_corp');
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('rejects an empty body with 400', async () => {
+    const { app, handle } = buildApp();
+    try {
+      const cookie = await signUp(app, 'empty@example.com');
+      const { accountId, companyId } = await userContext('empty@example.com');
+      const res = await app.request(`/api/companies/${companyId}`, {
+        method: 'PATCH',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      expect(res.status).toBe(400);
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('rejects an unknown businessType with 400', async () => {
+    const { app, handle } = buildApp();
+    try {
+      const cookie = await signUp(app, 'bad-type@example.com');
+      const { accountId, companyId } = await userContext('bad-type@example.com');
+      const res = await app.request(`/api/companies/${companyId}`, {
+        method: 'PATCH',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify({ businessType: 'partnership_general' }),
+      });
+      expect(res.status).toBe(400);
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('404s a company that belongs to a different account', async () => {
+    const { app, handle } = buildApp();
+    try {
+      await signUp(app, 'a@example.com');
+      const a = await userContext('a@example.com');
+
+      const bCookie = await signUp(app, 'b@example.com');
+      const b = await userContext('b@example.com');
+
+      const res = await app.request(`/api/companies/${a.companyId}`, {
+        method: 'PATCH',
+        headers: {
+          cookie: bCookie,
+          'x-account-id': b.accountId,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ businessType: 'sole_prop' }),
+      });
+      expect(res.status).toBe(404);
     } finally {
       await handle.close();
     }
