@@ -5,6 +5,7 @@ export * from './chart_of_accounts.js';
 export * from './companies.js';
 export * from './customers.js';
 export * from './estimates.js';
+export * from './expenses.js';
 export * from './invitations.js';
 export * from './invoices.js';
 export * from './journal_entries.js';

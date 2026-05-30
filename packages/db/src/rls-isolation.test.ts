@@ -6,13 +6,16 @@ import { withAccountContext } from './client.js';
 import { accounts } from './schema/accounts.js';
 import { auditEvents } from './schema/audit_events.js';
 import { authUser } from './schema/auth.js';
+import { chartOfAccounts } from './schema/chart_of_accounts.js';
 import { companies } from './schema/companies.js';
 import { customers } from './schema/customers.js';
 import { estimateLineItems, estimates } from './schema/estimates.js';
+import { expenses } from './schema/expenses.js';
 import { invitations } from './schema/invitations.js';
 import { invoiceLineItems, invoices } from './schema/invoices.js';
 import { memberships } from './schema/memberships.js';
 import { telemetryEvents } from './schema/telemetry_events.js';
+import { seedChartOfAccounts } from './seed/coa-sole-prop.js';
 
 // Slice 1.5 — full isolation matrix. Tests connect AS thalermark_app and
 // thalermark_staff_readonly (not the testcontainer superuser) so RLS is
@@ -1436,6 +1439,244 @@ describe('RLS — estimates + line items under staff_readonly', () => {
   it('cannot DELETE estimates (privilege denied)', async () => {
     await expect(getStaffDb().delete(estimates)).rejects.toThrow();
     const rows = await getTestDb().select().from(estimates);
+    expect(rows).toHaveLength(2);
+  });
+});
+
+// expenses: third MVP entity (slice 8.9a). Carries account_id directly; FKs
+// reach chart_of_accounts for both category + payment legs, customer_id
+// optional. Same NULLIF tenant-isolation idiom as the rest of the schema.
+
+async function seedExpensesPerAccount(): Promise<{
+  companyAId: string;
+  companyBId: string;
+  cashAccountAId: string;
+  suppliesAccountAId: string;
+  cashAccountBId: string;
+  suppliesAccountBId: string;
+  expenseAId: string;
+  expenseBId: string;
+}> {
+  const db = getTestDb();
+  const [companyA] = await db.select().from(companies).where(eq(companies.accountId, accountAId));
+  const [companyB] = await db.select().from(companies).where(eq(companies.accountId, accountBId));
+  if (!companyA || !companyB) throw new Error('seedTwoTenants did not produce one company each');
+
+  await seedChartOfAccounts(db, { accountId: accountAId, companyId: companyA.id });
+  await seedChartOfAccounts(db, { accountId: accountBId, companyId: companyB.id });
+
+  const aCoa = await db
+    .select()
+    .from(chartOfAccounts)
+    .where(eq(chartOfAccounts.companyId, companyA.id));
+  const bCoa = await db
+    .select()
+    .from(chartOfAccounts)
+    .where(eq(chartOfAccounts.companyId, companyB.id));
+  const cashA = aCoa.find((r) => r.code === '1000');
+  const suppliesA = aCoa.find((r) => r.code === '7000');
+  const cashB = bCoa.find((r) => r.code === '1000');
+  const suppliesB = bCoa.find((r) => r.code === '7000');
+  if (!cashA || !suppliesA || !cashB || !suppliesB) {
+    throw new Error('COA seed missing expected accounts');
+  }
+
+  const expenseAId = uuidv7();
+  const expenseBId = uuidv7();
+  await db.insert(expenses).values([
+    {
+      id: expenseAId,
+      accountId: accountAId,
+      companyId: companyA.id,
+      categoryAccountId: suppliesA.id,
+      paymentAccountId: cashA.id,
+      amount: '25.00',
+      expenseDate: '2026-05-30',
+      merchant: 'A Vendor',
+    },
+    {
+      id: expenseBId,
+      accountId: accountBId,
+      companyId: companyB.id,
+      categoryAccountId: suppliesB.id,
+      paymentAccountId: cashB.id,
+      amount: '50.00',
+      expenseDate: '2026-05-30',
+      merchant: 'B Vendor',
+    },
+  ]);
+
+  return {
+    companyAId: companyA.id,
+    companyBId: companyB.id,
+    cashAccountAId: cashA.id,
+    suppliesAccountAId: suppliesA.id,
+    cashAccountBId: cashB.id,
+    suppliesAccountBId: suppliesB.id,
+    expenseAId,
+    expenseBId,
+  };
+}
+
+describe('RLS — expenses account isolation', () => {
+  let companyAId: string;
+  let companyBId: string;
+  let cashAccountAId: string;
+  let suppliesAccountAId: string;
+  let suppliesAccountBId: string;
+  let cashAccountBId: string;
+
+  beforeEach(async () => {
+    await resetDb();
+    await seedTwoTenants();
+    ({
+      companyAId,
+      companyBId,
+      cashAccountAId,
+      suppliesAccountAId,
+      cashAccountBId,
+      suppliesAccountBId,
+    } = await seedExpensesPerAccount());
+  });
+
+  it('sees only its own account expenses when context is set', async () => {
+    const seen = await withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+      return tx.select().from(expenses);
+    });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.accountId).toBe(accountAId);
+    expect(seen[0]?.merchant).toBe('A Vendor');
+  });
+
+  it('sees no rows when no account context is set', async () => {
+    const seen = await getAppDb().select().from(expenses);
+    expect(seen).toEqual([]);
+  });
+
+  it('allows insert with matching account_id', async () => {
+    const id = uuidv7();
+    await expect(
+      withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+        await tx.insert(expenses).values({
+          id,
+          accountId: accountAId,
+          companyId: companyAId,
+          categoryAccountId: suppliesAccountAId,
+          paymentAccountId: cashAccountAId,
+          amount: '10.00',
+          expenseDate: '2026-05-30',
+          merchant: 'Within tenant',
+        });
+      }),
+    ).resolves.not.toThrow();
+    const found = await getTestDb().select().from(expenses).where(eq(expenses.id, id));
+    expect(found).toHaveLength(1);
+  });
+
+  it('blocks insert with a foreign account_id (WITH CHECK violation)', async () => {
+    const smuggledId = uuidv7();
+    await expect(
+      withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+        await tx.insert(expenses).values({
+          id: smuggledId,
+          accountId: accountBId,
+          companyId: companyBId,
+          categoryAccountId: suppliesAccountBId,
+          paymentAccountId: cashAccountBId,
+          amount: '10.00',
+          expenseDate: '2026-05-30',
+          merchant: 'Smuggled',
+        });
+      }),
+    ).rejects.toThrow();
+    const found = await getTestDb().select().from(expenses).where(eq(expenses.id, smuggledId));
+    expect(found).toEqual([]);
+  });
+
+  it('cannot UPDATE expenses in another account', async () => {
+    await withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+      await tx
+        .update(expenses)
+        .set({ merchant: 'pwned' })
+        .where(eq(expenses.accountId, accountBId));
+    });
+    const bRows = await getTestDb()
+      .select()
+      .from(expenses)
+      .where(eq(expenses.accountId, accountBId));
+    expect(bRows[0]?.merchant).toBe('B Vendor');
+  });
+
+  it('cannot DELETE expenses in another account', async () => {
+    await withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+      await tx.delete(expenses).where(eq(expenses.accountId, accountBId));
+    });
+    const bRows = await getTestDb()
+      .select()
+      .from(expenses)
+      .where(eq(expenses.accountId, accountBId));
+    expect(bRows).toHaveLength(1);
+  });
+
+  it('allows tenant-scoped soft delete via UPDATE deleted_at within own account', async () => {
+    await withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+      await tx
+        .update(expenses)
+        .set({ deletedAt: new Date() })
+        .where(eq(expenses.accountId, accountAId));
+    });
+    const aRows = await getTestDb()
+      .select()
+      .from(expenses)
+      .where(eq(expenses.accountId, accountAId));
+    expect(aRows[0]?.deletedAt).toBeInstanceOf(Date);
+  });
+});
+
+describe('RLS — expenses under staff_readonly', () => {
+  beforeEach(async () => {
+    await resetDb();
+    await seedTwoTenants();
+    await seedExpensesPerAccount();
+  });
+
+  it('reads expenses across accounts (BYPASSRLS)', async () => {
+    const seen = await getStaffDb().select().from(expenses);
+    expect(seen).toHaveLength(2);
+  });
+
+  it('cannot INSERT expenses (privilege denied)', async () => {
+    const [companyA] = await getTestDb()
+      .select()
+      .from(companies)
+      .where(eq(companies.accountId, accountAId));
+    const aCoa = await getTestDb()
+      .select()
+      .from(chartOfAccounts)
+      // biome-ignore lint/style/noNonNullAssertion: seeded above
+      .where(eq(chartOfAccounts.companyId, companyA!.id));
+    const cash = aCoa.find((r) => r.code === '1000');
+    const supplies = aCoa.find((r) => r.code === '7000');
+    await expect(
+      getStaffDb().insert(expenses).values({
+        id: uuidv7(),
+        accountId: accountAId,
+        // biome-ignore lint/style/noNonNullAssertion: seeded above
+        companyId: companyA!.id,
+        // biome-ignore lint/style/noNonNullAssertion: seeded above
+        categoryAccountId: supplies!.id,
+        // biome-ignore lint/style/noNonNullAssertion: seeded above
+        paymentAccountId: cash!.id,
+        amount: '10.00',
+        expenseDate: '2026-05-30',
+        merchant: 'Staff Wuz Here',
+      }),
+    ).rejects.toThrow();
+  });
+
+  it('cannot DELETE expenses (privilege denied)', async () => {
+    await expect(getStaffDb().delete(expenses)).rejects.toThrow();
+    const rows = await getTestDb().select().from(expenses);
     expect(rows).toHaveLength(2);
   });
 });
