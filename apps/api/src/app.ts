@@ -31,6 +31,7 @@ import { cors } from 'hono/cors';
 import { validator } from 'hono/validator';
 import { v7 as uuidv7 } from 'uuid';
 import type { ApiAuth } from './lib/auth.js';
+import { postInvoiceTransition } from './lib/ledger.js';
 import type { Mailer } from './lib/mailer.js';
 import { type StripeBundle, decimalDollarsToCents } from './lib/stripe.js';
 import { type RlsVariables, rlsContext } from './middleware/rls-context.js';
@@ -155,6 +156,19 @@ async function transitionInvoice(
       publicToken: updated.publicToken,
     },
     companyId: updated.companyId,
+  });
+
+  // Ledger posting (slice L2). Runs inside the same tenant tx so the
+  // deferred sum-to-zero trigger on journal_lines fires at commit and a
+  // posting failure rolls the status flip + audit back together. Empty-
+  // amount transitions (draft → voided, total=0 invoice) post nothing.
+  await postInvoiceTransition(tx, {
+    invoice: updated,
+    prevStatus: current.status as InvoiceStatus,
+    nextStatus: updated.status as InvoiceStatus,
+    accountId,
+    companyId: updated.companyId,
+    postedAt: now,
   });
 
   return c.json(updated);
@@ -2068,28 +2082,47 @@ export function createApp(deps: AppDeps) {
           if (current.status !== 'sent') return c.json({ received: true });
 
           const now = new Date();
-          const [updated] = await bootstrapDb
-            .update(invoices)
-            .set({ status: 'paid', paidAt: now, updatedAt: now })
-            .where(eq(invoices.id, invoiceId))
-            .returning();
-          if (!updated) return c.json({ received: true });
+          // Wrap the status flip + audit + ledger posting in one tx so
+          // the deferred sum-to-zero trigger on journal_lines fires at
+          // commit (auto-commit per statement would fail mid-posting)
+          // and a posting failure rolls the status flip back rather than
+          // leaving a paid invoice with no journal entry.
+          await bootstrapDb.transaction(async (tx) => {
+            const [updated] = await tx
+              .update(invoices)
+              .set({ status: 'paid', paidAt: now, updatedAt: now })
+              .where(eq(invoices.id, invoiceId))
+              .returning();
+            if (!updated) return;
 
-          // Audit row attributed to the synthetic system user (migration
-          // 0009 seeded it specifically for this kind of provider callback).
-          // bootstrapDb path — RLS would otherwise hide the row from the
-          // tenant role on read; the policy on audit_events allows the
-          // superuser unconditionally.
-          await bootstrapDb.insert(auditEvents).values({
-            id: uuidv7(),
-            accountId: current.accountId,
-            companyId: current.companyId,
-            actorUserId: SYSTEM_USER_ID,
-            entityType: 'invoice',
-            entityId: invoiceId,
-            action: 'stripe-paid',
-            before: { status: current.status, paidAt: current.paidAt },
-            after: { status: updated.status, paidAt: updated.paidAt },
+            // Audit row attributed to the synthetic system user (migration
+            // 0009 seeded it specifically for this kind of provider callback).
+            // bootstrapDb path — RLS would otherwise hide the row from the
+            // tenant role on read; the policy on audit_events allows the
+            // superuser unconditionally.
+            await tx.insert(auditEvents).values({
+              id: uuidv7(),
+              accountId: current.accountId,
+              companyId: current.companyId,
+              actorUserId: SYSTEM_USER_ID,
+              entityType: 'invoice',
+              entityId: invoiceId,
+              action: 'stripe-paid',
+              before: { status: current.status, paidAt: current.paidAt },
+              after: { status: updated.status, paidAt: updated.paidAt },
+            });
+
+            // Ledger posting (slice L2). Webhook only fires sent → paid
+            // (current.status === 'sent' guard above), so the posting is
+            // always Dr Cash / Cr AR.
+            await postInvoiceTransition(tx, {
+              invoice: updated,
+              prevStatus: 'sent',
+              nextStatus: 'paid',
+              accountId: current.accountId,
+              companyId: current.companyId,
+              postedAt: now,
+            });
           });
 
           return c.json({ received: true });

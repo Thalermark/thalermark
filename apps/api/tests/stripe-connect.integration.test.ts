@@ -7,6 +7,7 @@ import {
   customers,
   invoices,
   memberships,
+  seedChartOfAccounts,
 } from '@thalermark/db';
 import { eq } from 'drizzle-orm';
 import type Stripe from 'stripe';
@@ -486,6 +487,9 @@ async function seedPayableInvoice(connect: {
     publicToken,
     sentAt: new Date(),
   });
+  // L2: webhook posts a journal entry on mark-paid; this test bypasses
+  // the signup hook so the COA isn't seeded by default. Match production.
+  await seedChartOfAccounts(db, { accountId: acctId, companyId });
   return { publicToken, invoiceId, companyId };
 }
 

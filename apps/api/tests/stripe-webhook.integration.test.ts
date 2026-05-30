@@ -6,7 +6,10 @@ import {
   companies,
   customers,
   invoices,
+  journalEntries,
+  journalLines,
   memberships,
+  seedChartOfAccounts,
 } from '@thalermark/db';
 import { eq } from 'drizzle-orm';
 import type Stripe from 'stripe';
@@ -101,6 +104,10 @@ async function seedSentInvoice(): Promise<{
     publicToken: `tok_${invoiceId}`,
     sentAt: new Date(),
   });
+  // L2: the webhook posts a journal entry on mark-paid, which requires
+  // the company's COA to be seeded. Production seeds via the signup hook;
+  // this test bypasses signup, so seed directly to match.
+  await seedChartOfAccounts(db, { accountId, companyId });
   return { invoiceId, accountId, companyId };
 }
 
@@ -188,6 +195,43 @@ describe('Stripe webhook', () => {
       expect(stripeAudit?.companyId).toBe(companyId);
       expect(stripeAudit?.before).toMatchObject({ status: 'sent' });
       expect(stripeAudit?.after).toMatchObject({ status: 'paid' });
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('posts a balanced Dr Cash / Cr AR journal entry on mark-paid', async () => {
+    const { invoiceId, accountId } = await seedSentInvoice();
+    const { app, handle, stripe } = buildApp();
+    if (!stripe) throw new Error('stripe bundle not configured');
+    try {
+      const payload = checkoutCompletedPayload(invoiceId);
+      const sig = signEvent(stripe.client, payload);
+      const res = await app.request('/api/webhooks/stripe', {
+        method: 'POST',
+        headers: { 'stripe-signature': sig },
+        body: payload,
+      });
+      expect(res.status).toBe(200);
+
+      const db = getTestDb();
+      const entries = await db
+        .select()
+        .from(journalEntries)
+        .where(eq(journalEntries.sourceEntityId, invoiceId));
+      expect(entries).toHaveLength(1);
+      expect(entries[0]?.accountId).toBe(accountId);
+      expect(entries[0]?.sourceEntityType).toBe('invoice');
+
+      const lines = await db
+        .select()
+        .from(journalLines)
+        .where(eq(journalLines.journalEntryId, entries[0]?.id as string));
+      expect(lines).toHaveLength(2);
+      const debit = lines.find((l) => l.side === 'debit');
+      const credit = lines.find((l) => l.side === 'credit');
+      expect(debit?.amount).toBe('100.00');
+      expect(credit?.amount).toBe('100.00');
     } finally {
       await handle.close();
     }
