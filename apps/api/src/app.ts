@@ -5,6 +5,7 @@ import {
   accounts,
   auditEvents,
   authUser,
+  chartOfAccounts,
   companies,
   customers,
   estimateLineItems,
@@ -12,6 +13,8 @@ import {
   invitations,
   invoiceLineItems,
   invoices,
+  journalEntries,
+  journalLines,
   memberships,
 } from '@thalermark/db';
 import {
@@ -25,7 +28,7 @@ import {
   invoiceSendSchema,
   invoiceUpdateSchema,
 } from '@thalermark/validation';
-import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNull, lt } from 'drizzle-orm';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { cors } from 'hono/cors';
@@ -669,6 +672,199 @@ export function createApp(deps: AppDeps) {
           stripeConnectAccountId: company.stripeConnectAccountId,
           stripeConnectChargesEnabled: company.stripeConnectChargesEnabled,
           stripeConnectDetailsSubmitted: company.stripeConnectDetailsSubmitted,
+        });
+      })
+      // Slice L4 — GL / trial-balance export. Tenant-scoped read of every
+      // journal entry for a company, joined with its COA so the export
+      // carries account code + name. Optional from/to date filter (inclusive
+      // calendar days; to+1 day on the upper bound). format=json (default)
+      // or csv. No pagination in MVP — exports are bulk reads.
+      //
+      // Single join query (entries × lines × COA) groups in app code so the
+      // typed shape on the wire matches what an accountant expects: each
+      // entry with its lines nested. Trial balance is computed alongside in
+      // a single pass to keep the contract one round-trip.
+      .get('/api/companies/:id/ledger/export', async (c) => {
+        const id = c.req.param('id');
+        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+
+        const [company] = await tx
+          .select({ id: companies.id, name: companies.name })
+          .from(companies)
+          .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
+          .limit(1);
+        if (!company) return c.json({ error: 'company_not_found' }, 404);
+
+        const fromRaw = c.req.query('from');
+        const toRaw = c.req.query('to');
+        const format = c.req.query('format') ?? 'json';
+        if (format !== 'json' && format !== 'csv') {
+          return c.json({ error: 'invalid_format' }, 400);
+        }
+
+        // Date parse: ISO yyyy-mm-dd. Reject non-parseable + flipped ranges
+        // (from > to) so the caller catches an off-by-one rather than seeing
+        // an empty file and assuming "no activity".
+        let fromDate: Date | null = null;
+        let toDate: Date | null = null;
+        if (fromRaw !== undefined) {
+          const d = new Date(`${fromRaw}T00:00:00Z`);
+          if (Number.isNaN(d.getTime())) return c.json({ error: 'invalid_from' }, 400);
+          fromDate = d;
+        }
+        if (toRaw !== undefined) {
+          const d = new Date(`${toRaw}T00:00:00Z`);
+          if (Number.isNaN(d.getTime())) return c.json({ error: 'invalid_to' }, 400);
+          // Upper bound is exclusive on (to + 1 day) so to=YYYY-MM-DD pulls in
+          // entries posted any time on that day.
+          d.setUTCDate(d.getUTCDate() + 1);
+          toDate = d;
+        }
+        if (fromDate && toDate && fromDate >= toDate) {
+          return c.json({ error: 'invalid_range' }, 400);
+        }
+
+        const whereClauses = [
+          eq(journalEntries.companyId, id),
+          eq(journalEntries.accountId, accountId),
+        ];
+        if (fromDate) whereClauses.push(gte(journalEntries.postedAt, fromDate));
+        if (toDate) whereClauses.push(lt(journalEntries.postedAt, toDate));
+
+        const rows = await tx
+          .select({
+            entryId: journalEntries.id,
+            postedAt: journalEntries.postedAt,
+            sourceEntityType: journalEntries.sourceEntityType,
+            sourceEntityId: journalEntries.sourceEntityId,
+            memo: journalEntries.memo,
+            lineId: journalLines.id,
+            side: journalLines.side,
+            amount: journalLines.amount,
+            code: chartOfAccounts.code,
+            accountName: chartOfAccounts.name,
+            accountType: chartOfAccounts.accountType,
+          })
+          .from(journalEntries)
+          .innerJoin(journalLines, eq(journalLines.journalEntryId, journalEntries.id))
+          .innerJoin(chartOfAccounts, eq(journalLines.coaAccountId, chartOfAccounts.id))
+          .where(and(...whereClauses))
+          .orderBy(asc(journalEntries.postedAt), asc(journalEntries.id), asc(journalLines.id));
+
+        type Line = {
+          code: string;
+          accountName: string;
+          accountType: string;
+          side: 'debit' | 'credit';
+          amount: string;
+        };
+        type Entry = {
+          id: string;
+          postedAt: string;
+          sourceEntityType: string;
+          sourceEntityId: string;
+          memo: string | null;
+          lines: Line[];
+        };
+
+        const entries: Entry[] = [];
+        const byEntry = new Map<string, Entry>();
+        const tbByCode = new Map<
+          string,
+          { code: string; accountName: string; accountType: string; debit: number; credit: number }
+        >();
+
+        for (const r of rows) {
+          let e = byEntry.get(r.entryId);
+          if (!e) {
+            e = {
+              id: r.entryId,
+              postedAt: r.postedAt.toISOString(),
+              sourceEntityType: r.sourceEntityType,
+              sourceEntityId: r.sourceEntityId,
+              memo: r.memo,
+              lines: [],
+            };
+            byEntry.set(r.entryId, e);
+            entries.push(e);
+          }
+          e.lines.push({
+            code: r.code,
+            accountName: r.accountName,
+            accountType: r.accountType,
+            side: r.side as 'debit' | 'credit',
+            amount: r.amount,
+          });
+          let tb = tbByCode.get(r.code);
+          if (!tb) {
+            tb = {
+              code: r.code,
+              accountName: r.accountName,
+              accountType: r.accountType,
+              debit: 0,
+              credit: 0,
+            };
+            tbByCode.set(r.code, tb);
+          }
+          if (r.side === 'debit') tb.debit += Number(r.amount);
+          else tb.credit += Number(r.amount);
+        }
+
+        const trialBalance = Array.from(tbByCode.values())
+          .map((t) => ({
+            code: t.code,
+            accountName: t.accountName,
+            accountType: t.accountType,
+            debit: t.debit.toFixed(2),
+            credit: t.credit.toFixed(2),
+            net: (t.debit - t.credit).toFixed(2),
+          }))
+          .sort((a, b) => (a.code < b.code ? -1 : 1));
+
+        if (format === 'csv') {
+          const csvCell = (v: string | null) => {
+            const s = v ?? '';
+            return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+          };
+          const header =
+            'posted_at,entry_id,code,account_name,side,amount,source_type,source_id,memo';
+          const lines = [header];
+          for (const e of entries) {
+            for (const l of e.lines) {
+              lines.push(
+                [
+                  e.postedAt,
+                  e.id,
+                  l.code,
+                  csvCell(l.accountName),
+                  l.side,
+                  l.amount,
+                  e.sourceEntityType,
+                  e.sourceEntityId,
+                  csvCell(e.memo),
+                ].join(','),
+              );
+            }
+          }
+          return c.body(`${lines.join('\n')}\n`, 200, {
+            'content-type': 'text/csv; charset=utf-8',
+            'content-disposition': `attachment; filename="ledger-${company.name.replace(
+              /[^a-z0-9-]/gi,
+              '_',
+            )}.csv"`,
+          });
+        }
+
+        return c.json({
+          companyId: company.id,
+          companyName: company.name,
+          from: fromRaw ?? null,
+          to: toRaw ?? null,
+          entries,
+          trialBalance,
         });
       })
       .post('/api/customers', async (c) => {
