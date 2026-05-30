@@ -65,6 +65,39 @@ describe('companies', () => {
     expect(row?.stripeConnectDetailsSubmitted).toBe(false);
   });
 
+  it('accepts each of the five business_type enum values + null', async () => {
+    const db = getTestDb();
+    const accountId = uuidv7();
+    await db.insert(accounts).values({ id: accountId, name: 'Acct' });
+    const values = [
+      'sole_prop',
+      'llc_single_member',
+      'partnership',
+      's_corp',
+      'c_corp',
+      null,
+    ] as const;
+    for (const bt of values) {
+      await db
+        .insert(companies)
+        .values({ id: uuidv7(), accountId, name: `Co-${bt ?? 'null'}`, businessType: bt });
+    }
+  });
+
+  it('rejects an unknown business_type with the CHECK constraint', async () => {
+    const db = getTestDb();
+    const accountId = uuidv7();
+    await db.insert(accounts).values({ id: accountId, name: 'Acct' });
+    await expect(
+      db.insert(companies).values({
+        id: uuidv7(),
+        accountId,
+        name: 'Bad',
+        businessType: 'partnership_general',
+      }),
+    ).rejects.toThrow();
+  });
+
   it('enforces uniqueness on stripe_connect_account_id (null allowed many times)', async () => {
     const db = getTestDb();
     const accountId = uuidv7();
