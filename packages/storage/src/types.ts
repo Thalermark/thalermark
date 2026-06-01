@@ -28,5 +28,10 @@ export interface StorageProvider {
   // For s3 this is a presigned GET URL the browser hits directly; for local-FS
   // it is a relative `/api/files/<token>` URL the api serves itself.
   getSignedDownloadUrl(key: string, opts?: GetSignedUrlOptions): Promise<string>;
+  // Read an object's bytes back server-side. Distinct from getSignedDownloadUrl
+  // (which hands a URL to the browser): receipt extraction (slice 8.9h) needs
+  // the bytes in-process to feed the vision model. Rejects when the key is
+  // absent.
+  getObject(key: string): Promise<Uint8Array>;
   deleteObject(key: string): Promise<void>;
 }

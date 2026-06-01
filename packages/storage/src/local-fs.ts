@@ -39,6 +39,9 @@ export function createLocalFsProvider(config: LocalFsProviderConfig): StoragePro
       const token = signFileToken({ key, exp }, config.secret);
       return `${urlPrefix}/${token}`;
     },
+    async getObject(key) {
+      return new Uint8Array(await readFile(safeResolve(config.baseDir, key)));
+    },
     async deleteObject(key) {
       // force: true swallows ENOENT so a double-delete (or deleting an object
       // whose write never landed) is a no-op rather than a throw.

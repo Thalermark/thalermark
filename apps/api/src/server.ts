@@ -1,6 +1,7 @@
 import { resolve } from 'node:path';
 import { loadEnvFile } from 'node:process';
 import { serve } from '@hono/node-server';
+import { type ReceiptExtractor, createReceiptExtractor } from '@thalermark/ai';
 import { runMigrations } from '@thalermark/db';
 import { configureLogger, getLogger } from '@thalermark/logger';
 import { type StorageProvider, createStorageProvider } from '@thalermark/storage';
@@ -106,6 +107,19 @@ try {
   log.info('storage disabled: {msg}', { msg: err instanceof Error ? err.message : String(err) });
 }
 
+// Receipt extraction is opt-in like storage/stripe: createReceiptExtractor
+// returns null when no LLM provider is usable (anthropic/openai with no
+// LLM_API_KEY, or an unknown LLM_PROVIDER), in which case the /extract endpoint
+// 503s and the rest of the app runs. Ollama needs no key — the AGPL-pure
+// self-host path — so it stays enabled once selected. Env is read from
+// process.env (the AI config's single home, mirroring the storage factory).
+const extractor: ReceiptExtractor | null = createReceiptExtractor(process.env);
+log.info(
+  extractor
+    ? `receipt extraction enabled (LLM_PROVIDER=${process.env.LLM_PROVIDER ?? 'anthropic'})`
+    : 'receipt extraction disabled (LLM_API_KEY unset or LLM_PROVIDER unsupported)',
+);
+
 const app = createApp({
   auth,
   db: dbHandle.db,
@@ -117,6 +131,7 @@ const app = createApp({
   stripe,
   storage,
   localFileServe,
+  extractor,
 });
 
 const server = serve(

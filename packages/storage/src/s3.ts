@@ -53,6 +53,13 @@ export function createS3Provider(config: S3ProviderConfig): StorageProvider {
         expiresIn: opts?.expiresInSeconds ?? 3600,
       });
     },
+    async getObject(key) {
+      const res = await client.send(new GetObjectCommand({ Bucket: config.bucket, Key: key }));
+      if (!res.Body) throw new Error(`storage: empty object body for key: ${key}`);
+      // transformToByteArray is the SDK's stream → Uint8Array helper, the same
+      // shape the local adapter returns.
+      return res.Body.transformToByteArray();
+    },
     async deleteObject(key) {
       await client.send(new DeleteObjectCommand({ Bucket: config.bucket, Key: key }));
     },

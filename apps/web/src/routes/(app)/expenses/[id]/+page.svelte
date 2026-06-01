@@ -39,6 +39,11 @@
     {form.receiptError}
   </div>
 {/if}
+{#if form?.extractError}
+  <div class="mt-4 rounded-sm border border-oxblood/30 bg-oxblood/5 px-4 py-3 text-sm text-oxblood">
+    {form.extractError}
+  </div>
+{/if}
 
 <dl class="mt-8 grid grid-cols-1 gap-x-12 gap-y-6 sm:grid-cols-2">
   <div>
@@ -85,14 +90,24 @@
           View receipt (PDF) →
         </a>
       {/if}
-      <form method="post" action="?/deleteReceipt">
-        <button
-          type="submit"
-          class="text-xs uppercase tracking-widest text-oxblood/70 hover:text-oxblood"
-        >
-          Remove receipt
-        </button>
-      </form>
+      <div class="flex flex-wrap items-center gap-4">
+        <form method="post" action="?/extract">
+          <button
+            type="submit"
+            class="rounded-sm border border-gold-deep/40 px-3 py-1.5 text-sm text-gold-deep hover:border-gold-deep hover:bg-gold-deep/5"
+          >
+            Auto-fill from receipt
+          </button>
+        </form>
+        <form method="post" action="?/deleteReceipt">
+          <button
+            type="submit"
+            class="text-xs uppercase tracking-widest text-oxblood/70 hover:text-oxblood"
+          >
+            Remove receipt
+          </button>
+        </form>
+      </div>
     </div>
   {:else}
     <form method="post" action="?/uploadReceipt" enctype="multipart/form-data" class="mt-3 flex flex-wrap items-center gap-3">

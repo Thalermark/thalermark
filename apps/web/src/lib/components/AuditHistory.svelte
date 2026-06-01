@@ -42,6 +42,7 @@
     'public-decline': 'declined by recipient',
     'receipt-upload': 'attached a receipt',
     'receipt-delete': 'removed the receipt',
+    'receipt-extract': 'auto-filled from the receipt',
   };
 
   // Entity-type → display singular for the feed prefix and the link path.
