@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import {
   type Database,
   SYSTEM_USER_ID,
+  type Transaction,
   accounts,
   auditEvents,
   authUser,
@@ -10,6 +11,7 @@ import {
   customers,
   estimateLineItems,
   estimates,
+  expenses,
   invitations,
   invoiceLineItems,
   invoices,
@@ -24,23 +26,26 @@ import {
   estimateCreateSchema,
   estimateSendSchema,
   estimateUpdateSchema,
+  expenseCreateSchema,
+  expenseUpdateSchema,
   invoiceCreateSchema,
   invoiceSendSchema,
   invoiceUpdateSchema,
 } from '@thalermark/validation';
-import { and, asc, desc, eq, gte, inArray, isNull, lt } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, ilike, inArray, isNull, lt, lte } from 'drizzle-orm';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { cors } from 'hono/cors';
 import { validator } from 'hono/validator';
 import { v7 as uuidv7 } from 'uuid';
 import type { ApiAuth } from './lib/auth.js';
-import { postInvoiceTransition } from './lib/ledger.js';
+import { postExpenseCreate, postExpenseReversal, postInvoiceTransition } from './lib/ledger.js';
 import type { Mailer } from './lib/mailer.js';
 import { type StripeBundle, decimalDollarsToCents } from './lib/stripe.js';
 import { type RlsVariables, rlsContext } from './middleware/rls-context.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 // Inline HTML escaper for the invoice-send email body. The recipient's mail
 // client renders the HTML, and number / customer name / company name are
@@ -53,6 +58,54 @@ function escapeHtml(s: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+// Escape the LIKE/ILIKE metacharacters so a merchant search for "50%" or
+// "a_b" matches literally instead of as wildcards. Drizzle's ilike() uses the
+// default backslash escape character, so backslash itself is escaped too.
+function escapeLike(s: string): string {
+  return s.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+}
+
+// Expense journal entries are dated to the expense's calendar date, not the
+// data-entry time — an expense dated Dec 31 entered Jan 2 must land in the
+// prior tax period so the Schedule C trial balance is right at year ends.
+// `expense_date` is a bare YYYY-MM-DD; postedAt is timestamptz, so we pin it
+// to midnight UTC. Invoice transitions post at `now` instead because their
+// economic event (sent / paid) genuinely happens at transition time.
+function expenseDateToPostedAt(d: string): Date {
+  return new Date(`${d}T00:00:00.000Z`);
+}
+
+// Resolves chart_of_accounts row ids to their { code, accountType } within one
+// company (scoped by account for defense-in-depth per
+// [[architecture_account_id_explicit_filter]]). The expense endpoints use it
+// to validate the category/payment account types before posting and to recover
+// the codes of an expense's stored accounts when posting a reversal. Returns a
+// Map keyed by id; ids that don't resolve are simply absent.
+async function resolveCoaAccounts(
+  tx: Transaction,
+  accountId: string,
+  companyId: string,
+  ids: string[],
+): Promise<Map<string, { code: string; accountType: string }>> {
+  const unique = Array.from(new Set(ids));
+  if (unique.length === 0) return new Map();
+  const rows = await tx
+    .select({
+      id: chartOfAccounts.id,
+      code: chartOfAccounts.code,
+      accountType: chartOfAccounts.accountType,
+    })
+    .from(chartOfAccounts)
+    .where(
+      and(
+        eq(chartOfAccounts.accountId, accountId),
+        eq(chartOfAccounts.companyId, companyId),
+        inArray(chartOfAccounts.id, unique),
+      ),
+    );
+  return new Map(rows.map((r) => [r.id, { code: r.code, accountType: r.accountType }]));
 }
 
 // Smart-detect: increment the trailing integer of the company's most recent
@@ -1647,6 +1700,326 @@ export function createApp(deps: AppDeps) {
 
         return c.json({ id: invoiceId }, 201);
       })
+      // ---- Expenses (slice 8.9c) ----------------------------------------
+      // Third MVP entity chain, ledger-aware from day one. Every mutation
+      // wraps the row write + audit row + journal posting in the same tenant
+      // tx (c.get('tx')) so the deferred sum-to-zero trigger on journal_lines
+      // fires at commit and a posting failure rolls the whole mutation back
+      // together — the shape L2 established for invoice transitions. Create
+      // posts Dr <category> / Cr <payment>; edit posts a reversal of the
+      // prior entry + a fresh entry; delete is soft (deleted_at) and posts a
+      // reversal only. category_account_id must be an 'expense' COA row,
+      // payment_account_id an 'asset' row (the FK columns alone admit any
+      // account, so the API type-checks before posting).
+      .post('/api/expenses', async (c) => {
+        const body = await c.req.json().catch(() => null);
+        const parsed = expenseCreateSchema.safeParse(body);
+        if (!parsed.success) {
+          return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+        }
+
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+        const { companyId, customerId, categoryAccountId, paymentAccountId, ...rest } = parsed.data;
+
+        const [company] = await tx
+          .select({ id: companies.id })
+          .from(companies)
+          .where(and(eq(companies.id, companyId), eq(companies.accountId, accountId)))
+          .limit(1);
+        if (!company) return c.json({ error: 'company_not_found' }, 404);
+
+        // customerId is optional (carried for v1.x job-costing, not surfaced
+        // in MVP). When present it must belong to this account AND match the
+        // expense's company — the same invariant the invoice create enforces.
+        if (customerId) {
+          const [customer] = await tx
+            .select({ id: customers.id, companyId: customers.companyId })
+            .from(customers)
+            .where(and(eq(customers.id, customerId), eq(customers.accountId, accountId)))
+            .limit(1);
+          if (!customer) return c.json({ error: 'customer_not_found' }, 404);
+          if (customer.companyId !== companyId) {
+            return c.json({ error: 'customer_company_mismatch' }, 400);
+          }
+        }
+
+        const coa = await resolveCoaAccounts(tx, accountId, companyId, [
+          categoryAccountId,
+          paymentAccountId,
+        ]);
+        const category = coa.get(categoryAccountId);
+        const payment = coa.get(paymentAccountId);
+        if (!category || category.accountType !== 'expense') {
+          return c.json({ error: 'invalid_category_account' }, 400);
+        }
+        if (!payment || payment.accountType !== 'asset') {
+          return c.json({ error: 'invalid_payment_account' }, 400);
+        }
+
+        const expenseId = uuidv7();
+        const [created] = await tx
+          .insert(expenses)
+          .values({
+            id: expenseId,
+            accountId,
+            companyId,
+            customerId: customerId ?? null,
+            categoryAccountId,
+            paymentAccountId,
+            amount: rest.amount,
+            expenseDate: rest.expenseDate,
+            merchant: rest.merchant,
+            memo: rest.memo ?? null,
+          })
+          .returning();
+
+        await c.var.audit({
+          entityType: 'expense',
+          entityId: expenseId,
+          action: 'create',
+          after: created,
+          companyId,
+        });
+
+        await postExpenseCreate(tx, {
+          expense: { id: expenseId, merchant: rest.merchant, amount: rest.amount },
+          categoryCode: category.code,
+          paymentCode: payment.code,
+          accountId,
+          companyId,
+          postedAt: expenseDateToPostedAt(rest.expenseDate),
+        });
+
+        return c.json(created, 201);
+      })
+      .get('/api/expenses', async (c) => {
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+        const companyId = c.req.query('companyId');
+        const from = c.req.query('from');
+        const to = c.req.query('to');
+        const categoryAccountId = c.req.query('categoryAccountId');
+        const q = c.req.query('q');
+
+        // from/to are inclusive YYYY-MM-DD bounds on expense_date. Validate the
+        // shape so a malformed value returns a clean 400 rather than letting
+        // Postgres throw "invalid input syntax for type date" → 500.
+        if (from !== undefined && !ISO_DATE_RE.test(from)) {
+          return c.json({ error: 'invalid_from' }, 400);
+        }
+        if (to !== undefined && !ISO_DATE_RE.test(to)) {
+          return c.json({ error: 'invalid_to' }, 400);
+        }
+
+        const conditions = [eq(expenses.accountId, accountId), isNull(expenses.deletedAt)];
+        if (companyId) conditions.push(eq(expenses.companyId, companyId));
+        if (from) conditions.push(gte(expenses.expenseDate, from));
+        if (to) conditions.push(lte(expenses.expenseDate, to));
+        if (categoryAccountId) conditions.push(eq(expenses.categoryAccountId, categoryAccountId));
+        // Merchant contains-search. escapeLike neutralises %/_ so a literal
+        // "50%" search doesn't turn into a wildcard.
+        if (q) conditions.push(ilike(expenses.merchant, `%${escapeLike(q)}%`));
+
+        const rows = await tx
+          .select()
+          .from(expenses)
+          .where(and(...conditions))
+          .orderBy(desc(expenses.expenseDate), desc(expenses.createdAt));
+        return c.json({ expenses: rows });
+      })
+      .get('/api/expenses/:id', async (c) => {
+        const id = c.req.param('id');
+        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+        const [expense] = await tx
+          .select()
+          .from(expenses)
+          .where(and(eq(expenses.id, id), eq(expenses.accountId, accountId)))
+          .limit(1);
+        if (!expense || expense.deletedAt) return c.json({ error: 'expense_not_found' }, 404);
+        return c.json(expense);
+      })
+      .patch(
+        '/api/expenses/:id',
+        validator('json', (value, c) => {
+          const parsed = expenseUpdateSchema.safeParse(value);
+          if (!parsed.success) {
+            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+          }
+          return parsed.data;
+        }),
+        async (c) => {
+          const id = c.req.param('id');
+          if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+          const data = c.req.valid('json');
+
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+
+          const [current] = await tx
+            .select()
+            .from(expenses)
+            .where(and(eq(expenses.id, id), eq(expenses.accountId, accountId)))
+            .limit(1);
+          if (!current || current.deletedAt) return c.json({ error: 'expense_not_found' }, 404);
+
+          // Sparse merge: omitted fields keep their current value. companyId
+          // is immutable (omitted from the schema) so the expense can't move
+          // between companies and orphan its company-scoped ledger accounts.
+          const next = {
+            customerId: data.customerId !== undefined ? data.customerId : current.customerId,
+            categoryAccountId: data.categoryAccountId ?? current.categoryAccountId,
+            paymentAccountId: data.paymentAccountId ?? current.paymentAccountId,
+            amount: data.amount ?? current.amount,
+            expenseDate: data.expenseDate ?? current.expenseDate,
+            merchant: data.merchant ?? current.merchant,
+            memo: data.memo !== undefined ? data.memo : current.memo,
+          };
+
+          if (data.customerId !== undefined) {
+            const [customer] = await tx
+              .select({ id: customers.id, companyId: customers.companyId })
+              .from(customers)
+              .where(and(eq(customers.id, data.customerId), eq(customers.accountId, accountId)))
+              .limit(1);
+            if (!customer) return c.json({ error: 'customer_not_found' }, 404);
+            if (customer.companyId !== current.companyId) {
+              return c.json({ error: 'customer_company_mismatch' }, 400);
+            }
+          }
+
+          // Resolve all four COA ids (old + new) in one round trip. The new
+          // pair is type-checked like create; the old pair supplies the codes
+          // for the reversal entry.
+          const coa = await resolveCoaAccounts(tx, accountId, current.companyId, [
+            current.categoryAccountId,
+            current.paymentAccountId,
+            next.categoryAccountId,
+            next.paymentAccountId,
+          ]);
+          const newCategory = coa.get(next.categoryAccountId);
+          const newPayment = coa.get(next.paymentAccountId);
+          if (!newCategory || newCategory.accountType !== 'expense') {
+            return c.json({ error: 'invalid_category_account' }, 400);
+          }
+          if (!newPayment || newPayment.accountType !== 'asset') {
+            return c.json({ error: 'invalid_payment_account' }, 400);
+          }
+          const oldCategory = coa.get(current.categoryAccountId);
+          const oldPayment = coa.get(current.paymentAccountId);
+          if (!oldCategory || !oldPayment) {
+            // ON DELETE RESTRICT keeps an in-use COA row alive, so a missing
+            // stored account is an integrity failure, not a user error.
+            throw new Error(`expense ${id}: stored COA accounts missing`);
+          }
+
+          const now = new Date();
+
+          // Edit = reversal of the prior posting (old accounts/amount, old
+          // period) + a fresh posting (new accounts/amount, new period). No
+          // amend-in-place keeps the GL append-only; every edit nets to the
+          // correct balance. (Locked decision: edit = reversal + new.)
+          await postExpenseReversal(tx, {
+            expense: { id, merchant: current.merchant, amount: current.amount },
+            categoryCode: oldCategory.code,
+            paymentCode: oldPayment.code,
+            accountId,
+            companyId: current.companyId,
+            postedAt: expenseDateToPostedAt(current.expenseDate),
+          });
+
+          const [updated] = await tx
+            .update(expenses)
+            .set({
+              customerId: next.customerId ?? null,
+              categoryAccountId: next.categoryAccountId,
+              paymentAccountId: next.paymentAccountId,
+              amount: next.amount,
+              expenseDate: next.expenseDate,
+              merchant: next.merchant,
+              memo: next.memo ?? null,
+              updatedAt: now,
+            })
+            .where(and(eq(expenses.id, id), eq(expenses.accountId, accountId)))
+            .returning();
+          if (!updated) return c.json({ error: 'expense_not_found' }, 404);
+
+          await c.var.audit({
+            entityType: 'expense',
+            entityId: id,
+            action: 'update',
+            before: current,
+            after: updated,
+            companyId: current.companyId,
+          });
+
+          await postExpenseCreate(tx, {
+            expense: { id, merchant: next.merchant, amount: next.amount },
+            categoryCode: newCategory.code,
+            paymentCode: newPayment.code,
+            accountId,
+            companyId: current.companyId,
+            postedAt: expenseDateToPostedAt(next.expenseDate),
+          });
+
+          return c.json(updated);
+        },
+      )
+      .delete('/api/expenses/:id', async (c) => {
+        const id = c.req.param('id');
+        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+
+        const [current] = await tx
+          .select()
+          .from(expenses)
+          .where(and(eq(expenses.id, id), eq(expenses.accountId, accountId)))
+          .limit(1);
+        if (!current || current.deletedAt) return c.json({ error: 'expense_not_found' }, 404);
+
+        const coa = await resolveCoaAccounts(tx, accountId, current.companyId, [
+          current.categoryAccountId,
+          current.paymentAccountId,
+        ]);
+        const category = coa.get(current.categoryAccountId);
+        const payment = coa.get(current.paymentAccountId);
+        if (!category || !payment) {
+          throw new Error(`expense ${id}: stored COA accounts missing`);
+        }
+
+        const now = new Date();
+        const [deleted] = await tx
+          .update(expenses)
+          .set({ deletedAt: now, updatedAt: now })
+          .where(and(eq(expenses.id, id), eq(expenses.accountId, accountId)))
+          .returning();
+        if (!deleted) return c.json({ error: 'expense_not_found' }, 404);
+
+        await c.var.audit({
+          entityType: 'expense',
+          entityId: id,
+          action: 'delete',
+          before: current,
+          after: deleted,
+          companyId: current.companyId,
+        });
+
+        // Soft delete keeps the row for history (deleted_at) but reverses the
+        // original posting so the GL nets to zero for this expense.
+        await postExpenseReversal(tx, {
+          expense: { id, merchant: current.merchant, amount: current.amount },
+          categoryCode: category.code,
+          paymentCode: payment.code,
+          accountId,
+          companyId: current.companyId,
+          postedAt: expenseDateToPostedAt(current.expenseDate),
+        });
+
+        return c.json(deleted);
+      })
       // Send the invoice via email. Distinct from /mark-sent (pure status
       // transition, no I/O) because this endpoint adds a real side-effect
       // and an optional recipient override. State machine: draft → sent +
@@ -1946,7 +2319,7 @@ export function createApp(deps: AppDeps) {
         const entityTypeRaw = c.req.query('entityType');
         const entityIdRaw = c.req.query('entityId');
         const limitRaw = c.req.query('limit');
-        const ALLOWED_TYPES = ['customer', 'invoice', 'estimate'] as const;
+        const ALLOWED_TYPES = ['customer', 'invoice', 'estimate', 'expense'] as const;
         type EntityType = (typeof ALLOWED_TYPES)[number];
 
         // Validation: entityId requires entityType (a bare id is ambiguous);
@@ -2012,6 +2385,7 @@ export function createApp(deps: AppDeps) {
             customer: [],
             invoice: [],
             estimate: [],
+            expense: [],
           };
           for (const r of rows) {
             if ((ALLOWED_TYPES as readonly string[]).includes(r.entityType)) {
@@ -2044,6 +2418,15 @@ export function createApp(deps: AppDeps) {
                 and(eq(customers.accountId, accountId), inArray(customers.id, idsByType.customer)),
               );
             for (const r of custRows) labelMap.set(`customer:${r.id}`, r.label);
+          }
+          if (idsByType.expense.length > 0) {
+            const expRows = await tx
+              .select({ id: expenses.id, label: expenses.merchant })
+              .from(expenses)
+              .where(
+                and(eq(expenses.accountId, accountId), inArray(expenses.id, idsByType.expense)),
+              );
+            for (const r of expRows) labelMap.set(`expense:${r.id}`, r.label);
           }
         }
 
