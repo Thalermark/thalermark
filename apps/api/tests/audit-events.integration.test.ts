@@ -213,11 +213,29 @@ describe('GET /api/audit-events', () => {
       const { accountId } = await userContext('auditbad@example.com');
       const someUuid = uuidv7();
       const res = await ctx.app.request(
-        `/api/audit-events?entityType=expense&entityId=${someUuid}`,
+        `/api/audit-events?entityType=widget&entityId=${someUuid}`,
         { headers: { cookie, 'x-account-id': accountId } },
       );
       expect(res.status).toBe(400);
       expect((await res.json()) as { error: string }).toEqual({ error: 'invalid_entity_type' });
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('accepts entityType=expense (added with the 8.9c expense chain)', async () => {
+    const ctx = buildApp();
+    try {
+      const cookie = await signUp(ctx.app, 'auditexpense@example.com');
+      const { accountId } = await userContext('auditexpense@example.com');
+      const someUuid = uuidv7();
+      const res = await ctx.app.request(
+        `/api/audit-events?entityType=expense&entityId=${someUuid}`,
+        { headers: { cookie, 'x-account-id': accountId } },
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { events: unknown[] };
+      expect(body.events).toEqual([]);
     } finally {
       await ctx.handle.close();
     }
