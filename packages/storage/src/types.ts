@@ -1,0 +1,32 @@
+// Object storage is provider-agnostic so the SaaS host (Cloudflare R2), dev
+// (MinIO), and tiny self-host (local filesystem) all sit behind one interface
+// with no call-site changes — receipts are written and read the same way
+// regardless of where the bytes live. The interface is intentionally narrow:
+// upload, hand back a time-limited download URL, delete. No list/copy/move
+// until a feature needs them.
+
+export interface PutObjectInput {
+  // Storage key, e.g. accounts/<id>/companies/<id>/expenses/<id>/<uuid>.jpg.
+  // Forward-slash separated; the local-FS adapter maps it onto nested dirs.
+  key: string;
+  body: Uint8Array;
+  contentType: string;
+}
+
+export interface GetSignedUrlOptions {
+  // URL lifetime in seconds. Default 3600 (one hour) — long enough to render
+  // a receipt in the browser, short enough that a leaked URL goes stale.
+  expiresInSeconds?: number;
+}
+
+export interface StorageProvider {
+  // Which adapter is live. Lets a consumer branch on the fs case (its signed
+  // URLs are served by the api's own /api/files token route rather than the
+  // object store directly).
+  readonly name: 's3' | 'local';
+  putObject(input: PutObjectInput): Promise<void>;
+  // For s3 this is a presigned GET URL the browser hits directly; for local-FS
+  // it is a relative `/api/files/<token>` URL the api serves itself.
+  getSignedDownloadUrl(key: string, opts?: GetSignedUrlOptions): Promise<string>;
+  deleteObject(key: string): Promise<void>;
+}
