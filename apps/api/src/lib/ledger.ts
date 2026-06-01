@@ -159,6 +159,103 @@ export async function postJournalEntry(
   return entryId;
 }
 
+// Expense posting policy. Cash-method MVP: every expense create posts
+//   Dr <category>   amount
+//   Cr <payment>    amount
+// where category is one of the 6000–7950 expense accounts and payment is
+// an asset account (defaults to Cash 1000). Edit = full reversal + new
+// posting in one tx; delete = reversal only. Reversal is just the create
+// lines with sides flipped — see reverseLedgerLines below.
+//
+// Codes are passed in (not constants like the invoice helper) because the
+// category + payment account are user-pickable per expense. The API layer
+// resolves the FK uuids to codes once, validates account_type, and hands
+// the codes through.
+export function expensePostingLines(args: {
+  categoryCode: string;
+  paymentCode: string;
+  amount: string;
+}): LedgerLine[] {
+  return [
+    { code: args.categoryCode, side: 'debit', amount: args.amount },
+    { code: args.paymentCode, side: 'credit', amount: args.amount },
+  ];
+}
+
+// Pure: returns a new list with each side flipped (debit ↔ credit), codes
+// and amounts preserved. Sum-to-zero is preserved by symmetry. Used by the
+// expense reversal wrapper but lives generic — any future reversal (refund
+// on payment, void on expense, etc.) can reuse it.
+export function reverseLedgerLines(lines: LedgerLine[]): LedgerLine[] {
+  return lines.map((l) => ({
+    code: l.code,
+    side: l.side === 'debit' ? 'credit' : 'debit',
+    amount: l.amount,
+  }));
+}
+
+// Thin wrapper: derives lines from the expense + codes and posts. Caller
+// is inside the tenant tx (8.9c API mutation wraps row write + audit +
+// posting in one tx so the deferred sum-to-zero trigger fires at commit).
+export async function postExpenseCreate(
+  tx: Database | Transaction,
+  args: {
+    expense: { id: string; merchant: string; amount: string };
+    categoryCode: string;
+    paymentCode: string;
+    accountId: string;
+    companyId: string;
+    postedAt: Date;
+  },
+): Promise<string | null> {
+  const lines = expensePostingLines({
+    categoryCode: args.categoryCode,
+    paymentCode: args.paymentCode,
+    amount: args.expense.amount,
+  });
+  return postJournalEntry(tx, {
+    accountId: args.accountId,
+    companyId: args.companyId,
+    sourceEntityType: 'expense',
+    sourceEntityId: args.expense.id,
+    postedAt: args.postedAt,
+    memo: `Expense ${args.expense.merchant}`,
+    lines,
+  });
+}
+
+// Posts the reversal of an expense's prior create entry. Caller passes the
+// codes + amount that were posted originally (the API edit path captures
+// pre-mutation row values for the reversal, then calls postExpenseCreate
+// with the new values; the delete path just reverses).
+export async function postExpenseReversal(
+  tx: Database | Transaction,
+  args: {
+    expense: { id: string; merchant: string; amount: string };
+    categoryCode: string;
+    paymentCode: string;
+    accountId: string;
+    companyId: string;
+    postedAt: Date;
+  },
+): Promise<string | null> {
+  const original = expensePostingLines({
+    categoryCode: args.categoryCode,
+    paymentCode: args.paymentCode,
+    amount: args.expense.amount,
+  });
+  const lines = reverseLedgerLines(original);
+  return postJournalEntry(tx, {
+    accountId: args.accountId,
+    companyId: args.companyId,
+    sourceEntityType: 'expense',
+    sourceEntityId: args.expense.id,
+    postedAt: args.postedAt,
+    memo: `Expense ${args.expense.merchant} reversal`,
+    lines,
+  });
+}
+
 // Thin wrapper: derives lines from the invoice + transition and posts.
 // Caller is responsible for being inside a tx (tenant tx for mark-* on
 // transitionInvoice, explicit bootstrap tx for the Stripe webhook path)
