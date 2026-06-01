@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { invoicePostingLines } from './ledger.js';
+import {
+  type LedgerLine,
+  expensePostingLines,
+  invoicePostingLines,
+  reverseLedgerLines,
+} from './ledger.js';
 
 // Pure-policy coverage for the invoice posting matrix. Integration coverage
 // (real Postgres, deferred trigger, RLS) lives in
@@ -66,5 +71,72 @@ describe('invoicePostingLines — degenerate zero-amount invoice', () => {
   it('emits zero-amount lines on draft → sent; postJournalEntry will skip', () => {
     const lines = invoicePostingLines('draft', 'sent', zero);
     expect(lines.every((l) => Number(l.amount) === 0)).toBe(true);
+  });
+});
+
+// Slice 8.9b — expense posting policy. Integration coverage (real Postgres,
+// COA resolution, deferred trigger) lands alongside the 8.9c API mutations.
+
+describe('expensePostingLines', () => {
+  it('posts Dr <category> / Cr <payment> for the same amount', () => {
+    expect(
+      expensePostingLines({ categoryCode: '7000', paymentCode: '1000', amount: '25.00' }),
+    ).toEqual([
+      { code: '7000', side: 'debit', amount: '25.00' },
+      { code: '1000', side: 'credit', amount: '25.00' },
+    ]);
+  });
+
+  it('passes the amount through as the original decimal string', () => {
+    const lines = expensePostingLines({
+      categoryCode: '6000',
+      paymentCode: '1000',
+      amount: '99.99',
+    });
+    expect(lines.every((l) => l.amount === '99.99')).toBe(true);
+  });
+});
+
+describe('reverseLedgerLines', () => {
+  const original: LedgerLine[] = [
+    { code: '7000', side: 'debit', amount: '25.00' },
+    { code: '1000', side: 'credit', amount: '25.00' },
+  ];
+
+  it('flips debit ↔ credit on every line', () => {
+    expect(reverseLedgerLines(original)).toEqual([
+      { code: '7000', side: 'credit', amount: '25.00' },
+      { code: '1000', side: 'debit', amount: '25.00' },
+    ]);
+  });
+
+  it('preserves codes and amounts unchanged', () => {
+    const reversed = reverseLedgerLines(original);
+    expect(reversed.map((l) => l.code)).toEqual(['7000', '1000']);
+    expect(reversed.map((l) => l.amount)).toEqual(['25.00', '25.00']);
+  });
+
+  it('is its own inverse — reverse(reverse(x)) === x', () => {
+    expect(reverseLedgerLines(reverseLedgerLines(original))).toEqual(original);
+  });
+});
+
+describe('expense create + reversal composition', () => {
+  it('reverse(create) sums to zero per code — net effect of edit prelude', () => {
+    const create = expensePostingLines({
+      categoryCode: '7000',
+      paymentCode: '1000',
+      amount: '25.00',
+    });
+    const reversal = reverseLedgerLines(create);
+    const combined = [...create, ...reversal];
+    const byCode = new Map<string, number>();
+    for (const l of combined) {
+      const signed = l.side === 'debit' ? Number(l.amount) : -Number(l.amount);
+      byCode.set(l.code, (byCode.get(l.code) ?? 0) + signed);
+    }
+    for (const net of byCode.values()) {
+      expect(net).toBe(0);
+    }
   });
 });
