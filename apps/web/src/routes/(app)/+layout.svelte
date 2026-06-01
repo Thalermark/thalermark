@@ -17,6 +17,7 @@
       <nav class="flex items-center gap-6 font-mono text-xs uppercase tracking-widest text-ink/60">
         <a href="/invoices" class="hover:text-ink">Invoices</a>
         <a href="/estimates" class="hover:text-ink">Estimates</a>
+        <a href="/expenses" class="hover:text-ink">Expenses</a>
         <a href="/customers" class="hover:text-ink">Customers</a>
       </nav>
       <UserMenu name={session.user.name} email={session.user.email} />
