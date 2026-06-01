@@ -44,6 +44,9 @@ importers:
       '@thalermark/logger':
         specifier: workspace:*
         version: link:../../packages/logger
+      '@thalermark/storage':
+        specifier: workspace:*
+        version: link:../../packages/storage
       '@thalermark/telemetry':
         specifier: workspace:*
         version: link:../../packages/telemetry

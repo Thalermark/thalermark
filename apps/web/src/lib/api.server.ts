@@ -15,9 +15,23 @@ const baseUrl = () =>
 // hooks.server.ts). The browser client at $lib/api.ts is the cookie-jar
 // equivalent for client-side calls.
 export function serverApiClient(event: RequestEvent) {
+  return hc<AppType>(baseUrl(), { headers: serverApiHeaders(event) });
+}
+
+// Absolute api base for the rare server-side call that can't go through the
+// typed client — e.g. forwarding a multipart receipt upload, where the hc
+// client has no typed `form` surface for the route.
+export function apiBaseUrl(): string {
+  return baseUrl();
+}
+
+// The same auth headers serverApiClient stamps (BA session cookie +
+// x-account-id), for use with a raw fetch. Deliberately omits content-type so
+// the caller's body (e.g. FormData) sets its own multipart boundary.
+export function serverApiHeaders(event: RequestEvent): Record<string, string> {
   const headers: Record<string, string> = {};
   const cookie = event.request.headers.get('cookie');
   if (cookie) headers.cookie = cookie;
   if (event.locals.activeAccountId) headers['x-account-id'] = event.locals.activeAccountId;
-  return hc<AppType>(baseUrl(), { headers });
+  return headers;
 }

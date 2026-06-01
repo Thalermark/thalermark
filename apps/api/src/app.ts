@@ -19,6 +19,7 @@ import {
   journalLines,
   memberships,
 } from '@thalermark/db';
+import { type StorageProvider, readLocalObject, verifyFileToken } from '@thalermark/storage';
 import {
   companyUpdateSchema,
   customerCreateSchema,
@@ -75,6 +76,27 @@ function escapeLike(s: string): string {
 // economic event (sent / paid) genuinely happens at transition time.
 function expenseDateToPostedAt(d: string): Date {
   return new Date(`${d}T00:00:00.000Z`);
+}
+
+// Receipt capture (slice 8.9g). All tiers; image always saved. 10 MB cap +
+// the three formats a phone camera / scanner produces. The mime → extension
+// map doubles as the upload allowlist.
+const RECEIPT_MAX_BYTES = 10 * 1024 * 1024;
+const RECEIPT_MIME_EXT: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'application/pdf': 'pdf',
+};
+const EXT_MIME: Record<string, string> = {
+  jpg: 'image/jpeg',
+  png: 'image/png',
+  pdf: 'application/pdf',
+};
+// Content-type to serve a stored object with, inferred from its key extension
+// (the local-FS adapter doesn't persist content-type metadata).
+function mimeForKey(key: string): string {
+  const ext = key.slice(key.lastIndexOf('.') + 1).toLowerCase();
+  return EXT_MIME[ext] ?? 'application/octet-stream';
 }
 
 // Resolves chart_of_accounts row ids to their { code, accountType } within one
@@ -411,6 +433,16 @@ export type AppDeps = {
   // invoice view checks for null and hides the Pay button rather than
   // erroring; the webhook route returns 503 in that state.
   stripe?: StripeBundle | null;
+  // Object-storage provider for receipt capture (slice 8.9g). Null when the
+  // operator hasn't configured STORAGE_* env vars — the receipt endpoints
+  // return 503 in that state, the rest of the app runs. Same opt-in model
+  // as stripe/mailer.
+  storage?: StorageProvider | null;
+  // Local-FS download serving. Only set when STORAGE_DRIVER=local: the
+  // /api/files/:token route verifies the token with `secret` and reads bytes
+  // from `baseDir`. Null for the s3 driver, whose signed URLs point at the
+  // object store directly so /api/files is never hit.
+  localFileServe?: { secret: string; baseDir: string } | null;
 };
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -2072,6 +2104,161 @@ export function createApp(deps: AppDeps) {
         });
 
         return c.json(deleted);
+      })
+      // ---- Receipt capture (slice 8.9g) ---------------------------------
+      // All-tier: the image is always saved (extraction in 8.9h is the gated
+      // bit). Multipart upload, ≤10MB, jpeg/png/pdf. The object write is the
+      // LAST await so a storage failure rolls back the column update + audit
+      // together (rls-context rethrows c.error → tenant-tx rollback) — no
+      // orphaned object, no dangling key. The tx is briefly held during the
+      // upload, acceptable for occasional receipt-sized blobs. Audit rows
+      // carry the storage key, never the bytes.
+      .post('/api/expenses/:id/receipt', async (c) => {
+        const id = c.req.param('id');
+        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+        if (!deps.storage) return c.json({ error: 'storage_not_configured' }, 503);
+
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+        const [expense] = await tx
+          .select()
+          .from(expenses)
+          .where(and(eq(expenses.id, id), eq(expenses.accountId, accountId)))
+          .limit(1);
+        if (!expense || expense.deletedAt) return c.json({ error: 'expense_not_found' }, 404);
+
+        const body = await c.req.parseBody();
+        const file = body.file;
+        if (!(file instanceof File)) return c.json({ error: 'file_required' }, 400);
+        const ext = RECEIPT_MIME_EXT[file.type];
+        if (!ext) {
+          return c.json(
+            { error: 'unsupported_media_type', allowed: Object.keys(RECEIPT_MIME_EXT) },
+            415,
+          );
+        }
+        if (file.size > RECEIPT_MAX_BYTES) {
+          return c.json({ error: 'file_too_large', maxBytes: RECEIPT_MAX_BYTES }, 413);
+        }
+        const bytes = new Uint8Array(await file.arrayBuffer());
+
+        // Re-upload overwrites the column with a fresh key; the prior object is
+        // left orphaned (rare, and harmless — keys are uuidv7 so no collision).
+        const key = `accounts/${accountId}/companies/${expense.companyId}/expenses/${id}/${uuidv7()}.${ext}`;
+        const now = new Date();
+
+        const [updated] = await tx
+          .update(expenses)
+          .set({ receiptStorageKey: key, receiptUploadedAt: now, updatedAt: now })
+          .where(and(eq(expenses.id, id), eq(expenses.accountId, accountId)))
+          .returning();
+        if (!updated) return c.json({ error: 'expense_not_found' }, 404);
+
+        await c.var.audit({
+          entityType: 'expense',
+          entityId: id,
+          action: 'receipt-upload',
+          before: {
+            receiptStorageKey: expense.receiptStorageKey,
+            receiptUploadedAt: expense.receiptUploadedAt,
+          },
+          after: { receiptStorageKey: key, receiptUploadedAt: now },
+          companyId: expense.companyId,
+        });
+
+        await deps.storage.putObject({ key, body: bytes, contentType: file.type });
+
+        return c.json({ id, receiptStorageKey: key, receiptUploadedAt: now }, 201);
+      })
+      // 1-hour signed download URL. For s3 it's a presigned object-store URL
+      // the browser fetches directly; for local-FS it's a relative
+      // /api/files/<token> the api serves itself.
+      .get('/api/expenses/:id/receipt', async (c) => {
+        const id = c.req.param('id');
+        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+        if (!deps.storage) return c.json({ error: 'storage_not_configured' }, 503);
+
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+        const [expense] = await tx
+          .select({
+            receiptStorageKey: expenses.receiptStorageKey,
+            deletedAt: expenses.deletedAt,
+          })
+          .from(expenses)
+          .where(and(eq(expenses.id, id), eq(expenses.accountId, accountId)))
+          .limit(1);
+        if (!expense || expense.deletedAt) return c.json({ error: 'expense_not_found' }, 404);
+        if (!expense.receiptStorageKey) return c.json({ error: 'no_receipt' }, 404);
+
+        const url = await deps.storage.getSignedDownloadUrl(expense.receiptStorageKey, {
+          expiresInSeconds: 3600,
+        });
+        return c.json({ url, contentType: mimeForKey(expense.receiptStorageKey) });
+      })
+      // Delete the receipt: null the columns + audit, then drop the object as
+      // the LAST await so a storage failure rolls the nulling back (the key
+      // keeps pointing at a still-present object — consistent). deleteObject
+      // is idempotent.
+      .delete('/api/expenses/:id/receipt', async (c) => {
+        const id = c.req.param('id');
+        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+        if (!deps.storage) return c.json({ error: 'storage_not_configured' }, 503);
+
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+        const [expense] = await tx
+          .select()
+          .from(expenses)
+          .where(and(eq(expenses.id, id), eq(expenses.accountId, accountId)))
+          .limit(1);
+        if (!expense || expense.deletedAt) return c.json({ error: 'expense_not_found' }, 404);
+        if (!expense.receiptStorageKey) return c.json({ error: 'no_receipt' }, 404);
+
+        const oldKey = expense.receiptStorageKey;
+        const now = new Date();
+        const [updated] = await tx
+          .update(expenses)
+          .set({ receiptStorageKey: null, receiptUploadedAt: null, updatedAt: now })
+          .where(and(eq(expenses.id, id), eq(expenses.accountId, accountId)))
+          .returning();
+        if (!updated) return c.json({ error: 'expense_not_found' }, 404);
+
+        await c.var.audit({
+          entityType: 'expense',
+          entityId: id,
+          action: 'receipt-delete',
+          before: { receiptStorageKey: oldKey, receiptUploadedAt: expense.receiptUploadedAt },
+          after: { receiptStorageKey: null, receiptUploadedAt: null },
+          companyId: expense.companyId,
+        });
+
+        await deps.storage.deleteObject(oldKey);
+
+        return c.json({ id, deleted: true });
+      })
+      // Local-FS receipt serving. Public path (rls-context skips /api/files/*):
+      // the HMAC-signed token IS the credential. 404s when the local driver
+      // isn't active (s3 signed URLs never route here). The token already
+      // encodes + signs the key, so there's no per-tenant check — minting the
+      // token (the authenticated GET /receipt above) is the authorization
+      // gate.
+      .get('/api/files/:token', async (c) => {
+        const fileServe = deps.localFileServe;
+        if (!fileServe) return c.json({ error: 'not_found' }, 404);
+        const payload = verifyFileToken(c.req.param('token'), fileServe.secret);
+        if (!payload) return c.json({ error: 'invalid_or_expired_token' }, 403);
+
+        let bytes: Buffer;
+        try {
+          bytes = await readLocalObject(fileServe.baseDir, payload.key);
+        } catch {
+          return c.json({ error: 'not_found' }, 404);
+        }
+        return c.body(new Uint8Array(bytes), 200, {
+          'content-type': mimeForKey(payload.key),
+          'cache-control': 'private, max-age=3600',
+        });
       })
       // Send the invoice via email. Distinct from /mark-sent (pure status
       // transition, no I/O) because this endpoint adds a real side-effect
