@@ -35,6 +35,7 @@ COPY apps/api/package.json apps/api/
 COPY packages/auth/package.json packages/auth/
 COPY packages/db/package.json packages/db/
 COPY packages/logger/package.json packages/logger/
+COPY packages/storage/package.json packages/storage/
 COPY packages/telemetry/package.json packages/telemetry/
 COPY packages/validation/package.json packages/validation/
 RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
@@ -48,11 +49,12 @@ COPY tsconfig.base.json ./
 # Build every workspace dep apps/api consumes at runtime — Node 24's
 # --experimental-strip-types refuses to strip TS from files inside
 # node_modules, so each dep must ship as JS in the deployed slice.
-# Order respects the workspace dep graph: logger / db / validation have
-# no workspace deps; auth needs db; telemetry needs db+logger.
+# Order respects the workspace dep graph: logger / db / validation / storage
+# have no workspace deps; auth needs db; telemetry needs db+logger.
 RUN pnpm --filter=@thalermark/logger build \
  && pnpm --filter=@thalermark/db build \
  && pnpm --filter=@thalermark/validation build \
+ && pnpm --filter=@thalermark/storage build \
  && pnpm --filter=@thalermark/auth build \
  && pnpm --filter=@thalermark/telemetry build
 # Now compile @thalermark/api's own TypeScript to ./apps/api/dist.

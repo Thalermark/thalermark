@@ -34,6 +34,11 @@
     Could not delete this expense: {form.deleteError}
   </div>
 {/if}
+{#if form?.receiptError}
+  <div class="mt-4 rounded-sm border border-oxblood/30 bg-oxblood/5 px-4 py-3 text-sm text-oxblood">
+    {form.receiptError}
+  </div>
+{/if}
 
 <dl class="mt-8 grid grid-cols-1 gap-x-12 gap-y-6 sm:grid-cols-2">
   <div>
@@ -52,10 +57,6 @@
     <dt class="font-mono text-xs uppercase tracking-widest text-ink/50">Paid from</dt>
     <dd class="mt-1 text-ink">{data.paymentLabel}</dd>
   </div>
-  <div>
-    <dt class="font-mono text-xs uppercase tracking-widest text-ink/50">Receipt</dt>
-    <dd class="mt-1 text-ink/80">{e.receiptStorageKey ? 'Attached' : 'None'}</dd>
-  </div>
   {#if e.memo}
     <div class="sm:col-span-2">
       <dt class="font-mono text-xs uppercase tracking-widest text-ink/50">Memo</dt>
@@ -63,5 +64,54 @@
     </div>
   {/if}
 </dl>
+
+<section class="mt-10">
+  <h2 class="font-mono text-xs uppercase tracking-widest text-ink/50">Receipt</h2>
+  {#if data.receipt}
+    <div class="mt-3 space-y-3">
+      {#if data.receipt.contentType.startsWith('image/')}
+        <img
+          src={data.receipt.url}
+          alt="Receipt for {e.merchant}"
+          class="max-h-96 rounded-sm border border-ink/10 bg-cream-warm"
+        />
+      {:else}
+        <a
+          href={data.receipt.url}
+          target="_blank"
+          rel="noopener"
+          class="inline-block rounded-sm border border-ink/20 px-3 py-2 text-sm text-ink hover:border-gold-deep hover:text-gold-deep"
+        >
+          View receipt (PDF) →
+        </a>
+      {/if}
+      <form method="post" action="?/deleteReceipt">
+        <button
+          type="submit"
+          class="text-xs uppercase tracking-widest text-oxblood/70 hover:text-oxblood"
+        >
+          Remove receipt
+        </button>
+      </form>
+    </div>
+  {:else}
+    <form method="post" action="?/uploadReceipt" enctype="multipart/form-data" class="mt-3 flex flex-wrap items-center gap-3">
+      <input
+        type="file"
+        name="file"
+        accept="image/jpeg,image/png,application/pdf"
+        required
+        class="text-sm text-ink/80 file:mr-3 file:rounded-sm file:border-0 file:bg-ink file:px-3 file:py-1.5 file:text-sm file:text-cream hover:file:bg-gold-deep"
+      />
+      <button
+        type="submit"
+        class="rounded-sm border border-ink/20 px-3 py-1.5 text-sm text-ink hover:border-gold-deep hover:text-gold-deep"
+      >
+        Upload
+      </button>
+      <span class="text-xs text-ink/50">JPEG, PNG, or PDF · up to 10 MB</span>
+    </form>
+  {/if}
+</section>
 
 <AuditHistory events={data.auditEvents} />

@@ -1,4 +1,4 @@
-import { serverApiClient } from '$lib/api.server';
+import { apiBaseUrl, serverApiClient, serverApiHeaders } from '$lib/api.server';
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -50,10 +50,23 @@ export const load: PageServerLoad = async (event) => {
     ? ((await auditRes.json()) as { events: AuditEvent[] }).events
     : [];
 
+  // When a receipt is attached, fetch a signed download URL so the page can
+  // preview it. For s3 this is a presigned object-store URL the browser hits
+  // directly; for local-FS it's a relative /api/files/<token> the api serves.
+  // Best-effort — a failure just hides the preview, the record still renders.
+  let receipt: { url: string; contentType: string } | null = null;
+  if (expense.receiptStorageKey) {
+    const rres = await client.api.expenses[':id'].receipt.$get({
+      param: { id: event.params.id },
+    });
+    if (rres.ok) receipt = (await rres.json()) as { url: string; contentType: string };
+  }
+
   return {
     expense,
     categoryLabel: labelById.get(expense.categoryAccountId) ?? expense.categoryAccountId,
     paymentLabel: labelById.get(expense.paymentAccountId) ?? expense.paymentAccountId,
+    receipt,
     auditEvents,
   };
 };
@@ -70,5 +83,52 @@ export const actions: Actions = {
       return fail(res.status, { deleteError: body?.error ?? 'delete_failed' });
     }
     redirect(303, '/expenses');
+  },
+
+  // Forward the multipart receipt to the api. Goes through a raw fetch rather
+  // than the typed client because the hc client has no typed `form` surface
+  // for this route — apiBaseUrl + serverApiHeaders reuse the same base URL and
+  // auth headers the client would. FormData sets its own content-type.
+  uploadReceipt: async (event) => {
+    const formData = await event.request.formData();
+    const file = formData.get('file');
+    if (!(file instanceof File) || file.size === 0) {
+      return fail(400, { receiptError: 'Choose a file to upload.' });
+    }
+    const fd = new FormData();
+    fd.set('file', file);
+    const res = await event.fetch(`${apiBaseUrl()}/api/expenses/${event.params.id}/receipt`, {
+      method: 'POST',
+      headers: serverApiHeaders(event),
+      body: fd,
+    });
+    if (res.status === 404) throw error(404, 'expense not found');
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      const code = body?.error ?? 'upload_failed';
+      const msg =
+        code === 'unsupported_media_type'
+          ? 'Receipts must be a JPEG, PNG, or PDF.'
+          : code === 'file_too_large'
+            ? 'Receipt must be under 10 MB.'
+            : code === 'storage_not_configured'
+              ? 'Receipt storage is not configured on this server.'
+              : code;
+      return fail(res.status, { receiptError: msg });
+    }
+    redirect(303, `/expenses/${event.params.id}`);
+  },
+
+  deleteReceipt: async (event) => {
+    const client = serverApiClient(event);
+    const res = await client.api.expenses[':id'].receipt.$delete({
+      param: { id: event.params.id },
+    });
+    if (res.status === 404) throw error(404, 'expense not found');
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      return fail(res.status, { receiptError: body?.error ?? 'delete_failed' });
+    }
+    redirect(303, `/expenses/${event.params.id}`);
   },
 };

@@ -40,6 +40,8 @@
     'stripe-connect-update': 'updated Stripe Connect status',
     'public-accept': 'accepted by recipient',
     'public-decline': 'declined by recipient',
+    'receipt-upload': 'attached a receipt',
+    'receipt-delete': 'removed the receipt',
   };
 
   // Entity-type → display singular for the feed prefix and the link path.
@@ -47,12 +49,14 @@
     customer: 'Customer',
     invoice: 'Invoice',
     estimate: 'Estimate',
+    expense: 'Expense',
     company: 'Company',
   };
   const ENTITY_PATHS: Record<string, string> = {
     customer: '/customers',
     invoice: '/invoices',
     estimate: '/estimates',
+    expense: '/expenses',
     company: '/settings/payments',
   };
 

@@ -3,6 +3,7 @@ import { loadEnvFile } from 'node:process';
 import { serve } from '@hono/node-server';
 import { runMigrations } from '@thalermark/db';
 import { configureLogger, getLogger } from '@thalermark/logger';
+import { type StorageProvider, createStorageProvider } from '@thalermark/storage';
 import { createApp } from './app.js';
 import { loadEnv } from './env.js';
 import { createApiAuth } from './lib/auth.js';
@@ -84,6 +85,27 @@ if (!stripe) {
   log.info('Stripe disabled (STRIPE_SECRET_KEY / PUBLISHABLE_KEY / WEBHOOK_SECRET incomplete)');
 }
 
+// Object storage is opt-in like Stripe: createStorageProvider throws when the
+// chosen driver is misconfigured (e.g. local with no STORAGE_URL_SECRET), in
+// which case storage stays null and the receipt endpoints 503. localFileServe
+// carries the secret + base dir the /api/files token route needs; only
+// meaningful for the local driver (s3 signed URLs hit the object store direct).
+let storage: StorageProvider | null = null;
+let localFileServe: { secret: string; baseDir: string } | null = null;
+try {
+  storage = createStorageProvider(process.env);
+  const driver = (process.env.STORAGE_DRIVER ?? 'local').trim().toLowerCase();
+  if (driver === 'local') {
+    localFileServe = {
+      secret: (process.env.STORAGE_URL_SECRET ?? '').trim(),
+      baseDir: (process.env.STORAGE_LOCAL_PATH ?? './data/storage').trim(),
+    };
+  }
+  log.info('object storage: {driver}', { driver: storage.name });
+} catch (err) {
+  log.info('storage disabled: {msg}', { msg: err instanceof Error ? err.message : String(err) });
+}
+
 const app = createApp({
   auth,
   db: dbHandle.db,
@@ -93,6 +115,8 @@ const app = createApp({
   mailer,
   emailFrom: env.emailFrom,
   stripe,
+  storage,
+  localFileServe,
 });
 
 const server = serve(

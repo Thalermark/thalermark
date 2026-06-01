@@ -46,7 +46,14 @@ const BOOTSTRAP_PATH_PATTERNS: RegExp[] = [
 //                  mints, gated by the random invoice publicToken.
 // /api/webhooks/* — server-to-server callbacks (Stripe, future providers),
 //                  gated by the provider's signature scheme on the raw body.
-const PUBLIC_PATH_PATTERNS: RegExp[] = [/^\/api\/public\//, /^\/api\/webhooks\//];
+// /api/files/* — local-FS receipt downloads, gated by the HMAC-signed token
+//                in the URL (slice 8.9g). No session: the token is the sole
+//                credential, same model as the public invoice routes.
+const PUBLIC_PATH_PATTERNS: RegExp[] = [
+  /^\/api\/public\//,
+  /^\/api\/webhooks\//,
+  /^\/api\/files\//,
+];
 
 function isBootstrapPath(path: string): boolean {
   return BOOTSTRAP_PATH_PATTERNS.some((p) => p.test(path));

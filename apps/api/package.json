@@ -20,6 +20,7 @@
     "@thalermark/auth": "workspace:*",
     "@thalermark/db": "workspace:*",
     "@thalermark/logger": "workspace:*",
+    "@thalermark/storage": "workspace:*",
     "@thalermark/telemetry": "workspace:*",
     "@thalermark/validation": "workspace:*",
     "drizzle-orm": "0.45.2",
