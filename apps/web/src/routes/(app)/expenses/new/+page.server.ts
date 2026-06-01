@@ -1,0 +1,129 @@
+import { serverApiClient } from '$lib/api.server';
+import { error, fail, redirect } from '@sveltejs/kit';
+import { expenseCreateSchema } from '@thalermark/validation';
+import type { Actions, PageServerLoad } from './$types';
+
+// Cash is the locked-default payment account (COA code 1000). The payment
+// picker only surfaces once the company has a second asset account; until
+// then every expense is "paid from Cash" and the field is a hidden input.
+const CASH_CODE = '1000';
+
+type Account = { id: string; code: string; name: string; accountType: string };
+
+function accountOptions(accounts: Account[]) {
+  return accounts.map((a) => ({ id: a.id, label: `${a.code} · ${a.name}` }));
+}
+
+export const load: PageServerLoad = async (event) => {
+  const client = serverApiClient(event);
+
+  const companiesRes = await client.api.companies.$get();
+  if (!companiesRes.ok) throw error(companiesRes.status, 'failed to load companies');
+  const { companies } = await companiesRes.json();
+  const company = companies[0];
+  if (!company) throw error(500, 'no company on this account');
+
+  const [expenseRes, assetRes] = await Promise.all([
+    client.api.companies[':id'].accounts.$get({
+      param: { id: company.id },
+      query: { type: 'expense' },
+    }),
+    client.api.companies[':id'].accounts.$get({
+      param: { id: company.id },
+      query: { type: 'asset' },
+    }),
+  ]);
+  if (!expenseRes.ok) throw error(expenseRes.status, 'failed to load categories');
+  if (!assetRes.ok) throw error(assetRes.status, 'failed to load payment accounts');
+  const expenseAccounts = (await expenseRes.json()).accounts;
+  const assetAccounts = (await assetRes.json()).accounts;
+
+  const cash = assetAccounts.find((a) => a.code === CASH_CODE) ?? assetAccounts[0];
+
+  return {
+    categories: accountOptions(expenseAccounts),
+    paymentAccounts: accountOptions(assetAccounts),
+    // Picker stays hidden while Cash is the only asset account.
+    paymentPickerVisible: assetAccounts.length > 1,
+    defaultPaymentId: cash?.id ?? '',
+    today: new Date().toISOString().slice(0, 10),
+  };
+};
+
+type FormValues = {
+  merchant: string;
+  amount: string;
+  expenseDate: string;
+  categoryAccountId: string;
+  paymentAccountId: string;
+  memo: string;
+};
+
+function readForm(data: FormData): FormValues {
+  return {
+    merchant: String(data.get('merchant') ?? '').trim(),
+    amount: String(data.get('amount') ?? '').trim(),
+    expenseDate: String(data.get('expenseDate') ?? '').trim(),
+    categoryAccountId: String(data.get('categoryAccountId') ?? '').trim(),
+    paymentAccountId: String(data.get('paymentAccountId') ?? '').trim(),
+    memo: String(data.get('memo') ?? '').trim(),
+  };
+}
+
+// Map an API error code to a human banner. The COA-account codes are the only
+// ones the user can realistically trigger from the form (a stale account that
+// was deactivated between load and submit).
+function formErrorFor(code: string): string {
+  switch (code) {
+    case 'invalid_category_account':
+      return 'That category is no longer a valid expense account. Pick another.';
+    case 'invalid_payment_account':
+      return 'That payment account is no longer valid. Pick another.';
+    case 'company_not_found':
+      return 'No company on this account.';
+    default:
+      return code;
+  }
+}
+
+export const actions: Actions = {
+  default: async (event) => {
+    const client = serverApiClient(event);
+    const data = await event.request.formData();
+    const values = readForm(data);
+
+    // companyId is resolved server-side (never trusted from the form) so a
+    // crafted POST can't attach the expense to another account's company.
+    const companiesRes = await client.api.companies.$get();
+    if (!companiesRes.ok) throw error(companiesRes.status, 'failed to load companies');
+    const { companies } = await companiesRes.json();
+    const companyId = companies[0]?.id;
+    if (!companyId) return fail(400, { values, formError: 'No company on this account.' });
+
+    const parsed = expenseCreateSchema.safeParse({
+      companyId,
+      categoryAccountId: values.categoryAccountId,
+      paymentAccountId: values.paymentAccountId,
+      amount: values.amount,
+      expenseDate: values.expenseDate,
+      merchant: values.merchant,
+      memo: values.memo === '' ? undefined : values.memo,
+    });
+    if (!parsed.success) {
+      const fieldErrors: Record<string, string> = {};
+      for (const issue of parsed.error.issues) {
+        const key = String(issue.path[0] ?? '_');
+        if (!fieldErrors[key]) fieldErrors[key] = issue.message;
+      }
+      return fail(400, { values, fieldErrors });
+    }
+
+    const res = await client.api.expenses.$post({ json: parsed.data });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      return fail(res.status, { values, formError: formErrorFor(body?.error ?? 'create_failed') });
+    }
+    const created = await res.json();
+    redirect(303, `/expenses/${created.id}`);
+  },
+};
