@@ -30,10 +30,10 @@
   },
   "devDependencies": {
     "@testcontainers/postgresql": "11.14.0",
-    "@types/node": "25.9.0",
+    "@types/node": "25.9.1",
     "@types/pg": "8.20.0",
     "@types/uuid": "11.0.0",
-    "tsx": "4.22.2",
+    "tsx": "4.22.4",
     "vitest": "4.1.7"
   }
 }
