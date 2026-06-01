@@ -197,6 +197,20 @@
       "when": 1780005063033,
       "tag": "0027_business_type_check",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1780145684854,
+      "tag": "0028_bright_human_robot",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1780145684855,
+      "tag": "0029_enable_rls_expenses",
+      "breakpoints": true
     }
   ]
 }
