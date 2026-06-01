@@ -920,6 +920,59 @@ export function createApp(deps: AppDeps) {
           trialBalance,
         });
       })
+      // Read the company's chart of accounts. Powers the expense form's
+      // category (type=expense) + payment (type=asset) comboboxes (slice
+      // 8.9e) and the expense list's category filter (8.9d). Active rows
+      // only, ordered by code so the UI renders them in the standard COA
+      // sequence (assets → … → expenses, Schedule C order within 6000–7950).
+      // Optional ?type= narrows to one account_type; unknown values just
+      // return an empty set.
+      .get(
+        '/api/companies/:id/accounts',
+        // Query validator so the typed hc<AppType>() client can pass
+        // `{ query: { type } }` — a path-param route types its Input as
+        // `{ param }` and rejects an untyped query without this (same reason
+        // the PATCH endpoints carry a json validator).
+        validator('query', (v) => ({
+          type: typeof v.type === 'string' ? v.type : undefined,
+        })),
+        async (c) => {
+          const id = c.req.param('id');
+          if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+
+          const [company] = await tx
+            .select({ id: companies.id })
+            .from(companies)
+            .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
+            .limit(1);
+          if (!company) return c.json({ error: 'company_not_found' }, 404);
+
+          const { type } = c.req.valid('query');
+          const conditions = [
+            eq(chartOfAccounts.accountId, accountId),
+            eq(chartOfAccounts.companyId, id),
+            eq(chartOfAccounts.isActive, true),
+          ];
+          if (type) conditions.push(eq(chartOfAccounts.accountType, type));
+
+          const accounts = await tx
+            .select({
+              id: chartOfAccounts.id,
+              code: chartOfAccounts.code,
+              name: chartOfAccounts.name,
+              accountType: chartOfAccounts.accountType,
+              normalBalance: chartOfAccounts.normalBalance,
+            })
+            .from(chartOfAccounts)
+            .where(and(...conditions))
+            .orderBy(asc(chartOfAccounts.code));
+
+          return c.json({ accounts });
+        },
+      )
       .post('/api/customers', async (c) => {
         const body = await c.req.json().catch(() => null);
         const parsed = customerCreateSchema.safeParse(body);
