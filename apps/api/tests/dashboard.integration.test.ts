@@ -247,6 +247,59 @@ describe('position dashboard', () => {
     }
   });
 
+  it('nets cash per source so expense edits and deletes do not inflate flows', async () => {
+    const ctx = buildApp();
+    try {
+      const cookie = await signUp(ctx.app, 'dash-rev@example.com');
+      const { accountId, companyId } = await userContext('dash-rev@example.com');
+      const auth = { cookie, 'x-account-id': accountId, 'content-type': 'application/json' };
+      const category = await coaId(companyId, '6000');
+      const payment = await coaId(companyId, '1000');
+      const newExpense = (amount: string) =>
+        ctx.app.request('/api/expenses', {
+          method: 'POST',
+          headers: auth,
+          body: JSON.stringify({
+            companyId,
+            categoryAccountId: category,
+            paymentAccountId: payment,
+            amount,
+            expenseDate: '2026-06-01',
+            merchant: 'Fuel',
+          }),
+        });
+
+      // Expense X: created at 40, then edited to 50. The edit posts a reversal
+      // (Dr Cash 40) + a fresh posting (Cr Cash 50). Netting per source makes
+      // this a single 50 outflow — not a phantom 40 "money in" + 90 gross out.
+      const x = ((await (await newExpense('40.00')).json()) as { id: string }).id;
+      const patch = await ctx.app.request(`/api/expenses/${x}`, {
+        method: 'PATCH',
+        headers: auth,
+        body: JSON.stringify({ amount: '50.00' }),
+      });
+      expect(patch.status).toBe(200);
+
+      // Expense Y: created at 30, then deleted → the reversal nets it to zero.
+      const y = ((await (await newExpense('30.00')).json()) as { id: string }).id;
+      const del = await ctx.app.request(`/api/expenses/${y}`, {
+        method: 'DELETE',
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(del.status).toBe(200);
+
+      const body = (await (
+        await dashboard(ctx.app, cookie, accountId, companyId, YEAR)
+      ).json()) as Dashboard;
+      // No real income exists — reversals must not surface as money in.
+      expect(body.moneyIn).toBe('0.00');
+      // 50 (edited X) + 0 (deleted Y); a raw debit/credit sum would report 120.
+      expect(body.moneyOut).toBe('50.00');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
   it('returns zeros for a company with no activity', async () => {
     const ctx = buildApp();
     try {

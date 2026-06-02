@@ -1032,13 +1032,21 @@ export function createApp(deps: AppDeps) {
             }
           }
 
-          // Cash in/out: debit / credit sums on asset accounts other than AR,
-          // within the window. `::numeric(15,2)` pins the scale so the JSON
-          // carries clean 2-dp money strings; a no-rows sum coalesces to 0.00.
-          const [cash] = await tx
+          // Cash in/out over the window, on asset accounts other than AR. We
+          // net per source entity *before* splitting by direction: the ledger
+          // is immutable, so editing/voiding an expense posts a reversing entry
+          // (an expense's "Cr Cash" reverses to a "Dr Cash"). A raw debit/credit
+          // sum would count those reversals as money in and double the gross
+          // out. Summing signed cash movement per source_entity_id first means a
+          // create+edit nets to the latest amount, a create+delete nets to zero,
+          // and a genuine invoice payment still reads as money in. With no
+          // reversals this is identical to a plain debit/credit sum.
+          const cashBySource = tx
             .select({
-              moneyIn: sql<string>`coalesce(sum(${journalLines.amount}) filter (where ${journalLines.side} = 'debit'), 0)::numeric(15,2)`,
-              moneyOut: sql<string>`coalesce(sum(${journalLines.amount}) filter (where ${journalLines.side} = 'credit'), 0)::numeric(15,2)`,
+              netDebit:
+                sql<string>`sum(case when ${journalLines.side} = 'debit' then ${journalLines.amount} else -${journalLines.amount} end)`.as(
+                  'net_debit',
+                ),
             })
             .from(journalLines)
             .innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id))
@@ -1052,7 +1060,18 @@ export function createApp(deps: AppDeps) {
                 gte(journalEntries.postedAt, fromDate),
                 lt(journalEntries.postedAt, toExclusive),
               ),
-            );
+            )
+            .groupBy(journalEntries.sourceEntityId)
+            .as('cash_by_source');
+
+          // `::numeric(15,2)` pins the scale so the JSON carries clean 2-dp money
+          // strings; a no-rows sum coalesces to 0.00.
+          const [cash] = await tx
+            .select({
+              moneyIn: sql<string>`coalesce(sum(${cashBySource.netDebit}) filter (where ${cashBySource.netDebit} > 0), 0)::numeric(15,2)`,
+              moneyOut: sql<string>`coalesce(-sum(${cashBySource.netDebit}) filter (where ${cashBySource.netDebit} < 0), 0)::numeric(15,2)`,
+            })
+            .from(cashBySource);
 
           // Owed: live AR balance (debits − credits), all-time — "what customers
           // owe you" is a point-in-time figure, not a period flow.
