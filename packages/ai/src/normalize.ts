@@ -28,13 +28,23 @@ function text(s: string | null | undefined): string | null {
   return trimmed === '' ? null : trimmed;
 }
 
+// Constrain a model-suggested category code to the codes we handed it. A
+// hallucinated code (not in the company's expense COA) is nulled — a suggestion
+// that wouldn't post is no suggestion. Shared by receipt extraction and text
+// categorization.
+export function constrainCode(
+  code: string | null | undefined,
+  allowedCodes: string[],
+): string | null {
+  const c = text(code);
+  return c && allowedCodes.includes(c) ? c : null;
+}
+
 // Turn the model's raw output into a clean ExtractionResult, dropping anything
 // malformed and constraining the suggested category to the codes we handed the
 // model. Pure + total — the unit tests exercise this rather than the live
 // model call.
 export function normalizeExtraction(raw: RawExtraction, allowedCodes: string[]): ExtractionResult {
-  const allowed = new Set(allowedCodes);
-  const code = text(raw.suggestedCategoryCode);
   const expenseDate = text(raw.expenseDate);
   return {
     merchant: text(raw.merchant),
@@ -42,8 +52,6 @@ export function normalizeExtraction(raw: RawExtraction, allowedCodes: string[]):
     // Bare-date only; a timestamp or prose date is dropped rather than coerced.
     expenseDate: expenseDate && ISO_DATE_RE.test(expenseDate) ? expenseDate : null,
     taxAmount: money(raw.taxAmount),
-    // Hallucinated codes (not in the company's expense COA) are nulled — a
-    // suggestion that wouldn't post is no suggestion.
-    suggestedCategoryCode: code && allowed.has(code) ? code : null,
+    suggestedCategoryCode: constrainCode(raw.suggestedCategoryCode, allowedCodes),
   };
 }

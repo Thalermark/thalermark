@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type RawExtraction, normalizeExtraction } from './normalize.js';
+import { type RawExtraction, constrainCode, normalizeExtraction } from './normalize.js';
 
 const ALLOWED = ['6000', '6100', '7200'];
 
@@ -76,5 +76,19 @@ describe('normalizeExtraction', () => {
       taxAmount: null,
       suggestedCategoryCode: null,
     });
+  });
+});
+
+describe('constrainCode', () => {
+  it('keeps a code in the allowed set, trimming whitespace', () => {
+    expect(constrainCode('6100', ALLOWED)).toBe('6100');
+    expect(constrainCode('  6000  ', ALLOWED)).toBe('6000');
+  });
+
+  it('nulls a hallucinated code, empty, or non-string', () => {
+    expect(constrainCode('9999', ALLOWED)).toBeNull();
+    expect(constrainCode('', ALLOWED)).toBeNull();
+    expect(constrainCode(null, ALLOWED)).toBeNull();
+    expect(constrainCode(undefined, ALLOWED)).toBeNull();
   });
 });

@@ -44,3 +44,28 @@ export interface ExtractionResult {
 export interface ReceiptExtractor {
   extractReceipt(input: ExtractionInput): Promise<ExtractionResult>;
 }
+
+// Text-based expense categorization. The complement to receipt extraction's
+// category suggestion: given the visible fields a user typed for a manual
+// expense (no image), suggest one expense-COA code. Text-only so it runs on any
+// model, including a text-only local Ollama. The user reviews + saves; the AI
+// never writes the ledger directly.
+export interface CategorizeInput {
+  merchant: string;
+  // The user's note and the amount, when present — extra signal for the
+  // suggestion. amount is a decimal string ([[architecture_money_decimal_strings]]).
+  memo?: string | null;
+  amount?: string | null;
+  allowedCategories: ExpenseCategoryOption[];
+}
+
+// suggestedCategoryCode is one of the input codes or null — the model returns
+// null rather than guessing when nothing fits, and any code outside the input
+// list is nulled by post-hoc validation.
+export interface CategorizeResult {
+  suggestedCategoryCode: string | null;
+}
+
+export interface ExpenseCategorizer {
+  categorize(input: CategorizeInput): Promise<CategorizeResult>;
+}

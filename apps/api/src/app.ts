@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import type { ExtractionResult, ReceiptExtractor } from '@thalermark/ai';
+import type { ExpenseCategorizer, ExtractionResult, ReceiptExtractor } from '@thalermark/ai';
 import {
   type Database,
   SYSTEM_USER_ID,
@@ -29,6 +29,7 @@ import {
   estimateCreateSchema,
   estimateSendSchema,
   estimateUpdateSchema,
+  expenseCategorizeSchema,
   expenseCreateSchema,
   expenseUpdateSchema,
   invoiceCreateSchema,
@@ -455,6 +456,11 @@ export type AppDeps = {
   // the /extract endpoint 503s in that state. Same opt-in model as
   // stripe/storage. Tests inject a plain stub so no live model is called.
   extractor?: ReceiptExtractor | null;
+  // Text-based expense categorizer (AI). Null when no LLM provider is
+  // configured — the /categorize endpoint 503s in that state, same opt-in
+  // model as the extractor. Distinct from extractor: this reads typed text
+  // (fast model), not a receipt image (vision model). Tests inject a stub.
+  categorizer?: ExpenseCategorizer | null;
 };
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -2004,6 +2010,78 @@ export function createApp(deps: AppDeps) {
         });
 
         return c.json(created, 201);
+      })
+      // ---- Text expense categorization (AI) -----------------------------
+      // Stateless suggestion for the new/edit expense form: given the typed
+      // merchant (+ optional memo/amount) the fast model picks a category from
+      // the company's expense COA. The user reviews + saves — the AI never
+      // writes the ledger. Opt-in like /extract: 503 when no LLM is configured.
+      // A literal path, so it never collides with the /api/expenses/:id routes.
+      .post('/api/expenses/categorize', async (c) => {
+        const body = await c.req.json().catch(() => null);
+        const parsed = expenseCategorizeSchema.safeParse(body);
+        if (!parsed.success) {
+          return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+        }
+        if (!deps.categorizer) return c.json({ error: 'ai_not_configured' }, 503);
+
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+        const { companyId, merchant, memo, amount } = parsed.data;
+
+        const [company] = await tx
+          .select({ id: companies.id })
+          .from(companies)
+          .where(and(eq(companies.id, companyId), eq(companies.accountId, accountId)))
+          .limit(1);
+        if (!company) return c.json({ error: 'company_not_found' }, 404);
+
+        // The company's active expense COA — the model's suggestion is
+        // constrained to these codes (in the prompt and by post-hoc validation
+        // inside the categorizer) so it can't return a code that wouldn't post.
+        const categories = await tx
+          .select({
+            id: chartOfAccounts.id,
+            code: chartOfAccounts.code,
+            name: chartOfAccounts.name,
+          })
+          .from(chartOfAccounts)
+          .where(
+            and(
+              eq(chartOfAccounts.accountId, accountId),
+              eq(chartOfAccounts.companyId, companyId),
+              eq(chartOfAccounts.accountType, 'expense'),
+              eq(chartOfAccounts.isActive, true),
+            ),
+          )
+          .orderBy(asc(chartOfAccounts.code));
+
+        let suggestedCategoryCode: string | null;
+        try {
+          ({ suggestedCategoryCode } = await deps.categorizer.categorize({
+            merchant,
+            memo: memo ?? null,
+            amount: amount ?? null,
+            allowedCategories: categories.map((row) => ({ code: row.code, name: row.name })),
+          }));
+        } catch (_err) {
+          return c.json({ error: 'categorization_failed' }, 502);
+        }
+
+        // Resolve code → account id for the form prefill (the select is keyed by
+        // id; codes are the stable persisted form). Null when nothing fit.
+        const suggestedCategoryAccountId = suggestedCategoryCode
+          ? (categories.find((row) => row.code === suggestedCategoryCode)?.id ?? null)
+          : null;
+
+        // Telemetry (opt-in; no-op unless the account enabled it). Same event
+        // the receipt path emits — the AI did the categorisation work; the user
+        // still confirms on save (TELEMETRY.md).
+        if (suggestedCategoryCode) {
+          await emit(tx, { name: 'expense_categorised', method: 'ai_suggested' });
+        }
+
+        return c.json({ suggestedCategoryCode, suggestedCategoryAccountId });
       })
       .get('/api/expenses', async (c) => {
         const tx = c.get('tx');

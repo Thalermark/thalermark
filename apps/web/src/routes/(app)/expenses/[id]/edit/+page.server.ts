@@ -90,8 +90,64 @@ function formErrorFor(code: string): string {
   }
 }
 
+// A clean 2-dp decimal, so we only hand the categorizer an amount the API's
+// money schema will accept (merchant alone is enough signal otherwise).
+const CLEAN_AMOUNT = /^\d+(\.\d{1,2})?$/;
+
+function suggestErrorFor(code: string): string {
+  switch (code) {
+    case 'ai_not_configured':
+      return 'AI categorization is not configured on this server.';
+    case 'categorization_failed':
+      return 'Could not suggest a category. Pick the best fit by hand.';
+    default:
+      return code;
+  }
+}
+
 export const actions: Actions = {
-  default: async (event) => {
+  // AI category suggestion from the typed fields. companyId comes from the
+  // expense (an expense can't move companies). Re-renders with the suggested
+  // category pre-selected and the user's edits preserved.
+  suggest: async (event) => {
+    const client = serverApiClient(event);
+    const data = await event.request.formData();
+    const values = readForm(data);
+    if (values.merchant === '') {
+      return fail(400, {
+        values,
+        suggestError: 'Enter a merchant first, then suggest a category.',
+      });
+    }
+
+    const expenseRes = await client.api.expenses[':id'].$get({ param: { id: event.params.id } });
+    if (expenseRes.status === 404) throw error(404, 'expense not found');
+    if (!expenseRes.ok) throw error(expenseRes.status, 'failed to load expense');
+    const companyId = (await expenseRes.json()).companyId;
+
+    const res = await client.api.expenses.categorize.$post({
+      json: {
+        companyId,
+        merchant: values.merchant,
+        memo: values.memo === '' ? undefined : values.memo,
+        amount: CLEAN_AMOUNT.test(values.amount) ? values.amount : undefined,
+      },
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      return fail(res.status, { values, suggestError: suggestErrorFor(body?.error ?? 'failed') });
+    }
+    const { suggestedCategoryAccountId } = await res.json();
+    if (!suggestedCategoryAccountId) {
+      return { values, suggestNotice: 'No category clearly fit — pick the best one.' };
+    }
+    return {
+      values: { ...values, categoryAccountId: suggestedCategoryAccountId },
+      suggested: true,
+    };
+  },
+
+  save: async (event) => {
     const client = serverApiClient(event);
     const data = await event.request.formData();
     const values = readForm(data);

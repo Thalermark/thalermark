@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { enhance } from '$app/forms';
   import type { PageProps } from './$types';
 
   let { data, form }: PageProps = $props();
@@ -26,6 +27,23 @@
 
   const categoryValue = $derived(v('categoryAccountId'));
   const paymentValue = $derived(v('paymentAccountId'));
+
+  // True while a Suggest request is in flight, so the UI can show a spinner and
+  // hide the previous result banner until the new response lands.
+  let suggesting = $state(false);
+
+  // enhance resets the form on a successful action by default. The Suggest
+  // action succeeds even when no category fits, so a reset would wipe the
+  // user's edits — keep values (apply the result, don't reset). It also drives
+  // the `suggesting` flag for the Suggest button (detected via the resolved
+  // action, which reflects the submitter's formaction).
+  const onsubmit = ({ action }: { action: URL }) => {
+    if (action.search.includes('suggest')) suggesting = true;
+    return async ({ update }: { update: (o?: { reset?: boolean }) => Promise<void> }) => {
+      await update({ reset: false });
+      suggesting = false;
+    };
+  };
 </script>
 
 <a href="/expenses/{e.id}" class="eyebrow text-ink/60 hover:text-ink">← {e.merchant}</a>
@@ -45,7 +63,26 @@
   </div>
 {/if}
 
-<form method="post" class="mt-8 space-y-6">
+{#if suggesting}
+  <div class="mt-6 flex items-center gap-2 rounded-sm border border-gold-deep/30 bg-gold-deep/5 px-4 py-3 text-sm text-ink/80">
+    <span class="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-gold-deep border-t-transparent"></span>
+    Finding the best category…
+  </div>
+{:else if form?.suggested}
+  <div class="mt-6 rounded-sm border border-gold-deep/30 bg-gold-deep/5 px-4 py-3 text-sm text-ink/80">
+    Suggested a category from what you typed — review it and save.
+  </div>
+{:else if form?.suggestNotice}
+  <div class="mt-6 rounded-sm border border-ink/15 bg-cream-warm px-4 py-3 text-sm text-ink/70">
+    {form.suggestNotice}
+  </div>
+{:else if form?.suggestError}
+  <div class="mt-6 rounded-sm border border-oxblood/30 bg-oxblood/5 px-4 py-3 text-sm text-oxblood">
+    {form.suggestError}
+  </div>
+{/if}
+
+<form method="post" action="?/save" class="mt-8 space-y-6" use:enhance={onsubmit}>
   <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
     <div>
       <label for="merchant" class="font-mono text-xs uppercase tracking-widest text-ink/50">
@@ -102,9 +139,27 @@
       {/if}
     </div>
     <div>
-      <label for="categoryAccountId" class="font-mono text-xs uppercase tracking-widest text-ink/50">
-        Category<span class="text-gold-deep">*</span>
-      </label>
+      <div class="flex items-baseline justify-between">
+        <label for="categoryAccountId" class="font-mono text-xs uppercase tracking-widest text-ink/50">
+          Category<span class="text-gold-deep">*</span>
+        </label>
+        <!-- formnovalidate: suggest with just a merchant typed, without tripping
+             the other required fields. Submits to the ?/suggest action. -->
+        <button
+          type="submit"
+          formaction="?/suggest"
+          formnovalidate
+          disabled={suggesting}
+          class="flex items-center gap-1.5 font-mono text-xs uppercase tracking-widest text-gold-deep hover:text-ink disabled:opacity-60"
+        >
+          {#if suggesting}
+            <span class="inline-block h-3 w-3 animate-spin rounded-full border border-gold-deep border-t-transparent"></span>
+            Suggesting…
+          {:else}
+            ✨ Suggest
+          {/if}
+        </button>
+      </div>
       <select
         id="categoryAccountId"
         name="categoryAccountId"

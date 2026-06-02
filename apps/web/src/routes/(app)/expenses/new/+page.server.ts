@@ -86,8 +86,70 @@ function formErrorFor(code: string): string {
   }
 }
 
+// A clean 2-dp decimal, so we only hand the categorizer an amount the API's
+// money schema will accept — a half-typed amount is dropped rather than 400ing
+// the suggestion (merchant alone is enough signal).
+const CLEAN_AMOUNT = /^\d+(\.\d{1,2})?$/;
+
+// Map a categorize error code to a soft, non-blocking message. The suggestion
+// is optional help — a failure never stops the user filling the form by hand.
+function suggestErrorFor(code: string): string {
+  switch (code) {
+    case 'ai_not_configured':
+      return 'AI categorization is not configured on this server.';
+    case 'categorization_failed':
+      return 'Could not suggest a category. Pick the best fit by hand.';
+    default:
+      return code;
+  }
+}
+
 export const actions: Actions = {
-  default: async (event) => {
+  // AI category suggestion from the typed merchant (+ memo/amount). Re-renders
+  // the form with the suggested category pre-selected and the user's typed
+  // values preserved — the user reviews + saves; the AI never writes the
+  // ledger. companyId is resolved server-side, same as create.
+  suggest: async (event) => {
+    const client = serverApiClient(event);
+    const data = await event.request.formData();
+    const values = readForm(data);
+    if (values.merchant === '') {
+      return fail(400, {
+        values,
+        suggestError: 'Enter a merchant first, then suggest a category.',
+      });
+    }
+
+    const companiesRes = await client.api.companies.$get();
+    if (!companiesRes.ok) throw error(companiesRes.status, 'failed to load companies');
+    const companyId = (await companiesRes.json()).companies[0]?.id;
+    if (!companyId) return fail(400, { values, formError: 'No company on this account.' });
+
+    const res = await client.api.expenses.categorize.$post({
+      json: {
+        companyId,
+        merchant: values.merchant,
+        memo: values.memo === '' ? undefined : values.memo,
+        amount: CLEAN_AMOUNT.test(values.amount) ? values.amount : undefined,
+      },
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      return fail(res.status, { values, suggestError: suggestErrorFor(body?.error ?? 'failed') });
+    }
+    const { suggestedCategoryAccountId } = await res.json();
+    if (!suggestedCategoryAccountId) {
+      return { values, suggestNotice: 'No category clearly fit — pick the best one.' };
+    }
+    // Seed categoryAccountId via values so the select pre-selects it (the
+    // svelte form reads form.values first); keep everything else the user typed.
+    return {
+      values: { ...values, categoryAccountId: suggestedCategoryAccountId },
+      suggested: true,
+    };
+  },
+
+  save: async (event) => {
     const client = serverApiClient(event);
     const data = await event.request.formData();
     const values = readForm(data);
