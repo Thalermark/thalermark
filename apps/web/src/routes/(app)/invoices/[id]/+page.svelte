@@ -45,6 +45,16 @@
         Edit
       </a>
     {/if}
+    <!-- Duplicate-as-template: available for any status (a paid/sent invoice is
+         a common template). Posts to ?/duplicate → new draft's edit page. -->
+    <form method="post" action="?/duplicate">
+      <button
+        type="submit"
+        class="rounded-sm border border-ink/20 px-3 py-1 font-mono text-xs uppercase tracking-widest text-ink/70 hover:border-gold-deep hover:text-gold-deep"
+      >
+        Duplicate
+      </button>
+    </form>
     <span class="font-mono text-xs uppercase tracking-widest text-ink/60">{inv.status}</span>
   </div>
 </div>
