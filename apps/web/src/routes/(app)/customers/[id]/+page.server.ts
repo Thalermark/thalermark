@@ -9,17 +9,21 @@ export const load: PageServerLoad = async (event) => {
   if (!res.ok) throw error(res.status, 'failed to load customer');
   const customer = await res.json();
 
-  // Audit trail (slice 8.8a). Best-effort: a non-OK response renders an
-  // empty history rather than failing the whole page — the trail is a
-  // read-only sidebar to the record, not load-bearing for editing.
-  const auditRes = await client.api['audit-events'].$get({
-    query: { entityType: 'customer', entityId: event.params.id },
-  });
+  // Audit trail (8.8a) + payment reliability (late-payer detection) — both
+  // best-effort read-only sidebars; a non-OK response degrades to empty/null
+  // rather than failing the page.
+  const [auditRes, reliabilityRes] = await Promise.all([
+    client.api['audit-events'].$get({
+      query: { entityType: 'customer', entityId: event.params.id },
+    }),
+    client.api.customers[':id']['payment-reliability'].$get({ param: { id: event.params.id } }),
+  ]);
   const auditEvents = auditRes.ok
     ? ((await auditRes.json()) as { events: AuditEvent[] }).events
     : [];
+  const reliability = reliabilityRes.ok ? await reliabilityRes.json() : null;
 
-  return { customer, auditEvents };
+  return { customer, auditEvents, reliability };
 };
 
 type AuditEvent = {
