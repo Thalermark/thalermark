@@ -47,3 +47,19 @@ export const expenseUpdateSchema = expenseCreateSchema
   });
 
 export type ExpenseUpdateInput = z.infer<typeof expenseUpdateSchema>;
+
+// Input schema for POST /api/expenses/categorize — the text-based category
+// suggestion (AI). Stateless: there is no expense row yet, so the client sends
+// the visible fields it has so far. companyId scopes the suggestion to that
+// company's expense chart of accounts; accountId is inferred from rls-context.
+// merchant is the one required signal; memo + amount are optional extra
+// context. amount reuses the decimal-string money convention but is optional
+// here because the user may ask for a suggestion before typing it.
+export const expenseCategorizeSchema = z.object({
+  companyId: z.string().uuid(),
+  merchant: z.string().min(1).max(200),
+  memo: z.string().max(5000).optional(),
+  amount: moneyString.optional(),
+});
+
+export type ExpenseCategorizeInput = z.infer<typeof expenseCategorizeSchema>;

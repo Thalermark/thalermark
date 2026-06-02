@@ -1,58 +1,9 @@
-import { createAnthropic } from '@ai-sdk/anthropic';
-import { createOpenAI } from '@ai-sdk/openai';
-import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
-import { type LanguageModel, generateObject } from 'ai';
+import { generateObject } from 'ai';
 import { z } from 'zod';
 import { type RawExtraction, normalizeExtraction } from './normalize.js';
 import { renderPdfFirstPageToPng } from './pdf.js';
+import { type LlmEnv, resolveModel } from './provider.js';
 import type { ExtractionInput, ExtractionResult, ReceiptExtractor } from './types.js';
-
-// Env contract matches the committed .env.example "LLM (Vercel AI SDK)" block.
-// LLM_API_KEY powers both extraction and (future) insights — no separate vendor
-// for MVP. Anthropic Sonnet is the default vision model; the overrides let a
-// self-hoster point at Haiku or a local Ollama model.
-export interface ExtractorEnv {
-  LLM_PROVIDER?: string;
-  LLM_API_KEY?: string;
-  LLM_MODEL_REASONING?: string;
-  LLM_MODEL_FAST?: string;
-  OLLAMA_BASE_URL?: string;
-}
-
-// Default vision-capable models per provider. Overridable via LLM_MODEL_REASONING.
-const DEFAULT_MODELS = {
-  anthropic: 'claude-sonnet-4-6',
-  openai: 'gpt-4o',
-  ollama: 'llama3.2-vision',
-} as const;
-
-// Resolve env → a Vercel AI SDK model, or null when the chosen provider can't
-// run (anthropic/openai with no key). Ollama needs no key — it's the AGPL-pure
-// self-host path — so it's always available once selected. An unknown provider
-// returns null rather than throwing so a typo just disables the feature
-// (endpoint 503s) instead of crashing boot.
-function resolveModel(env: ExtractorEnv): LanguageModel | null {
-  const provider = (env.LLM_PROVIDER ?? 'anthropic').trim().toLowerCase();
-  const key = env.LLM_API_KEY?.trim();
-  const model = env.LLM_MODEL_REASONING?.trim();
-
-  if (provider === 'anthropic') {
-    if (!key) return null;
-    return createAnthropic({ apiKey: key })(model || DEFAULT_MODELS.anthropic);
-  }
-  if (provider === 'openai') {
-    if (!key) return null;
-    return createOpenAI({ apiKey: key })(model || DEFAULT_MODELS.openai);
-  }
-  if (provider === 'ollama') {
-    const baseURL = `${(env.OLLAMA_BASE_URL ?? 'http://localhost:11434').trim().replace(/\/$/, '')}/v1`;
-    // Ollama ignores the key but the OpenAI-compatible client requires one.
-    return createOpenAICompatible({ name: 'ollama', baseURL, apiKey: key || 'ollama' })(
-      model || DEFAULT_MODELS.ollama,
-    );
-  }
-  return null;
-}
 
 // What the model is asked to emit. Money as numbers (models emit JSON numbers
 // more reliably than pre-formatted strings); normalizeExtraction formats them.
@@ -81,8 +32,8 @@ function buildPrompt(allowed: ExtractionInput['allowedCategories']): string {
 // Build a receipt extractor from env, or null when no usable provider is
 // configured. The api treats null as "AI disabled" and 503s the extract route —
 // same opt-in model as stripe/storage.
-export function createReceiptExtractor(env: ExtractorEnv): ReceiptExtractor | null {
-  const model = resolveModel(env);
+export function createReceiptExtractor(env: LlmEnv): ReceiptExtractor | null {
+  const model = resolveModel(env, 'vision');
   if (!model) return null;
 
   return {

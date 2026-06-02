@@ -1,7 +1,12 @@
 import { resolve } from 'node:path';
 import { loadEnvFile } from 'node:process';
 import { serve } from '@hono/node-server';
-import { type ReceiptExtractor, createReceiptExtractor } from '@thalermark/ai';
+import {
+  type ExpenseCategorizer,
+  type ReceiptExtractor,
+  createExpenseCategorizer,
+  createReceiptExtractor,
+} from '@thalermark/ai';
 import { runMigrations } from '@thalermark/db';
 import { configureLogger, getLogger } from '@thalermark/logger';
 import { type StorageProvider, createStorageProvider } from '@thalermark/storage';
@@ -120,6 +125,15 @@ log.info(
     : 'receipt extraction disabled (LLM_API_KEY unset or LLM_PROVIDER unsupported)',
 );
 
+// Text expense categorization — same opt-in model as the extractor, but uses
+// the 'fast' text model role rather than vision.
+const categorizer: ExpenseCategorizer | null = createExpenseCategorizer(process.env);
+log.info(
+  categorizer
+    ? `expense categorization enabled (LLM_PROVIDER=${process.env.LLM_PROVIDER ?? 'anthropic'})`
+    : 'expense categorization disabled (LLM_API_KEY unset or LLM_PROVIDER unsupported)',
+);
+
 const app = createApp({
   auth,
   db: dbHandle.db,
@@ -132,6 +146,7 @@ const app = createApp({
   storage,
   localFileServe,
   extractor,
+  categorizer,
 });
 
 const server = serve(
