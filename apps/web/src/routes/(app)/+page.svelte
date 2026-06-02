@@ -26,6 +26,11 @@
       : tone === 'good'
         ? 'border-gold-deep/30 bg-gold-deep/5'
         : 'border-ink/15 bg-cream-warm';
+
+  // Anomaly flagging (deterministic): unusual spending vs the company's own
+  // history. Shown only when something actually flags.
+  const a = $derived(data.anomalies);
+  const showAnomalies = $derived(a.overall !== null || a.categories.length > 0);
 </script>
 
 <span class="eyebrow text-ink/60">{data.companyName}</span>
@@ -64,6 +69,25 @@
     <p class="mt-1 text-xs text-ink/40">outstanding now</p>
   </div>
 </dl>
+
+{#if showAnomalies}
+  <section class="mt-8">
+    <h2 class="font-mono text-xs uppercase tracking-widest text-ink/50">Unusual spending</h2>
+    <ul class="mt-3 space-y-3">
+      {#if a.overall}
+        <li class="rounded-sm border border-oxblood/30 bg-oxblood/5 px-4 py-3 text-sm text-ink/80">
+          Spending is {a.overall.pctOver}% above your typical month — {fmt(a.overall.recent)} in the
+          last 30 days vs about {fmt(a.overall.typical)}.
+        </li>
+      {/if}
+      {#each a.categories as cat (cat.code)}
+        <li class="rounded-sm border border-oxblood/30 bg-oxblood/5 px-4 py-3 text-sm text-ink/80">
+          {cat.name}: {fmt(cat.recent)} vs about {fmt(cat.typical)} usual ({cat.pctOver}% up).
+        </li>
+      {/each}
+    </ul>
+  </section>
+{/if}
 
 {#await data.nudges}
   <div class="mt-8 flex items-center gap-2 text-sm text-ink/50">
