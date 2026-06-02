@@ -69,7 +69,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       # docker-compose.yml references env_file: ../.env. The file doesn't need
       # real values for a build-only check (env_file is consumed at runtime),
