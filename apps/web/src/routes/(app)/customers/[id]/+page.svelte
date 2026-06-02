@@ -13,6 +13,42 @@
       c.country,
     ].filter((line): line is string => Boolean(line)),
   );
+
+  const fmt = (s: string) =>
+    Number(s).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+
+  // Payment reliability (late-payer detection). Needs at least 2 paid invoices
+  // to state a pattern; below that we only surface a live overdue warning, if
+  // any. The headline + tone are derived from the deterministic API figures.
+  const r = $derived(data.reliability);
+  const reliability = $derived.by(() => {
+    if (!r) return null;
+    const overdue =
+      r.overdueCount > 0
+        ? `${r.overdueCount} invoice${r.overdueCount === 1 ? '' : 's'} overdue now (${fmt(r.overdueTotal)})`
+        : null;
+    if (r.paidCount < 2) {
+      return overdue ? { headline: overdue, tone: 'warning' as const } : null;
+    }
+    if (r.lateCount === 0) {
+      return { headline: `Always pays on time (${r.paidCount} invoices)`, tone: 'good' as const };
+    }
+    const days =
+      r.avgDaysLate && r.avgDaysLate > 0
+        ? ` — about ${r.avgDaysLate} ${r.avgDaysLate === 1 ? 'day' : 'days'} past due`
+        : '';
+    return {
+      headline: `Pays late ${r.lateCount} of ${r.paidCount} times${days}`,
+      tone: (r.latePct ?? 0) >= 50 ? ('warning' as const) : ('info' as const),
+    };
+  });
+
+  const toneClass = (tone: string) =>
+    tone === 'warning'
+      ? 'border-oxblood/30 bg-oxblood/5'
+      : tone === 'good'
+        ? 'border-gold-deep/30 bg-gold-deep/5'
+        : 'border-ink/15 bg-cream-warm';
 </script>
 
 <a href="/customers" class="eyebrow text-ink/60 hover:text-ink">← Customers</a>
@@ -58,5 +94,21 @@
     </div>
   {/if}
 </dl>
+
+{#if reliability}
+  <section class="mt-8">
+    <h2 class="font-mono text-xs uppercase tracking-widest text-ink/50">Payment reliability</h2>
+    <p class="mt-3 rounded-sm border px-4 py-3 text-sm text-ink/80 {toneClass(reliability.tone)}">
+      {reliability.headline}
+    </p>
+    {#if r && r.paidCount >= 2 && r.overdueCount > 0}
+      <p
+        class="mt-2 rounded-sm border border-oxblood/30 bg-oxblood/5 px-4 py-3 text-sm text-ink/80"
+      >
+        {r.overdueCount} invoice{r.overdueCount === 1 ? '' : 's'} overdue now ({fmt(r.overdueTotal)})
+      </p>
+    {/if}
+  </section>
+{/if}
 
 <AuditHistory events={data.auditEvents} />

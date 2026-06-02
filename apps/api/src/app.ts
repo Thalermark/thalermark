@@ -1289,6 +1289,55 @@ export function createApp(deps: AppDeps) {
         if (!row) return c.json({ error: 'customer_not_found' }, 404);
         return c.json(row);
       })
+      // Late-payer detection (AI-layer "invoice intelligence", deterministic):
+      // payment reliability computed from this customer's invoice history. "Late"
+      // = paid after the due date; avgDaysLate is signed (negative = typically
+      // early). overdue* count invoices still unpaid past due. One aggregate
+      // pass; no LLM — the numbers are the insight. The customer page renders a
+      // plain-English line from these and decides the "enough history" floor.
+      .get('/api/customers/:id/payment-reliability', async (c) => {
+        const id = c.req.param('id');
+        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+
+        const [customer] = await tx
+          .select({ id: customers.id })
+          .from(customers)
+          .where(and(eq(customers.id, id), eq(customers.accountId, accountId)))
+          .limit(1);
+        if (!customer) return c.json({ error: 'customer_not_found' }, 404);
+
+        const todayYmd = new Date().toISOString().slice(0, 10);
+        const [stats] = await tx
+          .select({
+            paidCount: sql<number>`count(*) filter (where ${invoices.paidAt} is not null)::int`,
+            lateCount: sql<number>`count(*) filter (where ${invoices.paidAt} is not null and (${invoices.paidAt} at time zone 'UTC')::date > ${invoices.dueDate})::int`,
+            // Average days past due over the LATE invoices only ("when late,
+            // about N days late"). Averaging over all paid invoices would let a
+            // far-out due date swing it wildly; this stays the intuitive figure
+            // and is always >= 1. Null when nothing was paid late.
+            avgDaysLate: sql<
+              number | null
+            >`round(avg((${invoices.paidAt} at time zone 'UTC')::date - ${invoices.dueDate}) filter (where ${invoices.paidAt} is not null and (${invoices.paidAt} at time zone 'UTC')::date > ${invoices.dueDate}))::int`,
+            overdueCount: sql<number>`count(*) filter (where ${invoices.status} = 'sent' and ${invoices.dueDate} < ${todayYmd})::int`,
+            overdueTotal: sql<string>`coalesce(sum(${invoices.total}) filter (where ${invoices.status} = 'sent' and ${invoices.dueDate} < ${todayYmd}), 0)::numeric(15,2)`,
+          })
+          .from(invoices)
+          .where(and(eq(invoices.accountId, accountId), eq(invoices.customerId, id)));
+
+        const paidCount = stats?.paidCount ?? 0;
+        const lateCount = stats?.lateCount ?? 0;
+        return c.json({
+          paidCount,
+          lateCount,
+          onTimeCount: paidCount - lateCount,
+          latePct: paidCount > 0 ? Math.round((lateCount / paidCount) * 100) : null,
+          avgDaysLate: stats?.avgDaysLate ?? null,
+          overdueCount: stats?.overdueCount ?? 0,
+          overdueTotal: stats?.overdueTotal ?? '0.00',
+        });
+      })
       // hono/validator middleware: lifts the json body into the typed Input
       // so hc<AppType>() infers `{ param, json }` on .$patch. Without it the
       // client would only see `{ param }` (path-param-only) and reject the
