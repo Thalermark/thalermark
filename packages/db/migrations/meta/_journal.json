@@ -211,6 +211,13 @@
       "when": 1780145684855,
       "tag": "0029_enable_rls_expenses",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1780416085753,
+      "tag": "0030_chilly_sleepwalker",
+      "breakpoints": true
     }
   ]
 }

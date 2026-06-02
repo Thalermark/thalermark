@@ -2,8 +2,10 @@ import { resolve } from 'node:path';
 import { loadEnvFile } from 'node:process';
 import { serve } from '@hono/node-server';
 import {
+  type CashFlowAdvisor,
   type ExpenseCategorizer,
   type ReceiptExtractor,
+  createCashFlowAdvisor,
   createExpenseCategorizer,
   createReceiptExtractor,
 } from '@thalermark/ai';
@@ -134,6 +136,14 @@ log.info(
     : 'expense categorization disabled (LLM_API_KEY unset or LLM_PROVIDER unsupported)',
 );
 
+// Cash-flow nudges — uses the 'reasoning' model role.
+const advisor: CashFlowAdvisor | null = createCashFlowAdvisor(process.env);
+log.info(
+  advisor
+    ? `cash-flow nudges enabled (LLM_PROVIDER=${process.env.LLM_PROVIDER ?? 'anthropic'})`
+    : 'cash-flow nudges disabled (LLM_API_KEY unset or LLM_PROVIDER unsupported)',
+);
+
 const app = createApp({
   auth,
   db: dbHandle.db,
@@ -147,6 +157,7 @@ const app = createApp({
   localFileServe,
   extractor,
   categorizer,
+  advisor,
 });
 
 const server = serve(

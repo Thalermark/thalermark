@@ -1,4 +1,13 @@
-import { boolean, index, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import {
+  boolean,
+  index,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core';
 import { accounts } from './accounts.js';
 
 export const companies = pgTable(
@@ -30,6 +39,17 @@ export const companies = pgTable(
     stripeConnectDetailsSubmitted: boolean('stripe_connect_details_submitted')
       .notNull()
       .default(false),
+    // Cash-flow nudges (AI insight) cache. The reasoning-role LLM writes
+    // plain-English nudges from deterministic ledger signals; we cache them
+    // here so the dashboard doesn't re-run the model on every view.
+    // nudges_input_hash is a hash of those signals — the route regenerates only
+    // when it changes (new transactions, a newly-overdue invoice, a month
+    // rollover), so invalidation is input-driven with no TTL. All null until
+    // the first generation. JIT note: when a second cached insight (anomaly /
+    // late-payer) lands, promote these to a company_insights table keyed by type.
+    cashFlowNudges: jsonb('cash_flow_nudges'),
+    nudgesInputHash: text('nudges_input_hash'),
+    nudgesGeneratedAt: timestamp('nudges_generated_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

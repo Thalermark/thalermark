@@ -18,6 +18,14 @@
   const flowLabel = $derived(
     data.period === 'ytd' ? 'this year' : data.period === '30d' ? 'last 30 days' : 'this month',
   );
+
+  // Border accent per nudge tone (gold = good, oxblood = warning, ink = info).
+  const toneClass = (tone: string) =>
+    tone === 'warning'
+      ? 'border-oxblood/30 bg-oxblood/5'
+      : tone === 'good'
+        ? 'border-gold-deep/30 bg-gold-deep/5'
+        : 'border-ink/15 bg-cream-warm';
 </script>
 
 <span class="eyebrow text-ink/60">{data.companyName}</span>
@@ -56,3 +64,25 @@
     <p class="mt-1 text-xs text-ink/40">outstanding now</p>
   </div>
 </dl>
+
+{#await data.nudges}
+  <div class="mt-8 flex items-center gap-2 text-sm text-ink/50">
+    <span
+      class="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-gold-deep border-t-transparent"
+    ></span>
+    Reading your cash flow…
+  </div>
+{:then result}
+  {#if result.nudges.length > 0}
+    <section class="mt-8">
+      <h2 class="font-mono text-xs uppercase tracking-widest text-ink/50">What to watch</h2>
+      <ul class="mt-3 space-y-3">
+        {#each result.nudges as nudge (nudge.text)}
+          <li class="rounded-sm border px-4 py-3 text-sm text-ink/80 {toneClass(nudge.tone)}">
+            {nudge.text}
+          </li>
+        {/each}
+      </ul>
+    </section>
+  {/if}
+{/await}

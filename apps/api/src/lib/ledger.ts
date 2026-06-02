@@ -6,7 +6,7 @@ import {
   journalEntries,
   journalLines,
 } from '@thalermark/db';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, gte, inArray, lt, ne, sql } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
 
 // Hidden double-entry posting helper. Called from the invoice state machine
@@ -288,4 +288,92 @@ export async function postInvoiceTransition(
     memo: `Invoice ${args.invoice.number} ${args.nextStatus}`,
     lines,
   });
+}
+
+// --- Ledger read helpers (position dashboard + cash-flow nudges) -----------
+// "cash" = asset accounts other than AR; "owed" = the AR balance.
+
+type LedgerScope = { accountId: string; companyId: string };
+
+// Reversal-safe cash flow over a half-open window [fromDate, toExclusive).
+// Nets signed cash movement per source_entity_id BEFORE splitting by direction:
+// the ledger is immutable, so editing/voiding an expense posts a reversing
+// entry whose "Dr Cash" would otherwise read as money in and double the gross
+// out. A create+edit collapses to the latest amount, a create+delete to zero
+// (the dashboard reversal fix, #144). Returns 2-dp decimal strings.
+export async function cashFlowNet(
+  tx: Database | Transaction,
+  scope: LedgerScope & { fromDate: Date; toExclusive: Date },
+): Promise<{ moneyIn: string; moneyOut: string }> {
+  const bySource = tx
+    .select({
+      netDebit:
+        sql<string>`sum(case when ${journalLines.side} = 'debit' then ${journalLines.amount} else -${journalLines.amount} end)`.as(
+          'net_debit',
+        ),
+    })
+    .from(journalLines)
+    .innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id))
+    .innerJoin(chartOfAccounts, eq(journalLines.coaAccountId, chartOfAccounts.id))
+    .where(
+      and(
+        eq(journalEntries.companyId, scope.companyId),
+        eq(journalEntries.accountId, scope.accountId),
+        eq(chartOfAccounts.accountType, 'asset'),
+        ne(chartOfAccounts.code, COA_AR),
+        gte(journalEntries.postedAt, scope.fromDate),
+        lt(journalEntries.postedAt, scope.toExclusive),
+      ),
+    )
+    .groupBy(journalEntries.sourceEntityId)
+    .as('cash_by_source');
+  const [row] = await tx
+    .select({
+      moneyIn: sql<string>`coalesce(sum(${bySource.netDebit}) filter (where ${bySource.netDebit} > 0), 0)::numeric(15,2)`,
+      moneyOut: sql<string>`coalesce(-sum(${bySource.netDebit}) filter (where ${bySource.netDebit} < 0), 0)::numeric(15,2)`,
+    })
+    .from(bySource);
+  return { moneyIn: row?.moneyIn ?? '0.00', moneyOut: row?.moneyOut ?? '0.00' };
+}
+
+// Cash on hand: signed balance (debits − credits) across asset accounts other
+// than AR, all-time. A point-in-time balance is reversal-safe by construction
+// (reversal pairs cancel), so no per-source netting is needed here.
+export async function cashOnHand(tx: Database | Transaction, scope: LedgerScope): Promise<string> {
+  const [row] = await tx
+    .select({
+      balance: sql<string>`coalesce(sum(case when ${journalLines.side} = 'debit' then ${journalLines.amount} else -${journalLines.amount} end), 0)::numeric(15,2)`,
+    })
+    .from(journalLines)
+    .innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id))
+    .innerJoin(chartOfAccounts, eq(journalLines.coaAccountId, chartOfAccounts.id))
+    .where(
+      and(
+        eq(journalEntries.companyId, scope.companyId),
+        eq(journalEntries.accountId, scope.accountId),
+        eq(chartOfAccounts.accountType, 'asset'),
+        ne(chartOfAccounts.code, COA_AR),
+      ),
+    );
+  return row?.balance ?? '0.00';
+}
+
+// Owed: live AR balance (debits − credits on the AR account), all-time — what
+// customers currently owe. A point-in-time figure, not a period flow.
+export async function arBalance(tx: Database | Transaction, scope: LedgerScope): Promise<string> {
+  const [row] = await tx
+    .select({
+      owed: sql<string>`coalesce(sum(case when ${journalLines.side} = 'debit' then ${journalLines.amount} else -${journalLines.amount} end), 0)::numeric(15,2)`,
+    })
+    .from(journalLines)
+    .innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id))
+    .innerJoin(chartOfAccounts, eq(journalLines.coaAccountId, chartOfAccounts.id))
+    .where(
+      and(
+        eq(journalEntries.companyId, scope.companyId),
+        eq(journalEntries.accountId, scope.accountId),
+        eq(chartOfAccounts.code, COA_AR),
+      ),
+    );
+  return row?.owed ?? '0.00';
 }
