@@ -44,4 +44,26 @@ describe('companyUpdateSchema', () => {
       false,
     );
   });
+
+  it('accepts a valid replyToEmail', () => {
+    const r = companyUpdateSchema.safeParse({ replyToEmail: 'hello@biz.test' });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.replyToEmail).toBe('hello@biz.test');
+  });
+
+  it('coerces empty-string replyToEmail to null (clears the field)', () => {
+    const r = companyUpdateSchema.safeParse({ replyToEmail: '' });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.replyToEmail).toBeNull();
+  });
+
+  it('accepts null replyToEmail', () => {
+    const r = companyUpdateSchema.safeParse({ replyToEmail: null });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.replyToEmail).toBeNull();
+  });
+
+  it('rejects a malformed replyToEmail', () => {
+    expect(companyUpdateSchema.safeParse({ replyToEmail: 'not-an-email' }).success).toBe(false);
+  });
 });

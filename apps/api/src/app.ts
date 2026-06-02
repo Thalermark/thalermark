@@ -59,6 +59,7 @@ import {
   postInvoiceTransition,
 } from './lib/ledger.js';
 import type { Mailer } from './lib/mailer.js';
+import { formatSender } from './lib/sender.js';
 import { type StripeBundle, decimalDollarsToCents } from './lib/stripe.js';
 import { type RlsVariables, rlsContext } from './middleware/rls-context.js';
 
@@ -630,6 +631,7 @@ export function createApp(deps: AppDeps) {
             id: companies.id,
             name: companies.name,
             businessType: companies.businessType,
+            replyToEmail: companies.replyToEmail,
           })
           .from(companies)
           .where(eq(companies.accountId, accountId))
@@ -669,6 +671,8 @@ export function createApp(deps: AppDeps) {
           const patch: Record<string, unknown> = { updatedAt: new Date() };
           if (data.name !== undefined) patch.name = data.name;
           if (data.businessType !== undefined) patch.businessType = data.businessType;
+          // Validation coerces '' → null, so an explicit clear lands as null here.
+          if (data.replyToEmail !== undefined) patch.replyToEmail = data.replyToEmail;
 
           const [after] = await tx
             .update(companies)
@@ -681,8 +685,16 @@ export function createApp(deps: AppDeps) {
             entityType: 'company',
             entityId: id,
             action: 'update',
-            before: { name: before.name, businessType: before.businessType },
-            after: { name: after.name, businessType: after.businessType },
+            before: {
+              name: before.name,
+              businessType: before.businessType,
+              replyToEmail: before.replyToEmail,
+            },
+            after: {
+              name: after.name,
+              businessType: after.businessType,
+              replyToEmail: after.replyToEmail,
+            },
             companyId: id,
           });
 
@@ -690,6 +702,7 @@ export function createApp(deps: AppDeps) {
             id: after.id,
             name: after.name,
             businessType: after.businessType,
+            replyToEmail: after.replyToEmail,
           });
         },
       )
@@ -3089,7 +3102,7 @@ export function createApp(deps: AppDeps) {
           if (!to || !EMAIL_RE.test(to)) return c.json({ error: 'invalid_recipient' }, 400);
 
           const [company] = await tx
-            .select({ name: companies.name })
+            .select({ name: companies.name, replyToEmail: companies.replyToEmail })
             .from(companies)
             .where(and(eq(companies.id, current.companyId), eq(companies.accountId, accountId)))
             .limit(1);
@@ -3163,7 +3176,17 @@ export function createApp(deps: AppDeps) {
             `<p>— ${escapeHtml(companyName)}</p>`;
 
           try {
-            await deps.mailer.send({ to, subject, html, text });
+            await deps.mailer.send({
+              to,
+              subject,
+              html,
+              text,
+              // Swap the From display name to the company's name (address stays
+              // on the verified EMAIL_FROM domain); route replies to the
+              // company's contact address when it has one set.
+              from: deps.emailFrom ? formatSender(deps.emailFrom, companyName) : undefined,
+              replyTo: company?.replyToEmail ?? undefined,
+            });
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             return c.json({ error: 'email_failed', detail: message }, 502);
@@ -3233,7 +3256,7 @@ export function createApp(deps: AppDeps) {
           if (!to || !EMAIL_RE.test(to)) return c.json({ error: 'invalid_recipient' }, 400);
 
           const [company] = await tx
-            .select({ name: companies.name })
+            .select({ name: companies.name, replyToEmail: companies.replyToEmail })
             .from(companies)
             .where(and(eq(companies.id, current.companyId), eq(companies.accountId, accountId)))
             .limit(1);
@@ -3294,7 +3317,15 @@ export function createApp(deps: AppDeps) {
           const html = `<p>${escapeHtml(greeting)}</p><p>Estimate <strong>${escapeHtml(estimate.number)}</strong> for <strong>${escapeHtml(estimate.total)} ${escapeHtml(estimate.currency)}</strong> is ready for your review.${expiresHtml}</p><p><a href="${escapeHtml(publicUrl)}">View estimate</a></p><p>— ${escapeHtml(companyName)}</p>`;
 
           try {
-            await deps.mailer.send({ to, subject, html, text });
+            await deps.mailer.send({
+              to,
+              subject,
+              html,
+              text,
+              // See invoice /send: company-named From, company-routed Reply-To.
+              from: deps.emailFrom ? formatSender(deps.emailFrom, companyName) : undefined,
+              replyTo: company?.replyToEmail ?? undefined,
+            });
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             return c.json({ error: 'email_failed', detail: message }, 502);

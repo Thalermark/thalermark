@@ -27,6 +27,14 @@ export const companies = pgTable(
     // now; CHECK constraint deferred until the wizard slice locks the
     // enum.
     businessType: text('business_type'),
+    // Customer-facing reply address. When set, invoice/estimate emails carry a
+    // Reply-To pointing here so a customer's reply reaches the business, not
+    // the platform sender. Null → no Reply-To header (current default). The
+    // From envelope address always stays on the DNS-verified EMAIL_FROM domain
+    // (Resend won't send otherwise); only the From *display name* is swapped to
+    // the company name. True per-tenant verified sending domains (full
+    // white-label) are a separate, later slice.
+    replyToEmail: text('reply_to_email'),
     // Stripe Connect (SaaS multi-tenant payment routing). Lazily populated
     // when the company owner kicks off onboarding from /settings/payments —
     // self-host operators using a single STRIPE_SECRET_KEY leave these null

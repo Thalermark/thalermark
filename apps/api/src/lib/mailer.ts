@@ -16,6 +16,14 @@ export type MailMessage = {
   subject: string;
   html: string;
   text: string;
+  // Per-message sender override. When set, replaces the driver's default
+  // `from` — used to swap the display name to the sending company's name while
+  // keeping the verified envelope address (see formatSender). Omitted →
+  // driver default.
+  from?: string;
+  // Reply-To header. Set to the sending company's contact address so customer
+  // replies reach the business, not the platform sender. Omitted → no header.
+  replyTo?: string;
 };
 
 export type Mailer = {
@@ -35,11 +43,14 @@ export function createResendMailer(opts: { apiKey: string; from: string }): Mail
           'content-type': 'application/json',
         },
         body: JSON.stringify({
-          from: opts.from,
+          from: msg.from ?? opts.from,
           to: msg.to,
           subject: msg.subject,
           html: msg.html,
           text: msg.text,
+          // Resend's field is snake_case; only send it when set so the absence
+          // of a company reply address leaves the header off entirely.
+          ...(msg.replyTo ? { reply_to: msg.replyTo } : {}),
         }),
       });
       if (!res.ok) {
@@ -57,8 +68,9 @@ export function createConsoleMailer(opts: { from: string }): Mailer {
   const log = getLogger(['api', 'mailer', 'console']);
   return {
     async send(msg) {
-      log.info('[email] from={from} to={to} subject={subject}\n{text}', {
-        from: opts.from,
+      log.info('[email] from={from} replyTo={replyTo} to={to} subject={subject}\n{text}', {
+        from: msg.from ?? opts.from,
+        replyTo: msg.replyTo ?? '(none)',
         to: msg.to,
         subject: msg.subject,
         text: msg.text,
