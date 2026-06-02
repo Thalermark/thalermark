@@ -29,6 +29,16 @@ export const load: PageServerLoad = async (event) => {
   if (!res.ok) throw error(res.status, 'failed to load dashboard');
   const dashboard = await res.json();
 
+  // Spending anomalies (deterministic, cheap) — fetched inline, not streamed:
+  // no model call, so it resolves with the position. Best-effort: a non-OK
+  // degrades to no anomalies rather than failing the page.
+  const anomaliesRes = await client.api.companies[':id']['spending-anomalies'].$get({
+    param: { id: company.id },
+  });
+  const anomalies = anomaliesRes.ok
+    ? await anomaliesRes.json()
+    : { enoughHistory: false, overall: null, categories: [] };
+
   // Cash-flow nudges (AI) stream in separately: the position tiles render
   // immediately while this promise resolves. A cache hit on the API returns
   // instantly; a regeneration shows the page's spinner. Any non-OK (no AI
@@ -43,5 +53,5 @@ export const load: PageServerLoad = async (event) => {
     return await r.json();
   })();
 
-  return { dashboard, period, companyName: company.name, nudges };
+  return { dashboard, period, companyName: company.name, nudges, anomalies };
 };

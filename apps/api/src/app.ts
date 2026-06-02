@@ -1182,6 +1182,109 @@ export function createApp(deps: AppDeps) {
 
         return c.json({ nudges, generatedAt: generatedAt.toISOString() });
       })
+      // Anomaly flagging (AI-layer insight, deterministic): unusual spending vs
+      // the customer's own history. Computed straight from the expenses table
+      // (edits update the row in place, deletes set deleted_at — so summing
+      // `amount` where deleted_at is null is the correct current total, no
+      // ledger-reversal handling needed). Rolling windows avoid the partial-
+      // calendar-month trap: `recent` = last 30 days; `baseline` = the 90 days
+      // before that, averaged to a per-30-day figure ("your typical month").
+      // Flags overall spend and per-category spikes; the % + a min-dollar floor
+      // suppress noise on tiny categories. No LLM — the numbers are the insight.
+      .get('/api/companies/:id/spending-anomalies', async (c) => {
+        const id = c.req.param('id');
+        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+
+        const [company] = await tx
+          .select({ id: companies.id })
+          .from(companies)
+          .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
+          .limit(1);
+        if (!company) return c.json({ error: 'company_not_found' }, 404);
+
+        // Window boundaries as YYYY-MM-DD (ISO strings sort chronologically, so
+        // string comparison on the bare `expense_date` column is correct).
+        const now = new Date();
+        const dayMs = 86_400_000;
+        const ymd = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+        const today = ymd(now.getTime());
+        const recentStart = ymd(now.getTime() - 29 * dayMs); // last 30 days incl. today
+        const baselineEnd = ymd(now.getTime() - 30 * dayMs); // day before the recent window
+        const baselineStart = ymd(now.getTime() - 119 * dayMs); // 90 days before that
+
+        const rows = await tx
+          .select({
+            code: chartOfAccounts.code,
+            name: chartOfAccounts.name,
+            recent: sql<string>`coalesce(sum(${expenses.amount}) filter (where ${expenses.expenseDate} >= ${recentStart}), 0)`,
+            baseline: sql<string>`coalesce(sum(${expenses.amount}) filter (where ${expenses.expenseDate} <= ${baselineEnd}), 0)`,
+          })
+          .from(expenses)
+          .innerJoin(chartOfAccounts, eq(expenses.categoryAccountId, chartOfAccounts.id))
+          .where(
+            and(
+              eq(expenses.accountId, accountId),
+              eq(expenses.companyId, id),
+              isNull(expenses.deletedAt),
+              gte(expenses.expenseDate, baselineStart),
+              lte(expenses.expenseDate, today),
+            ),
+          )
+          .groupBy(chartOfAccounts.id, chartOfAccounts.code, chartOfAccounts.name);
+
+        // Thresholds: overall flags at +40% over the typical month; a category
+        // needs +50% AND at least $50 of recent spend so a tiny line doesn't
+        // shout. baseline is divided by 3 (three 30-day windows) to a per-month
+        // average.
+        const OVERALL_OVER = 0.4;
+        const CATEGORY_OVER = 0.5;
+        const CATEGORY_MIN_RECENT = 50;
+
+        let recentTotal = 0;
+        let baselineTotal = 0;
+        const categories: {
+          code: string;
+          name: string;
+          recent: string;
+          typical: string;
+          pctOver: number;
+        }[] = [];
+        for (const r of rows) {
+          const recent = Number(r.recent);
+          const typical = Number(r.baseline) / 3;
+          recentTotal += recent;
+          baselineTotal += Number(r.baseline);
+          if (
+            typical > 0 &&
+            recent >= typical * (1 + CATEGORY_OVER) &&
+            recent >= CATEGORY_MIN_RECENT
+          ) {
+            categories.push({
+              code: r.code,
+              name: r.name,
+              recent: recent.toFixed(2),
+              typical: typical.toFixed(2),
+              pctOver: Math.round((recent / typical - 1) * 100),
+            });
+          }
+        }
+        categories.sort((a, b) => b.pctOver - a.pctOver);
+
+        const typicalTotal = baselineTotal / 3;
+        const enoughHistory = baselineTotal > 0;
+        const overall =
+          enoughHistory && recentTotal >= typicalTotal * (1 + OVERALL_OVER)
+            ? {
+                recent: recentTotal.toFixed(2),
+                typical: typicalTotal.toFixed(2),
+                pctOver: Math.round((recentTotal / typicalTotal - 1) * 100),
+              }
+            : null;
+
+        return c.json({ enoughHistory, overall, categories: categories.slice(0, 5) });
+      })
       // Read the company's chart of accounts. Powers the expense form's
       // category (type=expense) + payment (type=asset) comboboxes (slice
       // 8.9e) and the expense list's category filter (8.9d). Active rows
