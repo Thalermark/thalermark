@@ -29,7 +29,9 @@ import { v7 as uuidv7 } from 'uuid';
 // line items is a v1.x add. Sales Tax Payable (2200) is only touched when
 // the invoice carries tax > 0.
 const COA_CASH = '1000';
-const COA_AR = '1200';
+// Exported for the position dashboard (slice 8.10): "money in/out" sums cash
+// movement across asset accounts *except* AR, and "owed" is the AR balance.
+export const COA_AR = '1200';
 const COA_SALES_TAX_PAYABLE = '2200';
 const COA_REVENUE = '4000';
 

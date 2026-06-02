@@ -35,14 +35,19 @@ import {
   invoiceSendSchema,
   invoiceUpdateSchema,
 } from '@thalermark/validation';
-import { and, asc, desc, eq, gte, ilike, inArray, isNull, lt, lte } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, ilike, inArray, isNull, lt, lte, ne, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { cors } from 'hono/cors';
 import { validator } from 'hono/validator';
 import { v7 as uuidv7 } from 'uuid';
 import type { ApiAuth } from './lib/auth.js';
-import { postExpenseCreate, postExpenseReversal, postInvoiceTransition } from './lib/ledger.js';
+import {
+  COA_AR,
+  postExpenseCreate,
+  postExpenseReversal,
+  postInvoiceTransition,
+} from './lib/ledger.js';
 import type { Mailer } from './lib/mailer.js';
 import { type StripeBundle, decimalDollarsToCents } from './lib/stripe.js';
 import { type RlsVariables, rlsContext } from './middleware/rls-context.js';
@@ -959,6 +964,121 @@ export function createApp(deps: AppDeps) {
           trialBalance,
         });
       })
+      // Position dashboard (slice 8.10). The product's answer surface: money
+      // in, money out, what's owed — read straight off the ledger (the payoff
+      // of the L1–L4 reshape). `money in/out` is cash movement over a window
+      // (debits / credits on cash-like asset accounts — every asset except AR,
+      // since an invoice being *sent* debits AR but that isn't cash in hand);
+      // `owed` is the live AR balance, point-in-time, not period-bound. Cash
+      // basis, UTC window (a per-tenant timezone is a later refinement).
+      .get(
+        '/api/companies/:id/dashboard',
+        validator('query', (v) => ({
+          period: typeof v.period === 'string' ? v.period : undefined,
+          from: typeof v.from === 'string' ? v.from : undefined,
+          to: typeof v.to === 'string' ? v.to : undefined,
+        })),
+        async (c) => {
+          const id = c.req.param('id');
+          if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+
+          const [company] = await tx
+            .select({ id: companies.id })
+            .from(companies)
+            .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
+            .limit(1);
+          if (!company) return c.json({ error: 'company_not_found' }, 404);
+
+          // Window for the in/out flows. Explicit from/to wins (L4-style, for
+          // deterministic callers + tests); otherwise a named period, default
+          // this month. Upper bound is half-open on the day after `to` so the
+          // last day is fully included (matches the ledger export).
+          const { period: periodRaw, from: fromRaw, to: toRaw } = c.req.valid('query');
+          const period = periodRaw ?? 'month';
+          let fromDate: Date;
+          let toExclusive: Date;
+          if (fromRaw !== undefined || toRaw !== undefined) {
+            const f = fromRaw ? new Date(`${fromRaw}T00:00:00Z`) : null;
+            const t = toRaw ? new Date(`${toRaw}T00:00:00Z`) : null;
+            if (!f || Number.isNaN(f.getTime())) return c.json({ error: 'invalid_from' }, 400);
+            if (!t || Number.isNaN(t.getTime())) return c.json({ error: 'invalid_to' }, 400);
+            if (f > t) return c.json({ error: 'invalid_range' }, 400);
+            fromDate = f;
+            toExclusive = new Date(t);
+            toExclusive.setUTCDate(toExclusive.getUTCDate() + 1);
+          } else {
+            const now = new Date();
+            const y = now.getUTCFullYear();
+            const m = now.getUTCMonth();
+            const d = now.getUTCDate();
+            toExclusive = new Date(Date.UTC(y, m, d + 1));
+            if (period === 'month') {
+              fromDate = new Date(Date.UTC(y, m, 1));
+            } else if (period === '30d') {
+              fromDate = new Date(Date.UTC(y, m, d - 29));
+            } else if (period === 'ytd') {
+              fromDate = new Date(Date.UTC(y, 0, 1));
+            } else {
+              return c.json({ error: 'invalid_period' }, 400);
+            }
+          }
+
+          // Cash in/out: debit / credit sums on asset accounts other than AR,
+          // within the window. `::numeric(15,2)` pins the scale so the JSON
+          // carries clean 2-dp money strings; a no-rows sum coalesces to 0.00.
+          const [cash] = await tx
+            .select({
+              moneyIn: sql<string>`coalesce(sum(${journalLines.amount}) filter (where ${journalLines.side} = 'debit'), 0)::numeric(15,2)`,
+              moneyOut: sql<string>`coalesce(sum(${journalLines.amount}) filter (where ${journalLines.side} = 'credit'), 0)::numeric(15,2)`,
+            })
+            .from(journalLines)
+            .innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id))
+            .innerJoin(chartOfAccounts, eq(journalLines.coaAccountId, chartOfAccounts.id))
+            .where(
+              and(
+                eq(journalEntries.companyId, id),
+                eq(journalEntries.accountId, accountId),
+                eq(chartOfAccounts.accountType, 'asset'),
+                ne(chartOfAccounts.code, COA_AR),
+                gte(journalEntries.postedAt, fromDate),
+                lt(journalEntries.postedAt, toExclusive),
+              ),
+            );
+
+          // Owed: live AR balance (debits − credits), all-time — "what customers
+          // owe you" is a point-in-time figure, not a period flow.
+          const [ar] = await tx
+            .select({
+              owed: sql<string>`coalesce(sum(case when ${journalLines.side} = 'debit' then ${journalLines.amount} else -${journalLines.amount} end), 0)::numeric(15,2)`,
+            })
+            .from(journalLines)
+            .innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id))
+            .innerJoin(chartOfAccounts, eq(journalLines.coaAccountId, chartOfAccounts.id))
+            .where(
+              and(
+                eq(journalEntries.companyId, id),
+                eq(journalEntries.accountId, accountId),
+                eq(chartOfAccounts.code, COA_AR),
+              ),
+            );
+
+          // Inclusive display window (the day before the half-open upper bound).
+          const toInclusive = new Date(toExclusive);
+          toInclusive.setUTCDate(toInclusive.getUTCDate() - 1);
+          const ymd = (dt: Date) => dt.toISOString().slice(0, 10);
+
+          return c.json({
+            moneyIn: cash?.moneyIn ?? '0.00',
+            moneyOut: cash?.moneyOut ?? '0.00',
+            owed: ar?.owed ?? '0.00',
+            from: ymd(fromDate),
+            to: ymd(toInclusive),
+          });
+        },
+      )
       // Read the company's chart of accounts. Powers the expense form's
       // category (type=expense) + payment (type=asset) comboboxes (slice
       // 8.9e) and the expense list's category filter (8.9d). Active rows
