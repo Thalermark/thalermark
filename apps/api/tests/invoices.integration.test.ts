@@ -994,7 +994,14 @@ describe('POST /api/invoices/:id/send', () => {
   // Recorder mailer: capture .send() calls instead of hitting the wire. Each
   // appends to `sent`; the throws flag flips the next send into a failure to
   // exercise the 502 path without coupling to Resend or fetch internals.
-  type SentMail = { to: string; subject: string; html: string; text: string };
+  type SentMail = {
+    to: string;
+    subject: string;
+    html: string;
+    text: string;
+    from?: string;
+    replyTo?: string;
+  };
   function makeRecorder(opts: { throws?: boolean } = {}) {
     const sent: SentMail[] = [];
     return {
@@ -1065,10 +1072,47 @@ describe('POST /api/invoices/:id/send', () => {
       // Body links to the public view using the token the API just minted.
       expect(mail?.html).toContain(`/i/${body.publicToken}`);
       expect(mail?.text).toContain(`/i/${body.publicToken}`);
+      // From keeps the verified envelope address (display name swapped to the
+      // company); no reply-to until the company sets one.
+      expect(mail?.from).toMatch(/<test@thalermark\.test>$/);
+      expect(mail?.replyTo).toBeUndefined();
 
       const db = getTestDb();
       const audits = await db.select().from(auditEvents).where(eq(auditEvents.entityId, invoiceId));
       expect(audits.map((a) => a.action).sort()).toEqual(['create', 'email-sent', 'mark-sent']);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('carries the company reply-to and a company-named From once reply_to_email is set', async () => {
+    const rec = makeRecorder();
+    const ctx = buildApp({ mailer: rec.mailer });
+    try {
+      const { cookie, accountId, invoiceId } = await seedDraftInvoiceWithEmail(
+        ctx,
+        'replyto@example.com',
+      );
+      const { companyId } = await userContext('replyto@example.com');
+
+      const patch = await ctx.app.request(`/api/companies/${companyId}`, {
+        method: 'PATCH',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify({ replyToEmail: 'hello@sunnylawncare.test' }),
+      });
+      expect(patch.status).toBe(200);
+
+      const res = await ctx.app.request(`/api/invoices/${invoiceId}/send`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: '{}',
+      });
+      expect(res.status).toBe(200);
+
+      const mail = rec.sent[0];
+      expect(mail?.replyTo).toBe('hello@sunnylawncare.test');
+      // Display name swapped (quoted), envelope address still the verified one.
+      expect(mail?.from).toMatch(/^".+" <test@thalermark\.test>$/);
     } finally {
       await ctx.handle.close();
     }

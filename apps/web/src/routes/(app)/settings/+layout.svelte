@@ -11,6 +11,7 @@
   const TABS: { href: string; label: string }[] = [
     { href: '/settings/activity', label: 'Activity' },
     { href: '/settings/payments', label: 'Payments' },
+    { href: '/settings/email', label: 'Email' },
   ];
 
   const path = $derived(page.url.pathname);

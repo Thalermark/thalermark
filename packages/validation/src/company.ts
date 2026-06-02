@@ -24,13 +24,27 @@ export type BusinessType = z.infer<typeof businessTypeSchema>;
 // field. Sparse semantics rely on the typed Hono client treating `undefined`
 // as "leave alone", matching the customer PATCH idiom for editable strings.
 // At least one of the two fields must be present.
+// Reply-to is nullable on the wire: an empty field from settings clears it
+// (sets the column back to null → no Reply-To header). `null` and a valid
+// email are both accepted; `undefined` means "leave alone" per the sparse
+// idiom. We trim then coerce empty-string to null so a cleared input doesn't
+// fail the email check.
+const replyToEmailField = z
+  .union([z.string().trim().email(), z.literal(''), z.null()])
+  .transform((v) => (v ? v : null))
+  .optional();
+
 export const companyUpdateSchema = z
   .object({
     name: z.string().min(1).max(200).optional(),
     businessType: businessTypeSchema.optional(),
+    replyToEmail: replyToEmailField,
   })
-  .refine((v) => v.name !== undefined || v.businessType !== undefined, {
-    message: 'at_least_one_field_required',
-  });
+  .refine(
+    (v) => v.name !== undefined || v.businessType !== undefined || v.replyToEmail !== undefined,
+    {
+      message: 'at_least_one_field_required',
+    },
+  );
 
 export type CompanyUpdateInput = z.infer<typeof companyUpdateSchema>;
