@@ -13,6 +13,6 @@
   "devDependencies": {
     "@thalermark/api": "workspace:*",
     "hono": "4.12.19",
-    "vitest": "4.1.7"
+    "vitest": "4.1.8"
   }
 }
