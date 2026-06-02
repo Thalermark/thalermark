@@ -30,9 +30,9 @@
   "devDependencies": {
     "@biomejs/biome": "1.9.4",
     "drizzle-kit": "0.31.10",
-    "squawk-cli": "^2.53.0",
-    "turbo": "2.9.14",
+    "squawk-cli": "^2.55.0",
+    "turbo": "2.9.16",
     "typescript": "6.0.3",
-    "vitest": "4.1.7"
+    "vitest": "4.1.8"
   }
 }
