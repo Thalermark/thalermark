@@ -1,5 +1,12 @@
-import { randomBytes } from 'node:crypto';
-import type { ExpenseCategorizer, ExtractionResult, ReceiptExtractor } from '@thalermark/ai';
+import { createHash, randomBytes } from 'node:crypto';
+import {
+  CASH_FLOW_NUDGE_VERSION,
+  type CashFlowAdvisor,
+  type CashFlowSignals,
+  type ExpenseCategorizer,
+  type ExtractionResult,
+  type ReceiptExtractor,
+} from '@thalermark/ai';
 import {
   type Database,
   SYSTEM_USER_ID,
@@ -36,7 +43,7 @@ import {
   invoiceSendSchema,
   invoiceUpdateSchema,
 } from '@thalermark/validation';
-import { and, asc, desc, eq, gte, ilike, inArray, isNull, lt, lte, ne, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, ilike, inArray, isNull, lt, lte, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { cors } from 'hono/cors';
@@ -44,7 +51,9 @@ import { validator } from 'hono/validator';
 import { v7 as uuidv7 } from 'uuid';
 import type { ApiAuth } from './lib/auth.js';
 import {
-  COA_AR,
+  arBalance,
+  cashFlowNet,
+  cashOnHand,
   postExpenseCreate,
   postExpenseReversal,
   postInvoiceTransition,
@@ -461,6 +470,11 @@ export type AppDeps = {
   // model as the extractor. Distinct from extractor: this reads typed text
   // (fast model), not a receipt image (vision model). Tests inject a stub.
   categorizer?: ExpenseCategorizer | null;
+  // Cash-flow nudge advisor (AI, reasoning model). Null when no LLM is
+  // configured — the cash-flow-nudges endpoint then 503s unless cached nudges
+  // already exist. Tests inject a stub. Generated nudges are cached on the
+  // company row and regenerated only when the computed signals change.
+  advisor?: CashFlowAdvisor | null;
 };
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -1032,63 +1046,11 @@ export function createApp(deps: AppDeps) {
             }
           }
 
-          // Cash in/out over the window, on asset accounts other than AR. We
-          // net per source entity *before* splitting by direction: the ledger
-          // is immutable, so editing/voiding an expense posts a reversing entry
-          // (an expense's "Cr Cash" reverses to a "Dr Cash"). A raw debit/credit
-          // sum would count those reversals as money in and double the gross
-          // out. Summing signed cash movement per source_entity_id first means a
-          // create+edit nets to the latest amount, a create+delete nets to zero,
-          // and a genuine invoice payment still reads as money in. With no
-          // reversals this is identical to a plain debit/credit sum.
-          const cashBySource = tx
-            .select({
-              netDebit:
-                sql<string>`sum(case when ${journalLines.side} = 'debit' then ${journalLines.amount} else -${journalLines.amount} end)`.as(
-                  'net_debit',
-                ),
-            })
-            .from(journalLines)
-            .innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id))
-            .innerJoin(chartOfAccounts, eq(journalLines.coaAccountId, chartOfAccounts.id))
-            .where(
-              and(
-                eq(journalEntries.companyId, id),
-                eq(journalEntries.accountId, accountId),
-                eq(chartOfAccounts.accountType, 'asset'),
-                ne(chartOfAccounts.code, COA_AR),
-                gte(journalEntries.postedAt, fromDate),
-                lt(journalEntries.postedAt, toExclusive),
-              ),
-            )
-            .groupBy(journalEntries.sourceEntityId)
-            .as('cash_by_source');
-
-          // `::numeric(15,2)` pins the scale so the JSON carries clean 2-dp money
-          // strings; a no-rows sum coalesces to 0.00.
-          const [cash] = await tx
-            .select({
-              moneyIn: sql<string>`coalesce(sum(${cashBySource.netDebit}) filter (where ${cashBySource.netDebit} > 0), 0)::numeric(15,2)`,
-              moneyOut: sql<string>`coalesce(-sum(${cashBySource.netDebit}) filter (where ${cashBySource.netDebit} < 0), 0)::numeric(15,2)`,
-            })
-            .from(cashBySource);
-
-          // Owed: live AR balance (debits − credits), all-time — "what customers
-          // owe you" is a point-in-time figure, not a period flow.
-          const [ar] = await tx
-            .select({
-              owed: sql<string>`coalesce(sum(case when ${journalLines.side} = 'debit' then ${journalLines.amount} else -${journalLines.amount} end), 0)::numeric(15,2)`,
-            })
-            .from(journalLines)
-            .innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id))
-            .innerJoin(chartOfAccounts, eq(journalLines.coaAccountId, chartOfAccounts.id))
-            .where(
-              and(
-                eq(journalEntries.companyId, id),
-                eq(journalEntries.accountId, accountId),
-                eq(chartOfAccounts.code, COA_AR),
-              ),
-            );
+          // Reversal-safe cash flow + live AR balance (shared with cash-flow
+          // nudges) — see cashFlowNet / arBalance in lib/ledger.ts. Netting per
+          // source means expense edits/voids don't inflate the flows (#144).
+          const cash = await cashFlowNet(tx, { accountId, companyId: id, fromDate, toExclusive });
+          const owed = await arBalance(tx, { accountId, companyId: id });
 
           // Inclusive display window (the day before the half-open upper bound).
           const toInclusive = new Date(toExclusive);
@@ -1096,14 +1058,130 @@ export function createApp(deps: AppDeps) {
           const ymd = (dt: Date) => dt.toISOString().slice(0, 10);
 
           return c.json({
-            moneyIn: cash?.moneyIn ?? '0.00',
-            moneyOut: cash?.moneyOut ?? '0.00',
-            owed: ar?.owed ?? '0.00',
+            moneyIn: cash.moneyIn,
+            moneyOut: cash.moneyOut,
+            owed,
             from: ymd(fromDate),
             to: ymd(toInclusive),
           });
         },
       )
+      // Cash-flow nudges (AI insight). Deterministic ledger signals computed
+      // here (the LLM never does ledger arithmetic); the reasoning-model
+      // advisor only narrates them into <=3 plain-English nudges. Cached on the
+      // company row + regenerated only when the signals' hash changes (new
+      // activity, a newly-overdue invoice, a month rollover) — so a quiet
+      // dashboard reload returns the cached text with no model call. Opt-in
+      // like the other AI routes: 503 only when there's no advisor AND nothing
+      // cached. The cache write on a GET is deliberate read-through memoisation.
+      .get('/api/companies/:id/cash-flow-nudges', async (c) => {
+        const id = c.req.param('id');
+        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+
+        const [company] = await tx
+          .select({
+            id: companies.id,
+            cachedNudges: companies.cashFlowNudges,
+            cachedHash: companies.nudgesInputHash,
+            generatedAt: companies.nudgesGeneratedAt,
+          })
+          .from(companies)
+          .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
+          .limit(1);
+        if (!company) return c.json({ error: 'company_not_found' }, 404);
+
+        // Window math (UTC, half-open upper bounds). MTD = month start → tomorrow;
+        // trailing = the 3 prior full calendar months (Date.UTC handles year
+        // underflow). overdue = sent invoices whose due date has passed.
+        const now = new Date();
+        const y = now.getUTCFullYear();
+        const m = now.getUTCMonth();
+        const d = now.getUTCDate();
+        const todayYmd = now.toISOString().slice(0, 10);
+        const monthStart = new Date(Date.UTC(y, m, 1));
+        const tomorrow = new Date(Date.UTC(y, m, d + 1));
+
+        const scope = { accountId, companyId: id };
+        const monthToDate = await cashFlowNet(tx, {
+          ...scope,
+          fromDate: monthStart,
+          toExclusive: tomorrow,
+        });
+        const trailingMonths: CashFlowSignals['trailingMonths'] = [];
+        for (let k = 3; k >= 1; k--) {
+          const start = new Date(Date.UTC(y, m - k, 1));
+          const end = new Date(Date.UTC(y, m - k + 1, 1));
+          const flow = await cashFlowNet(tx, { ...scope, fromDate: start, toExclusive: end });
+          trailingMonths.push({
+            month: start.toISOString().slice(0, 7),
+            moneyIn: flow.moneyIn,
+            moneyOut: flow.moneyOut,
+          });
+        }
+        const [overdue] = await tx
+          .select({ count: sql<number>`count(*)::int` })
+          .from(invoices)
+          .where(
+            and(
+              eq(invoices.accountId, accountId),
+              eq(invoices.companyId, id),
+              eq(invoices.status, 'sent'),
+              lt(invoices.dueDate, todayYmd),
+            ),
+          );
+
+        const signals: CashFlowSignals = {
+          asOf: todayYmd,
+          cashOnHand: await cashOnHand(tx, scope),
+          monthToDate,
+          trailingMonths,
+          owed: await arBalance(tx, scope),
+          overdueCount: overdue?.count ?? 0,
+        };
+        // Version-tag the cache key so a prompt/advisor change (CASH_FLOW_NUDGE_VERSION)
+        // regenerates cached nudges — the signals hash alone wouldn't change.
+        const hash = createHash('sha256')
+          .update(JSON.stringify({ v: CASH_FLOW_NUDGE_VERSION, signals }))
+          .digest('hex');
+
+        // Cache hit: signals unchanged since the last generation → no model call.
+        if (company.cachedNudges && company.cachedHash === hash) {
+          return c.json({
+            nudges: company.cachedNudges,
+            generatedAt: company.generatedAt?.toISOString() ?? null,
+          });
+        }
+
+        // No advisor configured: serve stale cache if we have it, else 503.
+        if (!deps.advisor) {
+          if (company.cachedNudges) {
+            return c.json({
+              nudges: company.cachedNudges,
+              generatedAt: company.generatedAt?.toISOString() ?? null,
+            });
+          }
+          return c.json({ error: 'ai_not_configured' }, 503);
+        }
+
+        // Cache miss: regenerate, persist, return. A model failure leaves the
+        // old cache intact and surfaces 502 (the streamed UI shows nothing).
+        let nudges: Awaited<ReturnType<CashFlowAdvisor['advise']>>;
+        try {
+          nudges = await deps.advisor.advise(signals);
+        } catch (_err) {
+          return c.json({ error: 'nudges_failed' }, 502);
+        }
+        const generatedAt = new Date();
+        await tx
+          .update(companies)
+          .set({ cashFlowNudges: nudges, nudgesInputHash: hash, nudgesGeneratedAt: generatedAt })
+          .where(and(eq(companies.id, id), eq(companies.accountId, accountId)));
+
+        return c.json({ nudges, generatedAt: generatedAt.toISOString() });
+      })
       // Read the company's chart of accounts. Powers the expense form's
       // category (type=expense) + payment (type=asset) comboboxes (slice
       // 8.9e) and the expense list's category filter (8.9d). Active rows

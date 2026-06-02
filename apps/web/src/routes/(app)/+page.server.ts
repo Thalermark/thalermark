@@ -29,5 +29,19 @@ export const load: PageServerLoad = async (event) => {
   if (!res.ok) throw error(res.status, 'failed to load dashboard');
   const dashboard = await res.json();
 
-  return { dashboard, period, companyName: company.name };
+  // Cash-flow nudges (AI) stream in separately: the position tiles render
+  // immediately while this promise resolves. A cache hit on the API returns
+  // instantly; a regeneration shows the page's spinner. Any non-OK (no AI
+  // configured → 503, or a model error → 502) degrades to no nudges rather
+  // than failing the dashboard. The promise is returned UN-awaited so
+  // SvelteKit streams it.
+  const nudges = (async () => {
+    const r = await client.api.companies[':id']['cash-flow-nudges'].$get({
+      param: { id: company.id },
+    });
+    if (!r.ok) return { nudges: [] };
+    return await r.json();
+  })();
+
+  return { dashboard, period, companyName: company.name, nudges };
 };

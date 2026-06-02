@@ -69,3 +69,30 @@ export interface CategorizeResult {
 export interface ExpenseCategorizer {
   categorize(input: CategorizeInput): Promise<CategorizeResult>;
 }
+
+// Cash-flow nudges (AI insight). Deterministic ledger figures are computed by
+// the API (the LLM must never do arithmetic on a ledger); the reasoning-role
+// model only turns them into short plain-English nudges. All money fields are
+// decimal strings ([[architecture_money_decimal_strings]]).
+export interface CashFlowSignals {
+  asOf: string; // YYYY-MM-DD
+  cashOnHand: string;
+  monthToDate: { moneyIn: string; moneyOut: string };
+  // Recent full calendar months, oldest first (for trend / seasonality). Empty
+  // for a brand-new account with no prior months on record.
+  trailingMonths: { month: string; moneyIn: string; moneyOut: string }[]; // month: YYYY-MM
+  owed: string;
+  overdueCount: number;
+}
+
+// One nudge. tone drives styling: good (reassuring), warning (needs attention —
+// low cash, overdue, rising spend), info (neutral observation).
+export interface CashFlowNudge {
+  text: string;
+  tone: 'good' | 'warning' | 'info';
+}
+
+export interface CashFlowAdvisor {
+  // Returns up to ~3 nudges; an empty array when there's too little to say.
+  advise(signals: CashFlowSignals): Promise<CashFlowNudge[]>;
+}
