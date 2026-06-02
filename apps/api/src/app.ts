@@ -1575,6 +1575,112 @@ export function createApp(deps: AppDeps) {
 
         return c.json({ id: invoiceId, ...parsed.data }, 201);
       })
+      // Duplicate-as-template: clone any invoice into a fresh draft to reuse as
+      // a starting point. Copies customer + line items + header amounts/notes;
+      // gives it a new number and today/Net-30 dates; status, stamps, and the
+      // public token are deliberately NOT copied (it starts clean at draft, no
+      // ledger posting until mark-sent). Unlike estimate→invoice convert this is
+      // intentionally repeatable — no idempotency link. Any source status is a
+      // valid template (draft/sent/paid/voided).
+      .post('/api/invoices/:id/duplicate', async (c) => {
+        const id = c.req.param('id');
+        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+
+        const [source] = await tx
+          .select()
+          .from(invoices)
+          .where(and(eq(invoices.id, id), eq(invoices.accountId, accountId)))
+          .limit(1);
+        if (!source) return c.json({ error: 'invoice_not_found' }, 404);
+
+        const sourceLines = await tx
+          .select()
+          .from(invoiceLineItems)
+          .where(and(eq(invoiceLineItems.invoiceId, id), eq(invoiceLineItems.accountId, accountId)))
+          .orderBy(asc(invoiceLineItems.position));
+
+        const today = new Date();
+        const todayIso = today.toISOString().slice(0, 10);
+        const dueIso = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000)
+          .toISOString()
+          .slice(0, 10);
+
+        const [latest] = await tx
+          .select({ number: invoices.number })
+          .from(invoices)
+          .where(and(eq(invoices.accountId, accountId), eq(invoices.companyId, source.companyId)))
+          .orderBy(desc(invoices.createdAt))
+          .limit(1);
+        const number = suggestNextInvoiceNumber(latest?.number);
+
+        const [taken] = await tx
+          .select({ id: invoices.id })
+          .from(invoices)
+          .where(
+            and(
+              eq(invoices.accountId, accountId),
+              eq(invoices.companyId, source.companyId),
+              eq(invoices.number, number),
+            ),
+          )
+          .limit(1);
+        if (taken) return c.json({ error: 'invoice_number_collision', number }, 409);
+
+        const invoiceId = uuidv7();
+        await tx.insert(invoices).values({
+          id: invoiceId,
+          accountId,
+          companyId: source.companyId,
+          customerId: source.customerId,
+          number,
+          issueDate: todayIso,
+          dueDate: dueIso,
+          currency: source.currency,
+          subtotal: source.subtotal,
+          tax: source.tax,
+          total: source.total,
+          notes: source.notes,
+        });
+        if (sourceLines.length > 0) {
+          await tx.insert(invoiceLineItems).values(
+            sourceLines.map((li) => ({
+              id: uuidv7(),
+              accountId,
+              invoiceId,
+              position: li.position,
+              description: li.description,
+              quantity: li.quantity,
+              unitPrice: li.unitPrice,
+              amount: li.amount,
+            })),
+          );
+        }
+
+        await c.var.audit({
+          entityType: 'invoice',
+          entityId: invoiceId,
+          action: 'create',
+          after: {
+            id: invoiceId,
+            companyId: source.companyId,
+            customerId: source.customerId,
+            number,
+            issueDate: todayIso,
+            dueDate: dueIso,
+            currency: source.currency,
+            subtotal: source.subtotal,
+            tax: source.tax,
+            total: source.total,
+            notes: source.notes,
+            duplicatedFromInvoiceId: id,
+          },
+          companyId: source.companyId,
+        });
+
+        return c.json({ id: invoiceId }, 201);
+      })
       .get('/api/invoices', async (c) => {
         const tx = c.get('tx');
         const accountId = c.get('accountId');
