@@ -5,14 +5,18 @@
   const e = $derived(data.expense);
   const values = $derived(form?.values ?? {});
   const fieldErrors = $derived(form?.fieldErrors ?? {});
+  const prefill = $derived(data.prefill ?? {});
 
   type FieldKey = 'merchant' | 'amount' | 'expenseDate' | 'categoryAccountId' | 'paymentAccountId' | 'memo';
 
-  // Prefer a fail()-re-render value; otherwise seed from the loaded expense so
-  // the form opens pre-filled with the current record.
+  // Priority: a fail()-re-render value (the user just typed it) > a receipt
+  // auto-fill suggestion from ?prefill > the loaded expense record. So the
+  // suggestion seeds the field but never clobbers what the user re-submitted.
   function v(key: FieldKey): string {
     const submitted = (values as Record<string, unknown>)[key];
     if (typeof submitted === 'string') return submitted;
+    const suggested = (prefill as Record<string, string>)[key];
+    if (typeof suggested === 'string') return suggested;
     const current = (e as Record<string, unknown>)[key];
     return current == null ? '' : String(current);
   }
@@ -28,6 +32,12 @@
 <h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-ink">
   Edit expense<span class="text-gold-deep">.</span>
 </h1>
+
+{#if data.prefilled}
+  <div class="mt-6 rounded-sm border border-gold-deep/30 bg-gold-deep/5 px-4 py-3 text-sm text-ink/80">
+    Pre-filled from your receipt — review the details and save.
+  </div>
+{/if}
 
 {#if form?.formError}
   <div class="mt-6 rounded-sm border border-oxblood/30 bg-oxblood/5 px-4 py-3 text-sm text-oxblood">

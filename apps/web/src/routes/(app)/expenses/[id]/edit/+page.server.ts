@@ -31,11 +31,31 @@ export const load: PageServerLoad = async (event) => {
   const expenseAccounts = (await expenseAccRes.json()).accounts;
   const assetAccounts = (await assetAccRes.json()).accounts;
 
+  // Receipt auto-fill (slice 8.9h) lands here via ?prefill=1 with the AI's
+  // suggestions in the query. They seed the form (overriding the saved record)
+  // but yield to a re-submitted value, so the user is always reviewing — never
+  // an auto-applied edit. A suggested category id that's no longer a valid
+  // option is dropped so the select doesn't open on a stale row.
+  const sp = event.url.searchParams;
+  const prefilled = sp.get('prefill') === '1';
+  const prefill: Record<string, string> = {};
+  if (prefilled) {
+    const validCategory = new Set(expenseAccounts.map((a: Account) => a.id));
+    for (const key of ['merchant', 'amount', 'expenseDate'] as const) {
+      const val = sp.get(key);
+      if (val) prefill[key] = val;
+    }
+    const cat = sp.get('categoryAccountId');
+    if (cat && validCategory.has(cat)) prefill.categoryAccountId = cat;
+  }
+
   return {
     expense,
     categories: accountOptions(expenseAccounts),
     paymentAccounts: accountOptions(assetAccounts),
     paymentPickerVisible: assetAccounts.length > 1,
+    prefill,
+    prefilled,
   };
 };
 

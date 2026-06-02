@@ -131,4 +131,41 @@ export const actions: Actions = {
     }
     redirect(303, `/expenses/${event.params.id}`);
   },
+
+  // Auto-fill from receipt (slice 8.9h). The api reads the stored receipt with
+  // a vision model; on success we carry the suggestions to the edit form as
+  // query params so the user reviews + saves (the AI never writes the ledger).
+  extract: async (event) => {
+    const client = serverApiClient(event);
+    const res = await client.api.expenses[':id'].extract.$post({
+      param: { id: event.params.id },
+    });
+    if (res.status === 404) throw error(404, 'expense not found');
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      const code = body?.error ?? 'extract_failed';
+      const msg =
+        code === 'ai_not_configured'
+          ? 'AI receipt extraction is not configured on this server.'
+          : code === 'storage_not_configured'
+            ? 'Receipt storage is not configured on this server.'
+            : code === 'no_receipt'
+              ? 'Upload a receipt before auto-filling.'
+              : code === 'extraction_failed'
+                ? 'Could not read this receipt. Fill in the details by hand.'
+                : code;
+      return fail(res.status, { extractError: msg });
+    }
+    const data = (await res.json()) as {
+      extraction: { merchant: string | null; total: string | null; expenseDate: string | null };
+      suggestedCategoryAccountId: string | null;
+    };
+    const params = new URLSearchParams({ prefill: '1' });
+    if (data.extraction.merchant) params.set('merchant', data.extraction.merchant);
+    if (data.extraction.total) params.set('amount', data.extraction.total);
+    if (data.extraction.expenseDate) params.set('expenseDate', data.extraction.expenseDate);
+    if (data.suggestedCategoryAccountId)
+      params.set('categoryAccountId', data.suggestedCategoryAccountId);
+    redirect(303, `/expenses/${event.params.id}/edit?${params}`);
+  },
 };

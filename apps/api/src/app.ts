@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import type { ExtractionResult, ReceiptExtractor } from '@thalermark/ai';
 import {
   type Database,
   SYSTEM_USER_ID,
@@ -20,6 +21,7 @@ import {
   memberships,
 } from '@thalermark/db';
 import { type StorageProvider, readLocalObject, verifyFileToken } from '@thalermark/storage';
+import { emit } from '@thalermark/telemetry';
 import {
   companyUpdateSchema,
   customerCreateSchema,
@@ -443,6 +445,11 @@ export type AppDeps = {
   // from `baseDir`. Null for the s3 driver, whose signed URLs point at the
   // object store directly so /api/files is never hit.
   localFileServe?: { secret: string; baseDir: string } | null;
+  // Vision-LLM receipt extractor (slice 8.9h). Null when no LLM provider is
+  // configured (anthropic/openai with no LLM_API_KEY, or an unknown provider) —
+  // the /extract endpoint 503s in that state. Same opt-in model as
+  // stripe/storage. Tests inject a plain stub so no live model is called.
+  extractor?: ReceiptExtractor | null;
 };
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -2236,6 +2243,112 @@ export function createApp(deps: AppDeps) {
         await deps.storage.deleteObject(oldKey);
 
         return c.json({ id, deleted: true });
+      })
+      // ---- Receipt extraction (slice 8.9h) ------------------------------
+      // Pro+/BYOK: a vision model reads the stored receipt and suggests
+      // merchant / total / date / tax / category. The user reviews + saves —
+      // the AI never writes the ledger directly. Opt-in like storage/stripe:
+      // 503 when no LLM provider is configured. Sync per locked decision #7
+      // (move behind pg-boss if P95 crosses ~3s). The model call runs inside
+      // the tenant tx; on failure we still commit extraction_status='failed'
+      // (the 8.5b email-path shape) so the throw doesn't roll back the status —
+      // the UI needs to see that it failed and let the user retry.
+      .post('/api/expenses/:id/extract', async (c) => {
+        const id = c.req.param('id');
+        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+        if (!deps.extractor) return c.json({ error: 'ai_not_configured' }, 503);
+        if (!deps.storage) return c.json({ error: 'storage_not_configured' }, 503);
+
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+        const [expense] = await tx
+          .select()
+          .from(expenses)
+          .where(and(eq(expenses.id, id), eq(expenses.accountId, accountId)))
+          .limit(1);
+        if (!expense || expense.deletedAt) return c.json({ error: 'expense_not_found' }, 404);
+        // Extraction operates on the already-uploaded receipt (capture is 8.9g).
+        if (!expense.receiptStorageKey) return c.json({ error: 'no_receipt' }, 400);
+
+        // The company's active expense COA. The model's category suggestion is
+        // constrained to these codes (in the prompt and by post-hoc validation
+        // inside the extractor) so it can't return a code that wouldn't post.
+        const categories = await tx
+          .select({
+            id: chartOfAccounts.id,
+            code: chartOfAccounts.code,
+            name: chartOfAccounts.name,
+          })
+          .from(chartOfAccounts)
+          .where(
+            and(
+              eq(chartOfAccounts.accountId, accountId),
+              eq(chartOfAccounts.companyId, expense.companyId),
+              eq(chartOfAccounts.accountType, 'expense'),
+              eq(chartOfAccounts.isActive, true),
+            ),
+          )
+          .orderBy(asc(chartOfAccounts.code));
+
+        const bytes = await deps.storage.getObject(expense.receiptStorageKey);
+        const mimeType = mimeForKey(expense.receiptStorageKey);
+
+        const now = new Date();
+        let result: ExtractionResult | null = null;
+        let status: 'succeeded' | 'failed';
+        try {
+          result = await deps.extractor.extractReceipt({
+            bytes,
+            mimeType,
+            allowedCategories: categories.map((row) => ({ code: row.code, name: row.name })),
+          });
+          status = 'succeeded';
+        } catch (_err) {
+          status = 'failed';
+        }
+
+        const [updated] = await tx
+          .update(expenses)
+          .set({ extractionStatus: status, extractionPayload: result, updatedAt: now })
+          .where(and(eq(expenses.id, id), eq(expenses.accountId, accountId)))
+          .returning();
+        if (!updated) return c.json({ error: 'expense_not_found' }, 404);
+
+        await c.var.audit({
+          entityType: 'expense',
+          entityId: id,
+          action: 'receipt-extract',
+          before: { extractionStatus: expense.extractionStatus },
+          after: { extractionStatus: status, extraction: result },
+          companyId: expense.companyId,
+        });
+
+        if (status === 'failed' || !result) {
+          // Status committed as 'failed' above; surface a 502 without throwing
+          // so the tx still commits.
+          return c.json({ error: 'extraction_failed', extractionStatus: 'failed' as const }, 502);
+        }
+
+        // Resolve the suggested code → account id for the web prefill. Codes are
+        // the stable, persisted form; the edit form's category select is keyed
+        // by id. Null when the model suggested nothing or a now-removed code.
+        const suggestedCategoryAccountId = result.suggestedCategoryCode
+          ? (categories.find((row) => row.code === result?.suggestedCategoryCode)?.id ?? null)
+          : null;
+
+        // Telemetry (opt-in; no-op unless the account enabled it). The AI did
+        // the categorisation work when it returned a usable code; the user
+        // still confirms on save. expense_categorised{ai_suggested} is the
+        // documented event for this (TELEMETRY.md).
+        if (result.suggestedCategoryCode) {
+          await emit(tx, { name: 'expense_categorised', method: 'ai_suggested' });
+        }
+
+        return c.json({
+          extractionStatus: 'succeeded' as const,
+          extraction: result,
+          suggestedCategoryAccountId,
+        });
       })
       // Local-FS receipt serving. Public path (rls-context skips /api/files/*):
       // the HMAC-signed token IS the credential. 404s when the local driver

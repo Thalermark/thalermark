@@ -27,6 +27,8 @@ describe('local-fs provider', () => {
     expect(onDisk.toString()).toBe('receipt-bytes');
     const viaHelper = await readLocalObject(baseDir, KEY);
     expect(viaHelper.toString()).toBe('receipt-bytes');
+    const viaGetObject = await provider.getObject(KEY);
+    expect(new TextDecoder().decode(viaGetObject)).toBe('receipt-bytes');
   });
 
   it('hands back a signed /api/files URL that verifies to the key', async () => {
