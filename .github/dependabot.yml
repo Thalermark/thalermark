@@ -4,17 +4,20 @@ updates:
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      # Monthly, not weekly — pre-launch we want hygiene without a steady drip
+      # of "should I?" PRs. Security updates are NOT gated by this schedule;
+      # they open the moment an alert fires.
+      interval: "monthly"
       time: "09:00"
       timezone: "America/Chicago"
     ignore:
-      - dependency-name: "vite"
-        versions: [">= 8.0.0"]
-      - dependency-name: "@sveltejs/vite-plugin-svelte"
-        versions: [">= 7.0.0"]
-      - dependency-name: "vitest"
-        versions: [">= 5.0.0"]
+      # Major bumps are migrations (Tailwind 4, Biome 2, …), not routine
+      # updates — do them deliberately in a dedicated slice, not via an
+      # auto-PR. This subsumes the earlier per-package vite/svelte/vitest major
+      # pins. Caveat: a security fix available *only* in a new major is
+      # suppressed here and must be taken by hand.
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
     open-pull-requests-limit: 5
     assignees:
@@ -27,12 +30,12 @@ updates:
         dependency-type: "production"
         update-types: ["minor", "patch"]
 
-  # GitHub Actions workflow files
+  # GitHub Actions workflow files. Majors stay allowed here — action bumps
+  # (e.g. setup-buildx 3→4) are low-risk CI maintenance, not migrations.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
       time: "09:00"
       timezone: "America/Chicago"
     open-pull-requests-limit: 3
