@@ -40,6 +40,29 @@ export const load: PageServerLoad = async (event) => {
 
   const cash = assetAccounts.find((a) => a.code === CASH_CODE) ?? assetAccounts[0];
 
+  // Duplicate-as-template: ?duplicate=<id> seeds the form from an existing
+  // expense (merchant / amount / category / paid-from / memo). The DATE is not
+  // copied — it defaults to today, since a duplicate is a fresh occurrence
+  // (the recurring cell-phone / internet case). Best-effort: a missing or
+  // cross-account source just yields an empty form. The user reviews + saves,
+  // which runs the normal create + ledger posting — no server-side clone of a
+  // posted expense.
+  const duplicateId = event.url.searchParams.get('duplicate');
+  let prefill: Record<string, string> = {};
+  if (duplicateId) {
+    const srcRes = await client.api.expenses[':id'].$get({ param: { id: duplicateId } });
+    if (srcRes.ok) {
+      const src = await srcRes.json();
+      prefill = {
+        merchant: src.merchant ?? '',
+        amount: src.amount,
+        categoryAccountId: src.categoryAccountId,
+        paymentAccountId: src.paymentAccountId,
+        memo: src.memo ?? '',
+      };
+    }
+  }
+
   return {
     categories: accountOptions(expenseAccounts),
     paymentAccounts: accountOptions(assetAccounts),
@@ -47,6 +70,7 @@ export const load: PageServerLoad = async (event) => {
     paymentPickerVisible: assetAccounts.length > 1,
     defaultPaymentId: cash?.id ?? '',
     today: new Date().toISOString().slice(0, 10),
+    prefill,
   };
 };
 

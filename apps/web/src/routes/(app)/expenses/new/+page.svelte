@@ -25,9 +25,14 @@
 
   type FieldKey = 'merchant' | 'amount' | 'expenseDate' | 'categoryAccountId' | 'paymentAccountId' | 'memo';
 
+  // Priority: a submitted value (the user just typed it, via a fail()/suggest
+  // re-render) > a ?duplicate prefill from load > empty. So duplicating seeds
+  // the field but a re-submit always wins.
   function v(key: FieldKey): string {
-    const raw = (values as Record<string, unknown>)[key];
-    return typeof raw === 'string' ? raw : '';
+    const submitted = (values as Record<string, unknown>)[key];
+    if (typeof submitted === 'string') return submitted;
+    const seeded = (data.prefill as Record<string, string> | undefined)?.[key];
+    return typeof seeded === 'string' ? seeded : '';
   }
   function err(key: FieldKey): string | undefined {
     return (fieldErrors as Record<string, string>)[key];
