@@ -1942,6 +1942,112 @@ export function createApp(deps: AppDeps) {
 
         return c.json({ id: estimateId, ...parsed.data }, 201);
       })
+      // Duplicate-as-template (mirrors the invoice route): clone any estimate
+      // into a fresh draft. Copies customer + line items + amounts/notes; new
+      // number, today issue date + Net-30 expiry; status, send/accept/decline
+      // stamps, public token, and the converted-invoice link are all reset
+      // (clean draft). Repeatable — no idempotency link.
+      .post('/api/estimates/:id/duplicate', async (c) => {
+        const id = c.req.param('id');
+        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+
+        const [source] = await tx
+          .select()
+          .from(estimates)
+          .where(and(eq(estimates.id, id), eq(estimates.accountId, accountId)))
+          .limit(1);
+        if (!source) return c.json({ error: 'estimate_not_found' }, 404);
+
+        const sourceLines = await tx
+          .select()
+          .from(estimateLineItems)
+          .where(
+            and(eq(estimateLineItems.estimateId, id), eq(estimateLineItems.accountId, accountId)),
+          )
+          .orderBy(asc(estimateLineItems.position));
+
+        const today = new Date();
+        const todayIso = today.toISOString().slice(0, 10);
+        const expiresIso = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000)
+          .toISOString()
+          .slice(0, 10);
+
+        const [latest] = await tx
+          .select({ number: estimates.number })
+          .from(estimates)
+          .where(and(eq(estimates.accountId, accountId), eq(estimates.companyId, source.companyId)))
+          .orderBy(desc(estimates.createdAt))
+          .limit(1);
+        const number = suggestNextEstimateNumber(latest?.number);
+
+        const [taken] = await tx
+          .select({ id: estimates.id })
+          .from(estimates)
+          .where(
+            and(
+              eq(estimates.accountId, accountId),
+              eq(estimates.companyId, source.companyId),
+              eq(estimates.number, number),
+            ),
+          )
+          .limit(1);
+        if (taken) return c.json({ error: 'estimate_number_collision', number }, 409);
+
+        const estimateId = uuidv7();
+        await tx.insert(estimates).values({
+          id: estimateId,
+          accountId,
+          companyId: source.companyId,
+          customerId: source.customerId,
+          number,
+          issueDate: todayIso,
+          expiresOn: expiresIso,
+          currency: source.currency,
+          subtotal: source.subtotal,
+          tax: source.tax,
+          total: source.total,
+          notes: source.notes,
+        });
+        if (sourceLines.length > 0) {
+          await tx.insert(estimateLineItems).values(
+            sourceLines.map((li) => ({
+              id: uuidv7(),
+              accountId,
+              estimateId,
+              position: li.position,
+              description: li.description,
+              quantity: li.quantity,
+              unitPrice: li.unitPrice,
+              amount: li.amount,
+            })),
+          );
+        }
+
+        await c.var.audit({
+          entityType: 'estimate',
+          entityId: estimateId,
+          action: 'create',
+          after: {
+            id: estimateId,
+            companyId: source.companyId,
+            customerId: source.customerId,
+            number,
+            issueDate: todayIso,
+            expiresOn: expiresIso,
+            currency: source.currency,
+            subtotal: source.subtotal,
+            tax: source.tax,
+            total: source.total,
+            notes: source.notes,
+            duplicatedFromEstimateId: id,
+          },
+          companyId: source.companyId,
+        });
+
+        return c.json({ id: estimateId }, 201);
+      })
       .get('/api/estimates', async (c) => {
         const tx = c.get('tx');
         const accountId = c.get('accountId');

@@ -18,6 +18,15 @@
     >
       Edit
     </a>
+    <!-- Duplicate-as-template: a plain link to the new-expense form seeded from
+         this expense (date resets to today). The user reviews + saves — no
+         server clone, so a duplicate never silently posts to the ledger. -->
+    <a
+      href="/expenses/new?duplicate={e.id}"
+      class="rounded-sm border border-ink/20 px-3 py-1 font-mono text-xs uppercase tracking-widest text-ink/70 hover:border-gold-deep hover:text-gold-deep"
+    >
+      Duplicate
+    </a>
     <form method="post" action="?/delete">
       <button
         type="submit"

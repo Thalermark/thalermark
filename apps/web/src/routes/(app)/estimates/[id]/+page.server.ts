@@ -106,10 +106,25 @@ async function runConvert(event: Parameters<Actions[string]>[0]) {
   redirect(303, `/invoices/${invoiceId}`);
 }
 
+// Duplicate-as-template: clone this estimate into a fresh draft and land on its
+// edit page so the user tweaks before sending. Available for any status.
+async function runDuplicate(event: Parameters<Actions[string]>[0]) {
+  const client = serverApiClient(event);
+  const res = await client.api.estimates[':id'].duplicate.$post({ param: { id: event.params.id } });
+  if (res.status === 404) throw error(404, 'estimate not found');
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { error?: string } | null;
+    return fail(res.status, { transitionError: body?.error ?? 'duplicate_failed' });
+  }
+  const { id } = (await res.json()) as { id: string };
+  redirect(303, `/estimates/${id}/edit`);
+}
+
 export const actions: Actions = {
   send: runSend,
   markSent: (event) => runTransition(event, 'mark-sent'),
   markAccepted: (event) => runTransition(event, 'mark-accepted'),
   markDeclined: (event) => runTransition(event, 'mark-declined'),
   convert: (event) => runConvert(event),
+  duplicate: runDuplicate,
 };
