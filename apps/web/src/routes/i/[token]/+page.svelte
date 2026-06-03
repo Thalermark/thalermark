@@ -1,69 +1,16 @@
 <script lang="ts">
-  import { enhance } from '$app/forms';
   import { page } from '$app/state';
-  import { onDestroy } from 'svelte';
   import type { PageProps } from './$types';
 
-  let { data, form }: PageProps = $props();
+  let { data }: PageProps = $props();
   const inv = $derived(data.invoice);
 
-  // Stripe redirects back here as ?paid=1 after a successful payment.
-  // The webhook usually beats the redirect, so the page renders with
-  // status=paid and the banner below; this query flag is the fallback
-  // for the race where the user lands before the webhook commits.
+  // Stripe redirects back here as ?paid=1 after a successful payment on the
+  // /pay route. The webhook usually beats the redirect, so the page typically
+  // already shows status=paid; this query flag is the fallback for the race
+  // where the recipient lands before the webhook commits.
   const showProcessingBanner = $derived(
     page.url.searchParams.get('paid') === '1' && inv.status === 'sent',
-  );
-
-  // Stripe Embedded Checkout instance lives only on the client. Imported
-  // lazily on Pay-click so we don't ship 100kb+ of stripe.js to recipients
-  // who never click Pay (or to passive renders before the webhook has
-  // marked the invoice paid).
-  let mountEl: HTMLDivElement | null = $state(null);
-  let stripeCheckout: { mount: (el: HTMLElement) => void; destroy: () => void } | null = $state(
-    null,
-  );
-  let payError: string | null = $state(null);
-  let mounting = $state(false);
-
-  async function mountStripeCheckout(clientSecret: string, publishableKey: string) {
-    if (!mountEl) return;
-    mounting = true;
-    payError = null;
-    try {
-      const { loadStripe } = await import('@stripe/stripe-js');
-      const stripe = await loadStripe(publishableKey);
-      if (!stripe) {
-        payError = 'Could not load payment form. Please refresh and try again.';
-        return;
-      }
-      const checkout = await stripe.createEmbeddedCheckoutPage({ clientSecret });
-      stripeCheckout = checkout;
-      checkout.mount(mountEl);
-    } catch (_err) {
-      payError = 'Could not load payment form. Please refresh and try again.';
-    } finally {
-      mounting = false;
-    }
-  }
-
-  // Watch the action result. When createSession returns clientSecret /
-  // publishableKey, mount the Embedded Checkout. $effect runs after the
-  // mount div is in the DOM — Svelte 5 guarantees this since the {#if}
-  // gating the div triggered the effect's re-run.
-  $effect(() => {
-    if (form && 'clientSecret' in form && 'publishableKey' in form && mountEl && !stripeCheckout) {
-      void mountStripeCheckout(form.clientSecret as string, form.publishableKey as string);
-    }
-  });
-
-  onDestroy(() => {
-    stripeCheckout?.destroy();
-  });
-
-  const formError = $derived(form && 'formError' in form ? (form.formError as string) : null);
-  const checkoutOpen = $derived(
-    form != null && 'clientSecret' in form && 'publishableKey' in form,
   );
 </script>
 
@@ -180,32 +127,17 @@
     </div>
   {/if}
 
-  {#if inv.payable && !checkoutOpen}
+  {#if inv.payable}
     <div class="mt-10 border-t border-ink/10 pt-8">
-      <form method="post" action="?/createSession" use:enhance>
-        <button
-          type="submit"
-          class="rounded-sm bg-ink px-6 py-3 text-sm font-medium uppercase tracking-widest text-cream transition-colors hover:bg-gold-deep"
-        >
-          Pay {inv.total} {inv.currency}
-        </button>
-        {#if formError}
-          <p class="mt-3 text-sm text-oxblood">{formError}</p>
-        {/if}
-      </form>
-    </div>
-  {/if}
-
-  {#if checkoutOpen}
-    <div class="mt-10 border-t border-ink/10 pt-8">
-      <h2 class="font-mono text-xs uppercase tracking-widest text-ink/50">Payment</h2>
-      {#if mounting}
-        <p class="mt-3 text-sm text-ink/60">Loading payment form…</p>
-      {/if}
-      {#if payError}
-        <p class="mt-3 text-sm text-oxblood">{payError}</p>
-      {/if}
-      <div bind:this={mountEl} class="mt-4"></div>
+      <a
+        href="/pay/{page.params.token}"
+        class="inline-block rounded-sm bg-ink px-6 py-3 text-sm font-medium uppercase tracking-widest text-cream transition-colors hover:bg-gold-deep"
+      >
+        Pay {inv.total} {inv.currency}
+      </a>
+      <p class="mt-3 font-mono text-xs uppercase tracking-widest text-ink/40">
+        Secure payment via Stripe
+      </p>
     </div>
   {/if}
 

@@ -754,9 +754,9 @@ export function createApp(deps: AppDeps) {
       // company, and mints an Account Link the client redirects to. Idempotent
       // — subsequent calls reuse the stored acct_xxx and just mint a fresh
       // link (the previous one will have expired or been consumed). The
-      // checkout-session minter at /api/public/invoices/:token/checkout-session
-      // doesn't change in this slice; flipping it to route via stripeAccount
-      // is 8.5e's job.
+      // payment-intent minter at /api/public/invoices/:token/payment-intent
+      // routes the charge to this connected account via the stripeAccount
+      // request option (direct charge).
       .post('/api/companies/:id/stripe-connect/onboard', async (c) => {
         const id = c.req.param('id');
         if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
@@ -3876,14 +3876,15 @@ export function createApp(deps: AppDeps) {
           connectPending,
         });
       })
-      // Stripe Embedded Checkout session mint. Lazy — the public-view page
-      // only POSTs here when the recipient clicks Pay, so we don't bill a
-      // Stripe API call on every passive page load. Status guard mirrors
-      // the public-invoice GET's `payable` flag; the duplicate check is
-      // deliberate (the client could be stale or hand-crafted).
-      .post('/api/public/invoices/:token/checkout-session', async (c) => {
+      // Stripe PaymentIntent mint for the branded /pay page's Payment Element.
+      // Lazy — the SvelteKit /pay loader POSTs here only once the recipient has
+      // clicked through to that route, so we don't bill a Stripe API call on
+      // every passive invoice view. Status guard mirrors the public-invoice
+      // GET's `payable` flag; the duplicate check is deliberate (the client
+      // could be stale or hand-crafted). The post-payment return_url lives
+      // client-side in confirmPayment, so this route no longer needs publicAppUrl.
+      .post('/api/public/invoices/:token/payment-intent', async (c) => {
         if (!deps.stripe) return c.json({ error: 'stripe_not_configured' }, 503);
-        if (!deps.publicAppUrl) return c.json({ error: 'public_url_not_configured' }, 503);
         const token = c.req.param('token');
         const [invoice] = await bootstrapDb
           .select()
@@ -3919,42 +3920,31 @@ export function createApp(deps: AppDeps) {
           ? { stripeAccount: company.stripeConnectAccountId }
           : undefined;
 
-        const session = await deps.stripe.client.checkout.sessions.create(
+        const intent = await deps.stripe.client.paymentIntents.create(
           {
-            // Stripe 22.x renamed this from the older 'embedded' literal; same
-            // flow — mounts Stripe-hosted UI inside our page via stripe.js'
-            // initEmbeddedCheckout.
-            ui_mode: 'embedded_page',
-            mode: 'payment',
-            // Stripe navigates the parent window here after success. Includes
-            // ?paid=1 so the page can render a "payment received, processing"
-            // banner immediately even if the webhook hasn't fired yet.
-            return_url: `${deps.publicAppUrl}/i/${invoice.publicToken}?paid=1`,
-            line_items: [
-              {
-                price_data: {
-                  currency: invoice.currency.toLowerCase(),
-                  product_data: { name: `Invoice ${invoice.number}` },
-                  unit_amount: amountCents,
-                },
-                quantity: 1,
-              },
-            ],
-            // Echoed on the webhook event — primary lookup for the
-            // invoice-id → mark-paid transition. The webhook resolves the
-            // invoice purely by client_reference_id regardless of which
-            // account ran the session, so no change is needed on that side.
-            // Metadata duplicated so a human reading the Stripe dashboard can
-            // also resolve the invoice without poking at our DB.
-            client_reference_id: invoice.id,
+            amount: amountCents,
+            currency: invoice.currency.toLowerCase(),
+            // Lets the Payment Element offer whatever methods the (connected
+            // or platform) account has enabled — card, Link, wallets — without
+            // us enumerating them here.
+            automatic_payment_methods: { enabled: true },
+            description: `Invoice ${invoice.number}`,
+            // Echoed on the payment_intent.succeeded webhook — the sole lookup
+            // for the invoice-id → mark-paid transition. Resolved purely by
+            // metadata regardless of which connected account ran the charge.
             metadata: { invoiceId: invoice.id, accountId: invoice.accountId },
           },
           requestOptions,
         );
 
         return c.json({
-          clientSecret: session.client_secret,
+          clientSecret: intent.client_secret,
           publishableKey: deps.stripe.publishableKey,
+          // Direct charges live on the connected account, so the browser must
+          // init stripe.js in that account's context (loadStripe's stripeAccount
+          // option) for the Payment Element to resolve this intent. Null on the
+          // self-host / platform path, where the intent is on the operator key.
+          stripeAccountId: company?.stripeConnectAccountId ?? null,
         });
       })
       // Public estimate view — mirror of the public invoice route, minus
@@ -4052,12 +4042,13 @@ export function createApp(deps: AppDeps) {
           return c.json({ error: 'invalid_signature' }, 400);
         }
 
-        if (event.type === 'checkout.session.completed') {
-          const session = event.data.object;
-          if (session.payment_status !== 'paid') {
-            return c.json({ received: true });
-          }
-          const invoiceId = session.client_reference_id;
+        if (event.type === 'payment_intent.succeeded') {
+          const intent = event.data.object;
+          // succeeded is terminal for the charge, so no extra status check —
+          // the invoice id rides on the metadata we set at mint time. Direct-
+          // charge intents fire this on the connected account; Stripe delivers
+          // it here with event.account set, and constructEventAsync verified it.
+          const invoiceId = intent.metadata?.invoiceId;
           if (!invoiceId || !UUID_RE.test(invoiceId)) {
             return c.json({ received: true });
           }
@@ -4072,8 +4063,8 @@ export function createApp(deps: AppDeps) {
           // submit). 200 so Stripe stops retrying; no audit row.
           if (current.status === 'paid') return c.json({ received: true });
           // Other terminal states (voided, draft-without-send) — should not
-          // happen because checkout-session mint guards on status=sent, but
-          // a future PI created out-of-band could land here. 200 + no-op so
+          // happen because the payment-intent mint guards on status=sent, but
+          // a PI created out-of-band could land here. 200 + no-op so
           // the webhook queue drains; the manual reconciliation is on the
           // operator at that point.
           if (current.status !== 'sent') return c.json({ received: true });

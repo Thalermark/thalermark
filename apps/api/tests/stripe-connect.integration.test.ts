@@ -89,7 +89,7 @@ async function userContext(email: string): Promise<{ accountId: string; companyI
 type ConnectStubs = {
   createAccount?: ReturnType<typeof vi.fn>;
   createAccountLink?: ReturnType<typeof vi.fn>;
-  createCheckoutSession?: ReturnType<typeof vi.fn>;
+  createPaymentIntent?: ReturnType<typeof vi.fn>;
 };
 
 function makeStubStripe(stubs: ConnectStubs = {}): StripeBundle {
@@ -97,13 +97,13 @@ function makeStubStripe(stubs: ConnectStubs = {}): StripeBundle {
   const createAccountLink =
     stubs.createAccountLink ??
     vi.fn(async () => ({ url: 'https://connect.stripe.com/setup/s/test' }));
-  const createCheckoutSession =
-    stubs.createCheckoutSession ??
-    vi.fn(async () => ({ client_secret: 'cs_secret_test', id: 'cs_test' }));
+  const createPaymentIntent =
+    stubs.createPaymentIntent ??
+    vi.fn(async () => ({ client_secret: 'pi_secret_test', id: 'pi_test' }));
   const client = {
     accounts: { create: createAccount },
     accountLinks: { create: createAccountLink },
-    checkout: { sessions: { create: createCheckoutSession } },
+    paymentIntents: { create: createPaymentIntent },
   } as unknown as Stripe;
   return {
     client,
@@ -442,7 +442,7 @@ describe('Stripe webhook — account.updated', () => {
   });
 });
 
-// Direct DB seed for the public checkout-session route. The route is unauth'd
+// Direct DB seed for the public payment-intent route. The route is unauth'd
 // and reads via bootstrapDb, so we mirror the seed shape from
 // stripe-webhook.integration.test.ts. `connect` configures the company's Stripe
 // Connect state — null = self-host (no stripeAccount header), populated = SaaS
@@ -494,30 +494,33 @@ async function seedPayableInvoice(connect: {
   return { publicToken, invoiceId, companyId };
 }
 
-describe('POST /api/public/invoices/:token/checkout-session — slice 8.5e', () => {
+describe('POST /api/public/invoices/:token/payment-intent — slice 8.5e', () => {
   beforeEach(resetDb);
 
-  it('threads stripeAccount when the company has onboarded Connect', async () => {
-    const createCheckoutSession = vi.fn(async () => ({
-      client_secret: 'cs_secret_connect',
-      id: 'cs_connect',
+  it('threads stripeAccount + returns stripeAccountId when the company has onboarded Connect', async () => {
+    const createPaymentIntent = vi.fn(async () => ({
+      client_secret: 'pi_secret_connect',
+      id: 'pi_connect',
     }));
-    const stripe = makeStubStripe({ createCheckoutSession });
+    const stripe = makeStubStripe({ createPaymentIntent });
     const { app, handle } = buildApp(stripe);
     try {
       const { publicToken } = await seedPayableInvoice({
         accountId: 'acct_live_5e',
         chargesEnabled: true,
       });
-      const res = await app.request(`/api/public/invoices/${publicToken}/checkout-session`, {
+      const res = await app.request(`/api/public/invoices/${publicToken}/payment-intent`, {
         method: 'POST',
       });
       expect(res.status).toBe(200);
-      const body = (await res.json()) as { clientSecret: string };
-      expect(body.clientSecret).toBe('cs_secret_connect');
+      const body = (await res.json()) as { clientSecret: string; stripeAccountId: string | null };
+      expect(body.clientSecret).toBe('pi_secret_connect');
+      // The browser needs this to init stripe.js in the connected account's
+      // context for the direct-charge Payment Element.
+      expect(body.stripeAccountId).toBe('acct_live_5e');
 
-      expect(createCheckoutSession).toHaveBeenCalledTimes(1);
-      const [, opts] = createCheckoutSession.mock.calls[0] as unknown as [
+      expect(createPaymentIntent).toHaveBeenCalledTimes(1);
+      const [, opts] = createPaymentIntent.mock.calls[0] as unknown as [
         unknown,
         { stripeAccount?: string },
       ];
@@ -528,45 +531,47 @@ describe('POST /api/public/invoices/:token/checkout-session — slice 8.5e', () 
   });
 
   it('returns 503 connect_not_ready when the company has onboarded but Stripe has not enabled charges', async () => {
-    const createCheckoutSession = vi.fn();
-    const stripe = makeStubStripe({ createCheckoutSession });
+    const createPaymentIntent = vi.fn();
+    const stripe = makeStubStripe({ createPaymentIntent });
     const { app, handle } = buildApp(stripe);
     try {
       const { publicToken } = await seedPayableInvoice({
         accountId: 'acct_pending_5e',
         chargesEnabled: false,
       });
-      const res = await app.request(`/api/public/invoices/${publicToken}/checkout-session`, {
+      const res = await app.request(`/api/public/invoices/${publicToken}/payment-intent`, {
         method: 'POST',
       });
       expect(res.status).toBe(503);
       expect(await res.json()).toMatchObject({ error: 'connect_not_ready' });
-      expect(createCheckoutSession).not.toHaveBeenCalled();
+      expect(createPaymentIntent).not.toHaveBeenCalled();
     } finally {
       await handle.close();
     }
   });
 
-  it('does not pass stripeAccount on the self-host path (no connectAccountId)', async () => {
-    const createCheckoutSession = vi.fn(async () => ({
-      client_secret: 'cs_secret_selfhost',
-      id: 'cs_selfhost',
+  it('omits stripeAccount + returns stripeAccountId=null on the self-host path', async () => {
+    const createPaymentIntent = vi.fn(async () => ({
+      client_secret: 'pi_secret_selfhost',
+      id: 'pi_selfhost',
     }));
-    const stripe = makeStubStripe({ createCheckoutSession });
+    const stripe = makeStubStripe({ createPaymentIntent });
     const { app, handle } = buildApp(stripe);
     try {
       const { publicToken } = await seedPayableInvoice({
         accountId: null,
         chargesEnabled: false,
       });
-      const res = await app.request(`/api/public/invoices/${publicToken}/checkout-session`, {
+      const res = await app.request(`/api/public/invoices/${publicToken}/payment-intent`, {
         method: 'POST',
       });
       expect(res.status).toBe(200);
+      const body = (await res.json()) as { stripeAccountId: string | null };
+      expect(body.stripeAccountId).toBeNull();
       // Two-arg call with second undefined preserves Stripe SDK default
       // routing to the platform account — exactly the 8.5c behavior.
-      expect(createCheckoutSession).toHaveBeenCalledTimes(1);
-      const [, opts] = createCheckoutSession.mock.calls[0] as unknown as [unknown, unknown];
+      expect(createPaymentIntent).toHaveBeenCalledTimes(1);
+      const [, opts] = createPaymentIntent.mock.calls[0] as unknown as [unknown, unknown];
       expect(opts).toBeUndefined();
     } finally {
       await handle.close();
@@ -614,34 +619,34 @@ describe('GET /api/public/invoices/:token — payable gate on Connect (slice 8.5
   });
 });
 
-describe('Stripe webhook — checkout.session.completed from a connected account (slice 8.5e)', () => {
+describe('Stripe webhook — payment_intent.succeeded from a connected account (slice 8.5e)', () => {
   beforeEach(resetDb);
 
   it('marks the invoice paid even when the event carries account=acct_<connected>', async () => {
     const { app, handle, stripe } = buildAppWithRealStripe();
     try {
       // Seed the invoice with Connect onboarded + enabled, mirroring the
-      // shape a connected-account session completion would resolve against.
+      // shape a connected-account payment completion would resolve against.
       const { invoiceId } = await seedPayableInvoice({
         accountId: 'acct_connected_paid',
         chargesEnabled: true,
       });
 
       // Stripe Connect events carry `account: 'acct_<connected>'` at the
-      // top level. The handler resolves the invoice purely by
-      // client_reference_id, so this field shouldn't matter — but a
+      // top level. The handler resolves the invoice purely by the
+      // metadata.invoiceId, so this field shouldn't matter — but a
       // regression test pins that property in.
       const payload = JSON.stringify({
         id: 'evt_connected',
         object: 'event',
-        type: 'checkout.session.completed',
+        type: 'payment_intent.succeeded',
         account: 'acct_connected_paid',
         data: {
           object: {
-            id: 'cs_connected_session',
-            object: 'checkout.session',
-            payment_status: 'paid',
-            client_reference_id: invoiceId,
+            id: 'pi_connected_intent',
+            object: 'payment_intent',
+            status: 'succeeded',
+            metadata: { invoiceId },
           },
         },
       });
