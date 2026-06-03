@@ -34,17 +34,33 @@ const replyToEmailField = z
   .transform((v) => (v ? v : null))
   .optional();
 
+// Offline payment instructions (cash/check/Venmo/Zelle). Same nullable-on-the-
+// wire idiom as replyToEmail: a cleared field arrives as '' and coerces to null
+// so the column clears; `undefined` means "leave alone" (sparse). These are
+// display-only strings, not validated against any provider — Venmo/Zelle have
+// no API — so we only trim + cap length.
+const optionalText = (max: number) =>
+  z
+    .union([z.string().trim().max(max), z.literal(''), z.null()])
+    .transform((v) => (v ? v : null))
+    .optional();
+
 export const companyUpdateSchema = z
   .object({
     name: z.string().min(1).max(200).optional(),
     businessType: businessTypeSchema.optional(),
     replyToEmail: replyToEmailField,
+    paymentCashEnabled: z.boolean().optional(),
+    paymentCheckEnabled: z.boolean().optional(),
+    paymentCheckPayableTo: optionalText(200),
+    paymentCheckAddress: optionalText(500),
+    paymentVenmoHandle: optionalText(100),
+    paymentZelleContact: optionalText(200),
   })
-  .refine(
-    (v) => v.name !== undefined || v.businessType !== undefined || v.replyToEmail !== undefined,
-    {
-      message: 'at_least_one_field_required',
-    },
-  );
+  // Sparse: at least one field must be present (zod only surfaces keys that
+  // were actually sent, so an empty body fails this).
+  .refine((v) => Object.keys(v).length > 0, {
+    message: 'at_least_one_field_required',
+  });
 
 export type CompanyUpdateInput = z.infer<typeof companyUpdateSchema>;

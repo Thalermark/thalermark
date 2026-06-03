@@ -55,4 +55,33 @@ export const actions: Actions = {
     const { url } = await res.json();
     redirect(303, url);
   },
+
+  // Offline payment instructions (cash / check / Venmo / Zelle). Plain HTML
+  // form, no use:enhance — matches the no-JS path of the onboard action above.
+  // All six fields are sent every save; the API schema coerces '' → null so a
+  // cleared field clears the column, and the booleans keep the sparse refine
+  // satisfied.
+  savePaymentMethods: async (event) => {
+    const client = serverApiClient(event);
+    const formData = await event.request.formData();
+    const companyId = String(formData.get('companyId') ?? '');
+    if (!companyId) return fail(400, { paymentError: 'missing_company_id' });
+
+    const res = await client.api.companies[':id'].$patch({
+      param: { id: companyId },
+      json: {
+        paymentCashEnabled: formData.has('paymentCashEnabled'),
+        paymentCheckEnabled: formData.has('paymentCheckEnabled'),
+        paymentCheckPayableTo: String(formData.get('paymentCheckPayableTo') ?? ''),
+        paymentCheckAddress: String(formData.get('paymentCheckAddress') ?? ''),
+        paymentVenmoHandle: String(formData.get('paymentVenmoHandle') ?? ''),
+        paymentZelleContact: String(formData.get('paymentZelleContact') ?? ''),
+      },
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      return fail(res.status, { paymentError: body?.error ?? 'save_failed' });
+    }
+    return { paymentSaved: true };
+  },
 };

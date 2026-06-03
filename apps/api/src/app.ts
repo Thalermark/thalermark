@@ -147,6 +147,27 @@ async function resolveCoaAccounts(
   return new Map(rows.map((r) => [r.id, { code: r.code, accountType: r.accountType }]));
 }
 
+// Offline-payment columns projected for the company PATCH's audit before/after
+// and response. Keeps those call sites in lockstep; accepts any row carrying
+// the fields (the full company select or the PATCH's returning()).
+function paymentMethodsView(row: {
+  paymentCashEnabled: boolean;
+  paymentCheckEnabled: boolean;
+  paymentCheckPayableTo: string | null;
+  paymentCheckAddress: string | null;
+  paymentVenmoHandle: string | null;
+  paymentZelleContact: string | null;
+}) {
+  return {
+    paymentCashEnabled: row.paymentCashEnabled,
+    paymentCheckEnabled: row.paymentCheckEnabled,
+    paymentCheckPayableTo: row.paymentCheckPayableTo,
+    paymentCheckAddress: row.paymentCheckAddress,
+    paymentVenmoHandle: row.paymentVenmoHandle,
+    paymentZelleContact: row.paymentZelleContact,
+  };
+}
+
 // Invoice status state machine. Allowed transitions:
 //   draft → sent     (mark-sent)
 //   draft → paid     (mark-paid, manual mark-paid without sending)
@@ -674,6 +695,12 @@ export function createApp(deps: AppDeps) {
             name: companies.name,
             businessType: companies.businessType,
             replyToEmail: companies.replyToEmail,
+            paymentCashEnabled: companies.paymentCashEnabled,
+            paymentCheckEnabled: companies.paymentCheckEnabled,
+            paymentCheckPayableTo: companies.paymentCheckPayableTo,
+            paymentCheckAddress: companies.paymentCheckAddress,
+            paymentVenmoHandle: companies.paymentVenmoHandle,
+            paymentZelleContact: companies.paymentZelleContact,
           })
           .from(companies)
           .where(eq(companies.accountId, accountId))
@@ -715,6 +742,19 @@ export function createApp(deps: AppDeps) {
           if (data.businessType !== undefined) patch.businessType = data.businessType;
           // Validation coerces '' → null, so an explicit clear lands as null here.
           if (data.replyToEmail !== undefined) patch.replyToEmail = data.replyToEmail;
+          // Offline payment instructions — same sparse + '' → null semantics.
+          if (data.paymentCashEnabled !== undefined)
+            patch.paymentCashEnabled = data.paymentCashEnabled;
+          if (data.paymentCheckEnabled !== undefined)
+            patch.paymentCheckEnabled = data.paymentCheckEnabled;
+          if (data.paymentCheckPayableTo !== undefined)
+            patch.paymentCheckPayableTo = data.paymentCheckPayableTo;
+          if (data.paymentCheckAddress !== undefined)
+            patch.paymentCheckAddress = data.paymentCheckAddress;
+          if (data.paymentVenmoHandle !== undefined)
+            patch.paymentVenmoHandle = data.paymentVenmoHandle;
+          if (data.paymentZelleContact !== undefined)
+            patch.paymentZelleContact = data.paymentZelleContact;
 
           const [after] = await tx
             .update(companies)
@@ -731,11 +771,13 @@ export function createApp(deps: AppDeps) {
               name: before.name,
               businessType: before.businessType,
               replyToEmail: before.replyToEmail,
+              ...paymentMethodsView(before),
             },
             after: {
               name: after.name,
               businessType: after.businessType,
               replyToEmail: after.replyToEmail,
+              ...paymentMethodsView(after),
             },
             companyId: id,
           });
@@ -745,6 +787,7 @@ export function createApp(deps: AppDeps) {
             name: after.name,
             businessType: after.businessType,
             replyToEmail: after.replyToEmail,
+            ...paymentMethodsView(after),
           });
         },
       )
@@ -3821,6 +3864,12 @@ export function createApp(deps: AppDeps) {
             name: companies.name,
             stripeConnectAccountId: companies.stripeConnectAccountId,
             stripeConnectChargesEnabled: companies.stripeConnectChargesEnabled,
+            paymentCashEnabled: companies.paymentCashEnabled,
+            paymentCheckEnabled: companies.paymentCheckEnabled,
+            paymentCheckPayableTo: companies.paymentCheckPayableTo,
+            paymentCheckAddress: companies.paymentCheckAddress,
+            paymentVenmoHandle: companies.paymentVenmoHandle,
+            paymentZelleContact: companies.paymentZelleContact,
           })
           .from(companies)
           .where(eq(companies.id, invoice.companyId))
@@ -3854,6 +3903,22 @@ export function createApp(deps: AppDeps) {
         const connectReady = !hasConnect || company?.stripeConnectChargesEnabled === true;
         const connectPending = hasConnect && !connectReady;
 
+        // Offline "pay me directly" instructions — only the enabled methods,
+        // with their display values, so the public page renders nothing it
+        // shouldn't. Check defaults its payable-to name to the company name.
+        // These are display-only; the business confirms receipt via mark-paid.
+        const offlinePayment = {
+          cash: company?.paymentCashEnabled ?? false,
+          check: company?.paymentCheckEnabled
+            ? {
+                payableTo: company.paymentCheckPayableTo ?? company.name ?? null,
+                address: company.paymentCheckAddress ?? null,
+              }
+            : null,
+          venmo: company?.paymentVenmoHandle || null,
+          zelle: company?.paymentZelleContact || null,
+        };
+
         return c.json({
           number: invoice.number,
           status: invoice.status,
@@ -3874,6 +3939,9 @@ export function createApp(deps: AppDeps) {
           // alone without inferring from a 503 on the session-mint call.
           payable: deps.stripe != null && invoice.status === 'sent' && connectReady,
           connectPending,
+          // Offline methods show whenever the invoice is still open, regardless
+          // of Stripe — they're how an un-Connected business gets paid at all.
+          offlinePayment: invoice.status === 'sent' ? offlinePayment : null,
         });
       })
       // Stripe PaymentIntent mint for the branded /pay page's Payment Element.
