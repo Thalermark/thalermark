@@ -37,6 +37,7 @@ describe('POST /api/auth/sign-up/email', () => {
         stripeSecretKey: undefined,
         stripePublishableKey: undefined,
         stripeWebhookSecret: undefined,
+        recurringSweepCron: '0 6 * * *',
       });
       const app = createApp({ auth, db: handle.db });
 
@@ -93,6 +94,7 @@ describe('POST /api/auth/sign-up/email', () => {
         stripeSecretKey: undefined,
         stripePublishableKey: undefined,
         stripeWebhookSecret: undefined,
+        recurringSweepCron: '0 6 * * *',
       });
       const app = createApp({ auth, db: handle.db });
 

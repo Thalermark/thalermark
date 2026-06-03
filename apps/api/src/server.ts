@@ -12,12 +12,14 @@ import {
 import { runMigrations } from '@thalermark/db';
 import { configureLogger, getLogger } from '@thalermark/logger';
 import { type StorageProvider, createStorageProvider } from '@thalermark/storage';
+import { PgBoss } from 'pg-boss';
 import { createApp } from './app.js';
 import { loadEnv } from './env.js';
 import { createApiAuth } from './lib/auth.js';
 import { createApiDatabase } from './lib/db.js';
 import { initErrorTracking } from './lib/error-tracking.js';
 import { type Mailer, createConsoleMailer, createResendMailer } from './lib/mailer.js';
+import { sweepRecurringInvoices } from './lib/recurring.js';
 import { provisionAppRole } from './lib/role-provision.js';
 import { createStripeBundle } from './lib/stripe.js';
 
@@ -173,15 +175,48 @@ const server = serve(
   },
 );
 
-// Graceful shutdown: stop accepting new connections, drain the DB pool,
-// then exit. Idempotent in case both signals fire on a container stop.
+// Background jobs (pg-boss). Our first and only scheduled job is the
+// recurring-invoice sweep. pg-boss owns its own `pgboss` schema and needs DDL,
+// so it connects on the superuser DATABASE_URL (not the thalermark_app runtime
+// role). The sweep scans all tenants via the bootstrap handle, then generates
+// each schedule inside its own tenant context. A scheduler failure is logged
+// but does NOT take the HTTP server down — recurring billing degrades, the
+// rest of the app serves. Lives only here (not in createApp), so the
+// integration-test suite never boots pg-boss.
+const SWEEP_QUEUE = 'recurring-invoice-sweep';
+let boss: PgBoss | null = null;
+try {
+  boss = new PgBoss({ connectionString: env.databaseUrl });
+  boss.on('error', (err: unknown) => log.error('pg-boss error: {msg}', { msg: String(err) }));
+  await boss.start();
+  await boss.createQueue(SWEEP_QUEUE);
+  await boss.work(SWEEP_QUEUE, async () => {
+    await sweepRecurringInvoices({
+      bootstrapDb: bootstrapDbHandle.db,
+      tenantDb: dbHandle.db,
+      mail: { mailer, emailFrom: env.emailFrom, publicAppUrl: env.publicAppUrl },
+    });
+  });
+  await boss.schedule(SWEEP_QUEUE, env.recurringSweepCron, undefined, { tz: 'UTC' });
+  log.info('recurring-invoice sweep scheduled ({cron} UTC)', { cron: env.recurringSweepCron });
+} catch (err) {
+  log.error('failed to start pg-boss scheduler: {msg}', {
+    msg: err instanceof Error ? err.message : String(err),
+  });
+  boss = null;
+}
+
+// Graceful shutdown: stop the scheduler, stop accepting new connections, drain
+// the DB pool, then exit. Idempotent in case both signals fire on a container
+// stop.
 let shuttingDown = false;
 function shutdown(signal: NodeJS.Signals) {
   if (shuttingDown) return;
   shuttingDown = true;
   log.info('received {signal}, draining', { signal });
   server.close(() => {
-    Promise.all([dbHandle.close(), bootstrapDbHandle.close()]).then(
+    const bossStop = boss ? boss.stop().catch(() => {}) : Promise.resolve();
+    Promise.all([bossStop, dbHandle.close(), bootstrapDbHandle.close()]).then(
       () => process.exit(0),
       () => process.exit(1),
     );
