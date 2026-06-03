@@ -44,4 +44,10 @@ type PublicInvoice = {
   lineItems: PublicInvoiceLine[];
   payable: boolean;
   connectPending: boolean;
+  offlinePayment: {
+    cash: boolean;
+    check: { payableTo: string | null; address: string | null } | null;
+    venmo: string | null;
+    zelle: string | null;
+  } | null;
 };

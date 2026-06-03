@@ -12,6 +12,25 @@
   const showProcessingBanner = $derived(
     page.url.searchParams.get('paid') === '1' && inv.status === 'sent',
   );
+
+  // Flatten the enabled offline methods into a render-ready list. Empty when
+  // none are configured (or the invoice is closed — the API nulls the block
+  // then), which collapses the whole "or pay directly" section.
+  const offlineMethods = $derived.by(() => {
+    const o = inv.offlinePayment;
+    if (!o) return [];
+    const out: { label: string; value: string }[] = [];
+    if (o.venmo) out.push({ label: 'Venmo', value: o.venmo });
+    if (o.zelle) out.push({ label: 'Zelle', value: o.zelle });
+    if (o.check) {
+      const parts: string[] = [];
+      if (o.check.payableTo) parts.push(`Payable to ${o.check.payableTo}`);
+      if (o.check.address) parts.push(o.check.address);
+      out.push({ label: 'Check', value: parts.join('\n') || 'By check' });
+    }
+    if (o.cash) out.push({ label: 'Cash', value: 'In person' });
+    return out;
+  });
 </script>
 
 <div class="mx-auto max-w-3xl px-6 py-12 sm:py-20">
@@ -127,17 +146,39 @@
     </div>
   {/if}
 
-  {#if inv.payable}
+  {#if inv.payable || offlineMethods.length > 0}
     <div class="mt-10 border-t border-ink/10 pt-8">
-      <a
-        href="/pay/{page.params.token}"
-        class="inline-block rounded-sm bg-ink px-6 py-3 text-sm font-medium uppercase tracking-widest text-cream transition-colors hover:bg-gold-deep"
-      >
-        Pay {inv.total} {inv.currency}
-      </a>
-      <p class="mt-3 font-mono text-xs uppercase tracking-widest text-ink/40">
-        Secure payment via Stripe
-      </p>
+      <h2 class="font-mono text-xs uppercase tracking-widest text-ink/50">Payment</h2>
+
+      {#if inv.payable}
+        <div class="mt-4">
+          <a
+            href="/pay/{page.params.token}"
+            class="inline-block rounded-sm bg-ink px-6 py-3 text-sm font-medium uppercase tracking-widest text-cream transition-colors hover:bg-gold-deep"
+          >
+            Pay {inv.total} {inv.currency}
+          </a>
+          <p class="mt-2 font-mono text-xs uppercase tracking-widest text-ink/40">
+            Secure card payment via Stripe
+          </p>
+        </div>
+      {/if}
+
+      {#if offlineMethods.length > 0}
+        <div class="mt-6">
+          {#if inv.payable}
+            <p class="mb-3 text-sm text-ink/60">Or pay directly:</p>
+          {/if}
+          <dl class="grid gap-x-8 gap-y-3 sm:grid-cols-2">
+            {#each offlineMethods as m (m.label)}
+              <div>
+                <dt class="font-mono text-xs uppercase tracking-widest text-ink/50">{m.label}</dt>
+                <dd class="mt-1 whitespace-pre-line text-ink">{m.value}</dd>
+              </div>
+            {/each}
+          </dl>
+        </div>
+      {/if}
     </div>
   {/if}
 

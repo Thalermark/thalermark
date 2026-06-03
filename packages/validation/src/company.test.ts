@@ -66,4 +66,32 @@ describe('companyUpdateSchema', () => {
   it('rejects a malformed replyToEmail', () => {
     expect(companyUpdateSchema.safeParse({ replyToEmail: 'not-an-email' }).success).toBe(false);
   });
+
+  it('accepts offline payment fields (booleans + handles)', () => {
+    const r = companyUpdateSchema.safeParse({
+      paymentCashEnabled: true,
+      paymentCheckEnabled: true,
+      paymentCheckPayableTo: 'Razzle Dazzle LLC',
+      paymentVenmoHandle: '@razzle-dazzle',
+      paymentZelleContact: 'pay@razzle.test',
+    });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.paymentCashEnabled).toBe(true);
+      expect(r.data.paymentVenmoHandle).toBe('@razzle-dazzle');
+    }
+  });
+
+  it('coerces empty-string offline text fields to null (clears them)', () => {
+    const r = companyUpdateSchema.safeParse({ paymentVenmoHandle: '', paymentZelleContact: '  ' });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.paymentVenmoHandle).toBeNull();
+      expect(r.data.paymentZelleContact).toBeNull();
+    }
+  });
+
+  it('accepts a single offline boolean as the only field (sparse refine)', () => {
+    expect(companyUpdateSchema.safeParse({ paymentCashEnabled: false }).success).toBe(true);
+  });
 });

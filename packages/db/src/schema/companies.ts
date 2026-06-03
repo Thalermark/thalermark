@@ -47,6 +47,19 @@ export const companies = pgTable(
     stripeConnectDetailsSubmitted: boolean('stripe_connect_details_submitted')
       .notNull()
       .default(false),
+    // Offline / manual payment methods, surfaced as "pay me directly"
+    // instructions on the public invoice. Display-only — the app can't process
+    // or verify these (Venmo/Zelle have no usable third-party API), so the
+    // business confirms receipt via the existing manual mark-paid transition,
+    // never the customer. Cash/check are on/off booleans; venmo/zelle are
+    // considered enabled when their handle/contact is non-empty. Check carries
+    // an optional payable-to name + mailing address.
+    paymentCashEnabled: boolean('payment_cash_enabled').notNull().default(false),
+    paymentCheckEnabled: boolean('payment_check_enabled').notNull().default(false),
+    paymentCheckPayableTo: text('payment_check_payable_to'),
+    paymentCheckAddress: text('payment_check_address'),
+    paymentVenmoHandle: text('payment_venmo_handle'),
+    paymentZelleContact: text('payment_zelle_contact'),
     // Cash-flow nudges (AI insight) cache. The reasoning-role LLM writes
     // plain-English nudges from deterministic ledger signals; we cache them
     // here so the dashboard doesn't re-run the model on every view.

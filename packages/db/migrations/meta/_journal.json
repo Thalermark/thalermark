@@ -239,6 +239,13 @@
       "when": 1780451083983,
       "tag": "0033_enable_rls_recurring_invoices",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1780497230399,
+      "tag": "0034_add_offline_payment_methods",
+      "breakpoints": true
     }
   ]
 }
