@@ -43,6 +43,9 @@
     'receipt-upload': 'attached a receipt',
     'receipt-delete': 'removed the receipt',
     'receipt-extract': 'auto-filled from the receipt',
+    pause: 'paused',
+    resume: 'resumed',
+    end: 'ended',
   };
 
   // Entity-type → display singular for the feed prefix and the link path.
@@ -52,6 +55,7 @@
     estimate: 'Estimate',
     expense: 'Expense',
     company: 'Company',
+    recurring_invoice: 'Recurring',
   };
   const ENTITY_PATHS: Record<string, string> = {
     customer: '/customers',
@@ -59,6 +63,7 @@
     estimate: '/estimates',
     expense: '/expenses',
     company: '/settings/payments',
+    recurring_invoice: '/recurring',
   };
 
   function actionLabel(action: string): string {

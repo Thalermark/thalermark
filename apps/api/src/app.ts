@@ -26,6 +26,8 @@ import {
   journalEntries,
   journalLines,
   memberships,
+  recurringInvoiceLineItems,
+  recurringInvoices,
 } from '@thalermark/db';
 import { type StorageProvider, readLocalObject, verifyFileToken } from '@thalermark/storage';
 import { emit } from '@thalermark/telemetry';
@@ -42,6 +44,8 @@ import {
   invoiceCreateSchema,
   invoiceSendSchema,
   invoiceUpdateSchema,
+  recurringInvoiceCreateSchema,
+  recurringInvoiceUpdateSchema,
 } from '@thalermark/validation';
 import { and, asc, desc, eq, gte, ilike, inArray, isNull, lt, lte, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
@@ -266,6 +270,78 @@ async function transitionInvoice(
     accountId,
     companyId: updated.companyId,
     postedAt: now,
+  });
+
+  return c.json(updated);
+}
+
+// Recurring-invoice schedule state machine. Allowed transitions:
+//   active → paused   (pause — manual hold; sweeper skips paused schedules)
+//   paused → active   (resume)
+//   active → ended    (end — terminal)
+//   paused → ended    (end — terminal)
+// `ended` is terminal. An end condition (end_date / max_occurrences) reached
+// during generation also moves a schedule to `ended` (slice R3), so the same
+// status set is written from two places.
+type RecurringStatus = 'active' | 'paused' | 'ended';
+type RecurringTransitionKey = 'pause' | 'resume' | 'end';
+const RECURRING_TRANSITIONS: Record<
+  RecurringTransitionKey,
+  { from: readonly RecurringStatus[]; to: RecurringStatus }
+> = {
+  pause: { from: ['active'], to: 'paused' },
+  resume: { from: ['paused'], to: 'active' },
+  end: { from: ['active', 'paused'], to: 'ended' },
+};
+
+async function transitionRecurringInvoice(
+  c: Context<{ Variables: RlsVariables }>,
+  id: string,
+  key: RecurringTransitionKey,
+) {
+  if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+  const spec = RECURRING_TRANSITIONS[key];
+  const tx = c.get('tx');
+  const accountId = c.get('accountId');
+
+  const [current] = await tx
+    .select()
+    .from(recurringInvoices)
+    .where(and(eq(recurringInvoices.id, id), eq(recurringInvoices.accountId, accountId)))
+    .limit(1);
+  if (!current) return c.json({ error: 'recurring_invoice_not_found' }, 404);
+
+  if (!(spec.from as readonly string[]).includes(current.status)) {
+    return c.json({ error: 'invalid_transition', from: current.status, to: spec.to }, 409);
+  }
+
+  const now = new Date();
+  const patch: Record<string, unknown> = { status: spec.to, updatedAt: now };
+  // On resume, if next_run_date is in the past (the schedule was paused
+  // through one or more would-be occurrences), pull it forward to today so the
+  // next sweep mints a current-dated invoice rather than a back-dated one.
+  // next_run_date is an ISO YYYY-MM-DD string, so a lexicographic compare is a
+  // date compare. The sweeper's own catch-up collapse (slice R3) covers
+  // server-downtime gaps; this covers the deliberate pause case.
+  if (key === 'resume') {
+    const todayIso = now.toISOString().slice(0, 10);
+    if (current.nextRunDate < todayIso) patch.nextRunDate = todayIso;
+  }
+
+  const [updated] = await tx
+    .update(recurringInvoices)
+    .set(patch)
+    .where(and(eq(recurringInvoices.id, id), eq(recurringInvoices.accountId, accountId)))
+    .returning();
+  if (!updated) return c.json({ error: 'recurring_invoice_not_found' }, 404);
+
+  await c.var.audit({
+    entityType: 'recurring_invoice',
+    entityId: id,
+    action: key,
+    before: { status: current.status, nextRunDate: current.nextRunDate },
+    after: { status: updated.status, nextRunDate: updated.nextRunDate },
+    companyId: updated.companyId,
   });
 
   return c.json(updated);
@@ -1887,6 +1963,247 @@ export function createApp(deps: AppDeps) {
       .post('/api/invoices/:id/void', (c) =>
         transitionInvoice(c, c.req.param('id'), 'void', INVOICE_TRANSITIONS.void),
       )
+      // Recurring invoice schedules (slice R2). A schedule is a template +
+      // cadence; the background sweeper (slice R3) clones it into a real
+      // invoice on each occurrence. CRUD + pause/resume/end here; no
+      // generation yet. Mirrors the invoice routes (customer↔company
+      // invariant, full-replacement line items, draft-style PATCH) minus the
+      // (company_id, number) uniqueness — schedules have no number.
+      .post('/api/recurring-invoices', async (c) => {
+        const body = await c.req.json().catch(() => null);
+        const parsed = recurringInvoiceCreateSchema.safeParse(body);
+        if (!parsed.success) {
+          return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+        }
+
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+        const { companyId, customerId, lineItems } = parsed.data;
+        const d = parsed.data;
+
+        const [customer] = await tx
+          .select({ id: customers.id, companyId: customers.companyId })
+          .from(customers)
+          .where(and(eq(customers.id, customerId), eq(customers.accountId, accountId)))
+          .limit(1);
+        if (!customer) return c.json({ error: 'customer_not_found' }, 404);
+        if (customer.companyId !== companyId) {
+          return c.json({ error: 'customer_company_mismatch' }, 400);
+        }
+
+        const recurringId = uuidv7();
+        // next_run_date seeds from start_date; the sweeper advances it.
+        await tx.insert(recurringInvoices).values({
+          id: recurringId,
+          accountId,
+          companyId,
+          customerId,
+          frequency: d.frequency,
+          intervalCount: d.intervalCount,
+          startDate: d.startDate,
+          nextRunDate: d.startDate,
+          endDate: d.endDate ?? null,
+          maxOccurrences: d.maxOccurrences ?? null,
+          netTermsDays: d.netTermsDays ?? 30,
+          currency: d.currency ?? 'USD',
+          subtotal: d.subtotal,
+          tax: d.tax ?? '0',
+          total: d.total,
+          notes: d.notes ?? null,
+        });
+        const lineRows = lineItems.map((li) => ({
+          id: uuidv7(),
+          accountId,
+          recurringInvoiceId: recurringId,
+          ...li,
+        }));
+        await tx.insert(recurringInvoiceLineItems).values(lineRows);
+
+        await c.var.audit({
+          entityType: 'recurring_invoice',
+          entityId: recurringId,
+          action: 'create',
+          after: { id: recurringId, ...parsed.data },
+          companyId,
+        });
+
+        return c.json({ id: recurringId, ...parsed.data }, 201);
+      })
+      .get('/api/recurring-invoices', async (c) => {
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+        const companyId = c.req.query('companyId');
+        const status = c.req.query('status');
+        const conditions = [eq(recurringInvoices.accountId, accountId)];
+        if (companyId) conditions.push(eq(recurringInvoices.companyId, companyId));
+        if (status) conditions.push(eq(recurringInvoices.status, status));
+        const rows = await tx
+          .select()
+          .from(recurringInvoices)
+          .where(and(...conditions))
+          .orderBy(asc(recurringInvoices.createdAt));
+        return c.json({ recurringInvoices: rows });
+      })
+      .get('/api/recurring-invoices/:id', async (c) => {
+        const id = c.req.param('id');
+        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+        const [schedule] = await tx
+          .select()
+          .from(recurringInvoices)
+          .where(and(eq(recurringInvoices.id, id), eq(recurringInvoices.accountId, accountId)));
+        if (!schedule) return c.json({ error: 'recurring_invoice_not_found' }, 404);
+        const lines = await tx
+          .select()
+          .from(recurringInvoiceLineItems)
+          .where(
+            and(
+              eq(recurringInvoiceLineItems.recurringInvoiceId, id),
+              eq(recurringInvoiceLineItems.accountId, accountId),
+            ),
+          )
+          .orderBy(asc(recurringInvoiceLineItems.position));
+        // Generated invoices carry recurring_invoice_id provenance (slice R1).
+        // Return them so the detail page can show the run history without a
+        // second round-trip; newest first.
+        const generatedInvoices = await tx
+          .select({
+            id: invoices.id,
+            number: invoices.number,
+            status: invoices.status,
+            issueDate: invoices.issueDate,
+            total: invoices.total,
+            createdAt: invoices.createdAt,
+          })
+          .from(invoices)
+          .where(and(eq(invoices.recurringInvoiceId, id), eq(invoices.accountId, accountId)))
+          .orderBy(desc(invoices.createdAt));
+        return c.json({ ...schedule, lineItems: lines, generatedInvoices });
+      })
+      .patch(
+        '/api/recurring-invoices/:id',
+        validator('json', (value, c) => {
+          const parsed = recurringInvoiceUpdateSchema.safeParse(value);
+          if (!parsed.success) {
+            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+          }
+          return parsed.data;
+        }),
+        async (c) => {
+          const id = c.req.param('id');
+          if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+          const data = c.req.valid('json');
+
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+          const { customerId, lineItems } = data;
+          const d = data;
+
+          const [current] = await tx
+            .select()
+            .from(recurringInvoices)
+            .where(and(eq(recurringInvoices.id, id), eq(recurringInvoices.accountId, accountId)))
+            .limit(1);
+          if (!current) return c.json({ error: 'recurring_invoice_not_found' }, 404);
+
+          // Edits are blocked once a schedule is ended (terminal — its run
+          // history is fixed). active + paused schedules stay editable so the
+          // operator can adjust the template, cadence, or customer.
+          if (current.status === 'ended') {
+            return c.json({ error: 'not_editable', status: current.status }, 409);
+          }
+
+          // customerId is mutable; companyId is fixed (omitted from the update
+          // schema), so the customer↔company invariant compares against
+          // current.companyId.
+          const [customer] = await tx
+            .select({ id: customers.id, companyId: customers.companyId })
+            .from(customers)
+            .where(and(eq(customers.id, customerId), eq(customers.accountId, accountId)))
+            .limit(1);
+          if (!customer) return c.json({ error: 'customer_not_found' }, 404);
+          if (customer.companyId !== current.companyId) {
+            return c.json({ error: 'customer_company_mismatch' }, 400);
+          }
+
+          const beforeLines = await tx
+            .select()
+            .from(recurringInvoiceLineItems)
+            .where(
+              and(
+                eq(recurringInvoiceLineItems.recurringInvoiceId, id),
+                eq(recurringInvoiceLineItems.accountId, accountId),
+              ),
+            )
+            .orderBy(asc(recurringInvoiceLineItems.position));
+
+          await tx
+            .delete(recurringInvoiceLineItems)
+            .where(
+              and(
+                eq(recurringInvoiceLineItems.recurringInvoiceId, id),
+                eq(recurringInvoiceLineItems.accountId, accountId),
+              ),
+            );
+          const newLineRows = lineItems.map((li) => ({
+            id: uuidv7(),
+            accountId,
+            recurringInvoiceId: id,
+            ...li,
+          }));
+          await tx.insert(recurringInvoiceLineItems).values(newLineRows);
+
+          // next_run_date and occurrence_count are runtime state owned by the
+          // sweeper, not template fields — PATCH leaves them alone EXCEPT
+          // before the first generation (occurrence_count === 0), where we
+          // keep next_run_date pinned to start_date so editing the start date
+          // of a not-yet-run schedule behaves intuitively.
+          const nextRunPatch = current.occurrenceCount === 0 ? { nextRunDate: d.startDate } : {};
+
+          const [updated] = await tx
+            .update(recurringInvoices)
+            .set({
+              customerId,
+              frequency: d.frequency,
+              intervalCount: d.intervalCount,
+              startDate: d.startDate,
+              endDate: d.endDate ?? null,
+              maxOccurrences: d.maxOccurrences ?? null,
+              netTermsDays: d.netTermsDays ?? 30,
+              currency: d.currency ?? current.currency,
+              subtotal: d.subtotal,
+              tax: d.tax ?? '0',
+              total: d.total,
+              notes: d.notes ?? null,
+              updatedAt: new Date(),
+              ...nextRunPatch,
+            })
+            .where(and(eq(recurringInvoices.id, id), eq(recurringInvoices.accountId, accountId)))
+            .returning();
+          if (!updated) return c.json({ error: 'recurring_invoice_not_found' }, 404);
+
+          await c.var.audit({
+            entityType: 'recurring_invoice',
+            entityId: id,
+            action: 'update',
+            before: { ...current, lineItems: beforeLines },
+            after: { ...updated, lineItems: newLineRows },
+            companyId: current.companyId,
+          });
+
+          return c.json({ ...updated, lineItems: newLineRows });
+        },
+      )
+      .post('/api/recurring-invoices/:id/pause', (c) =>
+        transitionRecurringInvoice(c, c.req.param('id'), 'pause'),
+      )
+      .post('/api/recurring-invoices/:id/resume', (c) =>
+        transitionRecurringInvoice(c, c.req.param('id'), 'resume'),
+      )
+      .post('/api/recurring-invoices/:id/end', (c) =>
+        transitionRecurringInvoice(c, c.req.param('id'), 'end'),
+      )
       // Estimates — same shape as invoices minus dueDate and minus the pay
       // path. Mirrors invoices.* closely (status state machine, audit rows,
       // customer↔company invariant, (company_id, number) uniqueness pre-
@@ -3362,7 +3679,13 @@ export function createApp(deps: AppDeps) {
         const entityTypeRaw = c.req.query('entityType');
         const entityIdRaw = c.req.query('entityId');
         const limitRaw = c.req.query('limit');
-        const ALLOWED_TYPES = ['customer', 'invoice', 'estimate', 'expense'] as const;
+        const ALLOWED_TYPES = [
+          'customer',
+          'invoice',
+          'estimate',
+          'expense',
+          'recurring_invoice',
+        ] as const;
         type EntityType = (typeof ALLOWED_TYPES)[number];
 
         // Validation: entityId requires entityType (a bare id is ambiguous);
@@ -3429,6 +3752,7 @@ export function createApp(deps: AppDeps) {
             invoice: [],
             estimate: [],
             expense: [],
+            recurring_invoice: [],
           };
           for (const r of rows) {
             if ((ALLOWED_TYPES as readonly string[]).includes(r.entityType)) {
@@ -3470,6 +3794,20 @@ export function createApp(deps: AppDeps) {
                 and(eq(expenses.accountId, accountId), inArray(expenses.id, idsByType.expense)),
               );
             for (const r of expRows) labelMap.set(`expense:${r.id}`, r.label);
+          }
+          // Schedules have no number — label them by customer name (joined).
+          if (idsByType.recurring_invoice.length > 0) {
+            const recRows = await tx
+              .select({ id: recurringInvoices.id, label: customers.name })
+              .from(recurringInvoices)
+              .innerJoin(customers, eq(customers.id, recurringInvoices.customerId))
+              .where(
+                and(
+                  eq(recurringInvoices.accountId, accountId),
+                  inArray(recurringInvoices.id, idsByType.recurring_invoice),
+                ),
+              );
+            for (const r of recRows) labelMap.set(`recurring_invoice:${r.id}`, r.label);
           }
         }
 
