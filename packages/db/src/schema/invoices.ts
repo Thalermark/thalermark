@@ -57,6 +57,15 @@ export const invoices = pgTable(
     paidAt: timestamp('paid_at', { withTimezone: true }),
     voidedAt: timestamp('voided_at', { withTimezone: true }),
     publicToken: text('public_token'),
+    // How a paid invoice was settled, recorded on the mark-paid transition.
+    // payment_method is the channel: 'cash' | 'check' | 'venmo' | 'zelle' |
+    // 'other' from the manual picker, or 'stripe' stamped automatically by the
+    // payment_intent.succeeded webhook. payment_reference is an optional note —
+    // a check number, a confirmation code. Both null until paid. Display-only:
+    // no ledger effect (the mark-paid posting is always Dr Cash / Cr AR).
+    // App-layer enum; CHECK deferred like business_type.
+    paymentMethod: text('payment_method'),
+    paymentReference: text('payment_reference'),
     // Provenance link for invoices minted by a recurring schedule's sweeper.
     // Null for hand-created invoices. ON DELETE SET NULL so ending+deleting a
     // schedule never cascades through generated-invoice history (mirrors

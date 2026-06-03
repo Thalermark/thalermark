@@ -253,7 +253,8 @@ describe('ledger postings — invoice transitions', () => {
       });
       await ctx.app.request(`/api/invoices/${invoiceId}/mark-paid`, {
         method: 'POST',
-        headers: { cookie, 'x-account-id': accountId },
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify({ method: 'cash' }),
       });
 
       const entries = await entriesFor(invoiceId);
@@ -288,7 +289,8 @@ describe('ledger postings — invoice transitions', () => {
 
       const res = await ctx.app.request(`/api/invoices/${invoiceId}/mark-paid`, {
         method: 'POST',
-        headers: { cookie, 'x-account-id': accountId },
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify({ method: 'cash' }),
       });
       expect(res.status).toBe(200);
 
@@ -392,7 +394,8 @@ describe('ledger postings — invoice transitions', () => {
       }
       await ctx.app.request(`/api/invoices/${a}/mark-paid`, {
         method: 'POST',
-        headers: { cookie, 'x-account-id': accountId },
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify({ method: 'cash' }),
       });
       await ctx.app.request(`/api/invoices/${b}/void`, {
         method: 'POST',
@@ -400,7 +403,8 @@ describe('ledger postings — invoice transitions', () => {
       });
       await ctx.app.request(`/api/invoices/${c}/mark-paid`, {
         method: 'POST',
-        headers: { cookie, 'x-account-id': accountId },
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify({ method: 'cash' }),
       });
 
       const db = getTestDb();

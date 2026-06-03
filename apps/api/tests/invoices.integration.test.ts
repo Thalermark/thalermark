@@ -771,7 +771,8 @@ describe('invoice status transitions', () => {
       const { cookie, accountId, invoiceId } = await seedDraftInvoice(ctx, 'paid@example.com');
       const direct = await ctx.app.request(`/api/invoices/${invoiceId}/mark-paid`, {
         method: 'POST',
-        headers: { cookie, 'x-account-id': accountId },
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify({ method: 'cash' }),
       });
       expect(direct.status).toBe(200);
       const db = getTestDb();
@@ -779,6 +780,8 @@ describe('invoice status transitions', () => {
       expect(paidFromDraft?.status).toBe('paid');
       expect(paidFromDraft?.paidAt).not.toBeNull();
       expect(paidFromDraft?.sentAt).toBeNull();
+      // The recorded payment method persists from the mark-paid body.
+      expect(paidFromDraft?.paymentMethod).toBe('cash');
 
       const second = await seedDraftInvoice(ctx, 'paid2@example.com');
       await ctx.app.request(`/api/invoices/${second.invoiceId}/mark-sent`, {
@@ -787,7 +790,12 @@ describe('invoice status transitions', () => {
       });
       const markPaid = await ctx.app.request(`/api/invoices/${second.invoiceId}/mark-paid`, {
         method: 'POST',
-        headers: { cookie: second.cookie, 'x-account-id': second.accountId },
+        headers: {
+          cookie: second.cookie,
+          'x-account-id': second.accountId,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ method: 'cash' }),
       });
       expect(markPaid.status).toBe(200);
       const [paidFromSent] = await db
@@ -797,6 +805,28 @@ describe('invoice status transitions', () => {
       expect(paidFromSent?.status).toBe('paid');
       expect(paidFromSent?.sentAt).not.toBeNull();
       expect(paidFromSent?.paidAt).not.toBeNull();
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('backdates paidAt to the provided paidOn date', async () => {
+    const ctx = buildApp();
+    try {
+      const { cookie, accountId, invoiceId } = await seedDraftInvoice(ctx, 'backdate@example.com');
+      const res = await ctx.app.request(`/api/invoices/${invoiceId}/mark-paid`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify({ method: 'check', reference: '1042', paidOn: '2026-05-20' }),
+      });
+      expect(res.status).toBe(200);
+      const db = getTestDb();
+      const [row] = await db.select().from(invoices).where(eq(invoices.id, invoiceId));
+      expect(row?.status).toBe('paid');
+      expect(row?.paymentMethod).toBe('check');
+      expect(row?.paymentReference).toBe('1042');
+      // paidAt stamped to the backdated date (midnight UTC), not the record time.
+      expect(row?.paidAt?.toISOString().slice(0, 10)).toBe('2026-05-20');
     } finally {
       await ctx.handle.close();
     }
@@ -831,7 +861,8 @@ describe('invoice status transitions', () => {
       expect(voidRes.status).toBe(200);
       const replay = await ctx.app.request(`/api/invoices/${invoiceId}/mark-paid`, {
         method: 'POST',
-        headers: { cookie, 'x-account-id': accountId },
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify({ method: 'cash' }),
       });
       expect(replay.status).toBe(409);
       const body = (await replay.json()) as { error: string; from: string; to: string };
@@ -919,7 +950,8 @@ describe('public invoice view', () => {
 
       const paid = await ctx.app.request(`/api/invoices/${invoiceId}/mark-paid`, {
         method: 'POST',
-        headers: { cookie, 'x-account-id': accountId },
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify({ method: 'cash' }),
       });
       expect(paid.status).toBe(200);
       const [paidRow] = await db.select().from(invoices).where(eq(invoices.id, invoiceId));
@@ -1220,7 +1252,8 @@ describe('POST /api/invoices/:id/send', () => {
       );
       await ctx.app.request(`/api/invoices/${invoiceId}/mark-paid`, {
         method: 'POST',
-        headers: { cookie, 'x-account-id': accountId },
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify({ method: 'cash' }),
       });
       const res = await ctx.app.request(`/api/invoices/${invoiceId}/send`, {
         method: 'POST',

@@ -64,3 +64,27 @@ export const invoiceSendSchema = z.object({
 });
 
 export type InvoiceSendInput = z.infer<typeof invoiceSendSchema>;
+
+// Input schema for POST /api/invoices/:id/mark-paid. Records HOW the money
+// arrived. The picker offers every offline channel unconditionally — what a
+// business advertises on its invoice (the company offline-method settings) is
+// separate from what it will accept in hand. 'stripe' is deliberately NOT in
+// this set: it's stamped server-side by the payment_intent.succeeded webhook,
+// never user-submitted. reference is an optional note (check number,
+// confirmation code); '' coerces to null so a blank field clears cleanly.
+export const INVOICE_PAYMENT_METHODS = ['cash', 'check', 'venmo', 'zelle', 'other'] as const;
+
+export const invoiceMarkPaidSchema = z.object({
+  method: z.enum(INVOICE_PAYMENT_METHODS),
+  reference: z
+    .union([z.string().trim().max(100), z.literal(''), z.null()])
+    .transform((v) => (v ? v : null))
+    .optional(),
+  // Date the payment was actually received (offline payments are often
+  // recorded days later). Drives paidAt + the ledger posting date. Omitted →
+  // server uses now. Format-only validation, like issue/due dates; the UI caps
+  // it at today.
+  paidOn: isoDateString.optional(),
+});
+
+export type InvoiceMarkPaidInput = z.infer<typeof invoiceMarkPaidSchema>;

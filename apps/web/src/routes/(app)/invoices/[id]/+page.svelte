@@ -1,5 +1,6 @@
 <script lang="ts">
   import AuditHistory from '$lib/components/AuditHistory.svelte';
+  import SplitButton from '$lib/components/SplitButton.svelte';
   import type { PageProps } from './$types';
 
   let { data, form }: PageProps = $props();
@@ -29,6 +30,39 @@
   // Default `to` mirrors the customer's email when available.
   let showOverride = $state(false);
   const sendLabel = $derived(inv.status === 'sent' ? 'Resend invoice' : 'Send invoice');
+
+  // How a paid invoice was settled. 'stripe' is the webhook-stamped channel;
+  // the rest come from the manual mark-paid picker. Falls back to the raw code
+  // for forward-compat if a new method lands before this map is updated.
+  const PAYMENT_METHOD_LABELS: Record<string, string> = {
+    cash: 'Cash',
+    check: 'Check',
+    venmo: 'Venmo',
+    zelle: 'Zelle',
+    stripe: 'Card (Stripe)',
+    other: 'Other',
+  };
+  const paidVia = $derived(
+    inv.status === 'paid' && inv.paymentMethod
+      ? (PAYMENT_METHOD_LABELS[inv.paymentMethod] ?? inv.paymentMethod)
+      : null,
+  );
+
+  // Mark-paid disclosure: the toolbar shows a single Mark paid button that
+  // reveals a panel, rather than crowding the action row with a select + field.
+  // paidMethod drives the conditional check-number input inside the panel.
+  const PAID_METHOD_CHOICES = [
+    { value: 'cash', label: 'Cash' },
+    { value: 'check', label: 'Check' },
+    { value: 'venmo', label: 'Venmo' },
+    { value: 'zelle', label: 'Zelle' },
+    { value: 'other', label: 'Other' },
+  ] as const;
+  let showPaidPanel = $state(false);
+  let paidMethod = $state('cash');
+  // Default the payment date to today; the field is capped at today so a
+  // payment can't be recorded in the future.
+  const today = new Date().toISOString().slice(0, 10);
 </script>
 
 <a href="/invoices" class="eyebrow text-ink/60 hover:text-ink">← Invoices</a>
@@ -83,34 +117,65 @@
             class="rounded-sm border border-ink/20 bg-cream-warm px-3 py-2 text-sm text-ink placeholder:text-ink/40 focus:border-gold-deep focus:outline-none"
           />
         {/if}
-        <button
-          type="submit"
-          class="rounded-sm bg-ink px-4 py-2 text-sm font-medium text-cream transition-colors hover:bg-gold-deep"
-        >
-          {sendLabel}
-        </button>
-        {#if !showOverride}
-          <button
-            type="button"
-            onclick={() => {
-              showOverride = true;
-            }}
-            class="text-xs uppercase tracking-widest text-ink/50 hover:text-gold-deep"
-          >
-            Send to another address
-          </button>
-        {/if}
+        <SplitButton label="Send options" caretClass="border-l border-cream/20 bg-ink text-cream hover:bg-gold-deep">
+          {#snippet primary()}
+            <button
+              type="submit"
+              class="rounded-l-sm bg-ink px-4 py-2 text-sm font-medium text-cream transition-colors hover:bg-gold-deep"
+            >
+              {sendLabel}
+            </button>
+          {/snippet}
+          {#snippet menu(close)}
+            <button
+              type="button"
+              role="menuitem"
+              onclick={() => {
+                showOverride = true;
+                close();
+              }}
+              class="block w-full px-4 py-2 text-left text-sm text-ink/80 transition-colors hover:bg-cream-warm hover:text-ink"
+            >
+              Send to a different email…
+            </button>
+          {/snippet}
+        </SplitButton>
       </form>
     {/if}
     {#if canMarkPaid}
-      <form method="post" action="?/markPaid">
-        <button
-          type="submit"
-          class="rounded-sm border border-ink/20 bg-cream-warm px-4 py-2 text-sm font-medium text-ink transition-colors hover:border-gold-deep hover:text-gold-deep"
-        >
-          Mark paid
-        </button>
-      </form>
+      <SplitButton label="Payment method" caretClass="border border-ink/20 bg-cream-warm text-ink hover:border-gold-deep hover:text-gold-deep">
+        {#snippet primary()}
+          <button
+            type="button"
+            onclick={() => {
+              showPaidPanel = !showPaidPanel;
+            }}
+            class="rounded-l-sm border border-r-0 border-ink/20 bg-cream-warm px-4 py-2 text-sm font-medium text-ink transition-colors hover:border-gold-deep hover:text-gold-deep"
+          >
+            Mark paid
+          </button>
+        {/snippet}
+        {#snippet menu()}
+          <p class="px-4 py-2 font-mono text-xs uppercase tracking-widest text-ink/40">
+            Mark paid as…
+          </p>
+          <!-- Plain POST: the navigation itself dismisses the menu, so we must
+               NOT close() on click — removing the form from the DOM first leaves
+               it "not connected" and the browser cancels the submit. -->
+          {#each PAID_METHOD_CHOICES as choice (choice.value)}
+            <form method="post" action="?/markPaid">
+              <input type="hidden" name="method" value={choice.value} />
+              <button
+                type="submit"
+                role="menuitem"
+                class="block w-full px-4 py-2 text-left text-sm text-ink/80 transition-colors hover:bg-cream-warm hover:text-ink"
+              >
+                {choice.label}
+              </button>
+            </form>
+          {/each}
+        {/snippet}
+      </SplitButton>
     {/if}
     {#if canVoid}
       <form method="post" action="?/void">
@@ -131,6 +196,77 @@
       >
         Mark sent without email
       </button>
+    </form>
+  {/if}
+
+  {#if canMarkPaid && showPaidPanel}
+    <form
+      method="post"
+      action="?/markPaid"
+      class="mt-4 max-w-md rounded-sm border border-ink/15 bg-cream-warm p-5"
+    >
+      <p class="font-mono text-xs uppercase tracking-widest text-ink/50">How was it paid?</p>
+      <div class="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm text-ink">
+        {#each PAID_METHOD_CHOICES as choice (choice.value)}
+          <label class="flex items-center gap-2">
+            <input
+              type="radio"
+              name="method"
+              value={choice.value}
+              bind:group={paidMethod}
+              class="text-gold-deep focus:ring-gold-deep"
+            />
+            {choice.label}
+          </label>
+        {/each}
+      </div>
+      {#if paidMethod === 'check'}
+        <label class="mt-4 grid max-w-xs gap-1 text-sm text-ink">
+          Check number
+          <input
+            name="reference"
+            placeholder="e.g. 1024"
+            class="rounded-sm border border-ink/20 bg-cream px-3 py-2 focus:border-gold-deep focus:outline-none"
+          />
+        </label>
+      {:else if paidMethod === 'other'}
+        <label class="mt-4 grid max-w-sm gap-1 text-sm text-ink">
+          Note
+          <textarea
+            name="reference"
+            rows="2"
+            placeholder="How was it paid?"
+            class="rounded-sm border border-ink/20 bg-cream px-3 py-2 focus:border-gold-deep focus:outline-none"
+          ></textarea>
+        </label>
+      {/if}
+      <label class="mt-4 grid max-w-xs gap-1 text-sm text-ink">
+        Payment date
+        <input
+          type="date"
+          name="paidOn"
+          value={today}
+          max={today}
+          class="rounded-sm border border-ink/20 bg-cream px-3 py-2 focus:border-gold-deep focus:outline-none"
+        />
+      </label>
+      <div class="mt-5 flex items-center gap-3">
+        <button
+          type="submit"
+          class="rounded-sm bg-ink px-4 py-2 text-sm font-medium text-cream transition-colors hover:bg-gold-deep"
+        >
+          Confirm paid
+        </button>
+        <button
+          type="button"
+          onclick={() => {
+            showPaidPanel = false;
+          }}
+          class="text-xs uppercase tracking-widest text-ink/50 hover:text-gold-deep"
+        >
+          Cancel
+        </button>
+      </div>
     </form>
   {/if}
 {/if}
@@ -168,6 +304,20 @@
     <dt class="font-mono text-xs uppercase tracking-widest text-ink/50">Due</dt>
     <dd class="mt-1 text-ink">{inv.dueDate}</dd>
   </div>
+  {#if paidVia}
+    <div>
+      <dt class="font-mono text-xs uppercase tracking-widest text-ink/50">Paid via</dt>
+      <dd class="mt-1 text-ink">
+        {paidVia}{#if inv.paymentReference} · {inv.paymentReference}{/if}
+      </dd>
+    </div>
+  {/if}
+  {#if inv.status === 'paid' && inv.paidAt}
+    <div>
+      <dt class="font-mono text-xs uppercase tracking-widest text-ink/50">Paid on</dt>
+      <dd class="mt-1 text-ink">{inv.paidAt.slice(0, 10)}</dd>
+    </div>
+  {/if}
 </dl>
 
 <div class="mt-10 overflow-hidden rounded-sm border border-ink/10 bg-cream-warm">

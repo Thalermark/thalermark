@@ -175,7 +175,8 @@ describe('GET /api/companies/:id/ledger/export — JSON', () => {
       });
       await app.request(`/api/invoices/${a}/mark-paid`, {
         method: 'POST',
-        headers: { cookie, 'x-account-id': accountId },
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify({ method: 'cash' }),
       });
       await app.request(`/api/invoices/${b}/mark-sent`, {
         method: 'POST',
