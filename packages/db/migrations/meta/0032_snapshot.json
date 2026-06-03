@@ -1,5 +1,5 @@
 {
-  "id": "59768ca2-446c-412b-a76f-bf893855401d",
+  "id": "bd40eccd-cc74-4958-bb54-515111fe62d5",
   "prevId": "c87f67f8-045f-4564-ab3d-1d8a78b28151",
   "version": "7",
   "dialect": "postgresql",
@@ -2933,8 +2933,8 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "recurring_invoice_line_items_recurring_invoice_id_recurring_invoices_id_fk": {
-          "name": "recurring_invoice_line_items_recurring_invoice_id_recurring_invoices_id_fk",
+        "recurring_invoice_line_items_recurring_fk": {
+          "name": "recurring_invoice_line_items_recurring_fk",
           "tableFrom": "recurring_invoice_line_items",
           "tableTo": "recurring_invoices",
           "columnsFrom": [
@@ -2989,7 +2989,7 @@
         },
         "interval_count": {
           "name": "interval_count",
-          "type": "integer",
+          "type": "bigint",
           "primaryKey": false,
           "notNull": true,
           "default": 1
@@ -3014,13 +3014,13 @@
         },
         "max_occurrences": {
           "name": "max_occurrences",
-          "type": "integer",
+          "type": "bigint",
           "primaryKey": false,
           "notNull": false
         },
         "occurrence_count": {
           "name": "occurrence_count",
-          "type": "integer",
+          "type": "bigint",
           "primaryKey": false,
           "notNull": true,
           "default": 0
@@ -3034,7 +3034,7 @@
         },
         "net_terms_days": {
           "name": "net_terms_days",
-          "type": "integer",
+          "type": "bigint",
           "primaryKey": false,
           "notNull": true,
           "default": 30

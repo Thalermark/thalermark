@@ -1,8 +1,8 @@
 import {
   bigint,
   date,
+  foreignKey,
   index,
-  integer,
   numeric,
   pgTable,
   text,
@@ -54,14 +54,16 @@ export const recurringInvoices = pgTable(
       .notNull()
       .references(() => customers.id, { onDelete: 'restrict' }),
     frequency: text('frequency').notNull(),
-    intervalCount: integer('interval_count').notNull().default(1),
+    // Counter / small-int columns are bigint, not integer — squawk's
+    // prefer-bigint-over-int rule is active and these read fine as JS numbers.
+    intervalCount: bigint('interval_count', { mode: 'number' }).notNull().default(1),
     startDate: date('start_date', { mode: 'string' }).notNull(),
     nextRunDate: date('next_run_date', { mode: 'string' }).notNull(),
     endDate: date('end_date', { mode: 'string' }),
-    maxOccurrences: integer('max_occurrences'),
-    occurrenceCount: integer('occurrence_count').notNull().default(0),
+    maxOccurrences: bigint('max_occurrences', { mode: 'number' }),
+    occurrenceCount: bigint('occurrence_count', { mode: 'number' }).notNull().default(0),
     status: text('status').notNull().default('active'),
-    netTermsDays: integer('net_terms_days').notNull().default(30),
+    netTermsDays: bigint('net_terms_days', { mode: 'number' }).notNull().default(30),
     currency: text('currency').notNull().default('USD'),
     subtotal: numeric('subtotal', { precision: 15, scale: 2 }).notNull().default('0'),
     tax: numeric('tax', { precision: 15, scale: 2 }).notNull().default('0'),
@@ -94,9 +96,10 @@ export const recurringInvoiceLineItems = pgTable(
     accountId: uuid('account_id')
       .notNull()
       .references(() => accounts.id, { onDelete: 'cascade' }),
-    recurringInvoiceId: uuid('recurring_invoice_id')
-      .notNull()
-      .references(() => recurringInvoices.id, { onDelete: 'cascade' }),
+    // FK declared in the table config (below) with an explicit short name —
+    // the drizzle auto-generated name would exceed Postgres's 63-byte
+    // identifier limit (squawk identifier-too-long).
+    recurringInvoiceId: uuid('recurring_invoice_id').notNull(),
     position: bigint('position', { mode: 'number' }).notNull(),
     description: text('description').notNull(),
     quantity: numeric('quantity', { precision: 15, scale: 4 }).notNull(),
@@ -110,6 +113,11 @@ export const recurringInvoiceLineItems = pgTable(
     recurringInvoiceIdIdx: index('recurring_invoice_line_items_recurring_invoice_id_idx').on(
       table.recurringInvoiceId,
     ),
+    recurringInvoiceFk: foreignKey({
+      name: 'recurring_invoice_line_items_recurring_fk',
+      columns: [table.recurringInvoiceId],
+      foreignColumns: [recurringInvoices.id],
+    }).onDelete('cascade'),
   }),
 );
 
