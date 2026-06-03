@@ -37,6 +37,7 @@ const testEnv: Env = {
   stripeSecretKey: undefined,
   stripePublishableKey: undefined,
   stripeWebhookSecret: undefined,
+  recurringSweepCron: '0 6 * * *',
 };
 
 const SAMPLE_RESULT: ExtractionResult = {

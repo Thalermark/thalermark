@@ -42,6 +42,10 @@ export type Env = {
   stripeSecretKey: string | undefined;
   stripePublishableKey: string | undefined;
   stripeWebhookSecret: string | undefined;
+  // Cron expression for the recurring-invoice sweep (pg-boss). Defaults to
+  // 06:00 UTC daily. Override via RECURRING_SWEEP_CRON for a different cadence
+  // (e.g. more frequent in dev to exercise the path).
+  recurringSweepCron: string;
 };
 
 const DEFAULT_PORT = 3000;
@@ -84,6 +88,7 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     stripeSecretKey: source.STRIPE_SECRET_KEY || undefined,
     stripePublishableKey: source.STRIPE_PUBLISHABLE_KEY || undefined,
     stripeWebhookSecret: source.STRIPE_WEBHOOK_SECRET || undefined,
+    recurringSweepCron: source.RECURRING_SWEEP_CRON || '0 6 * * *',
   });
 }
 

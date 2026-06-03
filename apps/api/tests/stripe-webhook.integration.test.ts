@@ -46,6 +46,7 @@ const testEnv: Env = {
   stripeSecretKey: 'sk_test_fake_for_signature_only',
   stripePublishableKey: 'pk_test_fake',
   stripeWebhookSecret: TEST_WEBHOOK_SECRET,
+  recurringSweepCron: '0 6 * * *',
 };
 
 function buildApp() {

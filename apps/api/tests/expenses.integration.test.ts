@@ -40,6 +40,7 @@ const testEnv: Env = {
   stripeSecretKey: undefined,
   stripePublishableKey: undefined,
   stripeWebhookSecret: undefined,
+  recurringSweepCron: '0 6 * * *',
 };
 
 function extractSessionCookie(res: Response): string {

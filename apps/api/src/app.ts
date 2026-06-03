@@ -54,6 +54,9 @@ import { cors } from 'hono/cors';
 import { validator } from 'hono/validator';
 import { v7 as uuidv7 } from 'uuid';
 import type { ApiAuth } from './lib/auth.js';
+import { escapeHtml } from './lib/html.js';
+import { sendInvoiceEmail } from './lib/invoice-email.js';
+import { suggestNextEstimateNumber, suggestNextInvoiceNumber } from './lib/invoice-number.js';
 import {
   arBalance,
   cashFlowNet,
@@ -63,6 +66,7 @@ import {
   postInvoiceTransition,
 } from './lib/ledger.js';
 import type { Mailer } from './lib/mailer.js';
+import { generateOnce } from './lib/recurring.js';
 import { formatSender } from './lib/sender.js';
 import { type StripeBundle, decimalDollarsToCents } from './lib/stripe.js';
 import { type RlsVariables, rlsContext } from './middleware/rls-context.js';
@@ -74,15 +78,6 @@ const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 // client renders the HTML, and number / customer name / company name are
 // all user-supplied free text — a `<script>` in a company name would
 // otherwise ride out to every customer.
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
 // Escape the LIKE/ILIKE metacharacters so a merchant search for "50%" or
 // "a_b" matches literally instead of as wildcards. Drizzle's ilike() uses the
 // default backslash escape character, so backslash itself is escaped too.
@@ -150,27 +145,6 @@ async function resolveCoaAccounts(
       ),
     );
   return new Map(rows.map((r) => [r.id, { code: r.code, accountType: r.accountType }]));
-}
-
-// Smart-detect: increment the trailing integer of the company's most recent
-// invoice number while keeping prefix + zero-padding intact. Preserves
-// whatever convention the user adopted ("INV-0042" → "INV-0043",
-// "2026-007" → "2026-008", "42" → "43"). No prior invoice OR no trailing
-// integer → the locked first-invoice default "INV-0001". Single source of
-// truth for the suggestion lives here in the API so mobile can hit the same
-// endpoint without re-deriving.
-const FIRST_INVOICE_DEFAULT = 'INV-0001';
-const FIRST_ESTIMATE_DEFAULT = 'EST-0001';
-const TRAILING_INT_RE = /^(.*?)(\d+)$/;
-
-function nextNumberWithDefault(latest: string | undefined, defaultValue: string): string {
-  if (!latest) return defaultValue;
-  const match = TRAILING_INT_RE.exec(latest);
-  if (!match) return defaultValue;
-  const [, prefix, digits] = match;
-  const next = (BigInt(digits ?? '0') + 1n).toString();
-  const padded = next.padStart((digits ?? '').length, '0');
-  return `${prefix ?? ''}${padded}`;
 }
 
 // Invoice status state machine. Allowed transitions:
@@ -345,14 +319,6 @@ async function transitionRecurringInvoice(
   });
 
   return c.json(updated);
-}
-
-export function suggestNextInvoiceNumber(latest: string | undefined): string {
-  return nextNumberWithDefault(latest, FIRST_INVOICE_DEFAULT);
-}
-
-export function suggestNextEstimateNumber(latest: string | undefined): string {
-  return nextNumberWithDefault(latest, FIRST_ESTIMATE_DEFAULT);
 }
 
 // Estimate status state machine. Allowed transitions:
@@ -2204,6 +2170,36 @@ export function createApp(deps: AppDeps) {
       .post('/api/recurring-invoices/:id/end', (c) =>
         transitionRecurringInvoice(c, c.req.param('id'), 'end'),
       )
+      // Generate the next occurrence right now (manual trigger). Same engine
+      // the pg-boss sweeper runs, but in the request's tenant tx and attributed
+      // to the requesting user rather than the system user. Doubles as the test
+      // path (no waiting for cron) and a "send the next one now" UX action.
+      // Only an active schedule can run — paused/ended return 409.
+      .post('/api/recurring-invoices/:id/run-now', async (c) => {
+        const id = c.req.param('id');
+        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+        const [schedule] = await tx
+          .select()
+          .from(recurringInvoices)
+          .where(and(eq(recurringInvoices.id, id), eq(recurringInvoices.accountId, accountId)))
+          .limit(1);
+        if (!schedule) return c.json({ error: 'recurring_invoice_not_found' }, 404);
+        if (schedule.status !== 'active') {
+          return c.json({ error: 'invalid_transition', from: schedule.status, to: 'run' }, 409);
+        }
+        const result = await generateOnce(tx, {
+          schedule,
+          audit: c.var.audit,
+          mail: {
+            mailer: deps.mailer,
+            emailFrom: deps.emailFrom,
+            publicAppUrl: deps.publicAppUrl,
+          },
+        });
+        return c.json(result, 201);
+      })
       // Estimates — same shape as invoices minus dueDate and minus the pay
       // path. Mirrors invoices.* closely (status state machine, audit rows,
       // customer↔company invariant, (company_id, number) uniqueness pre-
@@ -3470,40 +3466,19 @@ export function createApp(deps: AppDeps) {
           }
 
           const companyName = company?.name ?? 'Thalermark';
-          const publicUrl = deps.publicAppUrl
-            ? `${deps.publicAppUrl}/i/${invoice.publicToken}`
-            : `/i/${invoice.publicToken}`;
-          const subject = `Invoice ${invoice.number} from ${companyName}`;
-          const greeting = customer.name ? `Hi ${customer.name},` : 'Hi,';
-          const text =
-            `${greeting}\n\n` +
-            `Invoice ${invoice.number} for ${invoice.total} ${invoice.currency} is ready.\n` +
-            `Due ${invoice.dueDate}.\n\n` +
-            `View it: ${publicUrl}\n\n` +
-            `— ${companyName}`;
-          // Escape user-controlled fields before embedding in HTML — invoice
-          // number, customer name, and company name are all free text and a
-          // recipient's email client will render the HTML body.
-          const html =
-            `<p>${escapeHtml(greeting)}</p>` +
-            `<p>Invoice <strong>${escapeHtml(invoice.number)}</strong> for ` +
-            `<strong>${escapeHtml(invoice.total)} ${escapeHtml(invoice.currency)}</strong> is ready. ` +
-            `Due ${escapeHtml(invoice.dueDate)}.</p>` +
-            `<p><a href="${escapeHtml(publicUrl)}">View invoice</a></p>` +
-            `<p>— ${escapeHtml(companyName)}</p>`;
-
+          // Shared builder (lib/invoice-email.ts) so this route and the
+          // recurring-invoice sweeper emit identical email. publicToken is
+          // guaranteed set by the guard above.
+          let subject: string;
           try {
-            await deps.mailer.send({
-              to,
-              subject,
-              html,
-              text,
-              // Swap the From display name to the company's name (address stays
-              // on the verified EMAIL_FROM domain); route replies to the
-              // company's contact address when it has one set.
-              from: deps.emailFrom ? formatSender(deps.emailFrom, companyName) : undefined,
-              replyTo: company?.replyToEmail ?? undefined,
-            });
+            ({ subject } = await sendInvoiceEmail(deps.mailer, to, {
+              invoice: { ...invoice, publicToken: invoice.publicToken },
+              customerName: customer.name,
+              companyName,
+              publicAppUrl: deps.publicAppUrl,
+              emailFrom: deps.emailFrom,
+              replyToEmail: company?.replyToEmail ?? null,
+            }));
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             return c.json({ error: 'email_failed', detail: message }, 502);

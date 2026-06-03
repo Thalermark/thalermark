@@ -32,6 +32,7 @@ const testEnv: Env = {
   stripeSecretKey: undefined,
   stripePublishableKey: undefined,
   stripeWebhookSecret: undefined,
+  recurringSweepCron: '0 6 * * *',
 };
 
 const SAMPLE: CashFlowNudge[] = [{ text: 'You have cash on hand.', tone: 'good' }];
