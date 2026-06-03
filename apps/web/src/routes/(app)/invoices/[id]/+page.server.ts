@@ -51,20 +51,49 @@ type AuditEvent = {
 // use:enhance, in line with the rest of the app's no-JS path.
 async function runTransition(
   event: Parameters<Actions[string]>[0],
-  endpoint: 'mark-sent' | 'mark-paid' | 'void',
+  endpoint: 'mark-sent' | 'void',
 ) {
   const client = serverApiClient(event);
   const id = event.params.id;
   const res =
     endpoint === 'mark-sent'
       ? await client.api.invoices[':id']['mark-sent'].$post({ param: { id } })
-      : endpoint === 'mark-paid'
-        ? await client.api.invoices[':id']['mark-paid'].$post({ param: { id } })
-        : await client.api.invoices[':id'].void.$post({ param: { id } });
+      : await client.api.invoices[':id'].void.$post({ param: { id } });
   if (res.status === 404) throw error(404, 'invoice not found');
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
     return fail(res.status, { transitionError: body?.error ?? 'transition_failed' });
+  }
+  redirect(303, `/invoices/${id}`);
+}
+
+// mark-paid carries how the money arrived: a method from the <select> and an
+// optional reference (check #, confirmation note). Plain FormData POST like the
+// other transitions; the method set is fixed by the markup so the cast to the
+// schema's enum is safe.
+async function runMarkPaid(event: Parameters<Actions[string]>[0]) {
+  const client = serverApiClient(event);
+  const id = event.params.id;
+  const formData = await event.request.formData();
+  const method = String(formData.get('method') ?? 'cash') as
+    | 'cash'
+    | 'check'
+    | 'venmo'
+    | 'zelle'
+    | 'other';
+  const referenceRaw = formData.get('reference');
+  const reference =
+    typeof referenceRaw === 'string' && referenceRaw.trim() ? referenceRaw.trim() : undefined;
+  const paidOnRaw = formData.get('paidOn');
+  const paidOn = typeof paidOnRaw === 'string' && paidOnRaw.trim() ? paidOnRaw.trim() : undefined;
+  const res = await client.api.invoices[':id']['mark-paid'].$post({
+    param: { id },
+    json: { method, reference, paidOn },
+  });
+  if (res.status === 404) throw error(404, 'invoice not found');
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { error?: string } | null;
+    return fail(res.status, { transitionError: body?.error ?? 'mark_paid_failed' });
   }
   redirect(303, `/invoices/${id}`);
 }
@@ -112,7 +141,7 @@ async function runDuplicate(event: Parameters<Actions[string]>[0]) {
 export const actions: Actions = {
   send: runSend,
   markSent: (event) => runTransition(event, 'mark-sent'),
-  markPaid: (event) => runTransition(event, 'mark-paid'),
+  markPaid: runMarkPaid,
   void: (event) => runTransition(event, 'void'),
   duplicate: runDuplicate,
 };

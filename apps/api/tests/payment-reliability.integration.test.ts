@@ -143,7 +143,11 @@ async function invoice(
   const sent = await app.request(`/api/invoices/${id}/mark-sent`, { method: 'POST', headers });
   if (sent.status !== 200) throw new Error(`mark-sent failed: ${sent.status}`);
   if (opts.to === 'paid') {
-    const paid = await app.request(`/api/invoices/${id}/mark-paid`, { method: 'POST', headers });
+    const paid = await app.request(`/api/invoices/${id}/mark-paid`, {
+      method: 'POST',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({ method: 'cash' }),
+    });
     if (paid.status !== 200) throw new Error(`mark-paid failed: ${paid.status}`);
   }
   return id;

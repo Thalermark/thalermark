@@ -42,6 +42,7 @@ import {
   expenseCreateSchema,
   expenseUpdateSchema,
   invoiceCreateSchema,
+  invoiceMarkPaidSchema,
   invoiceSendSchema,
   invoiceUpdateSchema,
   recurringInvoiceCreateSchema,
@@ -196,6 +197,12 @@ async function transitionInvoice(
   id: string,
   key: TransitionKey,
   spec: TransitionSpec,
+  // Per-transition extras (mark-paid only, today): `patch` adds columns merged
+  // after the base patch (payment method/reference); `effectiveAt` overrides the
+  // economic date used for BOTH the status stamp (e.g. paidAt) and the ledger
+  // posting date, so a backdated payment lands in the right reporting period.
+  // Defaults to now when omitted.
+  opts?: { patch?: Record<string, unknown>; effectiveAt?: Date },
 ) {
   if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
   const tx = c.get('tx');
@@ -213,10 +220,13 @@ async function transitionInvoice(
   }
 
   const now = new Date();
+  // updatedAt is always record-time; the stamp (paidAt/sentAt/voidedAt) uses the
+  // economic date, which a caller can backdate via opts.effectiveAt.
+  const effectiveAt = opts?.effectiveAt ?? now;
   const patch: Record<string, unknown> = {
     status: spec.to,
     updatedAt: now,
-    [spec.stamp]: now,
+    [spec.stamp]: effectiveAt,
   };
   // mark-sent mints the public-view token if the invoice doesn't have one
   // yet. 32 random bytes hex matches the invitation token pattern (large
@@ -226,6 +236,7 @@ async function transitionInvoice(
   if (key === 'mark-sent' && !current.publicToken) {
     patch.publicToken = randomBytes(32).toString('hex');
   }
+  if (opts?.patch) Object.assign(patch, opts.patch);
   const [updated] = await tx
     .update(invoices)
     .set(patch)
@@ -243,6 +254,8 @@ async function transitionInvoice(
       paidAt: current.paidAt,
       voidedAt: current.voidedAt,
       publicToken: current.publicToken,
+      paymentMethod: current.paymentMethod,
+      paymentReference: current.paymentReference,
     },
     after: {
       status: updated.status,
@@ -250,6 +263,8 @@ async function transitionInvoice(
       paidAt: updated.paidAt,
       voidedAt: updated.voidedAt,
       publicToken: updated.publicToken,
+      paymentMethod: updated.paymentMethod,
+      paymentReference: updated.paymentReference,
     },
     companyId: updated.companyId,
   });
@@ -264,7 +279,7 @@ async function transitionInvoice(
     nextStatus: updated.status as InvoiceStatus,
     accountId,
     companyId: updated.companyId,
-    postedAt: now,
+    postedAt: effectiveAt,
   });
 
   return c.json(updated);
@@ -1966,8 +1981,33 @@ export function createApp(deps: AppDeps) {
       .post('/api/invoices/:id/mark-sent', (c) =>
         transitionInvoice(c, c.req.param('id'), 'mark-sent', INVOICE_TRANSITIONS['mark-sent']),
       )
-      .post('/api/invoices/:id/mark-paid', (c) =>
-        transitionInvoice(c, c.req.param('id'), 'mark-paid', INVOICE_TRANSITIONS['mark-paid']),
+      // mark-paid carries a JSON body recording how the money arrived. The
+      // validator middleware is required so hc<AppType>() sees `json` on the
+      // typed Input (per the path-param POST-with-body footgun).
+      .post(
+        '/api/invoices/:id/mark-paid',
+        validator('json', (value, c) => {
+          const parsed = invoiceMarkPaidSchema.safeParse(value);
+          if (!parsed.success) {
+            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+          }
+          return parsed.data;
+        }),
+        (c) => {
+          const data = c.req.valid('json');
+          return transitionInvoice(
+            c,
+            c.req.param('id'),
+            'mark-paid',
+            INVOICE_TRANSITIONS['mark-paid'],
+            {
+              patch: { paymentMethod: data.method, paymentReference: data.reference ?? null },
+              // Backdated payment date drives paidAt + the ledger posting date;
+              // omitted → now (the quick caret-menu path).
+              effectiveAt: data.paidOn ? new Date(data.paidOn) : undefined,
+            },
+          );
+        },
       )
       .post('/api/invoices/:id/void', (c) =>
         transitionInvoice(c, c.req.param('id'), 'void', INVOICE_TRANSITIONS.void),
@@ -4146,7 +4186,9 @@ export function createApp(deps: AppDeps) {
           await bootstrapDb.transaction(async (tx) => {
             const [updated] = await tx
               .update(invoices)
-              .set({ status: 'paid', paidAt: now, updatedAt: now })
+              // Stamp the channel so the detail page reads "Paid via Card
+              // (Stripe)" consistently with the manual mark-paid methods.
+              .set({ status: 'paid', paidAt: now, updatedAt: now, paymentMethod: 'stripe' })
               .where(eq(invoices.id, invoiceId))
               .returning();
             if (!updated) return;

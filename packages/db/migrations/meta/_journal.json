@@ -246,6 +246,13 @@
       "when": 1780497230399,
       "tag": "0034_add_offline_payment_methods",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1780498250299,
+      "tag": "0035_invoice_payment_method",
+      "breakpoints": true
     }
   ]
 }

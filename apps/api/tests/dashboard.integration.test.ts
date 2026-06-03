@@ -150,7 +150,14 @@ async function transition(
 ) {
   const res = await app.request(`/api/invoices/${invoiceId}/${action}`, {
     method: 'POST',
-    headers: { cookie, 'x-account-id': accountId },
+    headers: {
+      cookie,
+      'x-account-id': accountId,
+      ...(action === 'mark-paid' ? { 'content-type': 'application/json' } : {}),
+    },
+    // mark-paid now requires a method body; mark-sent takes none (excess body
+    // is harmless on the no-validator route).
+    ...(action === 'mark-paid' ? { body: JSON.stringify({ method: 'cash' }) } : {}),
   });
   if (res.status !== 200) throw new Error(`${action} failed: ${res.status}`);
 }

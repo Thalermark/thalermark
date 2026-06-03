@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { customerCreateSchema } from './customer.js';
-import { invoiceCreateSchema, invoiceLineItemInputSchema } from './invoice.js';
+import {
+  invoiceCreateSchema,
+  invoiceLineItemInputSchema,
+  invoiceMarkPaidSchema,
+} from './invoice.js';
 import { isoDateString, moneyString, quantityString } from './money.js';
 
 describe('moneyString', () => {
@@ -120,5 +124,38 @@ describe('invoiceCreateSchema', () => {
 
   it('rejects a non-ISO date', () => {
     expect(invoiceCreateSchema.safeParse({ ...base, dueDate: '06/22/2026' }).success).toBe(false);
+  });
+});
+
+describe('invoiceMarkPaidSchema', () => {
+  it('accepts each offline method', () => {
+    for (const method of ['cash', 'check', 'venmo', 'zelle', 'other']) {
+      expect(invoiceMarkPaidSchema.safeParse({ method }).success).toBe(true);
+    }
+  });
+
+  it('rejects stripe (webhook-only) and unknown methods', () => {
+    expect(invoiceMarkPaidSchema.safeParse({ method: 'stripe' }).success).toBe(false);
+    expect(invoiceMarkPaidSchema.safeParse({ method: 'paypal' }).success).toBe(false);
+  });
+
+  it('requires a method', () => {
+    expect(invoiceMarkPaidSchema.safeParse({}).success).toBe(false);
+  });
+
+  it('trims a reference and coerces blank to null', () => {
+    const a = invoiceMarkPaidSchema.safeParse({ method: 'check', reference: ' #1234 ' });
+    expect(a.success && a.data.reference).toBe('#1234');
+    const b = invoiceMarkPaidSchema.safeParse({ method: 'cash', reference: '' });
+    expect(b.success && b.data.reference).toBeNull();
+  });
+
+  it('accepts an ISO paidOn and rejects a malformed one', () => {
+    expect(invoiceMarkPaidSchema.safeParse({ method: 'cash', paidOn: '2026-05-20' }).success).toBe(
+      true,
+    );
+    expect(invoiceMarkPaidSchema.safeParse({ method: 'cash', paidOn: '05/20/2026' }).success).toBe(
+      false,
+    );
   });
 });
