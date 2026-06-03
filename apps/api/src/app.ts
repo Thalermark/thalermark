@@ -65,6 +65,7 @@ import {
   postExpenseCreate,
   postExpenseReversal,
   postInvoiceTransition,
+  repostInvoicePaymentDate,
 } from './lib/ledger.js';
 import type { Mailer } from './lib/mailer.js';
 import { generateOnce } from './lib/recurring.js';
@@ -2011,6 +2012,87 @@ export function createApp(deps: AppDeps) {
       )
       .post('/api/invoices/:id/void', (c) =>
         transitionInvoice(c, c.req.param('id'), 'void', INVOICE_TRANSITIONS.void),
+      )
+      // Edit the recorded payment on an already-paid invoice. Method/reference
+      // are plain column updates. A changed payment date is an append-only
+      // ledger correction (journal tables are insert-only, migration 0026):
+      // reverse the original paid posting at its old date and re-post at the
+      // new one via repostInvoicePaymentDate, so the cash moves to the right
+      // reporting period. Only valid while status === 'paid'.
+      .post(
+        '/api/invoices/:id/edit-payment',
+        validator('json', (value, c) => {
+          const parsed = invoiceMarkPaidSchema.safeParse(value);
+          if (!parsed.success) {
+            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+          }
+          return parsed.data;
+        }),
+        async (c) => {
+          const id = c.req.param('id');
+          if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+          const data = c.req.valid('json');
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+
+          const [current] = await tx
+            .select()
+            .from(invoices)
+            .where(and(eq(invoices.id, id), eq(invoices.accountId, accountId)))
+            .limit(1);
+          if (!current) return c.json({ error: 'invoice_not_found' }, 404);
+          if (current.status !== 'paid') {
+            return c.json({ error: 'not_paid', status: current.status }, 409);
+          }
+
+          const now = new Date();
+          // paidAt is a timestamp; the wire value is YYYY-MM-DD — compare date
+          // portions to decide whether the ledger needs a date correction.
+          const oldDate = current.paidAt ? current.paidAt.toISOString().slice(0, 10) : null;
+          if (data.paidOn && current.paidAt && data.paidOn !== oldDate) {
+            await repostInvoicePaymentDate(tx, {
+              invoice: current,
+              prevStatus: current.sentAt ? 'sent' : 'draft',
+              accountId,
+              companyId: current.companyId,
+              fromDate: current.paidAt,
+              toDate: new Date(data.paidOn),
+            });
+          }
+
+          const patch: Record<string, unknown> = {
+            updatedAt: now,
+            paymentMethod: data.method,
+            paymentReference: data.reference ?? null,
+          };
+          if (data.paidOn) patch.paidAt = new Date(data.paidOn);
+
+          const [updated] = await tx
+            .update(invoices)
+            .set(patch)
+            .where(and(eq(invoices.id, id), eq(invoices.accountId, accountId)))
+            .returning();
+          if (!updated) return c.json({ error: 'invoice_not_found' }, 404);
+
+          await c.var.audit({
+            entityType: 'invoice',
+            entityId: id,
+            action: 'edit-payment',
+            before: {
+              paidAt: current.paidAt,
+              paymentMethod: current.paymentMethod,
+              paymentReference: current.paymentReference,
+            },
+            after: {
+              paidAt: updated.paidAt,
+              paymentMethod: updated.paymentMethod,
+              paymentReference: updated.paymentReference,
+            },
+            companyId: updated.companyId,
+          });
+
+          return c.json(updated);
+        },
       )
       // Recurring invoice schedules (slice R2). A schedule is a template +
       // cadence; the background sweeper (slice R3) clones it into a real
