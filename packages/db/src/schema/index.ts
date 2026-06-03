@@ -11,4 +11,5 @@ export * from './invoices.js';
 export * from './journal_entries.js';
 export * from './journal_lines.js';
 export * from './memberships.js';
+export * from './recurring-invoices.js';
 export * from './telemetry_events.js';

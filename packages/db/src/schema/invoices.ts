@@ -12,6 +12,7 @@ import {
 import { accounts } from './accounts.js';
 import { companies } from './companies.js';
 import { customers } from './customers.js';
+import { recurringInvoices } from './recurring-invoices.js';
 
 // Invoice header. Money columns are numeric(15,2) — exact-precision arithmetic
 // in Postgres, returned as string in TS to dodge JS float precision. Status is
@@ -56,6 +57,13 @@ export const invoices = pgTable(
     paidAt: timestamp('paid_at', { withTimezone: true }),
     voidedAt: timestamp('voided_at', { withTimezone: true }),
     publicToken: text('public_token'),
+    // Provenance link for invoices minted by a recurring schedule's sweeper.
+    // Null for hand-created invoices. ON DELETE SET NULL so ending+deleting a
+    // schedule never cascades through generated-invoice history (mirrors
+    // estimates.converted_invoice_id).
+    recurringInvoiceId: uuid('recurring_invoice_id').references(() => recurringInvoices.id, {
+      onDelete: 'set null',
+    }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -66,6 +74,7 @@ export const invoices = pgTable(
     statusIdx: index('invoices_status_idx').on(table.status),
     companyNumberUq: uniqueIndex('invoices_company_number_uq').on(table.companyId, table.number),
     publicTokenUq: uniqueIndex('invoices_public_token_uq').on(table.publicToken),
+    recurringInvoiceIdIdx: index('invoices_recurring_invoice_id_idx').on(table.recurringInvoiceId),
   }),
 );
 
