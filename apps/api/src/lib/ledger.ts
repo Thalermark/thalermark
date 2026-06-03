@@ -290,6 +290,52 @@ export async function postInvoiceTransition(
   });
 }
 
+// Moves an invoice's *payment* posting from one date to another by reversing
+// the original paid entry at its original date (so that period nets to zero)
+// and re-posting it at the new date. Only the paid posting moves — the
+// draft→sent issue/AR posting (if any) is untouched. The ledger is append-only
+// (migration 0026), so this is the only correct way to "edit" a payment date;
+// cashFlowNet already nets reversals by source_entity_id so reporting stays
+// right. prevStatus picks which paid posting was made: sent→paid (Dr Cash /
+// Cr AR) vs draft→paid (Dr Cash / Cr Rev / Tax) — derive it from whether the
+// invoice was ever sent.
+export async function repostInvoicePaymentDate(
+  tx: Database | Transaction,
+  args: {
+    invoice: Pick<Invoice, 'id' | 'number' | 'subtotal' | 'tax' | 'total'>;
+    prevStatus: 'draft' | 'sent';
+    accountId: string;
+    companyId: string;
+    fromDate: Date;
+    toDate: Date;
+  },
+): Promise<void> {
+  const original = invoicePostingLines(args.prevStatus, 'paid', {
+    subtotal: args.invoice.subtotal,
+    tax: args.invoice.tax,
+    total: args.invoice.total,
+  });
+  if (original.length === 0) return;
+  const base = {
+    accountId: args.accountId,
+    companyId: args.companyId,
+    sourceEntityType: 'invoice',
+    sourceEntityId: args.invoice.id,
+  };
+  await postJournalEntry(tx, {
+    ...base,
+    postedAt: args.fromDate,
+    memo: `Invoice ${args.invoice.number} paid reversal (date corrected)`,
+    lines: reverseLedgerLines(original),
+  });
+  await postJournalEntry(tx, {
+    ...base,
+    postedAt: args.toDate,
+    memo: `Invoice ${args.invoice.number} paid (date corrected)`,
+    lines: original,
+  });
+}
+
 // --- Ledger read helpers (position dashboard + cash-flow nudges) -----------
 // "cash" = asset accounts other than AR; "owed" = the AR balance.
 

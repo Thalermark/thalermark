@@ -67,11 +67,15 @@ async function runTransition(
   redirect(303, `/invoices/${id}`);
 }
 
-// mark-paid carries how the money arrived: a method from the <select> and an
-// optional reference (check #, confirmation note). Plain FormData POST like the
-// other transitions; the method set is fixed by the markup so the cast to the
-// schema's enum is safe.
-async function runMarkPaid(event: Parameters<Actions[string]>[0]) {
+// mark-paid (fresh) and edit-payment (on an already-paid invoice) share the
+// same payload from PaymentFields — method + optional reference + optional
+// paidOn — and differ only in endpoint. The $post call is branched (not a
+// dynamic index) so the typed client keeps its per-route signatures; the
+// method set is fixed by the markup so the enum cast is safe.
+async function postPayment(
+  event: Parameters<Actions[string]>[0],
+  endpoint: 'mark-paid' | 'edit-payment',
+) {
   const client = serverApiClient(event);
   const id = event.params.id;
   const formData = await event.request.formData();
@@ -86,14 +90,15 @@ async function runMarkPaid(event: Parameters<Actions[string]>[0]) {
     typeof referenceRaw === 'string' && referenceRaw.trim() ? referenceRaw.trim() : undefined;
   const paidOnRaw = formData.get('paidOn');
   const paidOn = typeof paidOnRaw === 'string' && paidOnRaw.trim() ? paidOnRaw.trim() : undefined;
-  const res = await client.api.invoices[':id']['mark-paid'].$post({
-    param: { id },
-    json: { method, reference, paidOn },
-  });
+  const json = { method, reference, paidOn };
+  const res =
+    endpoint === 'mark-paid'
+      ? await client.api.invoices[':id']['mark-paid'].$post({ param: { id }, json })
+      : await client.api.invoices[':id']['edit-payment'].$post({ param: { id }, json });
   if (res.status === 404) throw error(404, 'invoice not found');
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
-    return fail(res.status, { transitionError: body?.error ?? 'mark_paid_failed' });
+    return fail(res.status, { transitionError: body?.error ?? `${endpoint}_failed` });
   }
   redirect(303, `/invoices/${id}`);
 }
@@ -141,7 +146,8 @@ async function runDuplicate(event: Parameters<Actions[string]>[0]) {
 export const actions: Actions = {
   send: runSend,
   markSent: (event) => runTransition(event, 'mark-sent'),
-  markPaid: runMarkPaid,
+  markPaid: (event) => postPayment(event, 'mark-paid'),
   void: (event) => runTransition(event, 'void'),
+  editPayment: (event) => postPayment(event, 'edit-payment'),
   duplicate: runDuplicate,
 };

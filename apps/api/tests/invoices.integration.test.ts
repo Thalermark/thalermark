@@ -4,6 +4,7 @@ import {
   companies,
   invoiceLineItems,
   invoices,
+  journalEntries,
   memberships,
 } from '@thalermark/db';
 import { eq } from 'drizzle-orm';
@@ -827,6 +828,91 @@ describe('invoice status transitions', () => {
       expect(row?.paymentReference).toBe('1042');
       // paidAt stamped to the backdated date (midnight UTC), not the record time.
       expect(row?.paidAt?.toISOString().slice(0, 10)).toBe('2026-05-20');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('edit-payment updates method/reference with no ledger correction', async () => {
+    const ctx = buildApp();
+    try {
+      const { cookie, accountId, invoiceId } = await seedDraftInvoice(ctx, 'editm@example.com');
+      const h = { cookie, 'x-account-id': accountId, 'content-type': 'application/json' };
+      await ctx.app.request(`/api/invoices/${invoiceId}/mark-paid`, {
+        method: 'POST',
+        headers: h,
+        body: JSON.stringify({ method: 'cash' }),
+      });
+      const db = getTestDb();
+      const before = await db
+        .select()
+        .from(journalEntries)
+        .where(eq(journalEntries.sourceEntityId, invoiceId));
+      const res = await ctx.app.request(`/api/invoices/${invoiceId}/edit-payment`, {
+        method: 'POST',
+        headers: h,
+        body: JSON.stringify({ method: 'check', reference: '7788' }),
+      });
+      expect(res.status).toBe(200);
+      const [row] = await db.select().from(invoices).where(eq(invoices.id, invoiceId));
+      expect(row?.paymentMethod).toBe('check');
+      expect(row?.paymentReference).toBe('7788');
+      const after = await db
+        .select()
+        .from(journalEntries)
+        .where(eq(journalEntries.sourceEntityId, invoiceId));
+      // No date change → no reversal/re-post.
+      expect(after.length).toBe(before.length);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('edit-payment moves paidAt and posts a reversal + re-post when the date changes', async () => {
+    const ctx = buildApp();
+    try {
+      const { cookie, accountId, invoiceId } = await seedDraftInvoice(ctx, 'editd@example.com');
+      const h = { cookie, 'x-account-id': accountId, 'content-type': 'application/json' };
+      await ctx.app.request(`/api/invoices/${invoiceId}/mark-paid`, {
+        method: 'POST',
+        headers: h,
+        body: JSON.stringify({ method: 'cash', paidOn: '2026-05-10' }),
+      });
+      const db = getTestDb();
+      const before = await db
+        .select()
+        .from(journalEntries)
+        .where(eq(journalEntries.sourceEntityId, invoiceId));
+      const res = await ctx.app.request(`/api/invoices/${invoiceId}/edit-payment`, {
+        method: 'POST',
+        headers: h,
+        body: JSON.stringify({ method: 'cash', paidOn: '2026-06-01' }),
+      });
+      expect(res.status).toBe(200);
+      const [row] = await db.select().from(invoices).where(eq(invoices.id, invoiceId));
+      expect(row?.paidAt?.toISOString().slice(0, 10)).toBe('2026-06-01');
+      const after = await db
+        .select()
+        .from(journalEntries)
+        .where(eq(journalEntries.sourceEntityId, invoiceId));
+      // Append-only correction: one reversal + one re-post.
+      expect(after.length).toBe(before.length + 2);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('rejects edit-payment on a non-paid invoice with 409', async () => {
+    const ctx = buildApp();
+    try {
+      const { cookie, accountId, invoiceId } = await seedDraftInvoice(ctx, 'editx@example.com');
+      const res = await ctx.app.request(`/api/invoices/${invoiceId}/edit-payment`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify({ method: 'cash' }),
+      });
+      expect(res.status).toBe(409);
+      expect((await res.json()) as { error: string }).toMatchObject({ error: 'not_paid' });
     } finally {
       await ctx.handle.close();
     }

@@ -1,5 +1,6 @@
 <script lang="ts">
   import AuditHistory from '$lib/components/AuditHistory.svelte';
+  import PaymentFields from '$lib/components/PaymentFields.svelte';
   import SplitButton from '$lib/components/SplitButton.svelte';
   import type { PageProps } from './$types';
 
@@ -59,10 +60,11 @@
     { value: 'other', label: 'Other' },
   ] as const;
   let showPaidPanel = $state(false);
-  let paidMethod = $state('cash');
-  // Default the payment date to today; the field is capped at today so a
-  // payment can't be recorded in the future.
-  const today = new Date().toISOString().slice(0, 10);
+  // Editing the recorded payment on an already-paid invoice — reuses the same
+  // PaymentFields, pre-filled. Any date change is an append-only ledger
+  // correction handled server-side.
+  const canEditPayment = $derived(inv.status === 'paid');
+  let showEditPayment = $state(false);
 </script>
 
 <a href="/invoices" class="eyebrow text-ink/60 hover:text-ink">← Invoices</a>
@@ -205,51 +207,7 @@
       action="?/markPaid"
       class="mt-4 max-w-md rounded-sm border border-ink/15 bg-cream-warm p-5"
     >
-      <p class="font-mono text-xs uppercase tracking-widest text-ink/50">How was it paid?</p>
-      <div class="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm text-ink">
-        {#each PAID_METHOD_CHOICES as choice (choice.value)}
-          <label class="flex items-center gap-2">
-            <input
-              type="radio"
-              name="method"
-              value={choice.value}
-              bind:group={paidMethod}
-              class="text-gold-deep focus:ring-gold-deep"
-            />
-            {choice.label}
-          </label>
-        {/each}
-      </div>
-      {#if paidMethod === 'check'}
-        <label class="mt-4 grid max-w-xs gap-1 text-sm text-ink">
-          Check number
-          <input
-            name="reference"
-            placeholder="e.g. 1024"
-            class="rounded-sm border border-ink/20 bg-cream px-3 py-2 focus:border-gold-deep focus:outline-none"
-          />
-        </label>
-      {:else if paidMethod === 'other'}
-        <label class="mt-4 grid max-w-sm gap-1 text-sm text-ink">
-          Note
-          <textarea
-            name="reference"
-            rows="2"
-            placeholder="How was it paid?"
-            class="rounded-sm border border-ink/20 bg-cream px-3 py-2 focus:border-gold-deep focus:outline-none"
-          ></textarea>
-        </label>
-      {/if}
-      <label class="mt-4 grid max-w-xs gap-1 text-sm text-ink">
-        Payment date
-        <input
-          type="date"
-          name="paidOn"
-          value={today}
-          max={today}
-          class="rounded-sm border border-ink/20 bg-cream px-3 py-2 focus:border-gold-deep focus:outline-none"
-        />
-      </label>
+      <PaymentFields />
       <div class="mt-5 flex items-center gap-3">
         <button
           type="submit"
@@ -269,6 +227,51 @@
       </div>
     </form>
   {/if}
+{/if}
+
+{#if canEditPayment}
+  <div class="mt-6">
+    {#if !showEditPayment}
+      <button
+        type="button"
+        onclick={() => {
+          showEditPayment = true;
+        }}
+        class="rounded-sm border border-ink/20 px-3 py-1 font-mono text-xs uppercase tracking-widest text-ink/70 hover:border-gold-deep hover:text-gold-deep"
+      >
+        Edit payment
+      </button>
+    {:else}
+      <form
+        method="post"
+        action="?/editPayment"
+        class="max-w-md rounded-sm border border-ink/15 bg-cream-warm p-5"
+      >
+        <PaymentFields
+          method={inv.paymentMethod ?? 'cash'}
+          reference={inv.paymentReference}
+          date={inv.paidAt ? inv.paidAt.slice(0, 10) : undefined}
+        />
+        <div class="mt-5 flex items-center gap-3">
+          <button
+            type="submit"
+            class="rounded-sm bg-ink px-4 py-2 text-sm font-medium text-cream transition-colors hover:bg-gold-deep"
+          >
+            Update payment
+          </button>
+          <button
+            type="button"
+            onclick={() => {
+              showEditPayment = false;
+            }}
+            class="text-xs uppercase tracking-widest text-ink/50 hover:text-gold-deep"
+          >
+            Cancel
+          </button>
+        </div>
+      </form>
+    {/if}
+  </div>
 {/if}
 
 {#if publicUrl}
