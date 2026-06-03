@@ -119,17 +119,17 @@ function signEvent(stripeClient: Stripe, payload: string): string {
   });
 }
 
-function checkoutCompletedPayload(invoiceId: string): string {
+function paymentSucceededPayload(invoiceId: string): string {
   return JSON.stringify({
-    id: 'evt_test_completed',
+    id: 'evt_test_succeeded',
     object: 'event',
-    type: 'checkout.session.completed',
+    type: 'payment_intent.succeeded',
     data: {
       object: {
-        id: 'cs_test_session',
-        object: 'checkout.session',
-        payment_status: 'paid',
-        client_reference_id: invoiceId,
+        id: 'pi_test_intent',
+        object: 'payment_intent',
+        status: 'succeeded',
+        metadata: { invoiceId },
       },
     },
   });
@@ -169,12 +169,12 @@ describe('Stripe webhook', () => {
     }
   });
 
-  it('marks the invoice paid + writes an audit row on checkout.session.completed', async () => {
+  it('marks the invoice paid + writes an audit row on payment_intent.succeeded', async () => {
     const { invoiceId, companyId } = await seedSentInvoice();
     const { app, handle, stripe } = buildApp();
     if (!stripe) throw new Error('stripe bundle not configured');
     try {
-      const payload = checkoutCompletedPayload(invoiceId);
+      const payload = paymentSucceededPayload(invoiceId);
       const sig = signEvent(stripe.client, payload);
       const res = await app.request('/api/webhooks/stripe', {
         method: 'POST',
@@ -206,7 +206,7 @@ describe('Stripe webhook', () => {
     const { app, handle, stripe } = buildApp();
     if (!stripe) throw new Error('stripe bundle not configured');
     try {
-      const payload = checkoutCompletedPayload(invoiceId);
+      const payload = paymentSucceededPayload(invoiceId);
       const sig = signEvent(stripe.client, payload);
       const res = await app.request('/api/webhooks/stripe', {
         method: 'POST',
@@ -243,7 +243,7 @@ describe('Stripe webhook', () => {
     const { app, handle, stripe } = buildApp();
     if (!stripe) throw new Error('stripe bundle not configured');
     try {
-      const payload = checkoutCompletedPayload(invoiceId);
+      const payload = paymentSucceededPayload(invoiceId);
       const sig = signEvent(stripe.client, payload);
       const first = await app.request('/api/webhooks/stripe', {
         method: 'POST',
