@@ -697,6 +697,59 @@ export function createApp(deps: AppDeps) {
 
         return c.json({ accountId: invite.accountId });
       })
+      .get('/api/team', async (c) => {
+        // Team management surface (settings/team): current members + the
+        // still-open invitations for the active account. MVP gives every
+        // member the same role, so there is no role column to return yet.
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+        const currentUserId = c.get('userId');
+
+        // Members: memberships is the tenant table (RLS-scoped); join authUser
+        // for the display name/email the same way /api/audit-events does.
+        const memberRows = await tx
+          .select({
+            userId: memberships.userId,
+            name: authUser.name,
+            email: authUser.email,
+            joinedAt: memberships.createdAt,
+          })
+          .from(memberships)
+          .innerJoin(authUser, eq(authUser.id, memberships.userId))
+          .where(eq(memberships.accountId, accountId))
+          .orderBy(asc(memberships.createdAt));
+
+        // Pending = not yet accepted. Expired-but-unaccepted rows still show
+        // (the page flags them) so the inviter can see a stale invite and
+        // re-send rather than wonder where it went.
+        const pending = await tx
+          .select({
+            id: invitations.id,
+            email: invitations.email,
+            expiresAt: invitations.expiresAt,
+            createdAt: invitations.createdAt,
+          })
+          .from(invitations)
+          .where(and(eq(invitations.accountId, accountId), isNull(invitations.acceptedAt)))
+          .orderBy(desc(invitations.createdAt));
+
+        return c.json({
+          members: memberRows.map((m) => ({
+            userId: m.userId,
+            name: m.name,
+            email: m.email,
+            joinedAt: m.joinedAt.toISOString(),
+            isYou: m.userId === currentUserId,
+          })),
+          invitations: pending.map((p) => ({
+            id: p.id,
+            email: p.email,
+            expiresAt: p.expiresAt.toISOString(),
+            createdAt: p.createdAt.toISOString(),
+            expired: p.expiresAt.getTime() < Date.now(),
+          })),
+        });
+      })
       .get('/api/companies', async (c) => {
         const tx = c.get('tx');
         const accountId = c.get('accountId');

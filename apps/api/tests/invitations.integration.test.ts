@@ -340,3 +340,83 @@ describe('createApp returns an account with the auto-seeded account name', () =>
     }
   });
 });
+
+describe('GET /api/team', () => {
+  beforeEach(resetDb);
+
+  it('returns the account members and pending invitations', async () => {
+    const { app, handle } = buildApp();
+    try {
+      const cookie = await signUp(app, 'owner@example.com');
+      const { userId, accountId } = await userAndAccount('owner@example.com');
+
+      // One open invitation so the pending list is non-empty.
+      const inviteRes = await app.request('/api/invitations', {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify({ email: 'pending@example.com' }),
+      });
+      expect(inviteRes.status).toBe(201);
+
+      const res = await app.request('/api/team', {
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        members: { userId: string; email: string; isYou: boolean }[];
+        invitations: { email: string; expired: boolean }[];
+      };
+
+      expect(body.members).toHaveLength(1);
+      expect(body.members[0]?.userId).toBe(userId);
+      expect(body.members[0]?.email).toBe('owner@example.com');
+      expect(body.members[0]?.isYou).toBe(true);
+
+      expect(body.invitations).toHaveLength(1);
+      expect(body.invitations[0]?.email).toBe('pending@example.com');
+      expect(body.invitations[0]?.expired).toBe(false);
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('omits invitations that have already been accepted', async () => {
+    const { app, handle } = buildApp();
+    try {
+      const ownerCookie = await signUp(app, 'host4@example.com');
+      const { accountId } = await userAndAccount('host4@example.com');
+      const inviteRes = await app.request('/api/invitations', {
+        method: 'POST',
+        headers: {
+          cookie: ownerCookie,
+          'x-account-id': accountId,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ email: 'joiner@example.com' }),
+      });
+      const { token } = (await inviteRes.json()) as { token: string };
+
+      const joinerCookie = await signUp(app, 'joiner@example.com');
+      await app.request(`/api/invitations/${token}/accept`, {
+        method: 'POST',
+        headers: { cookie: joinerCookie },
+      });
+
+      const res = await app.request('/api/team', {
+        headers: { cookie: ownerCookie, 'x-account-id': accountId },
+      });
+      const body = (await res.json()) as {
+        members: { email: string }[];
+        invitations: unknown[];
+      };
+      // Both users are now members; the accepted invite drops off pending.
+      expect(body.members.map((m) => m.email).sort()).toEqual([
+        'host4@example.com',
+        'joiner@example.com',
+      ]);
+      expect(body.invitations).toHaveLength(0);
+    } finally {
+      await handle.close();
+    }
+  });
+});
