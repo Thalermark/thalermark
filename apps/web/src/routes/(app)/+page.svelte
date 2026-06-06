@@ -52,6 +52,16 @@
   {/each}
 </div>
 
+{#if data.needsBusinessDetails}
+  <a
+    href="/settings/business"
+    class="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-sm border border-gold-deep/30 bg-gold-deep/5 px-4 py-3 text-sm text-ink transition-colors hover:bg-gold-deep/10"
+  >
+    <span>Add your business address so it shows on the invoices your customers see.</span>
+    <span class="font-mono text-xs uppercase tracking-widest text-gold-deep">Add details →</span>
+  </a>
+{/if}
+
 <dl class="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-3">
   <div class="rounded-sm border border-ink/10 bg-cream-warm p-6">
     <dt class="font-mono text-xs uppercase tracking-widest text-ink/50">Money in</dt>

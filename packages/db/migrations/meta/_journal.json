@@ -253,6 +253,13 @@
       "when": 1780498250299,
       "tag": "0035_invoice_payment_method",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1780678090649,
+      "tag": "0036_company_business_details",
+      "breakpoints": true
     }
   ]
 }

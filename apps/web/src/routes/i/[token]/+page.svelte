@@ -71,6 +71,18 @@
   {/if}
 
   <dl class="mt-8 grid grid-cols-1 gap-x-12 gap-y-6 sm:grid-cols-3">
+    {#if inv.companyName && (inv.companyAddress || inv.companyPhone)}
+      <div>
+        <dt class="font-mono text-xs uppercase tracking-widest text-ink/50">From</dt>
+        <dd class="mt-1 text-ink">{inv.companyName}</dd>
+        {#if inv.companyAddress}
+          <dd class="mt-1 whitespace-pre-line text-sm text-ink/70">{inv.companyAddress}</dd>
+        {/if}
+        {#if inv.companyPhone}
+          <dd class="mt-1 text-sm text-ink/70">{inv.companyPhone}</dd>
+        {/if}
+      </div>
+    {/if}
     {#if inv.customerName}
       <div>
         <dt class="font-mono text-xs uppercase tracking-widest text-ink/50">Bill to</dt>

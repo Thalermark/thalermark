@@ -40,6 +40,8 @@ type PublicInvoice = {
   sentAt: string | null;
   paidAt: string | null;
   companyName: string | null;
+  companyAddress: string | null;
+  companyPhone: string | null;
   customerName: string | null;
   lineItems: PublicInvoiceLine[];
   payable: boolean;

@@ -56,6 +56,12 @@ export const companyUpdateSchema = z
     paymentCheckAddress: optionalText(500),
     paymentVenmoHandle: optionalText(100),
     paymentZelleContact: optionalText(200),
+    // Business identity shown on invoices. Same nullable-on-the-wire idiom as
+    // the rest: '' clears the column, `undefined` leaves it alone. Free-text,
+    // generously sized — address is multi-line, phone is unvalidated since
+    // formats vary by locale and it's display-only.
+    businessAddress: optionalText(500),
+    businessPhone: optionalText(50),
   })
   // Sparse: at least one field must be present (zod only surfaces keys that
   // were actually sent, so an empty body fails this).

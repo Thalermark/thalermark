@@ -27,6 +27,15 @@ export const companies = pgTable(
     // now; CHECK constraint deferred until the wizard slice locks the
     // enum.
     businessType: text('business_type'),
+    // Business identity surfaced on invoices/estimates: a free-text postal
+    // address and a contact phone. Both nullable — pre-existing companies and
+    // freshly-created ones start null, and the public invoice simply omits the
+    // sender block until they're set. Collected lazily (Settings → Business +
+    // a dashboard nudge), never gated at signup, so the <60s first-invoice path
+    // stays intact. Free-text on purpose: trades/freelancers' "address" is
+    // whatever reads right on an invoice, not a structured record.
+    businessAddress: text('business_address'),
+    businessPhone: text('business_phone'),
     // Customer-facing reply address. When set, invoice/estimate emails carry a
     // Reply-To pointing here so a customer's reply reaches the business, not
     // the platform sender. Null → no Reply-To header (current default). The

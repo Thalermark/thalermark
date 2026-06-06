@@ -763,6 +763,8 @@ export function createApp(deps: AppDeps) {
             id: companies.id,
             name: companies.name,
             businessType: companies.businessType,
+            businessAddress: companies.businessAddress,
+            businessPhone: companies.businessPhone,
             replyToEmail: companies.replyToEmail,
             paymentCashEnabled: companies.paymentCashEnabled,
             paymentCheckEnabled: companies.paymentCheckEnabled,
@@ -809,6 +811,9 @@ export function createApp(deps: AppDeps) {
           const patch: Record<string, unknown> = { updatedAt: new Date() };
           if (data.name !== undefined) patch.name = data.name;
           if (data.businessType !== undefined) patch.businessType = data.businessType;
+          // Business identity — sparse + '' → null, same as replyToEmail below.
+          if (data.businessAddress !== undefined) patch.businessAddress = data.businessAddress;
+          if (data.businessPhone !== undefined) patch.businessPhone = data.businessPhone;
           // Validation coerces '' → null, so an explicit clear lands as null here.
           if (data.replyToEmail !== undefined) patch.replyToEmail = data.replyToEmail;
           // Offline payment instructions — same sparse + '' → null semantics.
@@ -839,12 +844,16 @@ export function createApp(deps: AppDeps) {
             before: {
               name: before.name,
               businessType: before.businessType,
+              businessAddress: before.businessAddress,
+              businessPhone: before.businessPhone,
               replyToEmail: before.replyToEmail,
               ...paymentMethodsView(before),
             },
             after: {
               name: after.name,
               businessType: after.businessType,
+              businessAddress: after.businessAddress,
+              businessPhone: after.businessPhone,
               replyToEmail: after.replyToEmail,
               ...paymentMethodsView(after),
             },
@@ -855,6 +864,8 @@ export function createApp(deps: AppDeps) {
             id: after.id,
             name: after.name,
             businessType: after.businessType,
+            businessAddress: after.businessAddress,
+            businessPhone: after.businessPhone,
             replyToEmail: after.replyToEmail,
             ...paymentMethodsView(after),
           });
@@ -4037,6 +4048,8 @@ export function createApp(deps: AppDeps) {
         const [company] = await bootstrapDb
           .select({
             name: companies.name,
+            businessAddress: companies.businessAddress,
+            businessPhone: companies.businessPhone,
             stripeConnectAccountId: companies.stripeConnectAccountId,
             stripeConnectChargesEnabled: companies.stripeConnectChargesEnabled,
             paymentCashEnabled: companies.paymentCashEnabled,
@@ -4107,6 +4120,8 @@ export function createApp(deps: AppDeps) {
           sentAt: invoice.sentAt,
           paidAt: invoice.paidAt,
           companyName: company?.name ?? null,
+          companyAddress: company?.businessAddress ?? null,
+          companyPhone: company?.businessPhone ?? null,
           customerName: customer?.name ?? null,
           lineItems: lines,
           // Tell the client whether the Pay button is wirable. Avoids a
