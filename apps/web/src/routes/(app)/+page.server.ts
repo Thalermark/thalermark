@@ -53,5 +53,18 @@ export const load: PageServerLoad = async (event) => {
     return await r.json();
   })();
 
-  return { dashboard, period, companyName: company.name, nudges, anomalies };
+  // State-driven setup nudge: surfaces while the business address is unset and
+  // resolves itself the moment it's filled in (Settings → Business). No
+  // run-once flag / localStorage — the company row is the source of truth, so
+  // it's correct across web + mobile and can't be dismissed into oblivion.
+  const needsBusinessDetails = !company.businessAddress;
+
+  return {
+    dashboard,
+    period,
+    companyName: company.name,
+    needsBusinessDetails,
+    nudges,
+    anomalies,
+  };
 };
