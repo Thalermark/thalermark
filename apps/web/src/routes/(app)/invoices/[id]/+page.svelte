@@ -107,6 +107,46 @@
   </div>
 {/if}
 
+{#if data.needsBusinessDetails && inv.status === 'draft' && data.businessCompanyId}
+  <details class="mt-6 rounded-sm border border-gold-deep/30 bg-gold-deep/5 px-4 py-3 text-sm text-ink">
+    <summary class="cursor-pointer list-none font-medium">
+      Your business address won't show on this invoice yet.
+      <span class="font-mono text-xs uppercase tracking-widest text-gold-deep">Add it →</span>
+    </summary>
+    <form method="post" action="?/addBusinessDetails" class="mt-4 space-y-4">
+      <input type="hidden" name="companyId" value={data.businessCompanyId} />
+      <p class="text-ink/70">
+        Add it once and it appears on this invoice and every one after. You can skip and send
+        without — set it later from Settings → Business.
+      </p>
+      <label class="block">
+        <span class="font-mono text-xs uppercase tracking-widest text-ink/50">Business address</span>
+        <textarea
+          name="businessAddress"
+          rows="3"
+          placeholder="123 Main St&#10;Springfield, IL 62704"
+          class="mt-2 w-full max-w-md rounded-sm border border-ink/20 bg-cream px-3 py-2 text-sm text-ink focus:border-gold-deep focus:outline-none"
+        ></textarea>
+      </label>
+      <label class="block">
+        <span class="font-mono text-xs uppercase tracking-widest text-ink/50">Phone (optional)</span>
+        <input
+          type="tel"
+          name="businessPhone"
+          placeholder="(555) 123-4567"
+          class="mt-2 w-full max-w-md rounded-sm border border-ink/20 bg-cream px-3 py-2 text-sm text-ink focus:border-gold-deep focus:outline-none"
+        />
+      </label>
+      <button
+        type="submit"
+        class="rounded-sm bg-ink px-4 py-2 text-sm font-medium text-cream transition-colors hover:bg-gold-deep"
+      >
+        Save &amp; continue
+      </button>
+    </form>
+  </details>
+{/if}
+
 {#if hasActions}
   <div class="mt-6 flex flex-wrap items-center gap-3">
     {#if canSend}
