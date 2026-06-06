@@ -14,6 +14,17 @@ export const load: PageServerLoad = async (event) => {
   });
   const customer = customerRes.ok ? await customerRes.json() : null;
 
+  // Just-in-time prompt: a draft invoice is the moment a missing business
+  // address actually costs the user something (it won't show on what the
+  // customer sees). State-driven like the dashboard nudge — surfaces while
+  // the address is unset, resolves itself once filled. Best-effort: a failed
+  // companies fetch just drops the prompt rather than blocking the page.
+  const companiesRes = await client.api.companies.$get();
+  const companies = companiesRes.ok ? (await companiesRes.json()).companies : [];
+  const company = companies.find((c) => c.id === invoice.companyId) ?? companies[0] ?? null;
+  const needsBusinessDetails = !!company && !company.businessAddress;
+  const businessCompanyId = company?.id ?? null;
+
   // After a successful send, the action redirects back with ?sent=<email>.
   // Read it here so the success banner survives the post/redirect without a
   // session flash; the URL stays one-shot (refresh clears it).
@@ -32,7 +43,15 @@ export const load: PageServerLoad = async (event) => {
   // incoming request so it works behind any reverse-proxy / custom domain
   // without an extra env var. Passed alongside the invoice so the share
   // panel can render the full absolute URL the user copies.
-  return { invoice, customer, origin: event.url.origin, sentTo, auditEvents };
+  return {
+    invoice,
+    customer,
+    origin: event.url.origin,
+    sentTo,
+    auditEvents,
+    needsBusinessDetails,
+    businessCompanyId,
+  };
 };
 
 type AuditEvent = {
@@ -143,8 +162,33 @@ async function runDuplicate(event: Parameters<Actions[string]>[0]) {
   redirect(303, `/invoices/${id}/edit`);
 }
 
+// Just-in-time business details: saves the address (+ optional phone) the
+// draft prompt collects, then redirects back to the invoice so the user
+// continues straight to sending. PATCHes the same company endpoint Settings →
+// Business uses; empty input is a no-op clear (the prompt simply persists).
+async function runAddBusinessDetails(event: Parameters<Actions[string]>[0]) {
+  const client = serverApiClient(event);
+  const id = event.params.id;
+  const formData = await event.request.formData();
+  const companyId = String(formData.get('companyId') ?? '');
+  const businessAddress = String(formData.get('businessAddress') ?? '').trim();
+  const businessPhone = String(formData.get('businessPhone') ?? '').trim();
+  if (!companyId) return fail(400, { transitionError: 'missing_company_id' });
+
+  const res = await client.api.companies[':id'].$patch({
+    param: { id: companyId },
+    json: { businessAddress, businessPhone },
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { error?: string } | null;
+    return fail(res.status, { transitionError: body?.error ?? 'save_failed' });
+  }
+  redirect(303, `/invoices/${id}`);
+}
+
 export const actions: Actions = {
   send: runSend,
+  addBusinessDetails: runAddBusinessDetails,
   markSent: (event) => runTransition(event, 'mark-sent'),
   markPaid: (event) => postPayment(event, 'mark-paid'),
   void: (event) => runTransition(event, 'void'),
