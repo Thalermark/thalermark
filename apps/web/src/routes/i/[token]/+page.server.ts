@@ -42,6 +42,7 @@ type PublicInvoice = {
   companyName: string | null;
   companyAddress: string | null;
   companyPhone: string | null;
+  companyLogoUrl: string | null;
   customerName: string | null;
   lineItems: PublicInvoiceLine[];
   payable: boolean;
