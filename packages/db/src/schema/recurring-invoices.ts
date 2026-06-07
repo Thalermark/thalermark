@@ -12,6 +12,7 @@ import {
 import { accounts } from './accounts.js';
 import { companies } from './companies.js';
 import { customers } from './customers.js';
+import { items } from './items.js';
 
 // A recurring invoice schedule: a template header + line items + a cadence
 // that the background sweeper (pg-boss, first consumer) clones into a real
@@ -105,6 +106,11 @@ export const recurringInvoiceLineItems = pgTable(
     quantity: numeric('quantity', { precision: 15, scale: 4 }).notNull(),
     unitPrice: numeric('unit_price', { precision: 15, scale: 2 }).notNull(),
     amount: numeric('amount', { precision: 15, scale: 2 }).notNull(),
+    // Reporting breadcrumb back to the catalog item (null for hand-typed
+    // lines). Cloned verbatim onto generated invoice lines, so the provenance
+    // carries through to each occurrence. Snapshot semantics — see
+    // invoice_line_items.source_item_id.
+    sourceItemId: uuid('source_item_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -113,11 +119,19 @@ export const recurringInvoiceLineItems = pgTable(
     recurringInvoiceIdIdx: index('recurring_invoice_line_items_recurring_invoice_id_idx').on(
       table.recurringInvoiceId,
     ),
+    sourceItemIdIdx: index('recurring_invoice_line_items_source_item_id_idx').on(
+      table.sourceItemId,
+    ),
     recurringInvoiceFk: foreignKey({
       name: 'recurring_invoice_line_items_recurring_fk',
       columns: [table.recurringInvoiceId],
       foreignColumns: [recurringInvoices.id],
     }).onDelete('cascade'),
+    sourceItemFk: foreignKey({
+      name: 'recurring_line_items_source_item_fk',
+      columns: [table.sourceItemId],
+      foreignColumns: [items.id],
+    }).onDelete('set null'),
   }),
 );
 

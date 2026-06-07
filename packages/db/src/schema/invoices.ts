@@ -1,6 +1,7 @@
 import {
   bigint,
   date,
+  foreignKey,
   index,
   numeric,
   pgTable,
@@ -12,6 +13,7 @@ import {
 import { accounts } from './accounts.js';
 import { companies } from './companies.js';
 import { customers } from './customers.js';
+import { items } from './items.js';
 import { recurringInvoices } from './recurring-invoices.js';
 
 // Invoice header. Money columns are numeric(15,2) — exact-precision arithmetic
@@ -112,12 +114,25 @@ export const invoiceLineItems = pgTable(
     quantity: numeric('quantity', { precision: 15, scale: 4 }).notNull(),
     unitPrice: numeric('unit_price', { precision: 15, scale: 2 }).notNull(),
     amount: numeric('amount', { precision: 15, scale: 2 }).notNull(),
+    // Reporting breadcrumb back to the catalog item this line was picked from
+    // (null for hand-typed lines). ON DELETE SET NULL, but items archive rather
+    // than delete, so in practice this survives. Displayed values always come
+    // from the snapshot columns above, never re-read from items.
+    sourceItemId: uuid('source_item_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
     accountIdIdx: index('invoice_line_items_account_id_idx').on(table.accountId),
     invoiceIdIdx: index('invoice_line_items_invoice_id_idx').on(table.invoiceId),
+    sourceItemIdIdx: index('invoice_line_items_source_item_id_idx').on(table.sourceItemId),
+    // Explicit short FK name via the table-level builder — drizzle's auto name
+    // and squawk's identifier-too-long rule are the R1 precedent.
+    sourceItemFk: foreignKey({
+      name: 'invoice_line_items_source_item_fk',
+      columns: [table.sourceItemId],
+      foreignColumns: [items.id],
+    }).onDelete('set null'),
   }),
 );
 

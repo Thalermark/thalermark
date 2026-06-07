@@ -1,6 +1,7 @@
 import {
   bigint,
   date,
+  foreignKey,
   index,
   numeric,
   pgTable,
@@ -13,6 +14,7 @@ import { accounts } from './accounts.js';
 import { companies } from './companies.js';
 import { customers } from './customers.js';
 import { invoices } from './invoices.js';
+import { items } from './items.js';
 
 // Estimates mirror the invoice header. Status is 'draft' default with the rest
 // set by the transition endpoints ('sent' / 'accepted' / 'declined' /
@@ -90,12 +92,21 @@ export const estimateLineItems = pgTable(
     quantity: numeric('quantity', { precision: 15, scale: 4 }).notNull(),
     unitPrice: numeric('unit_price', { precision: 15, scale: 2 }).notNull(),
     amount: numeric('amount', { precision: 15, scale: 2 }).notNull(),
+    // Reporting breadcrumb back to the catalog item (null for hand-typed
+    // lines). Snapshot semantics — see invoice_line_items.source_item_id.
+    sourceItemId: uuid('source_item_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
     accountIdIdx: index('estimate_line_items_account_id_idx').on(table.accountId),
     estimateIdIdx: index('estimate_line_items_estimate_id_idx').on(table.estimateId),
+    sourceItemIdIdx: index('estimate_line_items_source_item_id_idx').on(table.sourceItemId),
+    sourceItemFk: foreignKey({
+      name: 'estimate_line_items_source_item_fk',
+      columns: [table.sourceItemId],
+      foreignColumns: [items.id],
+    }).onDelete('set null'),
   }),
 );
 
