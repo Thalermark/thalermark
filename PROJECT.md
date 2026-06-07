@@ -132,6 +132,14 @@ Precedent: Cal.com, Mattermost, Plane all run this exact model.
 - **Public invoice view** — branded page accessed via unique-token link in the email; shows invoice details + "Pay" button. No login required.
 - **Stripe payments** — single payment per invoice via the Pay button (Stripe Checkout). No saved cards in MVP.
 
+### Items (Products & Services)
+*Added to MVP scope 2026-06-07 — an explicit decision beyond the 2026-05-10 lock.*
+- **Reusable catalog** — a per-company list of saved products/services: name (the picker + report label), a longer description that flows into the line, unit price, an optional unit label ("per visit", "per hour", "sq ft"), and a default quantity. Managed at `/settings/items`. **Archive, never hard-delete** — an archived item drops out of the picker but keeps its sales history intact.
+- **Line autocomplete** — typing a line on an invoice / estimate / recurring schedule surfaces matching saved items; picking one prefills description + unit price + quantity. The user can always type a fully ad-hoc line instead.
+- **Snapshot, not reference** — the stored line *copies* the item's values, so editing or archiving a catalog item never rewrites an already-sent invoice (the line is a frozen historical record). Each line also carries a hidden `source_item_id` pointer back to the catalog item — purely to make reporting possible; the displayed values always come from the snapshot.
+- **Top products report** — "what am I selling most," ranked by revenue / count, grouped by source item. A **management/sales lens, deliberately *not* reconciled to the general ledger.** Total sales is a GL/financial-report question (authoritative, complete, tax-aware); top-products is a curated slice of those same line amounts — pre-tax, catalogued lines only, with an explicit "Uncatalogued / other" bucket so product rows + uncatalogued still tie back to GL revenue on a matched basis. Never presented as posted revenue.
+- **Out of scope (MVP):** per-line tax (tax stays invoice-level), per-item COA / category mapping (revenue still posts to the single Sales account), SKU / inventory / stock counts, cost tracking, images. Web-first; mobile inherits in the catch-up phase.
+
 ### Expenses
 - **Track an expense** — manual entry form, mobile-first
 - **Receipt capture (image)** — snap or upload; saved to storage in every tier (IRS-compliant baseline)
