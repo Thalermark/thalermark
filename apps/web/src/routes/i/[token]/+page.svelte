@@ -36,6 +36,13 @@
 <div class="mx-auto max-w-3xl px-6 py-12 sm:py-20">
   <header class="flex flex-wrap items-start justify-between gap-6 border-b border-ink/10 pb-8">
     <div>
+      {#if inv.companyLogoUrl}
+        <img
+          src={inv.companyLogoUrl}
+          alt={inv.companyName ?? 'Business logo'}
+          class="mb-3 max-h-16 max-w-[12rem] object-contain"
+        />
+      {/if}
       <p class="eyebrow text-ink/50">{inv.companyName ?? 'Invoice'}</p>
       <h1 class="mt-2 font-serif text-4xl font-light leading-none tracking-tight text-ink">
         Invoice {inv.number}<span class="text-gold-deep">.</span>

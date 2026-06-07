@@ -36,6 +36,13 @@ export const companies = pgTable(
     // whatever reads right on an invoice, not a structured record.
     businessAddress: text('business_address'),
     businessPhone: text('business_phone'),
+    // Object-storage key for the company logo shown on invoices/estimates.
+    // Same storage abstraction as receipts (S3/R2/MinIO/local-FS); the bytes
+    // never live in Postgres, only this key. Nullable — no logo by default, and
+    // the public invoice renders the text-only sender block until one's set.
+    // The public invoice handler turns this into a fresh signed URL per page
+    // load, so there's no stored/expiring URL to manage.
+    logoStorageKey: text('logo_storage_key'),
     // Customer-facing reply address. When set, invoice/estimate emails carry a
     // Reply-To pointing here so a customer's reply reaches the business, not
     // the platform sender. Null → no Reply-To header (current default). The

@@ -110,6 +110,18 @@ const EXT_MIME: Record<string, string> = {
   jpg: 'image/jpeg',
   png: 'image/png',
   pdf: 'application/pdf',
+  webp: 'image/webp',
+};
+
+// Company logo upload (shown on invoices). Smaller cap than a receipt — a logo
+// is a small raster — and a raster-only allowlist: SVG is deliberately excluded
+// since it can carry script and the logo renders on the public, unauthenticated
+// invoice page. Same mime → extension shape as RECEIPT_MIME_EXT.
+const LOGO_MAX_BYTES = 2 * 1024 * 1024;
+const LOGO_MIME_EXT: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
 };
 // Content-type to serve a stored object with, inferred from its key extension
 // (the local-FS adapter doesn't persist content-type metadata).
@@ -871,6 +883,120 @@ export function createApp(deps: AppDeps) {
           });
         },
       )
+      // ---- Company logo (shown on invoices) -------------------------------
+      // Same upload/serve/delete shape as the expense receipt: multipart in,
+      // a time-limited signed URL out, object write/delete as the LAST await so
+      // a storage failure rolls the column change back. Raster-only, ≤2MB.
+      .post('/api/companies/:id/logo', async (c) => {
+        const id = c.req.param('id');
+        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+        if (!deps.storage) return c.json({ error: 'storage_not_configured' }, 503);
+
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+        const [company] = await tx
+          .select()
+          .from(companies)
+          .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
+          .limit(1);
+        if (!company) return c.json({ error: 'company_not_found' }, 404);
+
+        const body = await c.req.parseBody();
+        const file = body.file;
+        if (!(file instanceof File)) return c.json({ error: 'file_required' }, 400);
+        const ext = LOGO_MIME_EXT[file.type];
+        if (!ext) {
+          return c.json(
+            { error: 'unsupported_media_type', allowed: Object.keys(LOGO_MIME_EXT) },
+            415,
+          );
+        }
+        if (file.size > LOGO_MAX_BYTES) {
+          return c.json({ error: 'file_too_large', maxBytes: LOGO_MAX_BYTES }, 413);
+        }
+        const bytes = new Uint8Array(await file.arrayBuffer());
+
+        // Re-upload overwrites the column with a fresh key; the prior object is
+        // left orphaned (rare, harmless — keys are uuidv7 so no collision).
+        const key = `accounts/${accountId}/companies/${id}/branding/${uuidv7()}.${ext}`;
+
+        const [updated] = await tx
+          .update(companies)
+          .set({ logoStorageKey: key, updatedAt: new Date() })
+          .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
+          .returning();
+        if (!updated) return c.json({ error: 'company_not_found' }, 404);
+
+        await c.var.audit({
+          entityType: 'company',
+          entityId: id,
+          action: 'logo-upload',
+          before: { logoStorageKey: company.logoStorageKey },
+          after: { logoStorageKey: key },
+          companyId: id,
+        });
+
+        await deps.storage.putObject({ key, body: bytes, contentType: file.type });
+
+        return c.json({ id, logoStorageKey: key }, 201);
+      })
+      // 1-hour signed download URL for the authed settings preview. For s3 it's
+      // a presigned object-store URL; for local-FS a relative /api/files/<token>.
+      .get('/api/companies/:id/logo', async (c) => {
+        const id = c.req.param('id');
+        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+        if (!deps.storage) return c.json({ error: 'storage_not_configured' }, 503);
+
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+        const [company] = await tx
+          .select({ logoStorageKey: companies.logoStorageKey })
+          .from(companies)
+          .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
+          .limit(1);
+        if (!company) return c.json({ error: 'company_not_found' }, 404);
+        if (!company.logoStorageKey) return c.json({ error: 'no_logo' }, 404);
+
+        const url = await deps.storage.getSignedDownloadUrl(company.logoStorageKey, {
+          expiresInSeconds: 3600,
+        });
+        return c.json({ url, contentType: mimeForKey(company.logoStorageKey) });
+      })
+      // Remove the logo: null the column + audit, then drop the object as the
+      // LAST await so a storage failure rolls the nulling back. Idempotent.
+      .delete('/api/companies/:id/logo', async (c) => {
+        const id = c.req.param('id');
+        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+        if (!deps.storage) return c.json({ error: 'storage_not_configured' }, 503);
+
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+        const [company] = await tx
+          .select({ logoStorageKey: companies.logoStorageKey })
+          .from(companies)
+          .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
+          .limit(1);
+        if (!company) return c.json({ error: 'company_not_found' }, 404);
+        if (!company.logoStorageKey) return c.json({ ok: true });
+
+        const key = company.logoStorageKey;
+        await tx
+          .update(companies)
+          .set({ logoStorageKey: null, updatedAt: new Date() })
+          .where(and(eq(companies.id, id), eq(companies.accountId, accountId)));
+
+        await c.var.audit({
+          entityType: 'company',
+          entityId: id,
+          action: 'logo-remove',
+          before: { logoStorageKey: key },
+          after: { logoStorageKey: null },
+          companyId: id,
+        });
+
+        await deps.storage.deleteObject(key);
+        return c.json({ ok: true });
+      })
       // Stripe Connect onboarding — kicks off (or refreshes) the Stripe-hosted
       // onboarding flow for SaaS multi-tenant payment routing. Lazily creates
       // an Express connected account on first call, stamps its id on the
@@ -4050,6 +4176,7 @@ export function createApp(deps: AppDeps) {
             name: companies.name,
             businessAddress: companies.businessAddress,
             businessPhone: companies.businessPhone,
+            logoStorageKey: companies.logoStorageKey,
             stripeConnectAccountId: companies.stripeConnectAccountId,
             stripeConnectChargesEnabled: companies.stripeConnectChargesEnabled,
             paymentCashEnabled: companies.paymentCashEnabled,
@@ -4095,6 +4222,19 @@ export function createApp(deps: AppDeps) {
         // with their display values, so the public page renders nothing it
         // shouldn't. Check defaults its payable-to name to the company name.
         // These are display-only; the business confirms receipt via mark-paid.
+        // Logo for the public sender block. A fresh signed URL is minted per
+        // page load so it never serves a stale/expired link. Best-effort: if
+        // storage is unconfigured or signing fails, the page falls back to the
+        // text-only sender block. NB self-host s3 needs a publicly reachable
+        // S3_ENDPOINT for the recipient's browser; the local-FS adapter serves
+        // through the same-origin /api/files token route, so it just works.
+        let companyLogoUrl: string | null = null;
+        if (company?.logoStorageKey && deps.storage) {
+          companyLogoUrl = await deps.storage
+            .getSignedDownloadUrl(company.logoStorageKey, { expiresInSeconds: 3600 })
+            .catch(() => null);
+        }
+
         const offlinePayment = {
           cash: company?.paymentCashEnabled ?? false,
           check: company?.paymentCheckEnabled
@@ -4122,6 +4262,7 @@ export function createApp(deps: AppDeps) {
           companyName: company?.name ?? null,
           companyAddress: company?.businessAddress ?? null,
           companyPhone: company?.businessPhone ?? null,
+          companyLogoUrl,
           customerName: customer?.name ?? null,
           lineItems: lines,
           // Tell the client whether the Pay button is wirable. Avoids a
