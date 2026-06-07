@@ -8,6 +8,7 @@ export * from './estimates.js';
 export * from './expenses.js';
 export * from './invitations.js';
 export * from './invoices.js';
+export * from './items.js';
 export * from './journal_entries.js';
 export * from './journal_lines.js';
 export * from './memberships.js';
