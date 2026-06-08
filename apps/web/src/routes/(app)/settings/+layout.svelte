@@ -11,6 +11,7 @@
   const TABS: { href: string; label: string }[] = [
     { href: '/settings/activity', label: 'Activity' },
     { href: '/settings/business', label: 'Business' },
+    { href: '/settings/items', label: 'Items' },
     { href: '/settings/team', label: 'Team' },
     { href: '/settings/payments', label: 'Payments' },
     { href: '/settings/email', label: 'Email' },
