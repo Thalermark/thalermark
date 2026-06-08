@@ -12,6 +12,9 @@ export const estimateLineItemInputSchema = z.object({
   quantity: quantityString,
   unitPrice: moneyString,
   amount: moneyString,
+  // Reporting breadcrumb back to the catalog item (omitted for hand-typed
+  // lines). Provenance only — see invoiceLineItemInputSchema.
+  sourceItemId: z.string().uuid().optional(),
 });
 
 export type EstimateLineItemInput = z.infer<typeof estimateLineItemInputSchema>;

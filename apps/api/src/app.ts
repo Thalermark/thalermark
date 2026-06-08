@@ -2133,6 +2133,9 @@ export function createApp(deps: AppDeps) {
               quantity: li.quantity,
               unitPrice: li.unitPrice,
               amount: li.amount,
+              // Carry the catalog breadcrumb forward — a duplicated line is
+              // still the same product, so the top-products report counts it.
+              sourceItemId: li.sourceItemId,
             })),
           );
         }
@@ -2877,6 +2880,9 @@ export function createApp(deps: AppDeps) {
               quantity: li.quantity,
               unitPrice: li.unitPrice,
               amount: li.amount,
+              // Carry the catalog breadcrumb forward (duplicated line = same
+              // product) so the top-products report still counts it.
+              sourceItemId: li.sourceItemId,
             })),
           );
         }
@@ -3195,6 +3201,9 @@ export function createApp(deps: AppDeps) {
               quantity: li.quantity,
               unitPrice: li.unitPrice,
               amount: li.amount,
+              // Carry the catalog breadcrumb from the estimate line onto the
+              // converted invoice line so the report sees the same product.
+              sourceItemId: li.sourceItemId,
             })),
           );
         }

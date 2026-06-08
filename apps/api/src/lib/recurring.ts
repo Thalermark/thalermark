@@ -152,6 +152,9 @@ export async function generateOnce(
         quantity: li.quantity,
         unitPrice: li.unitPrice,
         amount: li.amount,
+        // Carry the catalog breadcrumb from the schedule's template line onto
+        // each generated invoice line so the report counts recurring sales.
+        sourceItemId: li.sourceItemId,
       })),
     );
   }

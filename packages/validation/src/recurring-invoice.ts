@@ -9,6 +9,9 @@ export const recurringInvoiceLineItemInputSchema = z.object({
   quantity: quantityString,
   unitPrice: moneyString,
   amount: moneyString,
+  // Reporting breadcrumb back to the catalog item (omitted for hand-typed
+  // lines). Cloned verbatim onto each generated invoice line by the sweeper.
+  sourceItemId: z.string().uuid().optional(),
 });
 
 export type RecurringInvoiceLineItemInput = z.infer<typeof recurringInvoiceLineItemInputSchema>;

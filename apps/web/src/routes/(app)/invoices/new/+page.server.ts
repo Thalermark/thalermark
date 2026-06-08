@@ -25,6 +25,7 @@ const NEW_CUSTOMER_SENTINEL = '__new__';
 const LINE_FIELD_DESCRIPTION = 'li_description';
 const LINE_FIELD_QUANTITY = 'li_quantity';
 const LINE_FIELD_UNIT_PRICE = 'li_unitPrice';
+const LINE_FIELD_SOURCE_ITEM_ID = 'li_sourceItemId';
 
 export const load: PageServerLoad = async (event) => {
   const client = serverApiClient(event);
@@ -73,18 +74,27 @@ type FormValues = {
   dueDate: string;
   notes: string;
   tax: string;
-  lineItems: { description: string; quantity: string; unitPrice: string }[];
+  lineItems: {
+    description: string;
+    quantity: string;
+    unitPrice: string;
+    sourceItemId?: string;
+  }[];
 };
 
 function readForm(data: FormData): FormValues {
   const descriptions = data.getAll(LINE_FIELD_DESCRIPTION).map((v) => String(v));
   const quantities = data.getAll(LINE_FIELD_QUANTITY).map((v) => String(v));
   const unitPrices = data.getAll(LINE_FIELD_UNIT_PRICE).map((v) => String(v));
+  const sourceItemIds = data.getAll(LINE_FIELD_SOURCE_ITEM_ID).map((v) => String(v));
   const rowCount = Math.max(descriptions.length, quantities.length, unitPrices.length);
   const lineItems = Array.from({ length: rowCount }, (_, i) => ({
     description: (descriptions[i] ?? '').trim(),
     quantity: (quantities[i] ?? '').trim(),
     unitPrice: (unitPrices[i] ?? '').trim(),
+    // Empty hidden input (hand-typed line) → undefined, so the schema's
+    // optional uuid passes and the column stays null.
+    sourceItemId: (sourceItemIds[i] ?? '').trim() || undefined,
   }));
   return {
     customerId: String(data.get('customerId') ?? '').trim(),
@@ -169,6 +179,7 @@ export const actions: Actions = {
       quantity: row.quantity,
       unitPrice: row.unitPrice,
       amount: multiplyMoney(row.quantity, row.unitPrice),
+      sourceItemId: row.sourceItemId,
     }));
     const subtotal = sumMoney(computedLines.map((li) => li.amount));
     const tax = values.tax === '' ? undefined : values.tax;
