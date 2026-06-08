@@ -1,0 +1,86 @@
+# CLAUDE.md — apps/mobile
+
+Orientation for the React Native + Expo app. Read the root `CLAUDE.md` and
+`TECH-STACK.md` first; this file covers only what's specific to mobile and the
+**mobile catch-up** (the one remaining MVP scope — the web flows are done, the
+mobile feature screens are not).
+
+## Where mobile stands
+
+Phase 6 shipped the **shell**, not the features:
+
+```
+src/app/
+  _layout.tsx            # root stack
+  (auth)/                # sign-in, sign-up, accept-invite (+ _layout)
+  (app)/                 # auth-gated half — _layout.tsx gates, index.tsx is Home
+src/lib/
+  api.ts                 # hc<AppType> client (bearer + Origin)
+  auth-client.ts         # Better Auth client; persists the bearer token
+  secure-store.ts        # expo-secure-store wrapper (Keychain / EncryptedSharedPreferences)
+```
+
+What's **missing** = the catch-up: invoices, estimates, expenses, customers,
+items, recurring, dashboard, reports. Build them by mirroring the web routes
+under `apps/web/src/routes/(app)/` — same API, same shapes, native UI.
+
+## Auth + API contract (load-bearing — don't re-derive)
+
+- **Bearer, not cookies.** `auth-client.ts` reads the `set-auth-token` response
+  header on sign-in/sign-up and stores it via `secure-store`; `api.ts` feeds it
+  back as `Authorization: Bearer <token>`. RN has no cookie jar we rely on.
+- **`Origin: thalermark://` on every request.** RN's fetch omits `Origin`, which
+  trips Better Auth's CSRF middleware + the API's `TRUSTED_ORIGINS` allowlist.
+  Both `api.ts` and `auth-client.ts` pin the app scheme. Keep it.
+- **`hc<AppType>` headers must be a dynamic async fn** (token is read per
+  request), and **`import type { AppType }`** — a value import breaks Metro.
+- **Auth gate lives in `(app)/_layout.tsx` only** (via `useFocusEffect` +
+  `authClient.getSession()`), not the root layout — so the `(auth)` flow doesn't
+  pay a session round-trip on every navigation.
+
+## ⚠️ The `x-account-id` gap (close this first)
+
+`src/lib/api.ts` currently sends `Origin` + `Authorization` but **not
+`x-account-id`**. Every tenant API route runs through the `rls-context`
+middleware, which sets the Postgres `app.current_account_id` from that header;
+without it, tenant routes return zero rows / 403 under RLS (the same
+bootstrap-vs-tenant trap documented for web). The shell's Home screen doesn't
+hit a tenant route, so this hasn't bitten yet — but the **first feature screen
+will**. Mobile needs an active-account concept (the web equivalent is the
+`active_account_id` cookie + `locals.activeAccountId`); resolve it from
+`GET /api/me` / `GET /api/companies` after sign-in and stamp `x-account-id` in
+the `api.ts` headers fn alongside the bearer.
+
+## Parity invariants the feature screens MUST honor
+
+These are server contracts the web already satisfies; mobile is a second client
+and has to satisfy them independently.
+
+- **Money + quantity cross the wire as decimal strings**, never JSON numbers
+  (`moneyString` / `quantityString` in `@thalermark/validation`). Format with a
+  fixed-decimal helper before POST. (Counters like `intervalCount` /
+  `maxOccurrences` / `netTermsDays` *are* JSON numbers — only money/qty are
+  strings.) The **server recomputes totals authoritatively** — send the line
+  values; don't expect the server to trust client math, and don't diverge from
+  it either.
+- **`source_item_id` on every line item.** Picking a catalog item copies its
+  description / unit price / default quantity into the line (a frozen snapshot)
+  **and** stamps `sourceItemId` — the breadcrumb that feeds the
+  `/reports/top-products` aggregate. A hand-typed line leaves it null. The API
+  carries whatever the client sends; **if the mobile line-item forms don't send
+  `sourceItemId`, every mobile-created sale silently falls into the
+  "Uncatalogued / other" bucket** (no error, totals still tie out — only the
+  per-product report undercounts). So the invoice/estimate/recurring line forms
+  must each ship an **item type-ahead equivalent to web's
+  `ItemPicker.svelte`**: query `GET /api/items?q=`, stamp the id on pick, clear
+  it when the user edits the description by hand. Reference: web's `ItemPicker`,
+  the `/items/search` proxy, and the `items-line-provenance` + `top-products`
+  integration tests in `apps/api/tests/`.
+- **Items archive, never hard-delete** — there's no item DELETE endpoint;
+  `archive` / `restore` transitions instead.
+
+## References to mirror
+
+- Web routes: `apps/web/src/routes/(app)/{invoices,estimates,expenses,customers,recurring,settings/items,reports}`
+- Shared schemas: `@thalermark/validation` (the source of truth for request shapes)
+- API surface: `apps/api/src/app.ts` (the `hc<AppType>` chain mobile types against)
