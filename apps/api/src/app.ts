@@ -1417,6 +1417,84 @@ export function createApp(deps: AppDeps) {
           });
         },
       )
+      // Top-products report (slice I5) — the payoff of the source_item_id
+      // breadcrumb. A deterministic GROUP BY source_item_id aggregate over
+      // invoice line items (SUM(amount), COUNT(*)); no second datastore. This
+      // is a management/sales lens, explicitly NOT GL-reconciled: line amounts
+      // are pre-tax, and a single "Uncatalogued / other" bucket (NULL-source
+      // lines, identified by sourceItemId === null) collects hand-typed lines
+      // so product rows + the bucket tie back to GL revenue on a matched basis.
+      // `basis` states what counts: 'paid' (cash — paid invoices only, the
+      // default) or 'sent' (sent or paid, voided/draft excluded). Archived
+      // items keep their name via the left join, so the report never loses
+      // history. Catalogued rows sort by revenue desc; the bucket sorts last.
+      .get(
+        '/api/companies/:id/top-products',
+        // validator types `query` for the hc<AppType>() client (same reason as
+        // the dashboard route) and rejects an unknown basis with a clean 400.
+        validator('query', (v, c) => {
+          const basis = v.basis;
+          if (basis !== undefined && basis !== 'paid' && basis !== 'sent') {
+            return c.json({ error: 'invalid_basis' }, 400);
+          }
+          return { basis: (basis ?? 'paid') as 'paid' | 'sent' };
+        }),
+        async (c) => {
+          const id = c.req.param('id');
+          if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+
+          const { basis } = c.req.valid('query');
+
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+
+          const [company] = await tx
+            .select({ id: companies.id })
+            .from(companies)
+            .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
+            .limit(1);
+          if (!company) return c.json({ error: 'company_not_found' }, 404);
+
+          const statusFilter =
+            basis === 'paid'
+              ? eq(invoices.status, 'paid')
+              : inArray(invoices.status, ['sent', 'paid']);
+
+          const rows = await tx
+            .select({
+              sourceItemId: invoiceLineItems.sourceItemId,
+              name: items.name,
+              revenue: sql<string>`sum(${invoiceLineItems.amount})::numeric(15,2)`,
+              lineCount: sql<number>`count(*)::int`,
+            })
+            .from(invoiceLineItems)
+            .innerJoin(invoices, eq(invoices.id, invoiceLineItems.invoiceId))
+            .leftJoin(items, eq(items.id, invoiceLineItems.sourceItemId))
+            .where(
+              and(
+                eq(invoiceLineItems.accountId, accountId),
+                eq(invoices.accountId, accountId),
+                eq(invoices.companyId, id),
+                statusFilter,
+              ),
+            )
+            .groupBy(invoiceLineItems.sourceItemId, items.name)
+            // Uncatalogued bucket (null source) sorts last; products by revenue.
+            .orderBy(
+              sql`(${invoiceLineItems.sourceItemId} is null) asc, sum(${invoiceLineItems.amount}) desc`,
+            );
+
+          return c.json({
+            basis,
+            products: rows.map((r) => ({
+              sourceItemId: r.sourceItemId,
+              name: r.name,
+              revenue: r.revenue ?? '0.00',
+              lineCount: r.lineCount,
+            })),
+          });
+        },
+      )
       // Cash-flow nudges (AI insight). Deterministic ledger signals computed
       // here (the LLM never does ledger arithmetic); the reasoning-model
       // advisor only narrates them into <=3 plain-English nudges. Cached on the
