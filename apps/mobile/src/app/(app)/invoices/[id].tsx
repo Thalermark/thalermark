@@ -1,11 +1,21 @@
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, ScrollView, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from '../../../lib/api';
 
-// Read-only invoice detail (mirror of the basic half of apps/web's
-// /invoices/[id]). Status actions / send / edit are deferred to later slices.
+// Invoice detail + status actions (mirror of apps/web's /invoices/[id]):
+// mark-sent / mark-paid / void / send-by-email, gated by the same state
+// machine the API enforces (INVOICE_TRANSITIONS). Edit / duplicate /
+// edit-payment / Stripe pay link are deferred to later slices.
 type LineItem = {
   position: number;
   description: string;
@@ -14,8 +24,8 @@ type LineItem = {
   amount: string;
 };
 type Invoice = {
-  number: string;
   status: string;
+  number: string;
   customerId: string;
   issueDate: string;
   dueDate: string;
@@ -24,66 +34,182 @@ type Invoice = {
   tax: string | null;
   total: string;
   notes: string | null;
+  publicToken: string | null;
+  paymentMethod: string | null;
+  paymentReference: string | null;
+  paidAt: string | null;
   lineItems: LineItem[];
 };
 type DetailState =
   | { state: 'loading' }
-  | { state: 'ready'; invoice: Invoice; customerName: string | null }
+  | { state: 'ready'; invoice: Invoice; customerName: string | null; customerEmail: string | null }
   | { state: 'error' };
+
+const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  cash: 'Cash',
+  check: 'Check',
+  venmo: 'Venmo',
+  zelle: 'Zelle',
+  stripe: 'Card (Stripe)',
+  other: 'Other',
+};
+const PAID_METHODS = ['cash', 'check', 'venmo', 'zelle', 'other'] as const;
+
+const TRANSITION_ERRORS: Record<string, string> = {
+  invalid_transition: 'This invoice can no longer be changed.',
+  invalid_recipient: 'Add a customer email or enter one to send.',
+  email_not_configured: "Email isn't configured on this server.",
+  customer_not_found: 'The customer for this invoice no longer exists.',
+};
+
+const apiOrigin = (process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000').replace(/\/$/, '');
+const todayIso = () => new Date().toISOString().slice(0, 10);
 
 export default function InvoiceDetail() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [detail, setDetail] = useState<DetailState>({ state: 'loading' });
+  const [acting, setActing] = useState(false);
+  const [transitionError, setTransitionError] = useState<string | null>(null);
+  const [sentTo, setSentTo] = useState<string | null>(null);
+
+  // Send override + mark-paid panel UI state.
+  const [showOverride, setShowOverride] = useState(false);
+  const [overrideEmail, setOverrideEmail] = useState('');
+  const [showPaidPanel, setShowPaidPanel] = useState(false);
+  const [paidMethod, setPaidMethod] = useState<(typeof PAID_METHODS)[number]>('cash');
+  const [paidReference, setPaidReference] = useState('');
+  const [paidOn, setPaidOn] = useState(todayIso());
+
+  const load = useCallback(async () => {
+    const res = await api.api.invoices[':id'].$get({ param: { id } });
+    if (!res.ok) {
+      setDetail({ state: 'error' });
+      return;
+    }
+    const inv = await res.json();
+    let customerName: string | null = null;
+    let customerEmail: string | null = null;
+    const custRes = await api.api.customers[':id'].$get({ param: { id: inv.customerId } });
+    if (custRes.ok) {
+      const c = await custRes.json();
+      customerName = c.name;
+      customerEmail = c.email ?? null;
+    }
+    setDetail({
+      state: 'ready',
+      customerName,
+      customerEmail,
+      invoice: {
+        status: inv.status,
+        number: inv.number,
+        customerId: inv.customerId,
+        issueDate: inv.issueDate,
+        dueDate: inv.dueDate,
+        currency: inv.currency,
+        subtotal: inv.subtotal,
+        tax: inv.tax ?? null,
+        total: inv.total,
+        notes: inv.notes ?? null,
+        publicToken: inv.publicToken ?? null,
+        paymentMethod: inv.paymentMethod ?? null,
+        paymentReference: inv.paymentReference ?? null,
+        paidAt: inv.paidAt ?? null,
+        lineItems: inv.lineItems,
+      },
+    });
+  }, [id]);
 
   useFocusEffect(
     useCallback(() => {
       let active = true;
-      api.api.invoices[':id']
-        .$get({ param: { id } })
-        .then(async (res) => {
-          if (!active) return;
-          if (!res.ok) {
-            setDetail({ state: 'error' });
-            return;
-          }
-          const inv = await res.json();
-          let customerName: string | null = null;
-          const custRes = await api.api.customers[':id'].$get({ param: { id: inv.customerId } });
-          if (active && custRes.ok) customerName = (await custRes.json()).name;
-          if (!active) return;
-          setDetail({
-            state: 'ready',
-            customerName,
-            invoice: {
-              number: inv.number,
-              status: inv.status,
-              customerId: inv.customerId,
-              issueDate: inv.issueDate,
-              dueDate: inv.dueDate,
-              currency: inv.currency,
-              subtotal: inv.subtotal,
-              tax: inv.tax ?? null,
-              total: inv.total,
-              notes: inv.notes ?? null,
-              lineItems: inv.lineItems,
-            },
-          });
-        })
-        .catch(() => {
-          if (active) setDetail({ state: 'error' });
-        });
+      load().catch(() => {
+        if (active) setDetail({ state: 'error' });
+      });
       return () => {
         active = false;
       };
-    }, [id]),
+    }, [load]),
   );
 
   const inv = detail.state === 'ready' ? detail.invoice : null;
+  const status = inv?.status;
+  const canSend = status === 'draft' || status === 'sent';
+  const canMarkSent = status === 'draft';
+  const canMarkPaid = status === 'draft' || status === 'sent';
+  const canVoid = status === 'draft' || status === 'sent';
+  const hasActions = canSend || canMarkSent || canMarkPaid || canVoid;
+
+  // Run a transition, then reload. `onOk` records any success side effect
+  // (e.g. the "sent to" banner) before the refresh. The fn returns an hc
+  // ClientResponse — typed structurally so RN's FormData/global mismatch on
+  // the full Response type doesn't surface here.
+  async function act(
+    fn: () => Promise<{ ok: boolean; json: () => Promise<unknown> }>,
+    onOk?: () => void,
+  ) {
+    setActing(true);
+    setTransitionError(null);
+    try {
+      const res = await fn();
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        setTransitionError(TRANSITION_ERRORS[body?.error ?? ''] ?? body?.error ?? 'Action failed.');
+        return;
+      }
+      onOk?.();
+      await load();
+    } catch {
+      setTransitionError('Action failed.');
+    } finally {
+      setActing(false);
+    }
+  }
+
+  function onSend() {
+    const to = showOverride ? overrideEmail.trim() : '';
+    const recipient = to || (detail.state === 'ready' ? detail.customerEmail : null);
+    act(
+      () => api.api.invoices[':id'].send.$post({ param: { id }, json: to ? { to } : {} }),
+      () => {
+        setSentTo(recipient);
+        setShowOverride(false);
+      },
+    );
+  }
+
+  function onMarkPaid() {
+    const reference = paidReference.trim();
+    act(
+      () =>
+        api.api.invoices[':id']['mark-paid'].$post({
+          param: { id },
+          json: { method: paidMethod, reference: reference || undefined, paidOn },
+        }),
+      () => setShowPaidPanel(false),
+    );
+  }
+
+  function onVoid() {
+    Alert.alert('Void invoice?', 'This cannot be undone.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Void',
+        style: 'destructive',
+        onPress: () => act(() => api.api.invoices[':id'].void.$post({ param: { id } })),
+      },
+    ]);
+  }
+
+  const publicUrl = inv?.publicToken ? `${apiOrigin}/i/${inv.publicToken}` : null;
+  const paidVia =
+    inv?.status === 'paid' && inv.paymentMethod
+      ? (PAYMENT_METHOD_LABELS[inv.paymentMethod] ?? inv.paymentMethod)
+      : null;
 
   return (
     <SafeAreaView className="flex-1 bg-cream" edges={['top']}>
-      <ScrollView contentContainerClassName="px-6 pt-6 pb-16">
+      <ScrollView contentContainerClassName="px-6 pt-6 pb-16" keyboardShouldPersistTaps="handled">
         <Text
           onPress={() => router.push('/invoices')}
           className="font-mono text-xs uppercase tracking-widest text-ink/60"
@@ -106,12 +232,176 @@ export default function InvoiceDetail() {
               </Text>
             </View>
 
-            <View className="mt-6 space-y-2">
+            {transitionError ? (
+              <View className="mt-4 rounded-sm border border-oxblood/30 bg-oxblood/5 px-4 py-3">
+                <Text className="text-sm text-oxblood">{transitionError}</Text>
+              </View>
+            ) : null}
+            {sentTo ? (
+              <View className="mt-4 rounded-sm border border-gold-deep/30 bg-gold-deep/5 px-4 py-3">
+                <Text className="text-sm text-ink">
+                  Sent to <Text className="font-medium">{sentTo}</Text>.
+                </Text>
+              </View>
+            ) : null}
+
+            {/* Action toolbar */}
+            {hasActions ? (
+              <View className="mt-6 space-y-3">
+                {canSend ? (
+                  <View>
+                    {showOverride ? (
+                      <TextInput
+                        value={overrideEmail}
+                        onChangeText={setOverrideEmail}
+                        placeholder={detail.customerEmail ?? 'recipient@example.com'}
+                        keyboardType="email-address"
+                        autoCapitalize="none"
+                        className="mb-2 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink"
+                      />
+                    ) : null}
+                    <View className="flex-row gap-2">
+                      <Pressable
+                        onPress={onSend}
+                        disabled={acting}
+                        className="flex-1 rounded-sm bg-ink px-4 py-3 active:bg-gold-deep disabled:opacity-50"
+                      >
+                        <Text className="text-center text-sm font-medium text-cream">
+                          {inv.status === 'sent' ? 'Resend invoice' : 'Send invoice'}
+                        </Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => setShowOverride((v) => !v)}
+                        className="rounded-sm border border-ink/20 px-3 py-3 active:bg-ink/5"
+                      >
+                        <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
+                          {showOverride ? 'Cancel' : 'To…'}
+                        </Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                ) : null}
+
+                <View className="flex-row gap-2">
+                  {canMarkPaid ? (
+                    <Pressable
+                      onPress={() => setShowPaidPanel((v) => !v)}
+                      disabled={acting}
+                      className="flex-1 rounded-sm border border-ink/20 px-4 py-3 active:bg-ink/5 disabled:opacity-50"
+                    >
+                      <Text className="text-center text-sm font-medium text-ink">Mark paid</Text>
+                    </Pressable>
+                  ) : null}
+                  {canVoid ? (
+                    <Pressable
+                      onPress={onVoid}
+                      disabled={acting}
+                      className="flex-1 rounded-sm border border-oxblood/30 px-4 py-3 active:bg-oxblood/5 disabled:opacity-50"
+                    >
+                      <Text className="text-center text-sm font-medium text-oxblood">Void</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+
+                {canMarkSent ? (
+                  <Pressable
+                    onPress={() =>
+                      act(() => api.api.invoices[':id']['mark-sent'].$post({ param: { id } }))
+                    }
+                    disabled={acting}
+                  >
+                    <Text className="text-xs uppercase tracking-widest text-ink/50">
+                      Mark sent without email
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            ) : null}
+
+            {/* Mark-paid panel */}
+            {canMarkPaid && showPaidPanel ? (
+              <View className="mt-4 rounded-sm border border-ink/15 bg-cream-warm p-4">
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                  How was it paid?
+                </Text>
+                <View className="mt-3 flex-row flex-wrap gap-2">
+                  {PAID_METHODS.map((m) => (
+                    <Pressable
+                      key={m}
+                      onPress={() => setPaidMethod(m)}
+                      className={`rounded-sm border px-3 py-2 ${
+                        paidMethod === m ? 'border-gold-deep bg-gold-deep/10' : 'border-ink/20'
+                      }`}
+                    >
+                      <Text className={paidMethod === m ? 'text-ink' : 'text-ink/70'}>
+                        {PAYMENT_METHOD_LABELS[m]}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+                {paidMethod === 'check' || paidMethod === 'other' ? (
+                  <View className="mt-3">
+                    <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                      {paidMethod === 'check' ? 'Check number' : 'Note'}
+                    </Text>
+                    <TextInput
+                      value={paidReference}
+                      onChangeText={setPaidReference}
+                      className="mt-1 rounded-sm border border-ink/15 bg-cream px-3 py-2 text-ink"
+                    />
+                  </View>
+                ) : null}
+                <View className="mt-3">
+                  <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                    Payment date
+                  </Text>
+                  <TextInput
+                    value={paidOn}
+                    onChangeText={setPaidOn}
+                    autoCapitalize="none"
+                    className="mt-1 rounded-sm border border-ink/15 bg-cream px-3 py-2 text-ink"
+                  />
+                </View>
+                <Pressable
+                  onPress={onMarkPaid}
+                  disabled={acting}
+                  className="mt-4 rounded-sm bg-ink px-4 py-3 active:bg-gold-deep disabled:opacity-50"
+                >
+                  <Text className="text-center text-sm font-medium text-cream">Confirm paid</Text>
+                </Pressable>
+              </View>
+            ) : null}
+
+            {/* Share link */}
+            {publicUrl ? (
+              <View className="mt-6 rounded-sm border border-ink/10 bg-cream-warm p-4">
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                  Share link
+                </Text>
+                <Text className="mt-2 text-sm text-gold-deep">{publicUrl}</Text>
+                <Text className="mt-2 text-xs text-ink/50">
+                  Anyone with this link can view the invoice.
+                </Text>
+              </View>
+            ) : null}
+
+            {/* Meta */}
+            <View className="mt-8 space-y-2">
               <Meta label="Customer" value={detail.customerName ?? '—'} />
               <Meta label="Issued" value={inv.issueDate} />
               <Meta label="Due" value={inv.dueDate} />
+              {paidVia ? (
+                <Meta
+                  label="Paid via"
+                  value={paidVia + (inv.paymentReference ? ` · ${inv.paymentReference}` : '')}
+                />
+              ) : null}
+              {inv.status === 'paid' && inv.paidAt ? (
+                <Meta label="Paid on" value={inv.paidAt.slice(0, 10)} />
+              ) : null}
             </View>
 
+            {/* Line items + totals */}
             <View className="mt-8 overflow-hidden rounded-sm border border-ink/10 bg-cream-warm">
               {inv.lineItems.map((li) => (
                 <View key={li.position} className="border-b border-ink/10 px-4 py-3">
