@@ -1,5 +1,5 @@
 import { createAuthClient } from 'better-auth/client';
-import { clearAuthToken, getAuthToken, setAuthToken } from './secure-store';
+import { clearActiveAccountId, clearAuthToken, getAuthToken, setAuthToken } from './secure-store';
 
 const baseURL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 
@@ -35,11 +35,13 @@ export const authClient = createAuthClient({
 // Sign-out: BA invalidates the session server-side, then we drop the local
 // token so the next request starts fresh. Order matters — clearing first
 // would strip the Bearer header the sign-out endpoint needs to identify the
-// session.
+// session. Also drop the active account id so the next user doesn't inherit a
+// stale tenant scope.
 export async function signOut(): Promise<void> {
   try {
     await authClient.signOut();
   } finally {
     await clearAuthToken();
+    await clearActiveAccountId();
   }
 }
