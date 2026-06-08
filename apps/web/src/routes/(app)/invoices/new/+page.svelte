@@ -1,15 +1,21 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { findEmailDupe, findNameDupes } from '$lib/customer-dupes';
+  import ItemPicker from '$lib/components/ItemPicker.svelte';
   import { addMoney, multiplyMoney, sumMoney } from '@thalermark/validation';
   import type { PageProps } from './$types';
 
   let { data, form }: PageProps = $props();
 
-  type Row = { description: string; quantity: string; unitPrice: string };
+  type Row = {
+    description: string;
+    quantity: string;
+    unitPrice: string;
+    sourceItemId: string | null;
+  };
 
   function blankRow(): Row {
-    return { description: '', quantity: '', unitPrice: '' };
+    return { description: '', quantity: '', unitPrice: '', sourceItemId: null };
   }
 
   function todayIso(): string {
@@ -48,6 +54,7 @@
             description: li.description,
             quantity: li.quantity,
             unitPrice: li.unitPrice,
+            sourceItemId: li.sourceItemId ?? null,
           }))
         : [blankRow()];
     }),
@@ -332,13 +339,11 @@
           {#each rows as row, i (i)}
             <tr>
               <td class="px-3 py-2">
-                <input
-                  type="text"
-                  name="li_description"
-                  required
-                  maxlength="500"
-                  bind:value={row.description}
-                  class="w-full rounded-sm border border-ink/15 bg-cream px-2 py-1 text-ink focus:border-gold-deep focus:outline-none"
+                <ItemPicker
+                  bind:description={row.description}
+                  bind:quantity={row.quantity}
+                  bind:unitPrice={row.unitPrice}
+                  bind:sourceItemId={row.sourceItemId}
                 />
               </td>
               <td class="px-3 py-2">

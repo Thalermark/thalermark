@@ -12,6 +12,10 @@ export const invoiceLineItemInputSchema = z.object({
   quantity: quantityString,
   unitPrice: moneyString,
   amount: moneyString,
+  // Reporting breadcrumb back to the catalog item this line was picked from
+  // (omitted for hand-typed lines). The stored/displayed values are always
+  // the snapshot above — this is provenance only, never re-read.
+  sourceItemId: z.string().uuid().optional(),
 });
 
 export type InvoiceLineItemInput = z.infer<typeof invoiceLineItemInputSchema>;
