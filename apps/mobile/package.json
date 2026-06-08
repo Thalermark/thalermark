@@ -16,6 +16,7 @@
   "dependencies": {
     "@expo/log-box": "~56.0.12",
     "@expo/metro-runtime": "~56.0.13",
+    "@expo/vector-icons": "^15.0.2",
     "@thalermark/api-contract": "workspace:*",
     "@thalermark/brand": "workspace:*",
     "@thalermark/validation": "workspace:*",
