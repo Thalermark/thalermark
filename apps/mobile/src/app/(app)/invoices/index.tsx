@@ -81,6 +81,14 @@ export default function InvoicesList() {
         </Pressable>
       </View>
 
+      <Pressable
+        onPress={() => router.push('/invoices/recurring')}
+        className="mt-4 flex-row items-center justify-between px-6 py-1"
+      >
+        <Text className="text-sm font-medium text-gold-deep">Recurring schedules</Text>
+        <Text className="text-gold-deep">→</Text>
+      </Pressable>
+
       {list.state === 'loading' ? (
         <View className="mt-12 items-center">
           <ActivityIndicator color="#0f1626" />
