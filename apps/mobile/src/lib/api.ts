@@ -1,6 +1,6 @@
 import type { AppType } from '@thalermark/api-contract';
 import { hc } from 'hono/client';
-import { getAuthToken } from './secure-store';
+import { getActiveAccountId, getAuthToken } from './secure-store';
 
 const baseUrl = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 
@@ -16,6 +16,14 @@ export const api = hc<AppType>(baseUrl, {
     const token = await getAuthToken();
     const base: Record<string, string> = { Origin: APP_ORIGIN };
     if (token) base.Authorization = `Bearer ${token}`;
+    // `x-account-id` scopes every tenant route to the active membership — the
+    // mobile equivalent of web's `active_account_id` cookie → `x-account-id`
+    // stamping (apps/web/src/lib/api.server.ts). Bootstrap routes (/api/me,
+    // invite-accept) ignore it; tenant routes 400 without it. Absent until an
+    // active account is resolved (see active-account.ts) — the only call before
+    // that is /api/me, which is a bootstrap route.
+    const accountId = await getActiveAccountId();
+    if (accountId) base['x-account-id'] = accountId;
     return base;
   },
 });

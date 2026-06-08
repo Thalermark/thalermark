@@ -1,9 +1,14 @@
 import { Redirect, Tabs, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
+import { resolveActiveAccount } from '../../lib/active-account';
 import { authClient } from '../../lib/auth-client';
 
-type Session = 'loading' | 'authed' | 'anon';
+// 'loading' until the session + active-account resolution settles, then:
+//   'anon'   → no session, go sign in
+//   'select' → authed with several memberships, none chosen → pick one
+//   'ready'  → authed with an active account resolved → render the app
+type Gate = 'loading' | 'anon' | 'select' | 'ready';
 
 // The (app) group is the authed half of the mobile app. (auth) screens live
 // outside it. Gating happens here rather than in the root layout so the
@@ -12,21 +17,36 @@ type Session = 'loading' | 'authed' | 'anon';
 // Anon users land at `/` → resolved to (app)/index → this layout → redirect
 // to /sign-in. The flow inverts after sign-in/sign-up: auth-client writes
 // the bearer token, sign-in calls router.replace('/'), this layout re-runs
-// (useFocusEffect refires on focus regain), sees the token, renders Tabs.
+// (useFocusEffect refires on focus regain), sees the token, resolves the
+// active account, renders Tabs.
+//
+// Beyond the session check we resolve an active account (mirror of web's
+// hooks.server.ts): every tenant route needs `x-account-id`, so before showing
+// any feature screen we must know which membership to scope to. The
+// select-company screen below sets it for multi-account users; the empty 'none'
+// case is folded into that screen's empty state.
 export default function AppLayout() {
-  const [session, setSession] = useState<Session>('loading');
+  const [gate, setGate] = useState<Gate>('loading');
 
   useFocusEffect(
     useCallback(() => {
       let active = true;
       authClient
         .getSession()
-        .then((res) => {
+        .then(async (res) => {
           if (!active) return;
-          setSession(res.data?.user ? 'authed' : 'anon');
+          if (!res.data?.user) {
+            setGate('anon');
+            return;
+          }
+          const account = await resolveActiveAccount();
+          if (!active) return;
+          // 'none' (no memberships) routes to select-company too — it owns the
+          // "account isn't set up yet" copy.
+          setGate(account.status === 'ok' ? 'ready' : 'select');
         })
         .catch(() => {
-          if (active) setSession('anon');
+          if (active) setGate('anon');
         });
       return () => {
         active = false;
@@ -34,7 +54,7 @@ export default function AppLayout() {
     }, []),
   );
 
-  if (session === 'loading') {
+  if (gate === 'loading') {
     return (
       <View className="flex-1 items-center justify-center bg-cream">
         <ActivityIndicator color="#0f1626" />
@@ -42,7 +62,8 @@ export default function AppLayout() {
     );
   }
 
-  if (session === 'anon') return <Redirect href="/sign-in" />;
+  if (gate === 'anon') return <Redirect href="/sign-in" />;
+  if (gate === 'select') return <Redirect href="/select-company" />;
 
   return (
     <Tabs
@@ -54,6 +75,8 @@ export default function AppLayout() {
       }}
     >
       <Tabs.Screen name="index" options={{ title: 'Home' }} />
+      {/* Routable but hidden from the tab bar — reached via redirect only. */}
+      <Tabs.Screen name="select-company" options={{ href: null }} />
     </Tabs>
   );
 }
