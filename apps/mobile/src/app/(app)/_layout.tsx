@@ -75,6 +75,7 @@ export default function AppLayout() {
       }}
     >
       <Tabs.Screen name="index" options={{ title: 'Home' }} />
+      <Tabs.Screen name="customers" options={{ title: 'Customers' }} />
       {/* Routable but hidden from the tab bar — reached via redirect only. */}
       <Tabs.Screen name="select-company" options={{ href: null }} />
     </Tabs>
