@@ -1,0 +1,406 @@
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { useCallback, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { api } from '../../../lib/api';
+
+// Estimate detail + actions (mirror of apps/web's /estimates/[id]):
+// mark-sent / mark-accepted / mark-declined / send / convert-to-invoice. No
+// payment semantics (estimates aren't a debt). Edit / duplicate deferred.
+type LineItem = {
+  position: number;
+  description: string;
+  quantity: string;
+  unitPrice: string;
+  amount: string;
+};
+type Estimate = {
+  status: string;
+  number: string;
+  customerId: string;
+  issueDate: string;
+  expiresOn: string | null;
+  currency: string;
+  subtotal: string;
+  tax: string | null;
+  total: string;
+  notes: string | null;
+  publicToken: string | null;
+  convertedInvoiceId: string | null;
+  lineItems: LineItem[];
+};
+type DetailState =
+  | { state: 'loading' }
+  | {
+      state: 'ready';
+      estimate: Estimate;
+      customerName: string | null;
+      customerEmail: string | null;
+    }
+  | { state: 'error' };
+
+const TRANSITION_ERRORS: Record<string, string> = {
+  invalid_transition: 'This estimate can no longer be changed.',
+  invalid_recipient: 'Add a customer email or enter one to send.',
+  email_not_configured: "Email isn't configured on this server.",
+  customer_not_found: 'The customer for this estimate no longer exists.',
+};
+
+const apiOrigin = (process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000').replace(/\/$/, '');
+const todayIso = () => new Date().toISOString().slice(0, 10);
+
+export default function EstimateDetail() {
+  const router = useRouter();
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const [detail, setDetail] = useState<DetailState>({ state: 'loading' });
+  const [acting, setActing] = useState(false);
+  const [transitionError, setTransitionError] = useState<string | null>(null);
+  const [sentTo, setSentTo] = useState<string | null>(null);
+  const [showOverride, setShowOverride] = useState(false);
+  const [overrideEmail, setOverrideEmail] = useState('');
+
+  const load = useCallback(async () => {
+    const res = await api.api.estimates[':id'].$get({ param: { id } });
+    if (!res.ok) {
+      setDetail({ state: 'error' });
+      return;
+    }
+    const est = await res.json();
+    let customerName: string | null = null;
+    let customerEmail: string | null = null;
+    const custRes = await api.api.customers[':id'].$get({ param: { id: est.customerId } });
+    if (custRes.ok) {
+      const c = await custRes.json();
+      customerName = c.name;
+      customerEmail = c.email ?? null;
+    }
+    setDetail({
+      state: 'ready',
+      customerName,
+      customerEmail,
+      estimate: {
+        status: est.status,
+        number: est.number,
+        customerId: est.customerId,
+        issueDate: est.issueDate,
+        expiresOn: est.expiresOn ?? null,
+        currency: est.currency,
+        subtotal: est.subtotal,
+        tax: est.tax ?? null,
+        total: est.total,
+        notes: est.notes ?? null,
+        publicToken: est.publicToken ?? null,
+        convertedInvoiceId: est.convertedInvoiceId ?? null,
+        lineItems: est.lineItems,
+      },
+    });
+  }, [id]);
+
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      load().catch(() => {
+        if (active) setDetail({ state: 'error' });
+      });
+      return () => {
+        active = false;
+      };
+    }, [load]),
+  );
+
+  const est = detail.state === 'ready' ? detail.estimate : null;
+  const status = est?.status;
+  const canSend = status === 'draft' || status === 'sent';
+  const canMarkSent = status === 'draft';
+  const canMarkAccepted = status === 'draft' || status === 'sent';
+  const canMarkDeclined = status === 'draft' || status === 'sent';
+  const canConvert = status === 'accepted' && est?.convertedInvoiceId == null;
+  const hasActions = canSend || canMarkSent || canMarkAccepted || canMarkDeclined || canConvert;
+  const expiredNotice =
+    status === 'sent' && est?.expiresOn != null && est.expiresOn < todayIso()
+      ? est.expiresOn
+      : null;
+
+  async function act(
+    fn: () => Promise<{ ok: boolean; json: () => Promise<unknown> }>,
+    onOk?: (body: unknown) => void,
+  ) {
+    setActing(true);
+    setTransitionError(null);
+    try {
+      const res = await fn();
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        const code = (body as { error?: string } | null)?.error ?? '';
+        setTransitionError(TRANSITION_ERRORS[code] ?? code ?? 'Action failed.');
+        return;
+      }
+      onOk?.(body);
+      await load();
+    } catch {
+      setTransitionError('Action failed.');
+    } finally {
+      setActing(false);
+    }
+  }
+
+  function onSend() {
+    const to = showOverride ? overrideEmail.trim() : '';
+    const recipient = to || (detail.state === 'ready' ? detail.customerEmail : null);
+    act(
+      () => api.api.estimates[':id'].send.$post({ param: { id }, json: to ? { to } : {} }),
+      () => {
+        setSentTo(recipient);
+        setShowOverride(false);
+      },
+    );
+  }
+
+  function onConvert() {
+    act(
+      () => api.api.estimates[':id'].convert.$post({ param: { id } }),
+      (body) => {
+        const invId = (body as { id?: string } | null)?.id;
+        if (invId) router.replace(`/invoices/${invId}`);
+      },
+    );
+  }
+
+  const publicUrl = est?.publicToken ? `${apiOrigin}/i/${est.publicToken}` : null;
+
+  return (
+    <SafeAreaView className="flex-1 bg-cream" edges={['top']}>
+      <ScrollView contentContainerClassName="px-6 pt-6 pb-16" keyboardShouldPersistTaps="handled">
+        <Text
+          onPress={() => router.push('/estimates')}
+          className="font-mono text-xs uppercase tracking-widest text-ink/60"
+        >
+          ← Estimates
+        </Text>
+
+        {detail.state === 'loading' ? (
+          <View className="mt-12 items-center">
+            <ActivityIndicator color="#0f1626" />
+          </View>
+        ) : detail.state === 'error' || !est ? (
+          <Text className="mt-8 text-sm text-oxblood">Couldn't load this estimate.</Text>
+        ) : (
+          <>
+            <View className="mt-3 flex-row items-center justify-between">
+              <Text className="font-serif text-3xl font-light text-ink">{est.number}</Text>
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+                {est.status}
+              </Text>
+            </View>
+
+            {transitionError ? (
+              <View className="mt-4 rounded-sm border border-oxblood/30 bg-oxblood/5 px-4 py-3">
+                <Text className="text-sm text-oxblood">{transitionError}</Text>
+              </View>
+            ) : null}
+            {sentTo ? (
+              <View className="mt-4 rounded-sm border border-gold-deep/30 bg-gold-deep/5 px-4 py-3">
+                <Text className="text-sm text-ink">
+                  Sent to <Text className="font-medium">{sentTo}</Text>.
+                </Text>
+              </View>
+            ) : null}
+            {expiredNotice ? (
+              <View className="mt-4 rounded-sm border border-oxblood/30 bg-oxblood/5 px-4 py-3">
+                <Text className="text-sm text-ink">
+                  This estimate's validity expired on{' '}
+                  <Text className="font-medium">{expiredNotice}</Text>.
+                </Text>
+              </View>
+            ) : null}
+
+            {/* Action toolbar */}
+            {hasActions ? (
+              <View className="mt-6 space-y-3">
+                {canSend ? (
+                  <View>
+                    {showOverride ? (
+                      <TextInput
+                        value={overrideEmail}
+                        onChangeText={setOverrideEmail}
+                        placeholder={detail.customerEmail ?? 'recipient@example.com'}
+                        keyboardType="email-address"
+                        autoCapitalize="none"
+                        className="mb-2 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink"
+                      />
+                    ) : null}
+                    <View className="flex-row gap-2">
+                      <Pressable
+                        onPress={onSend}
+                        disabled={acting}
+                        className="flex-1 rounded-sm bg-ink px-4 py-3 active:bg-gold-deep disabled:opacity-50"
+                      >
+                        <Text className="text-center text-sm font-medium text-cream">
+                          {est.status === 'sent' ? 'Resend estimate' : 'Send estimate'}
+                        </Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => setShowOverride((v) => !v)}
+                        className="rounded-sm border border-ink/20 px-3 py-3 active:bg-ink/5"
+                      >
+                        <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
+                          {showOverride ? 'Cancel' : 'To…'}
+                        </Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                ) : null}
+
+                {canMarkAccepted || canMarkDeclined ? (
+                  <View className="flex-row gap-2">
+                    {canMarkAccepted ? (
+                      <Pressable
+                        onPress={() =>
+                          act(() =>
+                            api.api.estimates[':id']['mark-accepted'].$post({ param: { id } }),
+                          )
+                        }
+                        disabled={acting}
+                        className="flex-1 rounded-sm border border-ink/20 px-4 py-3 active:bg-ink/5 disabled:opacity-50"
+                      >
+                        <Text className="text-center text-sm font-medium text-ink">
+                          Mark accepted
+                        </Text>
+                      </Pressable>
+                    ) : null}
+                    {canMarkDeclined ? (
+                      <Pressable
+                        onPress={() =>
+                          act(() =>
+                            api.api.estimates[':id']['mark-declined'].$post({ param: { id } }),
+                          )
+                        }
+                        disabled={acting}
+                        className="flex-1 rounded-sm border border-oxblood/30 px-4 py-3 active:bg-oxblood/5 disabled:opacity-50"
+                      >
+                        <Text className="text-center text-sm font-medium text-oxblood">
+                          Decline
+                        </Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                ) : null}
+
+                {canConvert ? (
+                  <Pressable
+                    onPress={onConvert}
+                    disabled={acting}
+                    className="rounded-sm bg-gold-deep px-4 py-3 active:opacity-80 disabled:opacity-50"
+                  >
+                    <Text className="text-center text-sm font-medium text-cream">
+                      Convert to invoice
+                    </Text>
+                  </Pressable>
+                ) : null}
+
+                {canMarkSent ? (
+                  <Pressable
+                    onPress={() =>
+                      act(() => api.api.estimates[':id']['mark-sent'].$post({ param: { id } }))
+                    }
+                    disabled={acting}
+                  >
+                    <Text className="text-xs uppercase tracking-widest text-ink/50">
+                      Mark sent without email
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            ) : null}
+
+            {/* Converted-to link */}
+            {est.convertedInvoiceId ? (
+              <Pressable
+                onPress={() => router.replace(`/invoices/${est.convertedInvoiceId}`)}
+                className="mt-6 rounded-sm border border-gold-deep/30 bg-gold-deep/5 px-4 py-3"
+              >
+                <Text className="text-sm text-ink">Converted to an invoice — view it →</Text>
+              </Pressable>
+            ) : null}
+
+            {/* Share link */}
+            {publicUrl ? (
+              <View className="mt-6 rounded-sm border border-ink/10 bg-cream-warm p-4">
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                  Share link
+                </Text>
+                <Text className="mt-2 text-sm text-gold-deep">{publicUrl}</Text>
+                <Text className="mt-2 text-xs text-ink/50">
+                  Anyone with this link can view the estimate.
+                </Text>
+              </View>
+            ) : null}
+
+            {/* Meta */}
+            <View className="mt-8 space-y-2">
+              <Meta label="Customer" value={detail.customerName ?? '—'} />
+              <Meta label="Issued" value={est.issueDate} />
+              {est.expiresOn ? <Meta label="Valid until" value={est.expiresOn} /> : null}
+            </View>
+
+            {/* Line items + totals */}
+            <View className="mt-8 overflow-hidden rounded-sm border border-ink/10 bg-cream-warm">
+              {est.lineItems.map((li) => (
+                <View key={li.position} className="border-b border-ink/10 px-4 py-3">
+                  <Text className="text-ink">{li.description}</Text>
+                  <View className="mt-1 flex-row justify-between">
+                    <Text className="font-mono text-xs text-ink/50">
+                      {String(Number(li.quantity))} × {li.unitPrice}
+                    </Text>
+                    <Text className="font-mono tabular-nums text-ink">{li.amount}</Text>
+                  </View>
+                </View>
+              ))}
+              <View className="px-4 py-3">
+                <Meta label="Subtotal" value={est.subtotal} mono />
+                <View className="mt-1">
+                  <Meta label="Tax" value={est.tax ?? '0.00'} mono />
+                </View>
+                <View className="mt-2 border-t border-ink/10 pt-2">
+                  <Meta label="Total" value={`${est.currency} ${est.total}`} mono emphasize />
+                </View>
+              </View>
+            </View>
+
+            {est.notes ? (
+              <View className="mt-6">
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                  Notes
+                </Text>
+                <Text className="mt-1 text-ink/80">{est.notes}</Text>
+              </View>
+            ) : null}
+          </>
+        )}
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+function Meta({
+  label,
+  value,
+  mono,
+  emphasize,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+  emphasize?: boolean;
+}) {
+  return (
+    <View className="flex-row justify-between">
+      <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">{label}</Text>
+      <Text
+        className={`text-ink ${mono ? 'font-mono tabular-nums' : ''} ${emphasize ? 'text-lg' : ''}`}
+      >
+        {value}
+      </Text>
+    </View>
+  );
+}
