@@ -46,6 +46,8 @@
     pause: 'paused',
     resume: 'resumed',
     end: 'ended',
+    archive: 'archived',
+    restore: 'restored',
   };
 
   // Entity-type → display singular for the feed prefix and the link path.
@@ -56,6 +58,7 @@
     expense: 'Expense',
     company: 'Company',
     recurring_invoice: 'Recurring',
+    item: 'Item',
   };
   const ENTITY_PATHS: Record<string, string> = {
     customer: '/customers',
@@ -64,6 +67,7 @@
     expense: '/expenses',
     company: '/settings/payments',
     recurring_invoice: '/recurring',
+    item: '/settings/items',
   };
 
   function actionLabel(action: string): string {

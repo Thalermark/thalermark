@@ -23,6 +23,7 @@ import {
   invitations,
   invoiceLineItems,
   invoices,
+  items,
   journalEntries,
   journalLines,
   memberships,
@@ -45,6 +46,8 @@ import {
   invoiceMarkPaidSchema,
   invoiceSendSchema,
   invoiceUpdateSchema,
+  itemCreateSchema,
+  itemUpdateSchema,
   recurringInvoiceCreateSchema,
   recurringInvoiceUpdateSchema,
 } from '@thalermark/validation';
@@ -450,6 +453,50 @@ async function transitionEstimate(
       declinedAt: updated.declinedAt,
       publicToken: updated.publicToken,
     },
+    companyId: updated.companyId,
+  });
+
+  return c.json(updated);
+}
+
+// Items archive/restore. There is no item DELETE — archiving sets archived_at
+// (drops the item out of the picker, keeps the source_item_id breadcrumbs and
+// sales history intact); restore clears it. Idempotent: a no-op transition
+// (archive an already-archived item, or restore a live one) returns the
+// current row with 200 and writes no audit noise.
+async function setItemArchived(
+  c: Context<{ Variables: RlsVariables }>,
+  id: string,
+  archived: boolean,
+) {
+  if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+  const tx = c.get('tx');
+  const accountId = c.get('accountId');
+
+  const [current] = await tx
+    .select()
+    .from(items)
+    .where(and(eq(items.id, id), eq(items.accountId, accountId)))
+    .limit(1);
+  if (!current) return c.json({ error: 'item_not_found' }, 404);
+
+  const isArchived = current.archivedAt !== null;
+  if (isArchived === archived) return c.json(current);
+
+  const now = new Date();
+  const [updated] = await tx
+    .update(items)
+    .set({ archivedAt: archived ? now : null, updatedAt: now })
+    .where(and(eq(items.id, id), eq(items.accountId, accountId)))
+    .returning();
+  if (!updated) return c.json({ error: 'item_not_found' }, 404);
+
+  await c.var.audit({
+    entityType: 'item',
+    entityId: id,
+    action: archived ? 'archive' : 'restore',
+    before: { archivedAt: current.archivedAt },
+    after: { archivedAt: updated.archivedAt },
     companyId: updated.companyId,
   });
 
@@ -1811,6 +1858,134 @@ export function createApp(deps: AppDeps) {
           return c.json(after);
         },
       )
+      // Items catalog (products & services) — per-company reusable line items.
+      // Mirrors customers: full CRUD within the tenant, but items archive
+      // rather than hard-delete (archive/restore transitions below) so the
+      // top-products report never loses history.
+      .post('/api/items', async (c) => {
+        const body = await c.req.json().catch(() => null);
+        const parsed = itemCreateSchema.safeParse(body);
+        if (!parsed.success) {
+          return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+        }
+
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+
+        const [company] = await tx
+          .select({ id: companies.id })
+          .from(companies)
+          .where(and(eq(companies.id, parsed.data.companyId), eq(companies.accountId, accountId)))
+          .limit(1);
+        if (!company) return c.json({ error: 'company_not_found' }, 404);
+
+        const id = uuidv7();
+        const row = { id, accountId, ...parsed.data };
+        await tx.insert(items).values(row);
+        await c.var.audit({
+          entityType: 'item',
+          entityId: id,
+          action: 'create',
+          after: row,
+          companyId: parsed.data.companyId,
+        });
+
+        return c.json(row, 201);
+      })
+      // List for both the management surface and the line-item autocomplete.
+      // Archived items are hidden by default (the picker must never offer them);
+      // the management page passes includeArchived=true for its show-archived
+      // toggle. `q` is a contains-search on name backing the type-ahead — capped
+      // so the autocomplete stays cheap; escapeLike neutralises %/_ wildcards.
+      .get('/api/items', async (c) => {
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+        const companyId = c.req.query('companyId');
+        const q = c.req.query('q');
+        const includeArchived = c.req.query('includeArchived') === 'true';
+
+        const conditions = [eq(items.accountId, accountId)];
+        if (companyId) conditions.push(eq(items.companyId, companyId));
+        if (!includeArchived) conditions.push(isNull(items.archivedAt));
+        if (q) conditions.push(ilike(items.name, `%${escapeLike(q)}%`));
+
+        const base = tx
+          .select()
+          .from(items)
+          .where(and(...conditions))
+          .orderBy(asc(items.name));
+        const rows = q ? await base.limit(20) : await base;
+        return c.json({ items: rows });
+      })
+      .get('/api/items/:id', async (c) => {
+        const id = c.req.param('id');
+        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+        const [row] = await tx
+          .select()
+          .from(items)
+          .where(and(eq(items.id, id), eq(items.accountId, accountId)));
+        if (!row) return c.json({ error: 'item_not_found' }, 404);
+        return c.json(row);
+      })
+      .patch(
+        '/api/items/:id',
+        validator('json', (value, c) => {
+          const parsed = itemUpdateSchema.safeParse(value);
+          if (!parsed.success) {
+            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+          }
+          return parsed.data;
+        }),
+        async (c) => {
+          const id = c.req.param('id');
+          if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+          const data = c.req.valid('json');
+
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+
+          const [before] = await tx
+            .select()
+            .from(items)
+            .where(and(eq(items.id, id), eq(items.accountId, accountId)))
+            .limit(1);
+          if (!before) return c.json({ error: 'item_not_found' }, 404);
+
+          // Full-replacement semantics like customers — omitted optionals
+          // collapse to their column default (null, or '0' / '1' for the money
+          // / quantity columns). archived_at is owned by archive/restore, not
+          // touched here, so editing an archived item keeps it archived.
+          const patch = {
+            name: data.name,
+            description: data.description ?? null,
+            unitPrice: data.unitPrice ?? '0',
+            unitLabel: data.unitLabel ?? null,
+            defaultQuantity: data.defaultQuantity ?? '1',
+            updatedAt: new Date(),
+          };
+          const [after] = await tx
+            .update(items)
+            .set(patch)
+            .where(and(eq(items.id, id), eq(items.accountId, accountId)))
+            .returning();
+          if (!after) return c.json({ error: 'item_not_found' }, 404);
+
+          await c.var.audit({
+            entityType: 'item',
+            entityId: id,
+            action: 'update',
+            before,
+            after,
+            companyId: before.companyId,
+          });
+
+          return c.json(after);
+        },
+      )
+      .post('/api/items/:id/archive', (c) => setItemArchived(c, c.req.param('id'), true))
+      .post('/api/items/:id/restore', (c) => setItemArchived(c, c.req.param('id'), false))
       .post('/api/invoices', async (c) => {
         const body = await c.req.json().catch(() => null);
         const parsed = invoiceCreateSchema.safeParse(body);
@@ -4015,6 +4190,7 @@ export function createApp(deps: AppDeps) {
           'estimate',
           'expense',
           'recurring_invoice',
+          'item',
         ] as const;
         type EntityType = (typeof ALLOWED_TYPES)[number];
 
@@ -4083,6 +4259,7 @@ export function createApp(deps: AppDeps) {
             estimate: [],
             expense: [],
             recurring_invoice: [],
+            item: [],
           };
           for (const r of rows) {
             if ((ALLOWED_TYPES as readonly string[]).includes(r.entityType)) {
@@ -4138,6 +4315,13 @@ export function createApp(deps: AppDeps) {
                 ),
               );
             for (const r of recRows) labelMap.set(`recurring_invoice:${r.id}`, r.label);
+          }
+          if (idsByType.item.length > 0) {
+            const itemRows = await tx
+              .select({ id: items.id, label: items.name })
+              .from(items)
+              .where(and(eq(items.accountId, accountId), inArray(items.id, idsByType.item)));
+            for (const r of itemRows) labelMap.set(`item:${r.id}`, r.label);
           }
         }
 
