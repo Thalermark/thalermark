@@ -1,11 +1,11 @@
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { api } from '../../../lib/api';
+import { api } from '../../../../lib/api';
 
-// Mirror of the basic-fields half of apps/web's /customers/[id]. Read-only for
-// M2 — edit, payment-reliability, and audit history are later mobile slices.
+// Mirror of the basic-fields half of apps/web's /customers/[id]. Edit lands in
+// M11b; payment-reliability + audit history are later mobile slices.
 type Customer = {
   name: string;
   email: string | null;
@@ -93,7 +93,17 @@ export default function CustomerDetail() {
           <Text className="mt-8 text-sm text-oxblood">Couldn't load this customer.</Text>
         ) : (
           <>
-            <Text className="mt-3 font-serif text-3xl font-light text-ink">{c.name}</Text>
+            <View className="mt-3 flex-row items-start justify-between gap-3">
+              <Text className="flex-1 font-serif text-3xl font-light text-ink">{c.name}</Text>
+              <Pressable
+                onPress={() => router.push(`/customers/${id}/edit`)}
+                className="mt-1 rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep"
+              >
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
+                  Edit
+                </Text>
+              </Pressable>
+            </View>
             <View className="mt-8 space-y-6">
               {c.email ? <DetailRow label="Email" value={c.email} /> : null}
               {c.phone ? <DetailRow label="Phone" value={c.phone} /> : null}

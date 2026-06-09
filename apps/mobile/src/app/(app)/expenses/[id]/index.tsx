@@ -12,13 +12,13 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { api } from '../../../lib/api';
-import { uploadReceipt } from '../../../lib/upload';
+import { api } from '../../../../lib/api';
+import { uploadReceipt } from '../../../../lib/upload';
 
 // Expense detail + receipt capture/extraction (mirror of apps/web's
 // /expenses/[id] receipt block). Attach a photo → view it → vision-extract →
-// apply the suggested merchant/amount/date. Full edit form / category-suggest
-// are deferred.
+// apply the suggested merchant/amount/date. Full field edit lands in M11b;
+// category-suggest (AI) is deferred.
 type Expense = {
   companyId: string;
   merchant: string;
@@ -234,8 +234,20 @@ export default function ExpenseDetail() {
           <Text className="mt-8 text-sm text-oxblood">Couldn't load this expense.</Text>
         ) : (
           <>
-            <Text className="mt-3 font-serif text-3xl font-light text-ink">{e.merchant}</Text>
-            <Text className="mt-1 font-mono text-2xl tabular-nums text-ink">{e.amount}</Text>
+            <View className="mt-3 flex-row items-start justify-between gap-3">
+              <View className="flex-1">
+                <Text className="font-serif text-3xl font-light text-ink">{e.merchant}</Text>
+                <Text className="mt-1 font-mono text-2xl tabular-nums text-ink">{e.amount}</Text>
+              </View>
+              <Pressable
+                onPress={() => router.push(`/expenses/${id}/edit`)}
+                className="mt-1 rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep"
+              >
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
+                  Edit
+                </Text>
+              </Pressable>
+            </View>
 
             <View className="mt-8 space-y-3">
               <Row label="Date" value={e.expenseDate} />
