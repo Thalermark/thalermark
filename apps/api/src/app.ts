@@ -71,6 +71,7 @@ import {
   repostInvoicePaymentDate,
 } from './lib/ledger.js';
 import type { Mailer } from './lib/mailer.js';
+import { applyCursor, keysetOrderBy, parseLimit, slicePage } from './lib/pagination.js';
 import { generateOnce } from './lib/recurring.js';
 import { formatSender } from './lib/sender.js';
 import { type StripeBundle, decimalDollarsToCents } from './lib/stripe.js';
@@ -1801,13 +1802,25 @@ export function createApp(deps: AppDeps) {
         const tx = c.get('tx');
         const accountId = c.get('accountId');
         const companyId = c.req.query('companyId');
+        const limit = parseLimit(c.req.query('limit'));
+        if (limit === null) return c.json({ error: 'invalid_limit' }, 400);
+        const keys = [
+          { col: customers.createdAt, revive: (v: unknown) => new Date(v as string) },
+          { col: customers.id },
+        ];
+        const keyset = applyCursor(c.req.query('cursor'), keys, 'desc');
+        if (keyset === 'invalid') return c.json({ error: 'invalid_cursor' }, 400);
         const conditions = [eq(customers.accountId, accountId)];
         if (companyId) conditions.push(eq(customers.companyId, companyId));
+        if (keyset) conditions.push(keyset);
         const rows = await tx
           .select()
           .from(customers)
-          .where(and(...conditions));
-        return c.json({ customers: rows });
+          .where(and(...conditions))
+          .orderBy(keysetOrderBy(keys, 'desc'))
+          .limit(limit + 1);
+        const page = slicePage(rows, limit, (r) => [r.createdAt, r.id]);
+        return c.json({ customers: page.rows, nextCursor: page.nextCursor });
       })
       .get('/api/customers/:id', async (c) => {
         const id = c.req.param('id');
@@ -1987,13 +2000,31 @@ export function createApp(deps: AppDeps) {
         if (!includeArchived) conditions.push(isNull(items.archivedAt));
         if (q) conditions.push(ilike(items.name, `%${escapeLike(q)}%`));
 
-        const base = tx
+        // Typeahead (?q=) keeps its capped, unpaginated behavior. List mode
+        // paginates the catalog alphabetically (name + id tiebreak, asc).
+        if (q) {
+          const rows = await tx
+            .select()
+            .from(items)
+            .where(and(...conditions))
+            .orderBy(asc(items.name))
+            .limit(20);
+          return c.json({ items: rows, nextCursor: null });
+        }
+        const limit = parseLimit(c.req.query('limit'));
+        if (limit === null) return c.json({ error: 'invalid_limit' }, 400);
+        const keys = [{ col: items.name }, { col: items.id }];
+        const keyset = applyCursor(c.req.query('cursor'), keys, 'asc');
+        if (keyset === 'invalid') return c.json({ error: 'invalid_cursor' }, 400);
+        if (keyset) conditions.push(keyset);
+        const rows = await tx
           .select()
           .from(items)
           .where(and(...conditions))
-          .orderBy(asc(items.name));
-        const rows = q ? await base.limit(20) : await base;
-        return c.json({ items: rows });
+          .orderBy(keysetOrderBy(keys, 'asc'))
+          .limit(limit + 1);
+        const page = slicePage(rows, limit, (r) => [r.name, r.id]);
+        return c.json({ items: page.rows, nextCursor: page.nextCursor });
       })
       .get('/api/items/:id', async (c) => {
         const id = c.req.param('id');
@@ -2246,15 +2277,26 @@ export function createApp(deps: AppDeps) {
         const accountId = c.get('accountId');
         const companyId = c.req.query('companyId');
         const status = c.req.query('status');
+        const limit = parseLimit(c.req.query('limit'));
+        if (limit === null) return c.json({ error: 'invalid_limit' }, 400);
+        const keys = [
+          { col: invoices.createdAt, revive: (v: unknown) => new Date(v as string) },
+          { col: invoices.id },
+        ];
+        const keyset = applyCursor(c.req.query('cursor'), keys, 'desc');
+        if (keyset === 'invalid') return c.json({ error: 'invalid_cursor' }, 400);
         const conditions = [eq(invoices.accountId, accountId)];
         if (companyId) conditions.push(eq(invoices.companyId, companyId));
         if (status) conditions.push(eq(invoices.status, status));
+        if (keyset) conditions.push(keyset);
         const rows = await tx
           .select()
           .from(invoices)
           .where(and(...conditions))
-          .orderBy(asc(invoices.createdAt));
-        return c.json({ invoices: rows });
+          .orderBy(keysetOrderBy(keys, 'desc'))
+          .limit(limit + 1);
+        const page = slicePage(rows, limit, (r) => [r.createdAt, r.id]);
+        return c.json({ invoices: page.rows, nextCursor: page.nextCursor });
       })
       .get('/api/invoices/next-number', async (c) => {
         // Must be declared before /api/invoices/:id — Hono is first-match, and
@@ -2611,15 +2653,26 @@ export function createApp(deps: AppDeps) {
         const accountId = c.get('accountId');
         const companyId = c.req.query('companyId');
         const status = c.req.query('status');
+        const limit = parseLimit(c.req.query('limit'));
+        if (limit === null) return c.json({ error: 'invalid_limit' }, 400);
+        const keys = [
+          { col: recurringInvoices.createdAt, revive: (v: unknown) => new Date(v as string) },
+          { col: recurringInvoices.id },
+        ];
+        const keyset = applyCursor(c.req.query('cursor'), keys, 'desc');
+        if (keyset === 'invalid') return c.json({ error: 'invalid_cursor' }, 400);
         const conditions = [eq(recurringInvoices.accountId, accountId)];
         if (companyId) conditions.push(eq(recurringInvoices.companyId, companyId));
         if (status) conditions.push(eq(recurringInvoices.status, status));
+        if (keyset) conditions.push(keyset);
         const rows = await tx
           .select()
           .from(recurringInvoices)
           .where(and(...conditions))
-          .orderBy(asc(recurringInvoices.createdAt));
-        return c.json({ recurringInvoices: rows });
+          .orderBy(keysetOrderBy(keys, 'desc'))
+          .limit(limit + 1);
+        const page = slicePage(rows, limit, (r) => [r.createdAt, r.id]);
+        return c.json({ recurringInvoices: page.rows, nextCursor: page.nextCursor });
       })
       .get('/api/recurring-invoices/:id', async (c) => {
         const id = c.req.param('id');
@@ -2993,15 +3046,26 @@ export function createApp(deps: AppDeps) {
         const accountId = c.get('accountId');
         const companyId = c.req.query('companyId');
         const status = c.req.query('status');
+        const limit = parseLimit(c.req.query('limit'));
+        if (limit === null) return c.json({ error: 'invalid_limit' }, 400);
+        const keys = [
+          { col: estimates.createdAt, revive: (v: unknown) => new Date(v as string) },
+          { col: estimates.id },
+        ];
+        const keyset = applyCursor(c.req.query('cursor'), keys, 'desc');
+        if (keyset === 'invalid') return c.json({ error: 'invalid_cursor' }, 400);
         const conditions = [eq(estimates.accountId, accountId)];
         if (companyId) conditions.push(eq(estimates.companyId, companyId));
         if (status) conditions.push(eq(estimates.status, status));
+        if (keyset) conditions.push(keyset);
         const rows = await tx
           .select()
           .from(estimates)
           .where(and(...conditions))
-          .orderBy(asc(estimates.createdAt));
-        return c.json({ estimates: rows });
+          .orderBy(keysetOrderBy(keys, 'desc'))
+          .limit(limit + 1);
+        const page = slicePage(rows, limit, (r) => [r.createdAt, r.id]);
+        return c.json({ estimates: page.rows, nextCursor: page.nextCursor });
       })
       .get('/api/estimates/next-number', async (c) => {
         // Declared before /api/estimates/:id — Hono is first-match, same as
@@ -3506,6 +3570,17 @@ export function createApp(deps: AppDeps) {
           return c.json({ error: 'invalid_to' }, 400);
         }
 
+        const limit = parseLimit(c.req.query('limit'));
+        if (limit === null) return c.json({ error: 'invalid_limit' }, 400);
+        // expense_date is a date column (string), created_at a timestamp (Date).
+        const keys = [
+          { col: expenses.expenseDate },
+          { col: expenses.createdAt, revive: (v: unknown) => new Date(v as string) },
+          { col: expenses.id },
+        ];
+        const keyset = applyCursor(c.req.query('cursor'), keys, 'desc');
+        if (keyset === 'invalid') return c.json({ error: 'invalid_cursor' }, 400);
+
         const conditions = [eq(expenses.accountId, accountId), isNull(expenses.deletedAt)];
         if (companyId) conditions.push(eq(expenses.companyId, companyId));
         if (from) conditions.push(gte(expenses.expenseDate, from));
@@ -3514,13 +3589,16 @@ export function createApp(deps: AppDeps) {
         // Merchant contains-search. escapeLike neutralises %/_ so a literal
         // "50%" search doesn't turn into a wildcard.
         if (q) conditions.push(ilike(expenses.merchant, `%${escapeLike(q)}%`));
+        if (keyset) conditions.push(keyset);
 
         const rows = await tx
           .select()
           .from(expenses)
           .where(and(...conditions))
-          .orderBy(desc(expenses.expenseDate), desc(expenses.createdAt));
-        return c.json({ expenses: rows });
+          .orderBy(keysetOrderBy(keys, 'desc'))
+          .limit(limit + 1);
+        const page = slicePage(rows, limit, (r) => [r.expenseDate, r.createdAt, r.id]);
+        return c.json({ expenses: page.rows, nextCursor: page.nextCursor });
       })
       .get('/api/expenses/:id', async (c) => {
         const id = c.req.param('id');
@@ -4296,14 +4374,14 @@ export function createApp(deps: AppDeps) {
             return c.json({ error: 'invalid_entity_id' }, 400);
           }
         }
-        let limit = 50;
-        if (limitRaw !== undefined) {
-          const parsed = Number.parseInt(limitRaw, 10);
-          if (!Number.isFinite(parsed) || parsed <= 0) {
-            return c.json({ error: 'invalid_limit' }, 400);
-          }
-          limit = Math.min(parsed, 200);
-        }
+        const limit = parseLimit(limitRaw);
+        if (limit === null) return c.json({ error: 'invalid_limit' }, 400);
+        const keys = [
+          { col: auditEvents.createdAt, revive: (v: unknown) => new Date(v as string) },
+          { col: auditEvents.id },
+        ];
+        const keyset = applyCursor(c.req.query('cursor'), keys, 'desc');
+        if (keyset === 'invalid') return c.json({ error: 'invalid_cursor' }, 400);
 
         const tx = c.get('tx');
         const accountId = c.get('accountId');
@@ -4315,8 +4393,9 @@ export function createApp(deps: AppDeps) {
         if (entityIdRaw !== undefined) {
           conditions.push(eq(auditEvents.entityId, entityIdRaw));
         }
+        if (keyset) conditions.push(keyset);
 
-        const rows = await tx
+        const fetched = await tx
           .select({
             id: auditEvents.id,
             action: auditEvents.action,
@@ -4331,8 +4410,9 @@ export function createApp(deps: AppDeps) {
           .from(auditEvents)
           .leftJoin(authUser, eq(authUser.id, auditEvents.actorUserId))
           .where(and(...conditions))
-          .orderBy(desc(auditEvents.createdAt))
-          .limit(limit);
+          .orderBy(keysetOrderBy(keys, 'desc'))
+          .limit(limit + 1);
+        const { rows, nextCursor } = slicePage(fetched, limit, (r) => [r.createdAt, r.id]);
 
         // Entity-label enrichment — feed mode needs human labels next to
         // the action; per-entity mode already knows the entity. Skip the
@@ -4424,6 +4504,7 @@ export function createApp(deps: AppDeps) {
             before: r.before,
             after: r.after,
           })),
+          nextCursor,
         });
       })
       // Public invoice view — unauthed, gated only by the random token in

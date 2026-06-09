@@ -35,6 +35,12 @@ export const customers = pgTable(
     companyIdIdx: index('customers_company_id_idx').on(table.companyId),
     nameIdx: index('customers_name_idx').on(table.name),
     emailIdx: index('customers_email_idx').on(table.email),
+    // Backs the keyset list query: WHERE account_id ORDER BY created_at DESC, id DESC.
+    accountCreatedAtIdx: index('customers_account_created_at_idx').on(
+      table.accountId,
+      table.createdAt.desc(),
+      table.id.desc(),
+    ),
   }),
 );
 

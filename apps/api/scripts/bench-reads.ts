@@ -64,8 +64,10 @@ async function main() {
 
   const queries: { name: string; sql: string }[] = [
     {
+      // Matches the real keyset list query: DESC NULLS LAST + id tiebreak, so
+      // the plan reflects the invoices_account_created_at_idx the app relies on.
       name: 'invoices_list (newest 50)',
-      sql: `SELECT id, number, status, total, issue_date FROM invoices WHERE account_id = ${acc} AND company_id = ${co} ORDER BY created_at DESC LIMIT 50`,
+      sql: `SELECT id, number, status, total, issue_date FROM invoices WHERE account_id = ${acc} AND company_id = ${co} ORDER BY created_at DESC NULLS LAST, id DESC NULLS LAST LIMIT 50`,
     },
     {
       name: 'invoices_by_status (sent)',
@@ -73,7 +75,7 @@ async function main() {
     },
     {
       name: 'activity_feed (newest 100)',
-      sql: `SELECT ae.id, ae.action, ae.entity_type, ae.entity_id, ae.created_at, u.name FROM audit_events ae LEFT JOIN auth_user u ON u.id = ae.actor_user_id WHERE ae.account_id = ${acc} ORDER BY ae.created_at DESC LIMIT 100`,
+      sql: `SELECT ae.id, ae.action, ae.entity_type, ae.entity_id, ae.created_at, u.name FROM audit_events ae LEFT JOIN auth_user u ON u.id = ae.actor_user_id WHERE ae.account_id = ${acc} ORDER BY ae.created_at DESC NULLS LAST, ae.id DESC NULLS LAST LIMIT 100`,
     },
     {
       name: 'top_products (paid, grouped)',

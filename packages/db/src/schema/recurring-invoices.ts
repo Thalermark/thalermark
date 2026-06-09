@@ -80,6 +80,12 @@ export const recurringInvoices = pgTable(
     // The sweep query filters on (status, next_run_date) across all tenants;
     // this composite index keeps the daily scan cheap as schedules grow.
     sweepIdx: index('recurring_invoices_sweep_idx').on(table.status, table.nextRunDate),
+    // Backs the keyset list query: WHERE account_id ORDER BY created_at DESC, id DESC.
+    accountCreatedAtIdx: index('recurring_invoices_account_created_at_idx').on(
+      table.accountId,
+      table.createdAt.desc(),
+      table.id.desc(),
+    ),
   }),
 );
 

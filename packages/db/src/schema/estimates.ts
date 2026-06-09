@@ -66,6 +66,12 @@ export const estimates = pgTable(
     companyIdIdx: index('estimates_company_id_idx').on(table.companyId),
     customerIdIdx: index('estimates_customer_id_idx').on(table.customerId),
     statusIdx: index('estimates_status_idx').on(table.status),
+    // Backs the keyset list query: WHERE account_id ORDER BY created_at DESC, id DESC.
+    accountCreatedAtIdx: index('estimates_account_created_at_idx').on(
+      table.accountId,
+      table.createdAt.desc(),
+      table.id.desc(),
+    ),
     companyNumberUq: uniqueIndex('estimates_company_number_uq').on(table.companyId, table.number),
     publicTokenUq: uniqueIndex('estimates_public_token_uq').on(table.publicToken),
   }),
