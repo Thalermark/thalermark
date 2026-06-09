@@ -1,6 +1,6 @@
 import { getActiveAccountId, getAuthToken } from './secure-store';
+import { getServerUrl } from './server-url';
 
-const baseUrl = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 const APP_ORIGIN = 'thalermark://';
 
 export type UploadResult = { ok: true } | { ok: false; error: string };
@@ -31,7 +31,7 @@ async function postMultipart(
 
   return new Promise<UploadResult>((resolve) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', `${baseUrl}${path}`);
+    xhr.open('POST', `${getServerUrl()}${path}`);
     xhr.setRequestHeader('Origin', APP_ORIGIN);
     if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
     if (accountId) xhr.setRequestHeader('x-account-id', accountId);

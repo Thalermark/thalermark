@@ -4,6 +4,7 @@ import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { type AuditEvent, AuditHistory } from '../../../../components/AuditHistory';
 import { api } from '../../../../lib/api';
+import { getServerUrl } from '../../../../lib/server-url';
 
 // Estimate detail + actions (mirror of apps/web's /estimates/[id]):
 // mark-sent / mark-accepted / mark-declined / send / convert-to-invoice. No
@@ -48,7 +49,6 @@ const TRANSITION_ERRORS: Record<string, string> = {
   customer_not_found: 'The customer for this estimate no longer exists.',
 };
 
-const apiOrigin = (process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000').replace(/\/$/, '');
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
 export default function EstimateDetail() {
@@ -200,7 +200,7 @@ export default function EstimateDetail() {
     );
   }
 
-  const publicUrl = est?.publicToken ? `${apiOrigin}/i/${est.publicToken}` : null;
+  const publicUrl = est?.publicToken ? `${getServerUrl()}/i/${est.publicToken}` : null;
 
   return (
     <SafeAreaView className="flex-1 bg-cream" edges={['top']}>

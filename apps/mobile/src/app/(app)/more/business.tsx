@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from '../../../lib/api';
+import { getServerUrl } from '../../../lib/server-url';
 import { uploadLogo } from '../../../lib/upload';
 
 // Business identity settings — native mirror of apps/web's /settings/business.
@@ -35,8 +36,7 @@ const LOGO_ERRORS: Record<string, string> = {
   storage_not_configured: 'Logo storage is not configured on this server.',
 };
 
-const apiOrigin = (process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000').replace(/\/$/, '');
-const absolutize = (url: string) => (url.startsWith('http') ? url : `${apiOrigin}${url}`);
+const absolutize = (url: string) => (url.startsWith('http') ? url : `${getServerUrl()}${url}`);
 
 export default function BusinessSettings() {
   const router = useRouter();

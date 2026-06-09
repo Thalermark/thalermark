@@ -1,7 +1,6 @@
 import { createAuthClient } from 'better-auth/client';
 import { clearActiveAccountId, clearAuthToken, getAuthToken, setAuthToken } from './secure-store';
-
-const baseURL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
+import { getServerUrl } from './server-url';
 
 // Mobile auth flow: BA's bearer plugin (server) echoes the session token in
 // the `set-auth-token` response header on sign-in/sign-up. We persist that
@@ -17,19 +16,41 @@ const baseURL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 // TRUSTED_ORIGINS on apps/api.
 const APP_ORIGIN = 'thalermark://';
 
-export const authClient = createAuthClient({
-  baseURL,
-  fetchOptions: {
-    headers: { Origin: APP_ORIGIN },
-    auth: {
-      type: 'Bearer',
-      token: async () => (await getAuthToken()) ?? undefined,
+function buildAuthClient(baseURL: string) {
+  return createAuthClient({
+    baseURL,
+    fetchOptions: {
+      headers: { Origin: APP_ORIGIN },
+      auth: {
+        type: 'Bearer',
+        token: async () => (await getAuthToken()) ?? undefined,
+      },
+      onSuccess: async (ctx) => {
+        const token = ctx.response.headers.get('set-auth-token');
+        if (token) await setAuthToken(token);
+      },
     },
-    onSuccess: async (ctx) => {
-      const token = ctx.response.headers.get('set-auth-token');
-      if (token) await setAuthToken(token);
-    },
-  },
+  });
+}
+
+// Same runtime-URL story as api.ts: the server is chosen in the pre-sign-in
+// picker (server-url.ts), but createAuthClient captures baseURL at
+// construction. Memoize + rebuild when the configured URL changes; export a
+// stable Proxy so screens keep importing `authClient` unchanged.
+let auth = buildAuthClient(getServerUrl());
+let builtFor = getServerUrl();
+
+function liveAuth() {
+  const url = getServerUrl();
+  if (url !== builtFor) {
+    auth = buildAuthClient(url);
+    builtFor = url;
+  }
+  return auth;
+}
+
+export const authClient = new Proxy({} as ReturnType<typeof buildAuthClient>, {
+  get: (_target, prop) => liveAuth()[prop as keyof ReturnType<typeof buildAuthClient>],
 });
 
 // Sign-out: BA invalidates the session server-side, then we drop the local

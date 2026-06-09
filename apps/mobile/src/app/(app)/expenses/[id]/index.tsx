@@ -14,6 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { type AuditEvent, AuditHistory } from '../../../../components/AuditHistory';
 import { api } from '../../../../lib/api';
+import { getServerUrl } from '../../../../lib/server-url';
 import { uploadReceipt } from '../../../../lib/upload';
 
 // Expense detail + receipt capture/extraction (mirror of apps/web's
@@ -52,8 +53,7 @@ const RECEIPT_ERRORS: Record<string, string> = {
   extraction_failed: "Couldn't read that receipt. Try a clearer photo.",
 };
 
-const apiOrigin = (process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000').replace(/\/$/, '');
-const absolutize = (url: string) => (url.startsWith('http') ? url : `${apiOrigin}${url}`);
+const absolutize = (url: string) => (url.startsWith('http') ? url : `${getServerUrl()}${url}`);
 
 export default function ExpenseDetail() {
   const router = useRouter();
