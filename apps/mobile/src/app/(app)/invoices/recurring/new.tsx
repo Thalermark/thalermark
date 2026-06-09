@@ -20,6 +20,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { DateField } from '../../../../components/DateField';
 import { ItemPickerField } from '../../../../components/ItemPickerField';
 import { api } from '../../../../lib/api';
 import { type DupeCandidate, findEmailDupe, findNameDupes } from '../../../../lib/customer-dupes';
@@ -370,19 +371,18 @@ export default function NewRecurring() {
               error={fieldErrors.intervalCount}
               keyboardType="number-pad"
             />
-            <LabeledInput
+            <DateField
               label="Start date *"
               value={startDate}
-              onChangeText={setStartDate}
+              onChange={setStartDate}
               error={fieldErrors.startDate}
-              autoCapitalize="none"
             />
-            <LabeledInput
+            <DateField
               label="End date (optional)"
               value={endDate}
-              onChangeText={setEndDate}
+              onChange={setEndDate}
               error={fieldErrors.endDate}
-              autoCapitalize="none"
+              optional
             />
             <LabeledInput
               label="Max occurrences (optional)"

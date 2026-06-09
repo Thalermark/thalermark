@@ -20,6 +20,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { DateField } from '../../../components/DateField';
 import { ItemPickerField } from '../../../components/ItemPickerField';
 import { api } from '../../../lib/api';
 import { type DupeCandidate, findEmailDupe, findNameDupes } from '../../../lib/customer-dupes';
@@ -366,19 +367,17 @@ export default function NewInvoice() {
               onChangeText={setNumber}
               error={fieldErrors.number}
             />
-            <LabeledInput
+            <DateField
               label="Issued *"
               value={issueDate}
-              onChangeText={setIssueDate}
+              onChange={setIssueDate}
               error={fieldErrors.issueDate}
-              autoCapitalize="none"
             />
-            <LabeledInput
+            <DateField
               label="Due *"
               value={dueDate}
-              onChangeText={setDueDate}
+              onChange={setDueDate}
               error={fieldErrors.dueDate}
-              autoCapitalize="none"
             />
 
             {/* Line items */}
