@@ -12,6 +12,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { type AuditEvent, AuditHistory } from '../../../../components/AuditHistory';
 import { api } from '../../../../lib/api';
 import { uploadReceipt } from '../../../../lib/upload';
 
@@ -58,6 +59,7 @@ export default function ExpenseDetail() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [detail, setDetail] = useState<DetailState>({ state: 'loading' });
+  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [acting, setActing] = useState(false);
   const [receiptError, setReceiptError] = useState<string | null>(null);
   const [extraction, setExtraction] = useState<Extraction | null>(null);
@@ -104,6 +106,15 @@ export default function ExpenseDetail() {
         receiptStorageKey: e.receiptStorageKey ?? null,
       },
     });
+    // Audit trail — best-effort; refetched on every load() (focus + after each
+    // receipt upload/delete), so the history reflects the action just taken. A
+    // failure here must not flip the whole screen to error, hence the swallow.
+    try {
+      const auditRes = await api.api['audit-events'].$get({
+        query: { entityType: 'expense', entityId: id },
+      });
+      if (auditRes.ok) setAuditEvents((await auditRes.json()).events);
+    } catch {}
   }, [id]);
 
   useFocusEffect(
@@ -374,6 +385,8 @@ export default function ExpenseDetail() {
                 </View>
               ) : null}
             </View>
+
+            <AuditHistory events={auditEvents} />
           </>
         )}
       </ScrollView>

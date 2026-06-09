@@ -2,10 +2,11 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { type AuditEvent, AuditHistory } from '../../../../components/AuditHistory';
 import { api } from '../../../../lib/api';
 
-// Mirror of the basic-fields half of apps/web's /customers/[id]. Edit lands in
-// M11b; payment-reliability + audit history are later mobile slices.
+// Mirror of the basic-fields half of apps/web's /customers/[id], plus the
+// per-entity audit trail (M11e). Payment-reliability is a later mobile slice.
 type Customer = {
   name: string;
   email: string | null;
@@ -27,6 +28,7 @@ export default function CustomerDetail() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [detail, setDetail] = useState<DetailState>({ state: 'loading' });
+  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
 
   useFocusEffect(
     useCallback(() => {
@@ -59,6 +61,14 @@ export default function CustomerDetail() {
         .catch(() => {
           if (active) setDetail({ state: 'error' });
         });
+      // Audit trail — best-effort sidebar; a non-OK response degrades to an
+      // empty list rather than failing the screen.
+      api.api['audit-events']
+        .$get({ query: { entityType: 'customer', entityId: id } })
+        .then(async (res) => {
+          if (active && res.ok) setAuditEvents((await res.json()).events);
+        })
+        .catch(() => {});
       return () => {
         active = false;
       };
@@ -121,6 +131,7 @@ export default function CustomerDetail() {
               ) : null}
               {c.notes ? <DetailRow label="Notes" value={c.notes} /> : null}
             </View>
+            <AuditHistory events={auditEvents} />
           </>
         )}
       </ScrollView>
