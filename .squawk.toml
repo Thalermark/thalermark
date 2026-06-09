@@ -41,6 +41,14 @@ excluded_rules = [
   # write those as hand-written migrations outside the tx wrapper).
   "require-concurrent-index-creation",
 
+  # The deletion-side sibling of require-concurrent-index-creation:
+  # wants `DROP INDEX CONCURRENTLY` so the table isn't locked while an
+  # index is dropped. Same constraint (CONCURRENTLY can't run inside
+  # drizzle-kit's per-migration tx) and same pre-launch rationale — a
+  # plain DROP INDEX only blocks against a populated production table.
+  # Re-enable alongside the creation rule before launch.
+  "require-concurrent-index-deletion",
+
   # Wants `ADD CONSTRAINT ... NOT VALID` then a separate `VALIDATE
   # CONSTRAINT` so the table isn't scanned while writes are blocked.
   # Only matters when the table has rows. Our migrations add FKs to
