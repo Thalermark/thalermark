@@ -8,6 +8,8 @@
   "files": ["dist"],
   "scripts": {
     "dev": "tsx watch src/server.ts",
+    "seed:load-test": "tsx scripts/seed-load-test.ts",
+    "bench:reads": "tsx scripts/bench-reads.ts",
     "build": "tsc -p tsconfig.build.json",
     "start": "node --experimental-strip-types dist/server.js",
     "test": "vitest run",
