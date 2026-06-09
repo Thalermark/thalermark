@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { type AuditEvent, AuditHistory } from '../../../../components/AuditHistory';
 import { api } from '../../../../lib/api';
+import { getServerUrl } from '../../../../lib/server-url';
 
 // Invoice detail + status actions (mirror of apps/web's /invoices/[id]):
 // mark-sent / mark-paid / void / send-by-email, gated by the same state
@@ -63,7 +64,6 @@ const TRANSITION_ERRORS: Record<string, string> = {
   customer_not_found: 'The customer for this invoice no longer exists.',
 };
 
-const apiOrigin = (process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000').replace(/\/$/, '');
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
 export default function InvoiceDetail() {
@@ -234,7 +234,7 @@ export default function InvoiceDetail() {
     ]);
   }
 
-  const publicUrl = inv?.publicToken ? `${apiOrigin}/i/${inv.publicToken}` : null;
+  const publicUrl = inv?.publicToken ? `${getServerUrl()}/i/${inv.publicToken}` : null;
   const paidVia =
     inv?.status === 'paid' && inv.paymentMethod
       ? (PAYMENT_METHOD_LABELS[inv.paymentMethod] ?? inv.paymentMethod)

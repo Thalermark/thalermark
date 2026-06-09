@@ -37,6 +37,18 @@ under `apps/web/src/routes/(app)/` — same API, same shapes, native UI.
 - **Auth gate lives in `(app)/_layout.tsx` only** (via `useFocusEffect` +
   `authClient.getSession()`), not the root layout — so the `(auth)` flow doesn't
   pay a session round-trip on every navigation.
+- **The API base URL is a runtime value — read it from `getServerUrl()`
+  (`lib/server-url.ts`), never `process.env.EXPO_PUBLIC_API_URL` directly.**
+  `EXPO_PUBLIC_*` is inlined at build time, so a published binary is frozen to
+  one server; the pre-sign-in server picker (`(auth)/server.tsx`) lets
+  self-hosters point the app at their own server. The env var is only the
+  *default*. `api.ts` + `auth-client.ts` capture the URL at construction, so
+  they're exported as Proxies that rebuild against `getServerUrl()` when it
+  changes (no restart). The root `_layout.tsx` `hydrateServerUrl()`s the stored
+  override before rendering. Any new module that builds a request URL must call
+  `getServerUrl()` at call/render time (see `upload.ts`, `invitations.ts`, the
+  `apiOrigin`/`absolutize` helpers in the detail screens). Self-host servers
+  must allow `thalermark://` in `TRUSTED_ORIGINS` (the default compose does).
 
 ## ⚠️ The `x-account-id` gap (close this first)
 

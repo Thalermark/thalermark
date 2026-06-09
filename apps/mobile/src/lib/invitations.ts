@@ -1,6 +1,6 @@
 import { getActiveAccountId, getAuthToken } from './secure-store';
+import { getServerUrl } from './server-url';
 
-const baseUrl = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 const APP_ORIGIN = 'thalermark://';
 
 // Send a team invite. POST /api/invitations has no hono `json` validator on the
@@ -22,7 +22,7 @@ export async function sendInvite(email: string): Promise<InviteResult> {
   if (accountId) headers['x-account-id'] = accountId;
 
   try {
-    const res = await fetch(`${baseUrl}/api/invitations`, {
+    const res = await fetch(`${getServerUrl()}/api/invitations`, {
       method: 'POST',
       headers,
       body: JSON.stringify({ email }),

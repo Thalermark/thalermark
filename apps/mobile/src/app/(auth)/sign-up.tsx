@@ -100,6 +100,12 @@ export default function SignUp() {
             Sign in
           </Link>
         </View>
+
+        <View className="mt-10 flex-row justify-center">
+          <Link href="/server" className="font-mono text-xs uppercase tracking-widest text-ink/50">
+            Advanced
+          </Link>
+        </View>
       </View>
     </SafeAreaView>
   );
