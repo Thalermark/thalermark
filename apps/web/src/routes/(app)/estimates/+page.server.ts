@@ -6,8 +6,11 @@ import type { PageServerLoad } from './$types';
 // customerName is LEFT JOINed server-side (see /invoices).
 export const load: PageServerLoad = async (event) => {
   const client = serverApiClient(event);
-  const res = await client.api.estimates.$get({ query: { limit: String(PAGE_SIZE) } });
+  const status = event.url.searchParams.get('status') ?? '';
+  const query: Record<string, string> = { limit: String(PAGE_SIZE) };
+  if (status) query.status = status;
+  const res = await client.api.estimates.$get({ query });
   if (!res.ok) throw error(res.status, 'failed to load estimates');
   const { estimates, nextCursor } = await res.json();
-  return { estimates, nextCursor };
+  return { estimates, nextCursor, filters: { status } };
 };

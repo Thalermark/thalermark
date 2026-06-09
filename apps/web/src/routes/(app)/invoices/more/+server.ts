@@ -7,9 +7,11 @@ import type { RequestHandler } from './$types';
 // the API, so the appended rows match the SSR shape with no client lookup.
 export const GET: RequestHandler = async (event) => {
   const cursor = event.url.searchParams.get('cursor') ?? undefined;
+  const status = event.url.searchParams.get('status') ?? undefined;
   const client = serverApiClient(event);
   const query: Record<string, string> = { limit: String(PAGE_SIZE) };
   if (cursor) query.cursor = cursor;
+  if (status) query.status = status;
   const res = await client.api.invoices.$get({ query });
   if (!res.ok) return json({ rows: [], nextCursor: null }, { status: res.status });
   const { invoices, nextCursor } = await res.json();
