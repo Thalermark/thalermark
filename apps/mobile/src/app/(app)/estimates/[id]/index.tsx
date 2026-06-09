@@ -55,6 +55,7 @@ export default function EstimateDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [detail, setDetail] = useState<DetailState>({ state: 'loading' });
   const [acting, setActing] = useState(false);
+  const [duplicating, setDuplicating] = useState(false);
   const [transitionError, setTransitionError] = useState<string | null>(null);
   const [sentTo, setSentTo] = useState<string | null>(null);
   const [showOverride, setShowOverride] = useState(false);
@@ -158,6 +159,26 @@ export default function EstimateDetail() {
     );
   }
 
+  // Duplicate-as-template — clone into a fresh draft (server carries the line
+  // sourceItemIds forward) and land on its edit screen. Any status.
+  async function onDuplicate() {
+    setDuplicating(true);
+    setTransitionError(null);
+    try {
+      const res = await api.api.estimates[':id'].duplicate.$post({ param: { id } });
+      if (!res.ok) {
+        setTransitionError('Could not duplicate this estimate.');
+        return;
+      }
+      const { id: newId } = await res.json();
+      router.push(`/estimates/${newId}/edit`);
+    } catch {
+      setTransitionError('Could not duplicate this estimate.');
+    } finally {
+      setDuplicating(false);
+    }
+  }
+
   function onConvert() {
     act(
       () => api.api.estimates[':id'].convert.$post({ param: { id } }),
@@ -201,6 +222,15 @@ export default function EstimateDetail() {
                     </Text>
                   </Pressable>
                 ) : null}
+                <Pressable
+                  onPress={onDuplicate}
+                  disabled={duplicating}
+                  className="rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep disabled:opacity-50"
+                >
+                  <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
+                    {duplicating ? '…' : 'Duplicate'}
+                  </Text>
+                </Pressable>
                 <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
                   {est.status}
                 </Text>
