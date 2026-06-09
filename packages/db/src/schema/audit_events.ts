@@ -30,9 +30,11 @@ export const auditEvents = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
+    // Backs the activity feed keyset: WHERE account_id ORDER BY created_at DESC, id DESC.
     accountCreatedAtIdx: index('audit_events_account_created_at_idx').on(
       table.accountId,
       table.createdAt.desc(),
+      table.id.desc(),
     ),
     entityIdx: index('audit_events_entity_idx').on(table.entityType, table.entityId),
   }),

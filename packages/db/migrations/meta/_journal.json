@@ -281,6 +281,13 @@
       "when": 1780875437344,
       "tag": "0039_enable_rls_items",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1781025001947,
+      "tag": "0040_bent_killmonger",
+      "breakpoints": true
     }
   ]
 }

@@ -83,6 +83,12 @@ export const invoices = pgTable(
     companyIdIdx: index('invoices_company_id_idx').on(table.companyId),
     customerIdIdx: index('invoices_customer_id_idx').on(table.customerId),
     statusIdx: index('invoices_status_idx').on(table.status),
+    // Backs the keyset list query: WHERE account_id ORDER BY created_at DESC, id DESC.
+    accountCreatedAtIdx: index('invoices_account_created_at_idx').on(
+      table.accountId,
+      table.createdAt.desc(),
+      table.id.desc(),
+    ),
     companyNumberUq: uniqueIndex('invoices_company_number_uq').on(table.companyId, table.number),
     publicTokenUq: uniqueIndex('invoices_public_token_uq').on(table.publicToken),
     recurringInvoiceIdIdx: index('invoices_recurring_invoice_id_idx').on(table.recurringInvoiceId),

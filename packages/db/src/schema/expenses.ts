@@ -71,6 +71,14 @@ export const expenses = pgTable(
     categoryAccountIdIdx: index('expenses_category_account_id_idx').on(table.categoryAccountId),
     paymentAccountIdIdx: index('expenses_payment_account_id_idx').on(table.paymentAccountId),
     expenseDateIdx: index('expenses_expense_date_idx').on(table.expenseDate),
+    // Backs the keyset list query: WHERE account_id ORDER BY expense_date DESC,
+    // created_at DESC, id DESC.
+    accountDateIdx: index('expenses_account_date_idx').on(
+      table.accountId,
+      table.expenseDate.desc(),
+      table.createdAt.desc(),
+      table.id.desc(),
+    ),
   }),
 );
 

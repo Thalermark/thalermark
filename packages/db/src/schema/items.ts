@@ -52,6 +52,8 @@ export const items = pgTable(
     // Plain (not unique) — item names repeat. Backs the autocomplete ILIKE,
     // which is always scoped to a single company.
     companyNameIdx: index('items_company_name_idx').on(table.companyId, table.name),
+    // Backs the keyset catalog list: WHERE account_id ORDER BY name ASC, id ASC.
+    accountNameIdx: index('items_account_name_idx').on(table.accountId, table.name, table.id),
   }),
 );
 
