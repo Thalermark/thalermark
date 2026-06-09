@@ -2,11 +2,12 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { api } from '../../../lib/api';
+import { api } from '../../../../lib/api';
 
 // Estimate detail + actions (mirror of apps/web's /estimates/[id]):
 // mark-sent / mark-accepted / mark-declined / send / convert-to-invoice. No
-// payment semantics (estimates aren't a debt). Edit / duplicate deferred.
+// payment semantics (estimates aren't a debt). Edit is draft-only (M11c);
+// duplicate deferred.
 type LineItem = {
   position: number;
   description: string;
@@ -115,6 +116,7 @@ export default function EstimateDetail() {
   const canMarkAccepted = status === 'draft' || status === 'sent';
   const canMarkDeclined = status === 'draft' || status === 'sent';
   const canConvert = status === 'accepted' && est?.convertedInvoiceId == null;
+  const canEdit = status === 'draft';
   const hasActions = canSend || canMarkSent || canMarkAccepted || canMarkDeclined || canConvert;
   const expiredNotice =
     status === 'sent' && est?.expiresOn != null && est.expiresOn < todayIso()
@@ -188,9 +190,21 @@ export default function EstimateDetail() {
           <>
             <View className="mt-3 flex-row items-center justify-between">
               <Text className="font-serif text-3xl font-light text-ink">{est.number}</Text>
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
-                {est.status}
-              </Text>
+              <View className="flex-row items-center gap-3">
+                {canEdit ? (
+                  <Pressable
+                    onPress={() => router.push(`/estimates/${id}/edit`)}
+                    className="rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep"
+                  >
+                    <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
+                      Edit
+                    </Text>
+                  </Pressable>
+                ) : null}
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+                  {est.status}
+                </Text>
+              </View>
             </View>
 
             {transitionError ? (

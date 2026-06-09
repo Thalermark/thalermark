@@ -1,0 +1,467 @@
+import {
+  type InvoiceLineItemInput,
+  addMoney,
+  invoiceUpdateSchema,
+  multiplyMoney,
+  sumMoney,
+} from '@thalermark/validation';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { useCallback, useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { DateField } from '../../../../components/DateField';
+import { ItemPickerField } from '../../../../components/ItemPickerField';
+import { api } from '../../../../lib/api';
+
+// Edit half of apps/web's /invoices/[id]/edit — draft-only on the API (the
+// detail screen only surfaces the Edit button for drafts). PATCHes the whole
+// invoice (invoiceUpdateSchema = create minus companyId), so the form re-sends
+// every field + line. Leaner than invoices/new: no inline-customer-create (a
+// draft already names a customer; you can re-pick an existing one). CRITICAL:
+// each line carries its sourceItemId through unchanged, or editing a draft
+// would null the top-products breadcrumb (see apps/mobile/CLAUDE.md).
+type Customer = { id: string; name: string; email: string | null };
+type Row = {
+  description: string;
+  quantity: string;
+  unitPrice: string;
+  sourceItemId: string | null;
+};
+type Seed = {
+  customerId: string;
+  number: string;
+  issueDate: string;
+  dueDate: string;
+  tax: string;
+  notes: string;
+  rows: Row[];
+};
+
+const FRIENDLY: Record<string, string> = {
+  invoice_number_taken: 'Invoice number already used for this company. Try another.',
+  customer_company_mismatch: 'Selected customer does not belong to this company.',
+  customer_not_found: 'Selected customer no longer exists.',
+  invalid_transition: 'This invoice can no longer be edited.',
+};
+
+export default function EditInvoice() {
+  const router = useRouter();
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const [seed, setSeed] = useState<Seed | null>(null);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [formError, setFormError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  // Seed once from the invoice + customer list; don't clobber edits on refocus.
+  useFocusEffect(
+    useCallback(() => {
+      if (seed) return;
+      let active = true;
+      (async () => {
+        const [invRes, custRes] = await Promise.all([
+          api.api.invoices[':id'].$get({ param: { id } }),
+          api.api.customers.$get(),
+        ]);
+        if (!active) return;
+        if (custRes.ok) {
+          const { customers: rows } = await custRes.json();
+          setCustomers(rows.map((c) => ({ id: c.id, name: c.name, email: c.email ?? null })));
+        }
+        if (!invRes.ok) {
+          setFormError('load_failed');
+          return;
+        }
+        const inv = await invRes.json();
+        setSeed({
+          customerId: inv.customerId,
+          number: inv.number,
+          issueDate: inv.issueDate,
+          dueDate: inv.dueDate,
+          tax: inv.tax ?? '',
+          notes: inv.notes ?? '',
+          rows: inv.lineItems.map((li) => ({
+            description: li.description,
+            quantity: li.quantity,
+            unitPrice: li.unitPrice,
+            sourceItemId: li.sourceItemId ?? null,
+          })),
+        });
+      })().catch(() => {
+        if (active) setFormError('load_failed');
+      });
+      return () => {
+        active = false;
+      };
+    }, [id, seed]),
+  );
+
+  const set = <K extends keyof Seed>(key: K, val: Seed[K]) =>
+    setSeed((s) => (s ? { ...s, [key]: val } : s));
+  const patchRow = (i: number, patch: Partial<Row>) =>
+    setSeed((s) =>
+      s ? { ...s, rows: s.rows.map((r, j) => (j === i ? { ...r, ...patch } : r)) } : s,
+    );
+  const addRow = () =>
+    setSeed((s) =>
+      s
+        ? {
+            ...s,
+            rows: [...s.rows, { description: '', quantity: '', unitPrice: '', sourceItemId: null }],
+          }
+        : s,
+    );
+  const removeRow = (i: number) =>
+    setSeed((s) => (s && s.rows.length > 1 ? { ...s, rows: s.rows.filter((_, j) => j !== i) } : s));
+
+  const computedRows = useMemo(
+    () =>
+      seed ? seed.rows.map((r) => ({ ...r, amount: multiplyMoney(r.quantity, r.unitPrice) })) : [],
+    [seed],
+  );
+  const subtotal = useMemo(() => sumMoney(computedRows.map((r) => r.amount)), [computedRows]);
+  const total = useMemo(() => addMoney(subtotal, seed?.tax || '0'), [subtotal, seed?.tax]);
+
+  const selectedName = seed
+    ? (customers.find((c) => c.id === seed.customerId)?.name ?? null)
+    : null;
+
+  async function onSubmit() {
+    if (!seed) return;
+    setFormError(null);
+    setFieldErrors({});
+
+    const lineItems: InvoiceLineItemInput[] = seed.rows.map((r, i) => ({
+      position: i + 1,
+      description: r.description.trim(),
+      quantity: r.quantity.trim(),
+      unitPrice: r.unitPrice.trim(),
+      amount: multiplyMoney(r.quantity, r.unitPrice),
+      sourceItemId: r.sourceItemId ?? undefined,
+    }));
+    const sub = sumMoney(lineItems.map((li) => li.amount));
+    const taxVal = seed.tax.trim() === '' ? undefined : seed.tax.trim();
+    const payload = {
+      customerId: seed.customerId,
+      number: seed.number.trim(),
+      issueDate: seed.issueDate.trim(),
+      dueDate: seed.dueDate.trim(),
+      subtotal: sub,
+      tax: taxVal,
+      total: addMoney(sub, taxVal ?? '0'),
+      notes: seed.notes.trim() === '' ? undefined : seed.notes.trim(),
+      lineItems,
+    };
+
+    const parsed = invoiceUpdateSchema.safeParse(payload);
+    if (!parsed.success) {
+      const errs: Record<string, string> = {};
+      for (const issue of parsed.error.issues) {
+        const top = String(issue.path[0] ?? '_');
+        const key = top === 'lineItems' ? 'lineItems' : top;
+        if (!errs[key]) errs[key] = issue.message;
+      }
+      setFieldErrors(errs);
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const res = await api.api.invoices[':id'].$patch({ param: { id }, json: parsed.data });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        const code = body?.error ?? 'save_failed';
+        setFormError(FRIENDLY[code] ?? code);
+        return;
+      }
+      router.replace(`/invoices/${id}`);
+    } catch {
+      setFormError('save_failed');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (!seed) {
+    return (
+      <SafeAreaView className="flex-1 bg-cream" edges={['top']}>
+        {formError ? (
+          <Text className="mt-12 px-6 text-sm text-oxblood">Couldn't load this invoice.</Text>
+        ) : (
+          <View className="mt-12 items-center">
+            <ActivityIndicator color="#0f1626" />
+          </View>
+        )}
+      </SafeAreaView>
+    );
+  }
+
+  const canSubmit = !submitting && seed.customerId !== '' && seed.number.trim().length > 0;
+
+  return (
+    <SafeAreaView className="flex-1 bg-cream" edges={['top']}>
+      <KeyboardAvoidingView
+        className="flex-1"
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <ScrollView contentContainerClassName="px-6 pt-6 pb-16" keyboardShouldPersistTaps="handled">
+          <Pressable onPress={() => router.back()}>
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+              ← {seed.number || 'Invoice'}
+            </Text>
+          </Pressable>
+          <Text className="mt-3 font-serif text-3xl font-light text-ink">Edit invoice</Text>
+
+          {formError ? (
+            <View className="mt-6 rounded-sm border border-oxblood/30 bg-oxblood/5 px-4 py-3">
+              <Text className="text-sm text-oxblood">{formError}</Text>
+            </View>
+          ) : null}
+
+          <View className="mt-8 space-y-5">
+            <View>
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                Customer *
+              </Text>
+              <Pressable
+                onPress={() => setPickerOpen(true)}
+                className="mt-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-3"
+              >
+                <Text className={selectedName ? 'text-ink' : 'text-ink/40'}>
+                  {selectedName ?? 'Select a customer'}
+                </Text>
+              </Pressable>
+            </View>
+
+            <LabeledInput
+              label="Number *"
+              value={seed.number}
+              onChangeText={(t) => set('number', t)}
+              error={fieldErrors.number}
+            />
+            <DateField
+              label="Issued *"
+              value={seed.issueDate}
+              onChange={(iso) => set('issueDate', iso)}
+              error={fieldErrors.issueDate}
+            />
+            <DateField
+              label="Due *"
+              value={seed.dueDate}
+              onChange={(iso) => set('dueDate', iso)}
+              error={fieldErrors.dueDate}
+            />
+
+            <LineItems
+              rows={seed.rows}
+              computed={computedRows}
+              error={fieldErrors.lineItems}
+              patchRow={patchRow}
+              addRow={addRow}
+              removeRow={removeRow}
+            />
+
+            <LabeledInput
+              label="Tax"
+              value={seed.tax}
+              onChangeText={(t) => set('tax', t)}
+              error={fieldErrors.tax}
+            />
+            <View className="rounded-sm border border-ink/10 bg-cream-warm p-4">
+              <TotalRow label="Subtotal" value={subtotal} />
+              <TotalRow label="Tax" value={seed.tax || '0.00'} />
+              <View className="mt-3 border-t border-ink/10 pt-3">
+                <TotalRow label="Total" value={total} emphasize />
+              </View>
+            </View>
+
+            <View>
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">Notes</Text>
+              <TextInput
+                value={seed.notes}
+                onChangeText={(t) => set('notes', t)}
+                multiline
+                className="mt-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink"
+              />
+            </View>
+
+            <Pressable
+              onPress={onSubmit}
+              disabled={!canSubmit}
+              className="mt-2 rounded-sm bg-ink px-4 py-3 active:bg-gold-deep disabled:opacity-50"
+            >
+              {submitting ? (
+                <ActivityIndicator color="#f4ede0" />
+              ) : (
+                <Text className="text-center text-sm font-medium text-cream">Save changes</Text>
+              )}
+            </Pressable>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+
+      <Modal
+        visible={pickerOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setPickerOpen(false)}
+      >
+        <Pressable className="flex-1 justify-end bg-ink/40" onPress={() => setPickerOpen(false)}>
+          <Pressable
+            className="max-h-[70%] rounded-t-lg bg-cream px-6 pb-10 pt-5"
+            onPress={() => {}}
+          >
+            <Text className="font-serif text-xl text-ink">Choose customer</Text>
+            <ScrollView className="mt-4">
+              {customers.map((c) => (
+                <Pressable
+                  key={c.id}
+                  onPress={() => {
+                    set('customerId', c.id);
+                    setPickerOpen(false);
+                  }}
+                  className="border-b border-ink/10 py-3"
+                >
+                  <Text className="text-ink">{c.name}</Text>
+                  {c.email ? <Text className="text-xs text-ink/50">{c.email}</Text> : null}
+                </Pressable>
+              ))}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </SafeAreaView>
+  );
+}
+
+// Line-item editor — same markup as invoices/new's inline block, lifted to a
+// local component since edit + new now both render it.
+function LineItems({
+  rows,
+  computed,
+  error,
+  patchRow,
+  addRow,
+  removeRow,
+}: {
+  rows: Row[];
+  computed: { amount: string }[];
+  error?: string;
+  patchRow: (i: number, patch: Partial<Row>) => void;
+  addRow: () => void;
+  removeRow: (i: number) => void;
+}) {
+  return (
+    <View>
+      <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">Line items</Text>
+      {error ? <Text className="mt-1 text-xs text-oxblood">{error}</Text> : null}
+      <View className="mt-2 space-y-4">
+        {rows.map((row, i) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: rows are positional and reorder-free
+          <View key={i} className="rounded-sm border border-ink/10 bg-cream-warm p-3">
+            <ItemPickerField
+              description={row.description}
+              onChange={(patch) => patchRow(i, patch)}
+            />
+            <View className="mt-2 flex-row gap-2">
+              <View className="flex-1">
+                <Text className="font-mono text-[10px] uppercase tracking-widest text-ink/50">
+                  Qty
+                </Text>
+                <TextInput
+                  value={row.quantity}
+                  onChangeText={(t) => patchRow(i, { quantity: t })}
+                  inputMode="decimal"
+                  className="mt-1 rounded-sm border border-ink/15 bg-cream px-2 py-2 text-right font-mono tabular-nums text-ink"
+                />
+              </View>
+              <View className="flex-1">
+                <Text className="font-mono text-[10px] uppercase tracking-widest text-ink/50">
+                  Unit price
+                </Text>
+                <TextInput
+                  value={row.unitPrice}
+                  onChangeText={(t) => patchRow(i, { unitPrice: t })}
+                  inputMode="decimal"
+                  className="mt-1 rounded-sm border border-ink/15 bg-cream px-2 py-2 text-right font-mono tabular-nums text-ink"
+                />
+              </View>
+              <View className="flex-1">
+                <Text className="font-mono text-[10px] uppercase tracking-widest text-ink/50">
+                  Amount
+                </Text>
+                <Text className="mt-1 py-2 text-right font-mono tabular-nums text-ink">
+                  {computed[i]?.amount ?? '0.00'}
+                </Text>
+              </View>
+            </View>
+            {rows.length > 1 ? (
+              <Pressable onPress={() => removeRow(i)} className="mt-2 self-end">
+                <Text className="font-mono text-xs uppercase tracking-wider text-oxblood">
+                  Remove
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ))}
+      </View>
+      <Pressable onPress={addRow} className="mt-3">
+        <Text className="text-sm font-medium text-gold-deep">+ Add row</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function LabeledInput({
+  label,
+  value,
+  onChangeText,
+  error,
+}: {
+  label: string;
+  value: string;
+  onChangeText: (t: string) => void;
+  error?: string;
+}) {
+  return (
+    <View>
+      <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">{label}</Text>
+      <TextInput
+        value={value}
+        onChangeText={onChangeText}
+        className="mt-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink"
+      />
+      {error ? <Text className="mt-1 text-xs text-oxblood">{error}</Text> : null}
+    </View>
+  );
+}
+
+function TotalRow({
+  label,
+  value,
+  emphasize,
+}: { label: string; value: string; emphasize?: boolean }) {
+  return (
+    <View className="flex-row justify-between">
+      <Text
+        className={`font-mono text-xs uppercase tracking-widest ${emphasize ? 'text-ink/70' : 'text-ink/50'}`}
+      >
+        {label}
+      </Text>
+      <Text className={`font-mono tabular-nums text-ink ${emphasize ? 'text-lg' : ''}`}>
+        {value}
+      </Text>
+    </View>
+  );
+}

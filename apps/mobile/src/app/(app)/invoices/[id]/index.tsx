@@ -10,12 +10,12 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { api } from '../../../lib/api';
+import { api } from '../../../../lib/api';
 
 // Invoice detail + status actions (mirror of apps/web's /invoices/[id]):
 // mark-sent / mark-paid / void / send-by-email, gated by the same state
-// machine the API enforces (INVOICE_TRANSITIONS). Edit / duplicate /
-// edit-payment / Stripe pay link are deferred to later slices.
+// machine the API enforces (INVOICE_TRANSITIONS). Edit is draft-only (M11c);
+// duplicate / edit-payment / Stripe pay link are deferred to later slices.
 type LineItem = {
   position: number;
   description: string;
@@ -138,6 +138,7 @@ export default function InvoiceDetail() {
   const canMarkSent = status === 'draft';
   const canMarkPaid = status === 'draft' || status === 'sent';
   const canVoid = status === 'draft' || status === 'sent';
+  const canEdit = status === 'draft';
   const hasActions = canSend || canMarkSent || canMarkPaid || canVoid;
 
   // Run a transition, then reload. `onOk` records any success side effect
@@ -227,9 +228,21 @@ export default function InvoiceDetail() {
           <>
             <View className="mt-3 flex-row items-center justify-between">
               <Text className="font-serif text-3xl font-light text-ink">{inv.number}</Text>
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
-                {inv.status}
-              </Text>
+              <View className="flex-row items-center gap-3">
+                {canEdit ? (
+                  <Pressable
+                    onPress={() => router.push(`/invoices/${id}/edit`)}
+                    className="rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep"
+                  >
+                    <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
+                      Edit
+                    </Text>
+                  </Pressable>
+                ) : null}
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+                  {inv.status}
+                </Text>
+              </View>
             </View>
 
             {transitionError ? (
