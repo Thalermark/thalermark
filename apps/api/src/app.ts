@@ -51,7 +51,20 @@ import {
   recurringInvoiceCreateSchema,
   recurringInvoiceUpdateSchema,
 } from '@thalermark/validation';
-import { and, asc, desc, eq, gte, ilike, inArray, isNull, lt, lte, sql } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  getTableColumns,
+  gte,
+  ilike,
+  inArray,
+  isNull,
+  lt,
+  lte,
+  sql,
+} from 'drizzle-orm';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { cors } from 'hono/cors';
@@ -2289,9 +2302,12 @@ export function createApp(deps: AppDeps) {
         if (companyId) conditions.push(eq(invoices.companyId, companyId));
         if (status) conditions.push(eq(invoices.status, status));
         if (keyset) conditions.push(keyset);
+        // LEFT JOIN the customer name so the list renders without the client
+        // fetching every customer (which paginated lists can't do at volume).
         const rows = await tx
-          .select()
+          .select({ ...getTableColumns(invoices), customerName: customers.name })
           .from(invoices)
+          .leftJoin(customers, eq(customers.id, invoices.customerId))
           .where(and(...conditions))
           .orderBy(keysetOrderBy(keys, 'desc'))
           .limit(limit + 1);
@@ -2665,9 +2681,11 @@ export function createApp(deps: AppDeps) {
         if (companyId) conditions.push(eq(recurringInvoices.companyId, companyId));
         if (status) conditions.push(eq(recurringInvoices.status, status));
         if (keyset) conditions.push(keyset);
+        // LEFT JOIN the customer name (see /api/invoices for the rationale).
         const rows = await tx
-          .select()
+          .select({ ...getTableColumns(recurringInvoices), customerName: customers.name })
           .from(recurringInvoices)
+          .leftJoin(customers, eq(customers.id, recurringInvoices.customerId))
           .where(and(...conditions))
           .orderBy(keysetOrderBy(keys, 'desc'))
           .limit(limit + 1);
@@ -3058,9 +3076,11 @@ export function createApp(deps: AppDeps) {
         if (companyId) conditions.push(eq(estimates.companyId, companyId));
         if (status) conditions.push(eq(estimates.status, status));
         if (keyset) conditions.push(keyset);
+        // LEFT JOIN the customer name (see /api/invoices for the rationale).
         const rows = await tx
-          .select()
+          .select({ ...getTableColumns(estimates), customerName: customers.name })
           .from(estimates)
+          .leftJoin(customers, eq(customers.id, estimates.customerId))
           .where(and(...conditions))
           .orderBy(keysetOrderBy(keys, 'desc'))
           .limit(limit + 1);

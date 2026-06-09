@@ -1,8 +1,42 @@
 <script lang="ts">
   import { cadenceLabel } from '$lib/recurring';
+  import LoadMore from '$lib/components/LoadMore.svelte';
+  import { fetchMore } from '$lib/load-more';
+  import { untrack } from 'svelte';
   import type { PageProps } from './$types';
 
   let { data }: PageProps = $props();
+
+  // See /customers for the untrack() seed-and-re-seed pattern.
+  type Row = (typeof data.schedules)[number];
+  let rows = $state<Row[]>(untrack(() => data.schedules));
+  let cursor = $state<string | null>(untrack(() => data.nextCursor));
+  let loading = $state(false);
+  let loadError = $state(false);
+
+  $effect(() => {
+    const nextRows = data.schedules;
+    const next = data.nextCursor;
+    untrack(() => {
+      rows = nextRows;
+      cursor = next;
+    });
+  });
+
+  async function more() {
+    if (loading || cursor === null) return;
+    loading = true;
+    loadError = false;
+    try {
+      const page = await fetchMore<Row>('/recurring/more', cursor);
+      rows = [...rows, ...page.rows];
+      cursor = page.nextCursor;
+    } catch {
+      loadError = true;
+    } finally {
+      loading = false;
+    }
+  }
 </script>
 
 <div class="flex items-baseline justify-between gap-6">
@@ -20,7 +54,7 @@
   </a>
 </div>
 
-{#if data.schedules.length === 0}
+{#if rows.length === 0}
   <p class="mt-8 text-ink/70">
     No recurring schedules yet. Set one up to auto-generate and email invoices on a cadence.
   </p>
@@ -37,11 +71,11 @@
         </tr>
       </thead>
       <tbody class="divide-y divide-ink/10">
-        {#each data.schedules as s (s.id)}
+        {#each rows as s (s.id)}
           <tr class="hover:bg-cream">
             <td class="px-5 py-4">
               <a href="/recurring/{s.id}" class="font-serif text-ink hover:text-gold-deep">
-                {s.customerName}
+                {s.customerName ?? '—'}
               </a>
             </td>
             <td class="px-5 py-4 text-ink/80">{cadenceLabel(s.frequency, s.intervalCount)}</td>
@@ -61,4 +95,5 @@
       </tbody>
     </table>
   </div>
+  <LoadMore hasMore={cursor !== null} {loading} error={loadError} onclick={more} />
 {/if}

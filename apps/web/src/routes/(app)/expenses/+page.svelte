@@ -1,22 +1,54 @@
 <script lang="ts">
+  import LoadMore from '$lib/components/LoadMore.svelte';
+  import { fetchMore } from '$lib/load-more';
+  import { untrack } from 'svelte';
   import type { PageProps } from './$types';
+  import type { ExpenseRow } from './expense-rows';
 
   let { data }: PageProps = $props();
 
-  const { filters, pagination } = $derived(data);
+  const { filters } = $derived(data);
+  const companyId = $derived(data.companyId);
+  const hasFilters = $derived(
+    !!(filters.from || filters.to || filters.category || filters.q),
+  );
 
-  // Build a /expenses URL that keeps the active filters and swaps the page.
-  // Used by the prev/next controls so paging doesn't drop the current filter
-  // set.
-  function pageHref(n: number): string {
-    const p = new URLSearchParams();
-    if (filters.from) p.set('from', filters.from);
-    if (filters.to) p.set('to', filters.to);
-    if (filters.category) p.set('category', filters.category);
-    if (filters.q) p.set('q', filters.q);
-    if (n > 1) p.set('page', String(n));
-    const qs = p.toString();
-    return qs ? `/expenses?${qs}` : '/expenses';
+  // See /customers for the untrack() seed-and-re-seed pattern. The filter form
+  // is a GET, so applying/clearing filters navigates here, re-runs load(), and
+  // the $effect re-seeds with the new filter set's page 1.
+  let rows = $state<ExpenseRow[]>(untrack(() => data.rows));
+  let cursor = $state<string | null>(untrack(() => data.nextCursor));
+  let loading = $state(false);
+  let loadError = $state(false);
+
+  $effect(() => {
+    const nextRows = data.rows;
+    const next = data.nextCursor;
+    untrack(() => {
+      rows = nextRows;
+      cursor = next;
+    });
+  });
+
+  async function more() {
+    if (loading || cursor === null) return;
+    loading = true;
+    loadError = false;
+    try {
+      const page = await fetchMore<ExpenseRow>('/expenses/more', cursor, {
+        companyId,
+        from: filters.from,
+        to: filters.to,
+        category: filters.category,
+        q: filters.q,
+      });
+      rows = [...rows, ...page.rows];
+      cursor = page.nextCursor;
+    } catch {
+      loadError = true;
+    } finally {
+      loading = false;
+    }
   }
 </script>
 
@@ -92,9 +124,9 @@
   </div>
 </form>
 
-{#if data.rows.length === 0}
+{#if rows.length === 0}
   <p class="mt-8 text-ink/70">
-    {pagination.total === 0 ? 'No expenses yet.' : 'No expenses match these filters.'}
+    {hasFilters ? 'No expenses match these filters.' : 'No expenses yet.'}
   </p>
 {:else}
   <div class="mt-6 overflow-hidden rounded-sm border border-ink/10 bg-cream-warm">
@@ -108,7 +140,7 @@
         </tr>
       </thead>
       <tbody class="divide-y divide-ink/10">
-        {#each data.rows as exp (exp.id)}
+        {#each rows as exp (exp.id)}
           <tr class="hover:bg-cream">
             <td class="px-5 py-4 font-mono tabular-nums text-ink/80">{exp.expenseDate}</td>
             <td class="px-5 py-4">
@@ -126,23 +158,5 @@
       </tbody>
     </table>
   </div>
-
-  <div class="mt-4 flex items-center justify-between text-sm text-ink/60">
-    <span>
-      {pagination.total} expense{pagination.total === 1 ? '' : 's'}
-      · page {pagination.page} of {pagination.pageCount}
-    </span>
-    <div class="flex items-center gap-4">
-      {#if pagination.page > 1}
-        <a href={pageHref(pagination.page - 1)} class="hover:text-ink">← Prev</a>
-      {:else}
-        <span class="text-ink/25">← Prev</span>
-      {/if}
-      {#if pagination.page < pagination.pageCount}
-        <a href={pageHref(pagination.page + 1)} class="hover:text-ink">Next →</a>
-      {:else}
-        <span class="text-ink/25">Next →</span>
-      {/if}
-    </div>
-  </div>
+  <LoadMore hasMore={cursor !== null} {loading} error={loadError} onclick={more} />
 {/if}
