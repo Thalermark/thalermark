@@ -94,19 +94,6 @@ export default function AppLayout() {
         }}
       />
       <Tabs.Screen
-        name="estimates"
-        options={{
-          title: 'Estimates',
-          tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons
-              name={focused ? 'document-text' : 'document-text-outline'}
-              size={size}
-              color={color}
-            />
-          ),
-        }}
-      />
-      <Tabs.Screen
         name="expenses"
         options={{
           title: 'Expenses',
@@ -124,9 +111,10 @@ export default function AppLayout() {
           ),
         }}
       />
-      {/* Catch-all for the screens that don't earn a top-level tab — the items
-          catalog + reports for now; M10 account admin (company switcher /
-          invites) joins them here, and M11 consolidates the nav. */}
+      {/* The "More" hub holds everything that doesn't earn a top-level tab:
+          Estimates + Recurring (Sales), account admin, the items catalog +
+          reports, the activity feed, and business/payments/email settings.
+          M11f consolidated the bar down to these five tabs. */}
       <Tabs.Screen
         name="more"
         options={{
@@ -140,7 +128,10 @@ export default function AppLayout() {
           ),
         }}
       />
-      {/* Routable but hidden from the tab bar — reached via redirect only. */}
+      {/* Routable but hidden from the tab bar. Estimates lost its tab in the
+          M11f consolidation — it's reached from the More hub's Sales section;
+          select-company is reached via redirect only. */}
+      <Tabs.Screen name="estimates" options={{ href: null }} />
       <Tabs.Screen name="select-company" options={{ href: null }} />
     </Tabs>
   );
