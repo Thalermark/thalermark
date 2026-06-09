@@ -2,6 +2,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { type AuditEvent, AuditHistory } from '../../../../components/AuditHistory';
 import { api } from '../../../../lib/api';
 
 // Estimate detail + actions (mirror of apps/web's /estimates/[id]):
@@ -54,6 +55,7 @@ export default function EstimateDetail() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [detail, setDetail] = useState<DetailState>({ state: 'loading' });
+  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [acting, setActing] = useState(false);
   const [duplicating, setDuplicating] = useState(false);
   const [transitionError, setTransitionError] = useState<string | null>(null);
@@ -96,6 +98,15 @@ export default function EstimateDetail() {
         lineItems: est.lineItems,
       },
     });
+    // Audit trail — best-effort; refetched on every load() (focus + after each
+    // transition), so the history reflects the action just taken. A failure
+    // here must not flip the whole screen to error, hence the swallow.
+    try {
+      const auditRes = await api.api['audit-events'].$get({
+        query: { entityType: 'estimate', entityId: id },
+      });
+      if (auditRes.ok) setAuditEvents((await auditRes.json()).events);
+    } catch {}
   }, [id]);
 
   useFocusEffect(
@@ -419,6 +430,8 @@ export default function EstimateDetail() {
                 <Text className="mt-1 text-ink/80">{est.notes}</Text>
               </View>
             ) : null}
+
+            <AuditHistory events={auditEvents} />
           </>
         )}
       </ScrollView>

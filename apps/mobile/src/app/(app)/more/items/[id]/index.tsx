@@ -2,11 +2,12 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { type AuditEvent, AuditHistory } from '../../../../../components/AuditHistory';
 import { api } from '../../../../../lib/api';
 
-// Mirror of apps/web's /settings/items/[id]. Edit + archive/restore; sales
-// history is kept either way (archive just hides the item from the picker).
-// Per-entity audit history is a later mobile slice (M11), as on customers.
+// Mirror of apps/web's /settings/items/[id]. Edit + archive/restore + the
+// per-entity audit trail (M11e); sales history is kept either way (archive
+// just hides the item from the picker).
 type Item = {
   name: string;
   description: string | null;
@@ -26,6 +27,7 @@ export default function ItemDetail() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [detail, setDetail] = useState<DetailState>({ state: 'loading' });
+  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(
@@ -54,6 +56,14 @@ export default function ItemDetail() {
         .catch(() => {
           if (active()) setDetail({ state: 'error' });
         });
+      // Audit trail — best-effort sidebar; refetched on every load() (focus +
+      // after archive/restore), and a non-OK response degrades to empty.
+      api.api['audit-events']
+        .$get({ query: { entityType: 'item', entityId: id } })
+        .then(async (res) => {
+          if (active() && res.ok) setAuditEvents((await res.json()).events);
+        })
+        .catch(() => {});
     },
     [id],
   );
@@ -152,6 +162,8 @@ export default function ItemDetail() {
               <DetailRow label="Default quantity" value={qty(item.defaultQuantity)} />
               {item.description ? <DetailRow label="Description" value={item.description} /> : null}
             </View>
+
+            <AuditHistory events={auditEvents} />
           </>
         )}
       </ScrollView>
