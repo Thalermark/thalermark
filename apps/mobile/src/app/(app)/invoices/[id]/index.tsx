@@ -70,6 +70,7 @@ export default function InvoiceDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [detail, setDetail] = useState<DetailState>({ state: 'loading' });
   const [acting, setActing] = useState(false);
+  const [duplicating, setDuplicating] = useState(false);
   const [transitionError, setTransitionError] = useState<string | null>(null);
   const [sentTo, setSentTo] = useState<string | null>(null);
 
@@ -191,6 +192,26 @@ export default function InvoiceDetail() {
     );
   }
 
+  // Duplicate-as-template — clone into a fresh draft (the server carries the
+  // line sourceItemIds forward) and land on its edit screen. Any status.
+  async function onDuplicate() {
+    setDuplicating(true);
+    setTransitionError(null);
+    try {
+      const res = await api.api.invoices[':id'].duplicate.$post({ param: { id } });
+      if (!res.ok) {
+        setTransitionError('Could not duplicate this invoice.');
+        return;
+      }
+      const { id: newId } = await res.json();
+      router.push(`/invoices/${newId}/edit`);
+    } catch {
+      setTransitionError('Could not duplicate this invoice.');
+    } finally {
+      setDuplicating(false);
+    }
+  }
+
   function onVoid() {
     Alert.alert('Void invoice?', 'This cannot be undone.', [
       { text: 'Cancel', style: 'cancel' },
@@ -239,6 +260,15 @@ export default function InvoiceDetail() {
                     </Text>
                   </Pressable>
                 ) : null}
+                <Pressable
+                  onPress={onDuplicate}
+                  disabled={duplicating}
+                  className="rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep disabled:opacity-50"
+                >
+                  <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
+                    {duplicating ? '…' : 'Duplicate'}
+                  </Text>
+                </Pressable>
                 <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
                   {inv.status}
                 </Text>

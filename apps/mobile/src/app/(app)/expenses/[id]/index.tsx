@@ -239,14 +239,27 @@ export default function ExpenseDetail() {
                 <Text className="font-serif text-3xl font-light text-ink">{e.merchant}</Text>
                 <Text className="mt-1 font-mono text-2xl tabular-nums text-ink">{e.amount}</Text>
               </View>
-              <Pressable
-                onPress={() => router.push(`/expenses/${id}/edit`)}
-                className="mt-1 rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep"
-              >
-                <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
-                  Edit
-                </Text>
-              </Pressable>
+              <View className="mt-1 flex-row gap-2">
+                <Pressable
+                  onPress={() => router.push(`/expenses/${id}/edit`)}
+                  className="rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep"
+                >
+                  <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
+                    Edit
+                  </Text>
+                </Pressable>
+                {/* Duplicate-as-template: prefill a fresh expense form from this
+                    one. A client-side prefill (not a server clone) so it never
+                    silently posts to the ledger — the user submits explicitly. */}
+                <Pressable
+                  onPress={() => router.push(`/expenses/new?duplicate=${id}`)}
+                  className="rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep"
+                >
+                  <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
+                    Duplicate
+                  </Text>
+                </Pressable>
+              </View>
             </View>
 
             <View className="mt-8 space-y-3">

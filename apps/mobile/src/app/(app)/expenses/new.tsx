@@ -1,5 +1,5 @@
 import { expenseCreateSchema } from '@thalermark/validation';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -26,6 +26,11 @@ const todayIso = () => new Date().toISOString().slice(0, 10);
 
 export default function NewExpense() {
   const router = useRouter();
+  // Duplicate-as-template: ?duplicate=<id> seeds the form from an existing
+  // expense (merchant / amount / category / paid-with / memo). The DATE is not
+  // copied — a duplicate is a fresh occurrence, so it defaults to today. The
+  // receipt is not copied either. Mirrors web's /expenses/new?duplicate=.
+  const { duplicate } = useLocalSearchParams<{ duplicate?: string }>();
 
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [categories, setCategories] = useState<Account[]>([]);
@@ -75,6 +80,20 @@ export default function NewExpense() {
           // Default payment to the first asset account (typically Cash/Checking).
           setPaymentId((p) => p ?? accounts[0]?.id ?? null);
         }
+
+        // Duplicate prefill — seed from the source expense (date + receipt
+        // intentionally excluded; see the param note above).
+        if (duplicate) {
+          const srcRes = await api.api.expenses[':id'].$get({ param: { id: duplicate } });
+          if (active && srcRes.ok) {
+            const src = await srcRes.json();
+            setMerchant(src.merchant ?? '');
+            setAmount(src.amount);
+            setMemo(src.memo ?? '');
+            setCategoryId(src.categoryAccountId);
+            setPaymentId(src.paymentAccountId);
+          }
+        }
       })()
         .catch(() => {})
         .finally(() => {
@@ -83,7 +102,7 @@ export default function NewExpense() {
       return () => {
         active = false;
       };
-    }, []),
+    }, [duplicate]),
   );
 
   const categoryName = categories.find((a) => a.id === categoryId)?.name ?? null;
