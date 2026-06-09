@@ -39,7 +39,8 @@
           "photosPermission": "Thalermark needs access to your photos so you can attach a receipt to an expense.",
           "cameraPermission": "Thalermark needs camera access so you can photograph a receipt for an expense."
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker"
     ],
     "experiments": {
       "typedRoutes": true,

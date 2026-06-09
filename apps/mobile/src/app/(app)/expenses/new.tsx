@@ -13,6 +13,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { DateField } from '../../../components/DateField';
 import { api } from '../../../lib/api';
 
 // Mirror of apps/web's /expenses/new. An expense posts against two chart-of-
@@ -174,12 +175,11 @@ export default function NewExpense() {
               error={fieldErrors.amount}
               keyboardType="decimal-pad"
             />
-            <Field
+            <DateField
               label="Date *"
               value={expenseDate}
-              onChangeText={setExpenseDate}
+              onChange={setExpenseDate}
               error={fieldErrors.expenseDate}
-              autoCapitalize="none"
             />
 
             <PickerField
