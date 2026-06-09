@@ -1,68 +1,47 @@
-import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useRouter } from 'expo-router';
+import { useCallback } from 'react';
 import { ActivityIndicator, FlatList, Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from '../../../lib/api';
+import { pageQuery, usePaginatedList } from '../../../lib/use-paginated-list';
 
-// Mirror of apps/web's /invoices list. The API returns invoice rows with
-// customerId (not name), so — like web's loader — we fetch customers too and
-// join the name client-side. Account-scoped via x-account-id.
+// Mirror of apps/web's /invoices list. customerName is LEFT JOINed by the API
+// now (#195), so the list no longer fetches every customer to resolve names —
+// that doesn't survive pagination. Keyset infinite scroll via usePaginatedList.
 type InvoiceRow = {
   id: string;
   number: string;
-  customerId: string;
+  customerName: string | null;
   status: string;
   dueDate: string;
   currency: string;
   total: string;
 };
-type ListState =
-  | { state: 'loading' }
-  | { state: 'ready'; invoices: InvoiceRow[]; names: Record<string, string> }
-  | { state: 'error' };
 
 export default function InvoicesList() {
   const router = useRouter();
-  const [list, setList] = useState<ListState>({ state: 'loading' });
 
-  useFocusEffect(
-    useCallback(() => {
-      let active = true;
-      Promise.all([api.api.invoices.$get(), api.api.customers.$get()])
-        .then(async ([invRes, custRes]) => {
-          if (!active) return;
-          if (!invRes.ok) {
-            setList({ state: 'error' });
-            return;
-          }
-          const { invoices } = await invRes.json();
-          const names: Record<string, string> = {};
-          if (custRes.ok) {
-            const { customers } = await custRes.json();
-            for (const c of customers) names[c.id] = c.name;
-          }
-          setList({
-            state: 'ready',
-            invoices: invoices.map((i) => ({
-              id: i.id,
-              number: i.number,
-              customerId: i.customerId,
-              status: i.status,
-              dueDate: i.dueDate,
-              currency: i.currency,
-              total: i.total,
-            })),
-            names,
-          });
-        })
-        .catch(() => {
-          if (active) setList({ state: 'error' });
-        });
-      return () => {
-        active = false;
-      };
-    }, []),
-  );
+  const fetchPage = useCallback(async (cursor: string | null) => {
+    const res = await api.api.invoices.$get({ query: pageQuery(cursor) });
+    if (!res.ok) return null;
+    const { invoices, nextCursor } = await res.json();
+    return {
+      rows: invoices.map(
+        (i): InvoiceRow => ({
+          id: i.id,
+          number: i.number,
+          customerName: i.customerName ?? null,
+          status: i.status,
+          dueDate: i.dueDate,
+          currency: i.currency,
+          total: i.total,
+        }),
+      ),
+      nextCursor,
+    };
+  }, []);
+
+  const { list, loadingMore, loadMore } = usePaginatedList(fetchPage);
 
   return (
     <SafeAreaView className="flex-1 bg-cream" edges={['top']}>
@@ -95,15 +74,24 @@ export default function InvoicesList() {
         </View>
       ) : list.state === 'error' ? (
         <Text className="mt-8 px-6 text-sm text-oxblood">Couldn't load invoices.</Text>
-      ) : list.invoices.length === 0 ? (
+      ) : list.rows.length === 0 ? (
         <Text className="mt-8 px-6 text-ink/70">No invoices yet.</Text>
       ) : (
         <FlatList
-          data={list.invoices}
+          data={list.rows}
           keyExtractor={(i) => i.id}
           className="mt-6"
           contentContainerClassName="px-6 pb-6"
           ItemSeparatorComponent={() => <View className="h-px bg-ink/10" />}
+          onEndReached={loadMore}
+          onEndReachedThreshold={0.4}
+          ListFooterComponent={
+            loadingMore ? (
+              <View className="py-4">
+                <ActivityIndicator color="#0f1626" />
+              </View>
+            ) : null
+          }
           renderItem={({ item }) => (
             <Pressable
               onPress={() => router.push(`/invoices/${item.id}`)}
@@ -116,7 +104,7 @@ export default function InvoicesList() {
                 </Text>
               </View>
               <View className="mt-1 flex-row items-center justify-between">
-                <Text className="text-sm text-ink/70">{list.names[item.customerId] ?? '—'}</Text>
+                <Text className="text-sm text-ink/70">{item.customerName ?? '—'}</Text>
                 <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
                   {item.status} · {item.dueDate}
                 </Text>

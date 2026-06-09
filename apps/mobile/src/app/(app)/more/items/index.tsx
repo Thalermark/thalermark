@@ -1,13 +1,14 @@
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from '../../../../lib/api';
+import { pageQuery, usePaginatedList } from '../../../../lib/use-paginated-list';
 
-// Mirror of apps/web's /settings/items. Account-scoped via x-account-id (the API
-// filters by accountId); single-company MVP lists them all. Archived items are
-// hidden until the "Show archived" toggle flips includeArchived=true. Items
-// archive/restore instead of deleting — there's no item DELETE endpoint.
+// Mirror of apps/web's /settings/items. Account-scoped via x-account-id; keyset
+// infinite scroll. Archived items are hidden until the "Show archived" toggle
+// flips includeArchived=true (the toggle changes fetchPage, which re-runs page
+// 1). Items archive/restore instead of deleting — there's no item DELETE.
 type ItemRow = {
   id: string;
   name: string;
@@ -15,7 +16,6 @@ type ItemRow = {
   unitLabel: string | null;
   archivedAt: string | null;
 };
-type ListState = { state: 'loading' } | { state: 'ready'; items: ItemRow[] } | { state: 'error' };
 
 const fmt = (s: string) =>
   Number(s).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
@@ -25,49 +25,32 @@ const priceLabel = (unitPrice: string, unitLabel: string | null) =>
 export default function ItemsList() {
   const router = useRouter();
   const [showArchived, setShowArchived] = useState(false);
-  const [list, setList] = useState<ListState>({ state: 'loading' });
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  const load = useCallback(
-    (active: () => boolean) => {
-      api.api.items
-        .$get({ query: { includeArchived: showArchived ? 'true' : undefined } })
-        .then(async (res) => {
-          if (!active()) return;
-          if (!res.ok) {
-            setList({ state: 'error' });
-            return;
-          }
-          const { items } = await res.json();
-          setList({
-            state: 'ready',
-            items: items.map((i) => ({
-              id: i.id,
-              name: i.name,
-              unitPrice: i.unitPrice,
-              unitLabel: i.unitLabel ?? null,
-              archivedAt: i.archivedAt ?? null,
-            })),
-          });
-        })
-        .catch(() => {
-          if (active()) setList({ state: 'error' });
-        });
+  const fetchPage = useCallback(
+    async (cursor: string | null) => {
+      const query = pageQuery(cursor);
+      if (showArchived) query.includeArchived = 'true';
+      const res = await api.api.items.$get({ query });
+      if (!res.ok) return null;
+      const { items, nextCursor } = await res.json();
+      return {
+        rows: items.map(
+          (i): ItemRow => ({
+            id: i.id,
+            name: i.name,
+            unitPrice: i.unitPrice,
+            unitLabel: i.unitLabel ?? null,
+            archivedAt: i.archivedAt ?? null,
+          }),
+        ),
+        nextCursor,
+      };
     },
     [showArchived],
   );
 
-  // Refetch on focus (so an item created/edited on a child screen shows on
-  // return) and whenever the archived toggle flips.
-  useFocusEffect(
-    useCallback(() => {
-      let alive = true;
-      load(() => alive);
-      return () => {
-        alive = false;
-      };
-    }, [load]),
-  );
+  const { list, loadingMore, loadMore, reload } = usePaginatedList(fetchPage);
 
   async function toggleArchive(item: ItemRow) {
     setBusyId(item.id);
@@ -75,7 +58,7 @@ export default function ItemsList() {
       const res = item.archivedAt
         ? await api.api.items[':id'].restore.$post({ param: { id: item.id } })
         : await api.api.items[':id'].archive.$post({ param: { id: item.id } });
-      if (res.ok) load(() => true);
+      if (res.ok) reload();
     } catch {
       // Leave the row as-is; a focus refetch will reconcile.
     } finally {
@@ -111,17 +94,26 @@ export default function ItemsList() {
         </View>
       ) : list.state === 'error' ? (
         <Text className="mt-8 px-6 text-sm text-oxblood">Couldn't load items.</Text>
-      ) : list.items.length === 0 ? (
+      ) : list.rows.length === 0 ? (
         <Text className="mt-8 px-6 text-ink/70">
           {showArchived ? 'No items yet.' : 'No active items yet.'}
         </Text>
       ) : (
         <FlatList
-          data={list.items}
+          data={list.rows}
           keyExtractor={(i) => i.id}
           className="mt-6"
           contentContainerClassName="px-6 pb-6"
           ItemSeparatorComponent={() => <View className="h-px bg-ink/10" />}
+          onEndReached={loadMore}
+          onEndReachedThreshold={0.4}
+          ListFooterComponent={
+            loadingMore ? (
+              <View className="py-4">
+                <ActivityIndicator color="#0f1626" />
+              </View>
+            ) : null
+          }
           renderItem={({ item }) => (
             <View className="flex-row items-center gap-3 bg-cream-warm px-5 py-4">
               <Pressable

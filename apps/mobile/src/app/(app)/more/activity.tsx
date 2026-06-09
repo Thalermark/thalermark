@@ -1,44 +1,31 @@
-import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
-import { ActivityIndicator, ScrollView, Text, View } from 'react-native';
+import { useRouter } from 'expo-router';
+import { useCallback } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { type AuditEvent, AuditHistory } from '../../../components/AuditHistory';
 import { api } from '../../../lib/api';
+import { usePaginatedList } from '../../../lib/use-paginated-list';
 
 // Account-wide activity feed — the native mirror of apps/web's
-// /settings/activity (slice 8.8b). Pulls the unfiltered /api/audit-events
-// (newest first, up to 100), which enriches each row with an `entityLabel`, and
+// /settings/activity. Pulls the unfiltered /api/audit-events (newest first,
+// 50/page, keyset cursor), which enriches each row with an `entityLabel`, and
 // renders the feed-mode AuditHistory (tappable entity prefix → detail screen).
-type FeedState =
-  | { state: 'loading' }
-  | { state: 'ready'; events: AuditEvent[] }
-  | { state: 'error' };
+// AuditHistory renders the events as one block, so this uses a "Load more"
+// button (like web) rather than FlatList onEndReached.
 
 export default function Activity() {
   const router = useRouter();
-  const [feed, setFeed] = useState<FeedState>({ state: 'loading' });
 
-  useFocusEffect(
-    useCallback(() => {
-      let active = true;
-      api.api['audit-events']
-        .$get({ query: { limit: '100' } })
-        .then(async (res) => {
-          if (!active) return;
-          if (!res.ok) {
-            setFeed({ state: 'error' });
-            return;
-          }
-          setFeed({ state: 'ready', events: (await res.json()).events });
-        })
-        .catch(() => {
-          if (active) setFeed({ state: 'error' });
-        });
-      return () => {
-        active = false;
-      };
-    }, []),
-  );
+  const fetchPage = useCallback(async (cursor: string | null) => {
+    const query: Record<string, string> = { limit: '50' };
+    if (cursor) query.cursor = cursor;
+    const res = await api.api['audit-events'].$get({ query });
+    if (!res.ok) return null;
+    const { events, nextCursor } = await res.json();
+    return { rows: events as AuditEvent[], nextCursor };
+  }, []);
+
+  const { list, loadingMore, loadMore, hasMore } = usePaginatedList(fetchPage);
 
   return (
     <SafeAreaView className="flex-1 bg-cream" edges={['top']}>
@@ -52,18 +39,29 @@ export default function Activity() {
 
         <Text className="mt-3 font-serif text-3xl font-light text-ink">Activity</Text>
         <Text className="mt-2 text-sm text-ink/60">
-          Recent changes across your account. Newest first; up to the last 100 events.
+          Recent changes across your account. Newest first.
         </Text>
 
-        {feed.state === 'loading' ? (
+        {list.state === 'loading' ? (
           <View className="mt-12 items-center">
             <ActivityIndicator color="#0f1626" />
           </View>
-        ) : feed.state === 'error' ? (
+        ) : list.state === 'error' ? (
           <Text className="mt-8 text-sm text-oxblood">Couldn't load activity.</Text>
         ) : (
           <View className="mt-8">
-            <AuditHistory events={feed.events} showEntity />
+            <AuditHistory events={list.rows} showEntity />
+            {hasMore ? (
+              <Pressable
+                onPress={loadMore}
+                disabled={loadingMore}
+                className="mt-6 self-center rounded-sm border border-ink/15 px-4 py-2 active:border-gold-deep disabled:opacity-50"
+              >
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+                  {loadingMore ? 'Loading…' : 'Load more'}
+                </Text>
+              </Pressable>
+            ) : null}
           </View>
         )}
       </ScrollView>
