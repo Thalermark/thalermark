@@ -54,5 +54,17 @@
         "useNamingConvention": "off"
       }
     }
-  }
+  },
+  "overrides": [
+    {
+      "include": ["apps/api/scripts/**"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConsoleLog": "off"
+          }
+        }
+      }
+    }
+  ]
 }
