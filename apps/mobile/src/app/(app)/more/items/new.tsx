@@ -1,0 +1,118 @@
+import { itemCreateSchema } from '@thalermark/validation';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { useCallback, useState } from 'react';
+import { type ItemFieldKey, ItemForm, type ItemFormValues } from '../../../../components/ItemForm';
+import { api } from '../../../../lib/api';
+
+// Mirror of apps/web's /settings/items/new. The API doesn't auto-pick a
+// company, so this grabs companies[0] for the required companyId (single-company
+// MVP). Empty optionals are omitted so undefined (not '') reaches the schema.
+const OPTIONAL_KEYS: Exclude<ItemFieldKey, 'name'>[] = [
+  'description',
+  'unitPrice',
+  'unitLabel',
+  'defaultQuantity',
+];
+
+const EMPTY: ItemFormValues = {
+  name: '',
+  description: '',
+  unitPrice: '',
+  unitLabel: '',
+  defaultQuantity: '',
+};
+
+export default function NewItem() {
+  const router = useRouter();
+  const [values, setValues] = useState<ItemFormValues>(EMPTY);
+  const [companyId, setCompanyId] = useState<string | null>(null);
+  const [bootstrapped, setBootstrapped] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<ItemFieldKey, string>>>({});
+  const [formError, setFormError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (bootstrapped) return;
+      let active = true;
+      api.api.companies
+        .$get()
+        .then(async (res) => {
+          if (!active) return;
+          if (res.ok) {
+            const { companies } = await res.json();
+            setCompanyId(companies[0]?.id ?? null);
+          }
+          setBootstrapped(true);
+        })
+        .catch(() => {
+          if (active) setBootstrapped(true);
+        });
+      return () => {
+        active = false;
+      };
+    }, [bootstrapped]),
+  );
+
+  const set = (key: ItemFieldKey, val: string) => setValues((v) => ({ ...v, [key]: val }));
+  const noCompany = bootstrapped && companyId === null;
+  const canSubmit = !submitting && !noCompany && values.name.trim().length > 0;
+
+  async function onSubmit() {
+    if (!companyId) {
+      setFormError('No company on this account.');
+      return;
+    }
+    setFormError(null);
+    setFieldErrors({});
+
+    const body: Record<string, string> = { companyId, name: values.name.trim() };
+    for (const k of OPTIONAL_KEYS) {
+      const trimmed = values[k].trim();
+      if (trimmed !== '') body[k] = trimmed;
+    }
+
+    const parsed = itemCreateSchema.safeParse(body);
+    if (!parsed.success) {
+      const errs: Partial<Record<ItemFieldKey, string>> = {};
+      for (const issue of parsed.error.issues) {
+        const key = String(issue.path[0] ?? '') as ItemFieldKey;
+        if (key && !errs[key]) errs[key] = issue.message;
+      }
+      setFieldErrors(errs);
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const res = await api.api.items.$post({ json: parsed.data });
+      if (!res.ok) {
+        const errBody = (await res.json().catch(() => null)) as { error?: string } | null;
+        setFormError(errBody?.error ?? 'create_failed');
+        return;
+      }
+      const created = await res.json();
+      router.replace(`/more/items/${created.id}`);
+    } catch {
+      setFormError('create_failed');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <ItemForm
+      backLabel="Items"
+      onBack={() => router.back()}
+      title="New item"
+      submitLabel="Create item"
+      values={values}
+      onChange={set}
+      fieldErrors={fieldErrors}
+      formError={noCompany ? 'No company on this account.' : formError}
+      submitting={submitting}
+      canSubmit={canSubmit}
+      onSubmit={onSubmit}
+    />
+  );
+}

@@ -124,6 +124,22 @@ export default function AppLayout() {
           ),
         }}
       />
+      {/* Catch-all for the screens that don't earn a top-level tab — the items
+          catalog + reports for now; M10 account admin (company switcher /
+          invites) joins them here, and M11 consolidates the nav. */}
+      <Tabs.Screen
+        name="more"
+        options={{
+          title: 'More',
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons
+              name={focused ? 'ellipsis-horizontal' : 'ellipsis-horizontal-outline'}
+              size={size}
+              color={color}
+            />
+          ),
+        }}
+      />
       {/* Routable but hidden from the tab bar — reached via redirect only. */}
       <Tabs.Screen name="select-company" options={{ href: null }} />
     </Tabs>
