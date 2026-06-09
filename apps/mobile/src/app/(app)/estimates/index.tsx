@@ -1,68 +1,46 @@
-import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useRouter } from 'expo-router';
+import { useCallback } from 'react';
 import { ActivityIndicator, FlatList, Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from '../../../lib/api';
+import { pageQuery, usePaginatedList } from '../../../lib/use-paginated-list';
 
-// Mirror of apps/web's /estimates list (and the mobile invoices list). The API
-// returns rows with customerId only, so — like invoices — fetch customers and
-// join the name client-side.
+// Mirror of apps/web's /estimates list. customerName is LEFT JOINed by the API
+// (#195); keyset infinite scroll via usePaginatedList.
 type EstimateRow = {
   id: string;
   number: string;
-  customerId: string;
+  customerName: string | null;
   status: string;
   issueDate: string;
   currency: string;
   total: string;
 };
-type ListState =
-  | { state: 'loading' }
-  | { state: 'ready'; estimates: EstimateRow[]; names: Record<string, string> }
-  | { state: 'error' };
 
 export default function EstimatesList() {
   const router = useRouter();
-  const [list, setList] = useState<ListState>({ state: 'loading' });
 
-  useFocusEffect(
-    useCallback(() => {
-      let active = true;
-      Promise.all([api.api.estimates.$get(), api.api.customers.$get()])
-        .then(async ([estRes, custRes]) => {
-          if (!active) return;
-          if (!estRes.ok) {
-            setList({ state: 'error' });
-            return;
-          }
-          const { estimates } = await estRes.json();
-          const names: Record<string, string> = {};
-          if (custRes.ok) {
-            const { customers } = await custRes.json();
-            for (const c of customers) names[c.id] = c.name;
-          }
-          setList({
-            state: 'ready',
-            estimates: estimates.map((e) => ({
-              id: e.id,
-              number: e.number,
-              customerId: e.customerId,
-              status: e.status,
-              issueDate: e.issueDate,
-              currency: e.currency,
-              total: e.total,
-            })),
-            names,
-          });
-        })
-        .catch(() => {
-          if (active) setList({ state: 'error' });
-        });
-      return () => {
-        active = false;
-      };
-    }, []),
-  );
+  const fetchPage = useCallback(async (cursor: string | null) => {
+    const res = await api.api.estimates.$get({ query: pageQuery(cursor) });
+    if (!res.ok) return null;
+    const { estimates, nextCursor } = await res.json();
+    return {
+      rows: estimates.map(
+        (e): EstimateRow => ({
+          id: e.id,
+          number: e.number,
+          customerName: e.customerName ?? null,
+          status: e.status,
+          issueDate: e.issueDate,
+          currency: e.currency,
+          total: e.total,
+        }),
+      ),
+      nextCursor,
+    };
+  }, []);
+
+  const { list, loadingMore, loadMore } = usePaginatedList(fetchPage);
 
   return (
     <SafeAreaView className="flex-1 bg-cream" edges={['top']}>
@@ -87,15 +65,24 @@ export default function EstimatesList() {
         </View>
       ) : list.state === 'error' ? (
         <Text className="mt-8 px-6 text-sm text-oxblood">Couldn't load estimates.</Text>
-      ) : list.estimates.length === 0 ? (
+      ) : list.rows.length === 0 ? (
         <Text className="mt-8 px-6 text-ink/70">No estimates yet.</Text>
       ) : (
         <FlatList
-          data={list.estimates}
+          data={list.rows}
           keyExtractor={(e) => e.id}
           className="mt-6"
           contentContainerClassName="px-6 pb-6"
           ItemSeparatorComponent={() => <View className="h-px bg-ink/10" />}
+          onEndReached={loadMore}
+          onEndReachedThreshold={0.4}
+          ListFooterComponent={
+            loadingMore ? (
+              <View className="py-4">
+                <ActivityIndicator color="#0f1626" />
+              </View>
+            ) : null
+          }
           renderItem={({ item }) => (
             <Pressable
               onPress={() => router.push(`/estimates/${item.id}`)}
@@ -108,7 +95,7 @@ export default function EstimatesList() {
                 </Text>
               </View>
               <View className="mt-1 flex-row items-center justify-between">
-                <Text className="text-sm text-ink/70">{list.names[item.customerId] ?? '—'}</Text>
+                <Text className="text-sm text-ink/70">{item.customerName ?? '—'}</Text>
                 <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
                   {item.status} · {item.issueDate}
                 </Text>

@@ -1,52 +1,36 @@
-import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useRouter } from 'expo-router';
+import { useCallback } from 'react';
 import { ActivityIndicator, FlatList, Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from '../../../lib/api';
+import { pageQuery, usePaginatedList } from '../../../lib/use-paginated-list';
 
 // Mirror of apps/web's /expenses list. Rows show merchant / amount / date —
 // the category lives behind a COA account UUID we don't resolve in the list
-// (kept lean; the detail screen resolves names).
+// (kept lean; the detail screen resolves names). Keyset infinite scroll.
 type ExpenseRow = { id: string; merchant: string; amount: string; expenseDate: string };
-type ListState =
-  | { state: 'loading' }
-  | { state: 'ready'; expenses: ExpenseRow[] }
-  | { state: 'error' };
 
 export default function ExpensesList() {
   const router = useRouter();
-  const [list, setList] = useState<ListState>({ state: 'loading' });
 
-  useFocusEffect(
-    useCallback(() => {
-      let active = true;
-      api.api.expenses
-        .$get()
-        .then(async (res) => {
-          if (!active) return;
-          if (!res.ok) {
-            setList({ state: 'error' });
-            return;
-          }
-          const { expenses } = await res.json();
-          setList({
-            state: 'ready',
-            expenses: expenses.map((e) => ({
-              id: e.id,
-              merchant: e.merchant,
-              amount: e.amount,
-              expenseDate: e.expenseDate,
-            })),
-          });
-        })
-        .catch(() => {
-          if (active) setList({ state: 'error' });
-        });
-      return () => {
-        active = false;
-      };
-    }, []),
-  );
+  const fetchPage = useCallback(async (cursor: string | null) => {
+    const res = await api.api.expenses.$get({ query: pageQuery(cursor) });
+    if (!res.ok) return null;
+    const { expenses, nextCursor } = await res.json();
+    return {
+      rows: expenses.map(
+        (e): ExpenseRow => ({
+          id: e.id,
+          merchant: e.merchant,
+          amount: e.amount,
+          expenseDate: e.expenseDate,
+        }),
+      ),
+      nextCursor,
+    };
+  }, []);
+
+  const { list, loadingMore, loadMore } = usePaginatedList(fetchPage);
 
   return (
     <SafeAreaView className="flex-1 bg-cream" edges={['top']}>
@@ -71,15 +55,24 @@ export default function ExpensesList() {
         </View>
       ) : list.state === 'error' ? (
         <Text className="mt-8 px-6 text-sm text-oxblood">Couldn't load expenses.</Text>
-      ) : list.expenses.length === 0 ? (
+      ) : list.rows.length === 0 ? (
         <Text className="mt-8 px-6 text-ink/70">No expenses yet.</Text>
       ) : (
         <FlatList
-          data={list.expenses}
+          data={list.rows}
           keyExtractor={(e) => e.id}
           className="mt-6"
           contentContainerClassName="px-6 pb-6"
           ItemSeparatorComponent={() => <View className="h-px bg-ink/10" />}
+          onEndReached={loadMore}
+          onEndReachedThreshold={0.4}
+          ListFooterComponent={
+            loadingMore ? (
+              <View className="py-4">
+                <ActivityIndicator color="#0f1626" />
+              </View>
+            ) : null
+          }
           renderItem={({ item }) => (
             <Pressable
               onPress={() => router.push(`/expenses/${item.id}`)}

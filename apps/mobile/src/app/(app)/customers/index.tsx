@@ -1,47 +1,30 @@
-import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useRouter } from 'expo-router';
+import { useCallback } from 'react';
 import { ActivityIndicator, FlatList, Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from '../../../lib/api';
+import { pageQuery, usePaginatedList } from '../../../lib/use-paginated-list';
 
 // Mirror of apps/web's /customers list. Account-scoped via x-account-id (the
-// API filters by accountId); single-company MVP lists them all. Refetches on
-// focus so a customer created on /customers/new shows when we navigate back.
+// API filters by accountId); keyset-paginated with onEndReached infinite scroll.
+// usePaginatedList refetches page 1 on focus so a customer created on
+// /customers/new shows when we navigate back.
 type CustomerRow = { id: string; name: string; email: string | null };
-type ListState =
-  | { state: 'loading' }
-  | { state: 'ready'; customers: CustomerRow[] }
-  | { state: 'error' };
 
 export default function CustomersList() {
   const router = useRouter();
-  const [list, setList] = useState<ListState>({ state: 'loading' });
 
-  useFocusEffect(
-    useCallback(() => {
-      let active = true;
-      api.api.customers
-        .$get()
-        .then(async (res) => {
-          if (!active) return;
-          if (!res.ok) {
-            setList({ state: 'error' });
-            return;
-          }
-          const { customers } = await res.json();
-          setList({
-            state: 'ready',
-            customers: customers.map((c) => ({ id: c.id, name: c.name, email: c.email ?? null })),
-          });
-        })
-        .catch(() => {
-          if (active) setList({ state: 'error' });
-        });
-      return () => {
-        active = false;
-      };
-    }, []),
-  );
+  const fetchPage = useCallback(async (cursor: string | null) => {
+    const res = await api.api.customers.$get({ query: pageQuery(cursor) });
+    if (!res.ok) return null;
+    const { customers, nextCursor } = await res.json();
+    return {
+      rows: customers.map((c): CustomerRow => ({ id: c.id, name: c.name, email: c.email ?? null })),
+      nextCursor,
+    };
+  }, []);
+
+  const { list, loadingMore, loadMore } = usePaginatedList(fetchPage);
 
   return (
     <SafeAreaView className="flex-1 bg-cream" edges={['top']}>
@@ -66,15 +49,24 @@ export default function CustomersList() {
         </View>
       ) : list.state === 'error' ? (
         <Text className="mt-8 px-6 text-sm text-oxblood">Couldn't load customers.</Text>
-      ) : list.customers.length === 0 ? (
+      ) : list.rows.length === 0 ? (
         <Text className="mt-8 px-6 text-ink/70">No customers yet.</Text>
       ) : (
         <FlatList
-          data={list.customers}
+          data={list.rows}
           keyExtractor={(c) => c.id}
           className="mt-6"
           contentContainerClassName="px-6 pb-6"
           ItemSeparatorComponent={() => <View className="h-px bg-ink/10" />}
+          onEndReached={loadMore}
+          onEndReachedThreshold={0.4}
+          ListFooterComponent={
+            loadingMore ? (
+              <View className="py-4">
+                <ActivityIndicator color="#0f1626" />
+              </View>
+            ) : null
+          }
           renderItem={({ item }) => (
             <Pressable
               onPress={() => router.push(`/customers/${item.id}`)}

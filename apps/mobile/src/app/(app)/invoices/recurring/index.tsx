@@ -1,15 +1,17 @@
-import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useRouter } from 'expo-router';
+import { useCallback } from 'react';
 import { ActivityIndicator, FlatList, Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from '../../../../lib/api';
+import { pageQuery, usePaginatedList } from '../../../../lib/use-paginated-list';
 
 // Recurring schedules list. Lives in the invoices Stack (reached via the
 // "Recurring schedules →" link on the invoices list), not its own tab. Mirror
-// of apps/web's /recurring. Rows join the customer name client-side.
+// of apps/web's /recurring. customerName is LEFT JOINed by the API (#195);
+// keyset infinite scroll via usePaginatedList.
 type RecurringRow = {
   id: string;
-  customerId: string;
+  customerName: string | null;
   status: string;
   frequency: string;
   intervalCount: number;
@@ -17,10 +19,6 @@ type RecurringRow = {
   currency: string;
   total: string;
 };
-type ListState =
-  | { state: 'loading' }
-  | { state: 'ready'; rows: RecurringRow[]; names: Record<string, string> }
-  | { state: 'error' };
 
 function cadenceLabel(frequency: string, interval: number): string {
   const unit = frequency === 'weekly' ? 'week' : frequency === 'monthly' ? 'month' : 'year';
@@ -29,47 +27,29 @@ function cadenceLabel(frequency: string, interval: number): string {
 
 export default function RecurringList() {
   const router = useRouter();
-  const [list, setList] = useState<ListState>({ state: 'loading' });
 
-  useFocusEffect(
-    useCallback(() => {
-      let active = true;
-      Promise.all([api.api['recurring-invoices'].$get(), api.api.customers.$get()])
-        .then(async ([recRes, custRes]) => {
-          if (!active) return;
-          if (!recRes.ok) {
-            setList({ state: 'error' });
-            return;
-          }
-          const { recurringInvoices } = await recRes.json();
-          const names: Record<string, string> = {};
-          if (custRes.ok) {
-            const { customers } = await custRes.json();
-            for (const c of customers) names[c.id] = c.name;
-          }
-          setList({
-            state: 'ready',
-            rows: recurringInvoices.map((r) => ({
-              id: r.id,
-              customerId: r.customerId,
-              status: r.status,
-              frequency: r.frequency,
-              intervalCount: r.intervalCount,
-              nextRunDate: r.nextRunDate,
-              currency: r.currency,
-              total: r.total,
-            })),
-            names,
-          });
-        })
-        .catch(() => {
-          if (active) setList({ state: 'error' });
-        });
-      return () => {
-        active = false;
-      };
-    }, []),
-  );
+  const fetchPage = useCallback(async (cursor: string | null) => {
+    const res = await api.api['recurring-invoices'].$get({ query: pageQuery(cursor) });
+    if (!res.ok) return null;
+    const { recurringInvoices, nextCursor } = await res.json();
+    return {
+      rows: recurringInvoices.map(
+        (r): RecurringRow => ({
+          id: r.id,
+          customerName: r.customerName ?? null,
+          status: r.status,
+          frequency: r.frequency,
+          intervalCount: r.intervalCount,
+          nextRunDate: r.nextRunDate,
+          currency: r.currency,
+          total: r.total,
+        }),
+      ),
+      nextCursor,
+    };
+  }, []);
+
+  const { list, loadingMore, loadMore } = usePaginatedList(fetchPage);
 
   return (
     <SafeAreaView className="flex-1 bg-cream" edges={['top']}>
@@ -106,15 +86,22 @@ export default function RecurringList() {
           className="mt-6"
           contentContainerClassName="px-6 pb-6"
           ItemSeparatorComponent={() => <View className="h-px bg-ink/10" />}
+          onEndReached={loadMore}
+          onEndReachedThreshold={0.4}
+          ListFooterComponent={
+            loadingMore ? (
+              <View className="py-4">
+                <ActivityIndicator color="#0f1626" />
+              </View>
+            ) : null
+          }
           renderItem={({ item }) => (
             <Pressable
               onPress={() => router.push(`/invoices/recurring/${item.id}`)}
               className="bg-cream-warm px-5 py-4 active:bg-cream"
             >
               <View className="flex-row items-center justify-between">
-                <Text className="font-serif text-lg text-ink">
-                  {list.names[item.customerId] ?? '—'}
-                </Text>
+                <Text className="font-serif text-lg text-ink">{item.customerName ?? '—'}</Text>
                 <Text className="font-mono tabular-nums text-ink">
                   {item.currency} {item.total}
                 </Text>
