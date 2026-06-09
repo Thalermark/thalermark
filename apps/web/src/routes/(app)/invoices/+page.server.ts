@@ -7,8 +7,11 @@ import type { PageServerLoad } from './$types';
 // every customer to resolve names — that doesn't survive pagination.
 export const load: PageServerLoad = async (event) => {
   const client = serverApiClient(event);
-  const res = await client.api.invoices.$get({ query: { limit: String(PAGE_SIZE) } });
+  const status = event.url.searchParams.get('status') ?? '';
+  const query: Record<string, string> = { limit: String(PAGE_SIZE) };
+  if (status) query.status = status;
+  const res = await client.api.invoices.$get({ query });
   if (!res.ok) throw error(res.status, 'failed to load invoices');
   const { invoices, nextCursor } = await res.json();
-  return { invoices, nextCursor };
+  return { invoices, nextCursor, filters: { status } };
 };

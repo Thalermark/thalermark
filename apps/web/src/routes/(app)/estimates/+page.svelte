@@ -6,6 +6,9 @@
 
   let { data }: PageProps = $props();
 
+  const { filters } = $derived(data);
+  const STATUSES = ['draft', 'sent', 'accepted', 'declined', 'expired'];
+
   // See /customers for the untrack() seed-and-re-seed pattern.
   type Row = (typeof data.estimates)[number];
   let rows = $state<Row[]>(untrack(() => data.estimates));
@@ -27,7 +30,7 @@
     loading = true;
     loadError = false;
     try {
-      const page = await fetchMore<Row>('/estimates/more', cursor);
+      const page = await fetchMore<Row>('/estimates/more', cursor, { status: filters.status });
       rows = [...rows, ...page.rows];
       cursor = page.nextCursor;
     } catch {
@@ -53,8 +56,39 @@
   </a>
 </div>
 
+<!-- Status filter. Plain GET form so the filter lives in the URL (shareable,
+     back-button friendly) and re-runs load() with a fresh page 1. -->
+<form
+  method="GET"
+  class="mt-8 flex flex-wrap items-end gap-3 rounded-sm border border-ink/10 bg-cream-warm p-4"
+>
+  <label class="flex flex-col gap-1 text-xs uppercase tracking-widest text-ink/50">
+    Status
+    <select
+      name="status"
+      class="rounded-sm border border-ink/15 bg-cream px-2 py-1.5 text-sm normal-case tracking-normal text-ink"
+    >
+      <option value="" selected={filters.status === ''}>All</option>
+      {#each STATUSES as s (s)}
+        <option value={s} selected={filters.status === s}>{s}</option>
+      {/each}
+    </select>
+  </label>
+  <button
+    type="submit"
+    class="rounded-sm bg-ink px-4 py-2 text-sm font-medium text-cream transition-colors hover:bg-gold-deep"
+  >
+    Filter
+  </button>
+  {#if filters.status}
+    <a href="/estimates" class="text-sm text-ink/60 hover:text-ink">Clear</a>
+  {/if}
+</form>
+
 {#if rows.length === 0}
-  <p class="mt-8 text-ink/70">No estimates yet.</p>
+  <p class="mt-8 text-ink/70">
+    {filters.status ? 'No estimates match this filter.' : 'No estimates yet.'}
+  </p>
 {:else}
   <div class="mt-8 overflow-hidden rounded-sm border border-ink/10 bg-cream-warm">
     <table class="w-full text-left text-sm">
