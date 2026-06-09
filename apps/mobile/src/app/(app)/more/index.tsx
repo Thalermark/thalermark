@@ -7,16 +7,43 @@ import { api } from '../../../lib/api';
 import { getActiveAccountId } from '../../../lib/secure-store';
 
 // The "More" hub — the home for screens that don't earn a top-level tab. M9
-// seeded it with the items catalog + top-products report; M10 adds account
-// admin (team / switch account). M11 consolidates the nav. The header shows the
-// active account name (resolved from /api/me), and "Switch account" only
-// surfaces when the user belongs to more than one account.
+// seeded it with the items catalog + top-products report; M10 added account
+// admin (team / switch account); M11f consolidated the nav, moving Estimates +
+// Recurring here (Sales) and adding the activity feed + business/payments/email
+// settings. The header shows the active account name (resolved from /api/me),
+// and "Switch account" only surfaces when the user belongs to more than one
+// account.
 type Entry = {
-  href: '/more/team' | '/more/switch-account' | '/more/items' | '/more/top-products';
+  href:
+    | '/estimates'
+    | '/invoices/recurring'
+    | '/more/team'
+    | '/more/switch-account'
+    | '/more/activity'
+    | '/more/items'
+    | '/more/top-products'
+    | '/more/business'
+    | '/more/payments'
+    | '/more/email';
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
   subtitle: string;
 };
+
+const SALES_ENTRIES: Entry[] = [
+  {
+    href: '/estimates',
+    icon: 'document-text-outline',
+    title: 'Estimates',
+    subtitle: 'Quote a job, then convert the estimate straight into an invoice.',
+  },
+  {
+    href: '/invoices/recurring',
+    icon: 'repeat-outline',
+    title: 'Recurring invoices',
+    subtitle: 'Schedules that generate and email invoices on their own.',
+  },
+];
 
 const ACCOUNT_ENTRY: Entry = {
   href: '/more/team',
@@ -32,6 +59,13 @@ const SWITCH_ENTRY: Entry = {
   subtitle: 'Move between the accounts you belong to.',
 };
 
+const ACTIVITY_ENTRY: Entry = {
+  href: '/more/activity',
+  icon: 'pulse-outline',
+  title: 'Activity',
+  subtitle: 'Recent changes across your account.',
+};
+
 const CATALOG_ENTRIES: Entry[] = [
   {
     href: '/more/items',
@@ -44,6 +78,27 @@ const CATALOG_ENTRIES: Entry[] = [
     icon: 'bar-chart-outline',
     title: 'Top products',
     subtitle: 'Which catalog items bring in the most revenue.',
+  },
+];
+
+const SETTINGS_ENTRIES: Entry[] = [
+  {
+    href: '/more/business',
+    icon: 'business-outline',
+    title: 'Business',
+    subtitle: 'Address, phone, and logo shown on the invoices customers see.',
+  },
+  {
+    href: '/more/payments',
+    icon: 'card-outline',
+    title: 'Payments',
+    subtitle: 'Connect Stripe and list the other ways customers can pay you.',
+  },
+  {
+    href: '/more/email',
+    icon: 'mail-outline',
+    title: 'Email',
+    subtitle: 'Set the reply-to address on the email your customers receive.',
   },
 ];
 
@@ -72,7 +127,10 @@ export default function MoreHub() {
     }, []),
   );
 
-  const accountEntries = multiAccount ? [ACCOUNT_ENTRY, SWITCH_ENTRY] : [ACCOUNT_ENTRY];
+  // Switch account only when there's somewhere to switch to; Activity always.
+  const accountEntries = multiAccount
+    ? [ACCOUNT_ENTRY, SWITCH_ENTRY, ACTIVITY_ENTRY]
+    : [ACCOUNT_ENTRY, ACTIVITY_ENTRY];
 
   return (
     <SafeAreaView className="flex-1 bg-cream" edges={['top']}>
@@ -80,12 +138,14 @@ export default function MoreHub() {
         <Text className="font-mono text-xs uppercase tracking-widest text-gold-deep">More</Text>
         <Text className="mt-2 font-serif text-3xl font-light text-ink">{accountName ?? ' '}</Text>
 
+        <Section label="Sales" entries={SALES_ENTRIES} onOpen={(href) => router.push(href)} />
         <Section label="Account" entries={accountEntries} onOpen={(href) => router.push(href)} />
         <Section
           label="Catalog & reports"
           entries={CATALOG_ENTRIES}
           onOpen={(href) => router.push(href)}
         />
+        <Section label="Settings" entries={SETTINGS_ENTRIES} onOpen={(href) => router.push(href)} />
       </ScrollView>
     </SafeAreaView>
   );

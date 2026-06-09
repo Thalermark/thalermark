@@ -1,15 +1,19 @@
+import { type Href, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
-// Per-entity audit trail — the native mirror of apps/web's
-// $lib/components/AuditHistory.svelte (slice 8.8a). Compact rows: actor +
-// human-readable action + relative timestamp, with a tappable "N changes"
+// Audit trail — the native mirror of apps/web's
+// $lib/components/AuditHistory.svelte (slices 8.8a / 8.8b). Compact rows: actor
+// + human-readable action + relative timestamp, with a tappable "N changes"
 // disclosure showing computed before/after field deltas. Presentational only:
-// the host screen fetches `GET /api/audit-events?entityType&entityId` inside
-// its own `load()` and passes the events down, so the history refreshes for
-// free after every in-screen mutation (mark-paid, void, convert, …). Feed
-// mode (showEntity / entityLabel) is web-only for now — the account-wide
-// activity feed lands with mobile nav consolidation.
+// the host screen fetches `GET /api/audit-events` and passes the events down.
+//
+// Two modes:
+//   per-entity (default) — host filters by entityType+entityId; refreshes for
+//     free after every in-screen mutation (mark-paid, void, convert, …).
+//   feed (showEntity)    — the account-wide activity screen passes the
+//     unfiltered feed; each row prefixes a tappable "Invoice INV-0042" that
+//     navigates to the entity's detail screen.
 
 export type AuditEvent = {
   id: string;
@@ -18,6 +22,11 @@ export type AuditEvent = {
   createdAt: string;
   before: unknown;
   after: unknown;
+  // Present in feed mode (the unfiltered /api/audit-events response). Ignored
+  // in per-entity mode.
+  entityType?: string;
+  entityId?: string;
+  entityLabel?: string | null;
 };
 
 // Action → display verb. Unmapped actions render as the raw string so a new
@@ -50,6 +59,42 @@ const ACTION_LABELS: Record<string, string> = {
 
 function actionLabel(action: string): string {
   return ACTION_LABELS[action] ?? action;
+}
+
+// Entity-type → display singular for the feed prefix. Kept in sync with web's
+// ENTITY_LABELS.
+const ENTITY_LABELS: Record<string, string> = {
+  customer: 'Customer',
+  invoice: 'Invoice',
+  estimate: 'Estimate',
+  expense: 'Expense',
+  company: 'Company',
+  recurring_invoice: 'Recurring',
+  item: 'Item',
+};
+
+// Entity-type → detail-screen route. company has no detail screen on mobile, so
+// it points at the business settings tab (its closest equivalent). A null
+// return makes the prefix non-tappable.
+function entityHref(entityType: string, entityId: string): Href | null {
+  switch (entityType) {
+    case 'customer':
+      return `/customers/${entityId}`;
+    case 'invoice':
+      return `/invoices/${entityId}`;
+    case 'estimate':
+      return `/estimates/${entityId}`;
+    case 'expense':
+      return `/expenses/${entityId}`;
+    case 'recurring_invoice':
+      return `/invoices/recurring/${entityId}`;
+    case 'item':
+      return `/more/items/${entityId}`;
+    case 'company':
+      return '/more/business';
+    default:
+      return null;
+  }
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -123,16 +168,26 @@ function formatRelative(iso: string): string {
   return `${yr} yr ago`;
 }
 
-export function AuditHistory({ events }: { events: AuditEvent[] }) {
+// `showEntity` switches on feed mode: the per-entity sidebar passes a section
+// header ("History"); the activity screen renders its own header and omits it.
+export function AuditHistory({
+  events,
+  showEntity = false,
+}: {
+  events: AuditEvent[];
+  showEntity?: boolean;
+}) {
   return (
-    <View className="mt-12 border-t border-ink/10 pt-8">
-      <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">History</Text>
+    <View className={showEntity ? '' : 'mt-12 border-t border-ink/10 pt-8'}>
+      {showEntity ? null : (
+        <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">History</Text>
+      )}
       {events.length === 0 ? (
-        <Text className="mt-3 text-sm text-ink/50">No history yet.</Text>
+        <Text className={`text-sm text-ink/50 ${showEntity ? '' : 'mt-3'}`}>No history yet.</Text>
       ) : (
-        <View className="mt-4 space-y-3">
+        <View className={showEntity ? 'space-y-3' : 'mt-4 space-y-3'}>
           {events.map((ev) => (
-            <AuditRow key={ev.id} event={ev} />
+            <AuditRow key={ev.id} event={ev} showEntity={showEntity} />
           ))}
         </View>
       )}
@@ -140,13 +195,30 @@ export function AuditHistory({ events }: { events: AuditEvent[] }) {
   );
 }
 
-function AuditRow({ event }: { event: AuditEvent }) {
+function AuditRow({ event, showEntity }: { event: AuditEvent; showEntity: boolean }) {
+  const router = useRouter();
   const [expanded, setExpanded] = useState(false);
   const lines = diffLines(event.before, event.after);
+  const href =
+    showEntity && event.entityType && event.entityId
+      ? entityHref(event.entityType, event.entityId)
+      : null;
   return (
     <View className="rounded-sm border border-ink/10 bg-cream-warm px-4 py-3">
       <View className="flex-row items-start justify-between gap-x-4">
         <Text className="flex-1 text-sm text-ink">
+          {showEntity && event.entityType ? (
+            <>
+              <Text
+                onPress={href ? () => router.push(href) : undefined}
+                className={`font-medium ${href ? 'text-gold-deep' : 'text-ink'}`}
+              >
+                {ENTITY_LABELS[event.entityType] ?? event.entityType}
+                {event.entityLabel ? ` ${event.entityLabel}` : ''}
+              </Text>
+              {' — '}
+            </>
+          ) : null}
           <Text className="font-medium">{event.actorName}</Text> {actionLabel(event.action)}
         </Text>
         <Text className="font-mono text-xs uppercase tracking-widest text-ink/40">
