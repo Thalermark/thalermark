@@ -9,10 +9,13 @@ import type { PageServerLoad } from './$types';
 // per-row lookups.
 export const load: PageServerLoad = async (event) => {
   const client = serverApiClient(event);
-  const res = await client.api['audit-events'].$get({ query: { limit: '100' } });
+  const res = await client.api['audit-events'].$get({ query: { limit: '50' } });
   if (!res.ok) throw error(res.status, 'failed to load activity');
-  const { events } = (await res.json()) as { events: AuditEvent[] };
-  return { events };
+  const { events, nextCursor } = (await res.json()) as {
+    events: AuditEvent[];
+    nextCursor: string | null;
+  };
+  return { events, nextCursor };
 };
 
 type AuditEvent = {

@@ -1,7 +1,47 @@
 <script lang="ts">
+  import LoadMore from '$lib/components/LoadMore.svelte';
+  import { fetchMore } from '$lib/load-more';
+  import { untrack } from 'svelte';
   import type { PageProps } from './$types';
 
   let { data }: PageProps = $props();
+
+  const showArchived = $derived(data.showArchived);
+
+  // See /customers for the untrack() seed-and-re-seed pattern. Here load()
+  // re-runs on both the archived-toggle nav and the archive/restore POST
+  // (which redirects back), so the $effect keeps the list in sync.
+  type Row = (typeof data.items)[number];
+  let rows = $state<Row[]>(untrack(() => data.items));
+  let cursor = $state<string | null>(untrack(() => data.nextCursor));
+  let loading = $state(false);
+  let loadError = $state(false);
+
+  $effect(() => {
+    const nextRows = data.items;
+    const next = data.nextCursor;
+    untrack(() => {
+      rows = nextRows;
+      cursor = next;
+    });
+  });
+
+  async function more() {
+    if (loading || cursor === null) return;
+    loading = true;
+    loadError = false;
+    try {
+      const page = await fetchMore<Row>('/settings/items/more', cursor, {
+        archived: showArchived ? '1' : '',
+      });
+      rows = [...rows, ...page.rows];
+      cursor = page.nextCursor;
+    } catch {
+      loadError = true;
+    } finally {
+      loading = false;
+    }
+  }
 
   const fmt = (s: string) =>
     Number(s).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
@@ -41,13 +81,13 @@
   </a>
 </div>
 
-{#if data.items.length === 0}
+{#if rows.length === 0}
   <p class="mt-8 text-ink/70">
     {data.showArchived ? 'No items yet.' : 'No active items yet.'}
   </p>
 {:else}
   <ul class="mt-6 divide-y divide-ink/10 rounded-sm border border-ink/10 bg-cream-warm">
-    {#each data.items as item (item.id)}
+    {#each rows as item (item.id)}
       <li class="flex items-center justify-between gap-4 px-5 py-4">
         <a href="/settings/items/{item.id}" class="min-w-0 flex-1 transition-colors hover:opacity-70">
           <span class="font-serif text-lg text-ink">{item.name}</span>
@@ -74,4 +114,5 @@
       </li>
     {/each}
   </ul>
+  <LoadMore hasMore={cursor !== null} {loading} error={loadError} onclick={more} />
 {/if}

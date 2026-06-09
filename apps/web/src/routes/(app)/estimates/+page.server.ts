@@ -1,22 +1,13 @@
 import { serverApiClient } from '$lib/api.server';
+import { PAGE_SIZE } from '$lib/load-more';
 import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 
+// customerName is LEFT JOINed server-side (see /invoices).
 export const load: PageServerLoad = async (event) => {
   const client = serverApiClient(event);
-  const [estimatesRes, customersRes] = await Promise.all([
-    client.api.estimates.$get(),
-    client.api.customers.$get(),
-  ]);
-  if (!estimatesRes.ok) throw error(estimatesRes.status, 'failed to load estimates');
-  if (!customersRes.ok) throw error(customersRes.status, 'failed to load customers');
-  const { estimates } = await estimatesRes.json();
-  const { customers } = await customersRes.json();
-  const customerNameById = new Map(customers.map((c) => [c.id, c.name]));
-  return {
-    estimates: estimates.map((est) => ({
-      ...est,
-      customerName: customerNameById.get(est.customerId) ?? '—',
-    })),
-  };
+  const res = await client.api.estimates.$get({ query: { limit: String(PAGE_SIZE) } });
+  if (!res.ok) throw error(res.status, 'failed to load estimates');
+  const { estimates, nextCursor } = await res.json();
+  return { estimates, nextCursor };
 };

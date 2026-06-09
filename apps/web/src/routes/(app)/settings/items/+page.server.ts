@@ -1,4 +1,5 @@
 import { serverApiClient } from '$lib/api.server';
+import { PAGE_SIZE } from '$lib/load-more';
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -9,12 +10,12 @@ import type { Actions, PageServerLoad } from './$types';
 export const load: PageServerLoad = async (event) => {
   const showArchived = event.url.searchParams.get('archived') === '1';
   const client = serverApiClient(event);
-  const res = await client.api.items.$get({
-    query: showArchived ? { includeArchived: 'true' } : {},
-  });
+  const query: Record<string, string> = { limit: String(PAGE_SIZE) };
+  if (showArchived) query.includeArchived = 'true';
+  const res = await client.api.items.$get({ query });
   if (!res.ok) throw error(res.status, 'failed to load items');
-  const { items } = await res.json();
-  return { items, showArchived };
+  const { items, nextCursor } = await res.json();
+  return { items, showArchived, nextCursor };
 };
 
 // Archive / restore from the list rows. Plain HTML POST (no use:enhance, like
