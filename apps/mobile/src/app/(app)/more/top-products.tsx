@@ -116,8 +116,8 @@ export default function TopProducts() {
         </View>
 
         <Text className="mt-3 text-sm text-ink/60">
-          {basisNote(basis)} A sales lens, not a tax figure — the “Uncatalogued / other” row
-          collects hand-typed lines so the rows tie back to revenue.
+          {basisNote(basis)} The top 25 by revenue, plus an “Uncatalogued / other” row for
+          hand-typed lines. A sales lens, not a tax figure.
         </Text>
 
         {error ? (
