@@ -12,6 +12,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { AddressField, type AddressSuggestion } from '../../../../components/AddressField';
 import { api } from '../../../../lib/api';
 
 // Edit half of apps/web's /customers/[id]/edit. Seeds from the loaded customer,
@@ -89,6 +90,22 @@ export default function EditCustomer() {
   );
 
   const set = (key: FieldKey, val: string) => setValues((v) => (v ? { ...v, [key]: val } : v));
+
+  // Picking an address suggestion rewrites Street + fans the rest into the
+  // sibling fields (a programmatic write, so it doesn't re-trigger the search).
+  const applyAddress = (s: AddressSuggestion) =>
+    setValues((v) =>
+      v
+        ? {
+            ...v,
+            addressLine1: s.addressLine1,
+            city: s.city,
+            region: s.region,
+            postalCode: s.postalCode,
+            country: s.country,
+          }
+        : v,
+    );
 
   async function onSubmit() {
     if (!values) return;
@@ -185,10 +202,11 @@ export default function EditCustomer() {
               onChangeText={(t) => set('phone', t)}
               keyboardType="phone-pad"
             />
-            <Field
-              label="Street"
+            <AddressField
               value={values.addressLine1}
               onChangeText={(t) => set('addressLine1', t)}
+              onPick={applyAddress}
+              country={values.country}
             />
             <Field
               label="Suite, unit, etc."

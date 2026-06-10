@@ -26,14 +26,19 @@ export type RlsVariables = {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// Bootstrap endpoints: authenticated but not yet account-scoped. The picker
-// reads from /api/me to learn which accounts the user can pick from, then sets
-// x-account-id on every subsequent request. Invitation accept is also bootstrap
-// because the user is not yet a member of the target account.
+// Bootstrap endpoints: authenticated but not yet (or never) account-scoped. The
+// picker reads from /api/me to learn which accounts the user can pick from, then
+// sets x-account-id on every subsequent request. Invitation accept is also
+// bootstrap because the user is not yet a member of the target account.
+// /api/locations/autocomplete is account-agnostic (it proxies an external
+// geocoder and touches no tenant data) — listing it here keeps it behind auth
+// while skipping the x-account-id requirement + the tenant tx, so it never pins
+// a DB connection across the upstream HTTP call.
 const BOOTSTRAP_PATH_PATTERNS: RegExp[] = [
   /^\/api\/me$/,
   /^\/api\/me\/memberships$/,
   /^\/api\/invitations\/[^/]+\/accept$/,
+  /^\/api\/locations\/autocomplete$/,
 ];
 
 // Unauthed public endpoints: no session, no tenant context. Token in the URL

@@ -30,6 +30,7 @@ import {
   recurringInvoiceLineItems,
   recurringInvoices,
 } from '@thalermark/db';
+import type { AddressAutocompleteProvider, AddressSuggestion } from '@thalermark/location';
 import { type StorageProvider, readLocalObject, verifyFileToken } from '@thalermark/storage';
 import { emit } from '@thalermark/telemetry';
 import {
@@ -697,6 +698,13 @@ export type AppDeps = {
   // already exist. Tests inject a stub. Generated nudges are cached on the
   // company row and regenerated only when the computed signals change.
   advisor?: CashFlowAdvisor | null;
+  // Address autocomplete provider for the mobile customer form's
+  // /api/locations/autocomplete route (the web client uses its own same-origin
+  // SvelteKit proxy). Null when construction failed (e.g. LOCATION_PROVIDER set
+  // to an unknown name, or mapbox without a token) — the route then degrades to
+  // empty suggestions rather than erroring. The keyless US Census geocoder is
+  // the no-config default, so this is normally set. Built in server.ts from env.
+  addressProvider?: AddressAutocompleteProvider | null;
 };
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -753,6 +761,26 @@ export function createApp(deps: AppDeps) {
           .innerJoin(accounts, eq(memberships.accountId, accounts.id))
           .where(eq(memberships.userId, userId));
         return c.json({ user, memberships: rows });
+      })
+      // Address type-ahead for the mobile customer form. The web client hits its
+      // own same-origin SvelteKit proxy (/locations/autocomplete); mobile talks
+      // to the api, so it needs this route. Account-agnostic (in the rls-context
+      // bootstrap allowlist → behind auth, but no x-account-id / tenant tx). A
+      // missing or misconfigured provider degrades to empty + degraded:true,
+      // matching the web proxy, so the address fields stay usable by hand.
+      .get('/api/locations/autocomplete', async (c) => {
+        const empty: AddressSuggestion[] = [];
+        const q = c.req.query('q')?.trim();
+        if (!q) return c.json({ suggestions: empty, degraded: false });
+        if (q.length > 200) return c.json({ error: 'q_too_long' }, 400);
+        const country = c.req.query('country')?.trim().toUpperCase() || undefined;
+        if (!deps.addressProvider) return c.json({ suggestions: empty, degraded: true });
+        try {
+          const suggestions = await deps.addressProvider.autocomplete({ q, country });
+          return c.json({ suggestions, degraded: false });
+        } catch {
+          return c.json({ suggestions: empty, degraded: true });
+        }
       })
       .post('/api/invitations', async (c) => {
         const body = (await c.req.json().catch(() => null)) as { email?: unknown } | null;

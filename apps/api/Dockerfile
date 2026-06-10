@@ -51,12 +51,13 @@ COPY tsconfig.base.json ./
 # --experimental-strip-types refuses to strip TS from files inside
 # node_modules, so each dep must ship as JS in the deployed slice.
 # Order respects the workspace dep graph: logger / db / validation / storage /
-# ai have no workspace deps; auth needs db; telemetry needs db+logger.
+# ai / location have no workspace deps; auth needs db; telemetry needs db+logger.
 RUN pnpm --filter=@thalermark/logger build \
  && pnpm --filter=@thalermark/db build \
  && pnpm --filter=@thalermark/validation build \
  && pnpm --filter=@thalermark/storage build \
  && pnpm --filter=@thalermark/ai build \
+ && pnpm --filter=@thalermark/location build \
  && pnpm --filter=@thalermark/auth build \
  && pnpm --filter=@thalermark/telemetry build
 # Now compile @thalermark/api's own TypeScript to ./apps/api/dist.
