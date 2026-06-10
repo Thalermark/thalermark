@@ -199,6 +199,11 @@ describe('POST /api/invitations/:token/accept', () => {
     try {
       const inviterCookie = await signUp(app, 'host@example.com');
       const { accountId } = await userAndAccount('host@example.com');
+      // The explicit accept path is for EXISTING users — sign the guest up
+      // FIRST (no pending invite yet → they get their own account), THEN invite
+      // + accept. A brand-new invitee is instead auto-joined by the signup hook,
+      // with no explicit accept.
+      const guestCookie = await signUp(app, 'guest@example.com');
       const inviteRes = await app.request('/api/invitations', {
         method: 'POST',
         headers: {
@@ -210,7 +215,6 @@ describe('POST /api/invitations/:token/accept', () => {
       });
       const { token } = (await inviteRes.json()) as { token: string };
 
-      const guestCookie = await signUp(app, 'guest@example.com');
       const acceptRes = await app.request(`/api/invitations/${token}/accept`, {
         method: 'POST',
         headers: { cookie: guestCookie },
@@ -416,6 +420,116 @@ describe('GET /api/team', () => {
         'joiner@example.com',
       ]);
       expect(body.invitations).toHaveLength(0);
+    } finally {
+      await handle.close();
+    }
+  });
+});
+
+describe('GET /api/invitations/:token (public preview)', () => {
+  beforeEach(resetDb);
+
+  it('returns the org + inviter + invited email for a valid token, no session', async () => {
+    const { app, handle } = buildApp();
+    try {
+      const cookie = await signUp(app, 'owner@example.com');
+      const { accountId } = await userAndAccount('owner@example.com');
+      const inviteRes = await app.request('/api/invitations', {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify({ email: 'newhire@example.com' }),
+      });
+      const { token } = (await inviteRes.json()) as { token: string };
+
+      // No cookie / x-account-id — the preview is a public, token-gated route.
+      const res = await app.request(`/api/invitations/${token}`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        email: string;
+        accountName: string;
+        inviterName: string | null;
+        expired: boolean;
+        accepted: boolean;
+      };
+      expect(body.email).toBe('newhire@example.com');
+      // The signup hook names the account after the user (here the email).
+      expect(body.accountName).toBe('owner@example.com');
+      expect(body.expired).toBe(false);
+      expect(body.accepted).toBe(false);
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('404s an unknown token', async () => {
+    const { app, handle } = buildApp();
+    try {
+      const res = await app.request('/api/invitations/deadbeef');
+      expect(res.status).toBe(404);
+    } finally {
+      await handle.close();
+    }
+  });
+});
+
+describe('invited sign-up joins the inviting account (no personal company)', () => {
+  beforeEach(resetDb);
+
+  it('a new user signing up with a pending invite joins that account, no personal one', async () => {
+    const { app, handle } = buildApp();
+    try {
+      const cookie = await signUp(app, 'boss@example.com');
+      const { accountId: bossAccount } = await userAndAccount('boss@example.com');
+      await app.request('/api/invitations', {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': bossAccount, 'content-type': 'application/json' },
+        body: JSON.stringify({ email: 'hire@example.com' }),
+      });
+
+      // The invited user signs up — the hook joins them to the inviting account.
+      await signUp(app, 'hire@example.com');
+
+      const db = getTestDb();
+      const [hire] = await db
+        .select({ id: authUser.id })
+        .from(authUser)
+        .where(eq(authUser.email, 'hire@example.com'));
+      if (!hire) throw new Error('invited user not created');
+      const mships = await db
+        .select({ accountId: memberships.accountId })
+        .from(memberships)
+        .where(eq(memberships.userId, hire.id));
+      // Exactly one membership → the inviting account. A personal-account seed
+      // would have added a second.
+      expect(mships).toHaveLength(1);
+      expect(mships[0]?.accountId).toBe(bossAccount);
+
+      // The invite is consumed (marked accepted by the new user).
+      const [inv] = await db
+        .select({ acceptedByUserId: invitations.acceptedByUserId })
+        .from(invitations)
+        .where(eq(invitations.email, 'hire@example.com'));
+      expect(inv?.acceptedByUserId).toBe(hire.id);
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('a fresh sign-up with no invite still seeds its own personal account', async () => {
+    const { app, handle } = buildApp();
+    try {
+      await signUp(app, 'solo@example.com');
+      const db = getTestDb();
+      const [solo] = await db
+        .select({ id: authUser.id })
+        .from(authUser)
+        .where(eq(authUser.email, 'solo@example.com'));
+      if (!solo) throw new Error('solo user not created');
+      const mships = await db
+        .select({ accountId: memberships.accountId })
+        .from(memberships)
+        .where(eq(memberships.userId, solo.id));
+      expect(mships).toHaveLength(1);
     } finally {
       await handle.close();
     }

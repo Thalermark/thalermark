@@ -6,12 +6,14 @@ import {
   authUser,
   authVerification,
   companies,
+  invitations,
   memberships,
   seedChartOfAccounts,
 } from '@thalermark/db';
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { bearer } from 'better-auth/plugins';
+import { and, eq, gt, isNull, sql } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
 
 export type CreateAuthOptions = {
@@ -25,14 +27,18 @@ export type CreateAuthOptions = {
 // — accounts/companies/memberships — not BA's). uuidv7 generateId keeps
 // auth row IDs aligned with the project-wide ID convention.
 //
-// On sign-up the user.create.after hook seeds an `accounts` row + a default
-// `companies` row + a `memberships` row in one transaction. Without the
-// account+membership every new user would land on the 0-membership
-// "sign-up-incomplete" screen (authed-shell middleware requires ≥1
-// membership). The default company keeps the invoice/customer flows usable
-// from minute one for the overwhelming single-company case; explicit
-// company management (rename, add side hustle) lands with that UI slice.
-// Accept-invite is the other path to a membership and runs outside this hook.
+// On sign-up the user.create.after hook gives the new user a membership in one
+// transaction. Two paths:
+//   - Invited signup (a pending, unexpired invite matches the email): JOIN the
+//     inviting account(s) and seed NO personal company — an invited user is an
+//     employee/contractor of the inviter, not a new business. They can create
+//     their own company later via the (future) multi-company UI if they want.
+//   - Fresh solo signup (no invite): seed an `accounts` row + a default
+//     `companies` row + a `memberships` row + the sole-prop chart of accounts,
+//     so the invoice/customer flows work from minute one. (Without ≥1 membership
+//     the user lands on the 0-membership "sign-up-incomplete" screen.)
+// Existing users (who already have an account) accept invites via the
+// accept-invite endpoint, outside this hook.
 export function createAuth(db: Database, options: CreateAuthOptions) {
   return betterAuth({
     secret: options.secret,
@@ -60,26 +66,47 @@ export function createAuth(db: Database, options: CreateAuthOptions) {
       user: {
         create: {
           after: async (user) => {
-            const accountName = user.name?.trim() || user.email.split('@')[0] || 'My account';
             await db.transaction(async (tx) => {
+              // Invited signup: join the inviting account(s), no personal
+              // company. Match pending, unexpired invites by email (the invite's
+              // trust anchor; the sign-up form locks the email to the invited
+              // address). Multiple invites → join each. Mark them accepted so
+              // they don't linger as pending on the inviter's team page.
+              const pending = await tx
+                .select({ id: invitations.id, accountId: invitations.accountId })
+                .from(invitations)
+                .where(
+                  and(
+                    sql`lower(${invitations.email}) = lower(${user.email})`,
+                    isNull(invitations.acceptedAt),
+                    gt(invitations.expiresAt, new Date()),
+                  ),
+                );
+
+              if (pending.length > 0) {
+                const now = new Date();
+                for (const inv of pending) {
+                  await tx
+                    .insert(memberships)
+                    .values({ id: uuidv7(), userId: user.id, accountId: inv.accountId })
+                    .onConflictDoNothing({ target: [memberships.userId, memberships.accountId] });
+                  await tx
+                    .update(invitations)
+                    .set({ acceptedAt: now, acceptedByUserId: user.id, updatedAt: now })
+                    .where(eq(invitations.id, inv.id));
+                }
+                return;
+              }
+
+              // Fresh solo signup — seed a personal account + default company +
+              // membership + sole-prop COA (the ledger needs somewhere to post
+              // from the first mark-sent; business type stays null → sole-prop).
+              const accountName = user.name?.trim() || user.email.split('@')[0] || 'My account';
               const accountId = uuidv7();
               const companyId = uuidv7();
               await tx.insert(accounts).values({ id: accountId, name: accountName });
-              await tx.insert(companies).values({
-                id: companyId,
-                accountId,
-                name: accountName,
-              });
-              await tx.insert(memberships).values({
-                id: uuidv7(),
-                userId: user.id,
-                accountId,
-              });
-              // Seed the sole-prop chart of accounts into the default
-              // company so the ledger (per [[project_ledger_decision]])
-              // has somewhere to post from the first mark-sent. Business
-              // type stays null until the L3 wizard surfaces the picker;
-              // the seeder maps null → sole-prop today.
+              await tx.insert(companies).values({ id: companyId, accountId, name: accountName });
+              await tx.insert(memberships).values({ id: uuidv7(), userId: user.id, accountId });
               await seedChartOfAccounts(tx, { accountId, companyId });
             });
           },

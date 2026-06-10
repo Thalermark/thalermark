@@ -58,6 +58,11 @@ const PUBLIC_PATH_PATTERNS: RegExp[] = [
   /^\/api\/public\//,
   /^\/api\/webhooks\//,
   /^\/api\/files\//,
+  // GET /api/invitations/:token — the invite preview. No session: the invitee
+  // may not have signed up yet (the sign-up form reads it to prefill the
+  // email). Token in the URL is the credential. Does NOT match the
+  // `/accept` sub-path (that stays a bootstrap path, session-gated).
+  /^\/api\/invitations\/[^/]+$/,
 ];
 
 function isBootstrapPath(path: string): boolean {
