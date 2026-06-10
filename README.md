@@ -54,11 +54,14 @@ Open [https://localhost](https://localhost). Caddy serves with its internal CA o
 
 For a real domain, set `THALERMARK_DOMAIN=your.host.com` in `.env` before bringing the stack up. Caddy auto-issues a Let's Encrypt cert (requires ports 80 and 443 reachable from the public internet).
 
+See **[DEPLOYMENT.md](./DEPLOYMENT.md)** for the full guide — the production secrets checklist, storage and database options (local FS vs S3/R2, bundled vs managed Postgres), running behind an existing proxy, backups, and sizing.
+
 ## Documentation
 
 - [PROJECT.md](./PROJECT.md) — what we're building and for whom
 - [TECH-STACK.md](./TECH-STACK.md) — every locked technical decision and why
 - [TELEMETRY.md](./TELEMETRY.md) — what we collect, when, and how to opt out
+- [DEPLOYMENT.md](./DEPLOYMENT.md) — self-hosting: configuration, storage/database options, TLS, backups, sizing
 - [SCAFFOLDING.md](./SCAFFOLDING.md) — phase plan from empty repo to first MVP feature
 - [CONTRIBUTING.md](./CONTRIBUTING.md) — how to contribute, including the CLA
 
