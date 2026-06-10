@@ -2,7 +2,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { api } from '../../../lib/api';
+import { api } from '../../../../lib/api';
 
 // Mirror of apps/web's /reports/top-products. A sales lens, not a tax figure:
 // pre-tax revenue grouped by source_item_id, with a single "Uncatalogued /
@@ -90,8 +90,8 @@ export default function TopProducts() {
   return (
     <SafeAreaView className="flex-1 bg-cream" edges={['top']}>
       <ScrollView contentContainerClassName="px-6 pt-6 pb-16">
-        <Pressable onPress={() => router.push('/more')}>
-          <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">← More</Text>
+        <Pressable onPress={() => router.push('/more/reports')}>
+          <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">← Reports</Text>
         </Pressable>
 
         <View className="mt-3 flex-row items-end justify-between gap-4">
