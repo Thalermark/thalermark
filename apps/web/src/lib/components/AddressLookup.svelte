@@ -1,12 +1,13 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
 
-  // Combobox over the /locations/autocomplete proxy. Picks a suggestion and
-  // writes the five structured fields back into the parent's $bindable state.
-  // Progressive enhancement: this is a *helper* above the existing address
-  // fields, which stay editable and ship to the server via their name=
-  // attributes. With JS off, only this lookup goes dark — the form below
-  // still works as plain inputs.
+  // The Street field, doubling as an address type-ahead over the
+  // /locations/autocomplete proxy. Same pattern as ItemPicker: the real field
+  // IS the search box, so there's no confusing second input. Typing queries the
+  // provider; picking a suggestion writes the cleaned street back into this
+  // field and fills the sibling city / region / postalCode / country the parent
+  // owns. Progressive enhancement: this renders a real name="addressLine1"
+  // input, so with JS off it's just a plain Street field that still submits.
   type Suggestion = {
     label: string;
     addressLine1: string;
@@ -32,7 +33,6 @@
     country = $bindable(),
   }: Props = $props();
 
-  let query = $state('');
   let suggestions = $state<Suggestion[]>([]);
   let activeIndex = $state(-1);
   let open = $state(false);
@@ -42,9 +42,11 @@
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   let abort: AbortController | null = null;
 
-  // Debounce keeps us under the 5-suggest/sec mark even with fast typing,
-  // which matters for Nominatim (1 req/sec fair-use) and saves Mapbox quota.
-  // 200ms is the sweet spot — felt-instant but actually batches keystrokes.
+  // Debounce keeps us under provider rate limits and feels instant (200ms is
+  // the sweet spot). Search fires only on real keystrokes (oninput) — NOT on a
+  // programmatic pick or an edit-form prefill — so picking a suggestion doesn't
+  // immediately reopen the dropdown, and loading an existing customer's address
+  // doesn't auto-search on mount.
   const DEBOUNCE_MS = 200;
   const MIN_QUERY = 3;
 
@@ -67,12 +69,10 @@
     loading = true;
     try {
       const params = new URLSearchParams({ q });
-      // Bias to country if the user already typed one; cheap quality win.
+      // Bias to country if the parent already has one; cheap quality win.
       const c = country?.trim().toUpperCase();
       if (c && c.length === 2) params.set('country', c);
-      const res = await fetch(`/locations/autocomplete?${params}`, {
-        signal: abort.signal,
-      });
+      const res = await fetch(`/locations/autocomplete?${params}`, { signal: abort.signal });
       if (!res.ok) {
         suggestions = [];
         open = false;
@@ -93,12 +93,14 @@
   }
 
   function pick(s: Suggestion) {
+    // Picking rewrites the Street field to the cleaned street line and fans the
+    // rest out to the sibling fields (no search re-triggers: this is a
+    // programmatic assignment, not an oninput).
     addressLine1 = s.addressLine1;
     city = s.city;
     region = s.region;
     postalCode = s.postalCode;
     country = s.country;
-    query = '';
     suggestions = [];
     open = false;
     activeIndex = -1;
@@ -106,7 +108,7 @@
 
   function onKeydown(event: KeyboardEvent) {
     if (!open || suggestions.length === 0) {
-      // ArrowDown on a non-open list re-opens if we have stale suggestions.
+      // ArrowDown on a closed list re-opens if we have stale suggestions.
       if (event.key === 'ArrowDown' && suggestions.length > 0) {
         open = true;
         event.preventDefault();
@@ -120,6 +122,7 @@
       activeIndex = (activeIndex - 1 + suggestions.length) % suggestions.length;
       event.preventDefault();
     } else if (event.key === 'Enter') {
+      // Enter picks the active suggestion instead of submitting the form.
       const s = suggestions[activeIndex];
       if (s) {
         pick(s);
@@ -138,10 +141,6 @@
     }, 120);
   }
 
-  $effect(() => {
-    scheduleSearch(query);
-  });
-
   onDestroy(() => {
     if (debounceTimer) clearTimeout(debounceTimer);
     abort?.abort();
@@ -149,15 +148,18 @@
 </script>
 
 <div class="relative">
-  <label for="address-lookup" class="font-mono text-xs uppercase tracking-widest text-ink/50">
-    Find address
+  <label for="addressLine1" class="font-mono text-xs uppercase tracking-widest text-ink/50">
+    Street
   </label>
   <input
-    id="address-lookup"
+    id="addressLine1"
+    name="addressLine1"
     type="text"
+    maxlength="200"
     autocomplete="off"
     placeholder="House number + street, and city or ZIP"
-    bind:value={query}
+    bind:value={addressLine1}
+    oninput={(e) => scheduleSearch(e.currentTarget.value)}
     onkeydown={onKeydown}
     onblur={onBlur}
     onfocus={() => {
@@ -199,10 +201,10 @@
   {/if}
   {#if degraded}
     <p class="mt-1 text-xs text-oxblood/70">
-      Address lookup is temporarily unavailable; fill in the fields below by hand.
+      Address lookup is temporarily unavailable; type the address by hand.
     </p>
   {/if}
   <p class="mt-1 text-xs text-ink/40">
-    Include the city or ZIP, then pick a suggestion to autofill — you can still edit below.
+    Type the address (include the city or ZIP) and pick a suggestion — the fields below fill in.
   </p>
 </div>

@@ -116,14 +116,6 @@
       bind:country
     />
     <input
-      name="addressLine1"
-      type="text"
-      maxlength="200"
-      placeholder="Street"
-      bind:value={addressLine1}
-      class="w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
-    />
-    <input
       name="addressLine2"
       type="text"
       maxlength="200"
