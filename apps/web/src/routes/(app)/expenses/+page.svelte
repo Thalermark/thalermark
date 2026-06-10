@@ -95,6 +95,7 @@
     Category
     <select
       name="category"
+      onchange={(e) => e.currentTarget.form?.requestSubmit()}
       class="rounded-sm border border-ink/15 bg-cream px-2 py-1.5 text-sm normal-case tracking-normal text-ink"
     >
       <option value="" selected={filters.category === ''}>All</option>
