@@ -29,6 +29,6 @@ export interface AutocompleteQuery {
 }
 
 export interface AddressAutocompleteProvider {
-  readonly name: 'mapbox' | 'nominatim';
+  readonly name: 'mapbox' | 'census' | 'nominatim';
   autocomplete(query: AutocompleteQuery): Promise<AddressSuggestion[]>;
 }

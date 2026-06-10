@@ -72,6 +72,13 @@ services:
       # cannot reach `api` via the public hostname from inside the network.
       PUBLIC_API_URL: ""
       INTERNAL_API_URL: "http://api:3000"
+      # Address autocomplete runs in the web app (serves /locations/autocomplete),
+      # so the provider config must reach THIS service, not the api. Unset =>
+      # the free, keyless US Census geocoder. Set MAPBOX_ACCESS_TOKEN to upgrade,
+      # or LOCATION_PROVIDER=nominatim (+ NOMINATIM_BASE_URL) for OSS/international.
+      LOCATION_PROVIDER: ${LOCATION_PROVIDER:-}
+      MAPBOX_ACCESS_TOKEN: ${MAPBOX_ACCESS_TOKEN:-}
+      NOMINATIM_BASE_URL: ${NOMINATIM_BASE_URL:-}
     depends_on:
       - api
 

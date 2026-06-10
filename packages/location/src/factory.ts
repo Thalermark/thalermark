@@ -1,3 +1,4 @@
+import { createCensusProvider } from './census.js';
 import { createMapboxProvider } from './mapbox.js';
 import { createNominatimProvider } from './nominatim.js';
 import type { AddressAutocompleteProvider } from './types.js';
@@ -10,15 +11,16 @@ export interface LocationEnv {
 }
 
 // Picks the provider per env. Explicit LOCATION_PROVIDER wins; otherwise we
-// pick mapbox when the token is set and nominatim otherwise — gives a
-// no-config dev experience (just works on the public OSM endpoint) and a
-// no-code-change production toggle (set MAPBOX_ACCESS_TOKEN to switch). An
-// unknown provider name throws at boot rather than silently falling back, so
-// a typo in compose env doesn't ship Nominatim to a customer expecting
-// Mapbox-quality results.
+// pick mapbox when a token is set and the US Census geocoder otherwise. Census
+// is the no-config default because it's free + keyless and its TIGER data
+// covers US residential addresses that OpenStreetMap (Nominatim) is missing —
+// the right default for a US-first product. Set MAPBOX_ACCESS_TOKEN to upgrade
+// to Mapbox (better typeahead + international); set LOCATION_PROVIDER=nominatim
+// to force the OSS/international fallback. An unknown name throws at boot
+// rather than silently degrading, so a typo in compose env is loud.
 export function createAddressAutocompleteProvider(env: LocationEnv): AddressAutocompleteProvider {
   const explicit = env.LOCATION_PROVIDER?.trim().toLowerCase();
-  const provider = explicit || (env.MAPBOX_ACCESS_TOKEN ? 'mapbox' : 'nominatim');
+  const provider = explicit || (env.MAPBOX_ACCESS_TOKEN ? 'mapbox' : 'census');
 
   if (provider === 'mapbox') {
     const token = env.MAPBOX_ACCESS_TOKEN?.trim();
@@ -26,6 +28,10 @@ export function createAddressAutocompleteProvider(env: LocationEnv): AddressAuto
       throw new Error('LOCATION_PROVIDER=mapbox requires MAPBOX_ACCESS_TOKEN');
     }
     return createMapboxProvider({ accessToken: token });
+  }
+
+  if (provider === 'census') {
+    return createCensusProvider();
   }
 
   if (provider === 'nominatim') {

@@ -7,9 +7,17 @@ describe('createAddressAutocompleteProvider', () => {
     expect(p.name).toBe('mapbox');
   });
 
-  it('picks nominatim by default when no token', () => {
+  it('picks census by default when no token', () => {
     const p = createAddressAutocompleteProvider({});
-    expect(p.name).toBe('nominatim');
+    expect(p.name).toBe('census');
+  });
+
+  it('honours explicit LOCATION_PROVIDER=census even when a token is set', () => {
+    const p = createAddressAutocompleteProvider({
+      LOCATION_PROVIDER: 'census',
+      MAPBOX_ACCESS_TOKEN: 'pk.fake',
+    });
+    expect(p.name).toBe('census');
   });
 
   it('honours explicit LOCATION_PROVIDER=nominatim even when a token is set', () => {

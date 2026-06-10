@@ -156,7 +156,7 @@
     id="address-lookup"
     type="text"
     autocomplete="off"
-    placeholder="Start typing a street, city, or zip..."
+    placeholder="House number + street, and city or ZIP"
     bind:value={query}
     onkeydown={onKeydown}
     onblur={onBlur}
@@ -202,5 +202,7 @@
       Address lookup is temporarily unavailable; fill in the fields below by hand.
     </p>
   {/if}
-  <p class="mt-1 text-xs text-ink/40">Pick a suggestion to autofill — you can still edit below.</p>
+  <p class="mt-1 text-xs text-ink/40">
+    Include the city or ZIP, then pick a suggestion to autofill — you can still edit below.
+  </p>
 </div>
