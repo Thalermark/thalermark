@@ -62,7 +62,7 @@ This is the official product name. Use it everywhere.
 - **Background jobs:** pg-boss (Postgres-backed, no new service)
 - **Email:** Resend (SaaS), SMTP via nodemailer (self-host)
 - **Object storage:** S3-compatible interface (R2 SaaS, MinIO dev, local FS adapter for self-host)
-- **PDF generation:** Playwright (HTML → PDF; same chromium runs E2E tests)
+- **PDF handling:** No invoice PDFs — invoices ship as a public web view + email + Stripe pay link. Uploaded **receipt** PDFs render page-1 → PNG via `pdf-to-png-converter` (pure JS: pdfjs-dist + a native canvas, no browser/system binary) so the vision LLM can read them. *(Playwright/Chromium was in the original plan for HTML→PDF + shared E2E but was never adopted — the runtime image carries no browser.)*
 - **Receipt OCR:** capture (core, all tiers — image always saved) + extraction (Pro+/BYOK, vision LLM auto-fills merchant/total/date/category). Same `LLM_API_KEY` powers OCR and insights; no separate vendor for MVP.
 - **License:** AGPL v3 + Commercial Dual. CLA via CLA Assistant on GitHub. Commercial license available for white-label / proprietary embedders who can't AGPL.
 
