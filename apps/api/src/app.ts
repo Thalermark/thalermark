@@ -871,6 +871,34 @@ export function createApp(deps: AppDeps) {
 
         return c.json({ accountId: invite.accountId });
       })
+      .get('/api/invitations/:token', async (c) => {
+        // Public invite preview (token-gated, no session — the invitee may not
+        // have signed up yet). Powers the sign-up email prefill + the
+        // existing-user accept prompt ("X invites you to Org"). Via bootstrapDb:
+        // the viewer isn't a member, so RLS would hide the row.
+        const token = c.req.param('token');
+        const [row] = await bootstrapDb
+          .select({
+            email: invitations.email,
+            accountName: accounts.name,
+            inviterName: authUser.name,
+            expiresAt: invitations.expiresAt,
+            acceptedAt: invitations.acceptedAt,
+          })
+          .from(invitations)
+          .innerJoin(accounts, eq(accounts.id, invitations.accountId))
+          .innerJoin(authUser, eq(authUser.id, invitations.invitedByUserId))
+          .where(eq(invitations.token, token))
+          .limit(1);
+        if (!row) return c.json({ error: 'invite_not_found' }, 404);
+        return c.json({
+          email: row.email,
+          accountName: row.accountName,
+          inviterName: row.inviterName,
+          expired: row.expiresAt.getTime() < Date.now(),
+          accepted: row.acceptedAt !== null,
+        });
+      })
       .get('/api/team', async (c) => {
         // Team management surface (settings/team): current members + the
         // still-open invitations for the active account. MVP gives every
