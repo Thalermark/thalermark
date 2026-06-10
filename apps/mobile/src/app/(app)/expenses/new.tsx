@@ -1,6 +1,6 @@
 import { expenseCreateSchema } from '@thalermark/validation';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -14,12 +14,15 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { DateField } from '../../../components/DateField';
+import { SuggestButton, SuggestNotice } from '../../../components/SuggestCategory';
 import { api } from '../../../lib/api';
+import { type SuggestResult, suggestCategory } from '../../../lib/categorize';
 
 // Mirror of apps/web's /expenses/new. An expense posts against two chart-of-
 // accounts rows (category = an 'expense' account, payment = an 'asset'
-// account), so the form fetches the company's COA and offers two pickers. The
-// AI "suggest category" affordance is deferred to a later (AI) slice.
+// account), so the form fetches the company's COA and offers two pickers. A
+// "✨ Suggest" affordance asks the AI categorizer to pre-fill the category from
+// the typed merchant (opt-in; soft-fails when no LLM is configured).
 type Account = { id: string; code: string; name: string };
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
@@ -48,6 +51,18 @@ export default function NewExpense() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [suggesting, setSuggesting] = useState(false);
+  const [suggestNotice, setSuggestNotice] = useState<SuggestResult | null>(null);
+
+  async function onSuggest() {
+    if (!companyId) return;
+    setSuggesting(true);
+    setSuggestNotice(null);
+    const result = await suggestCategory({ companyId, merchant, memo, amount });
+    if (result.kind === 'applied') setCategoryId(result.categoryAccountId);
+    setSuggestNotice(result);
+    setSuggesting(false);
+  }
 
   const didBootstrap = useRef(false);
   useFocusEffect(
@@ -201,13 +216,17 @@ export default function NewExpense() {
               error={fieldErrors.expenseDate}
             />
 
-            <PickerField
-              label="Category *"
-              value={categoryName}
-              placeholder="Select a category…"
-              onPress={() => setPicker('category')}
-              error={fieldErrors.categoryAccountId}
-            />
+            <View>
+              <PickerField
+                label="Category *"
+                value={categoryName}
+                placeholder="Select a category…"
+                onPress={() => setPicker('category')}
+                error={fieldErrors.categoryAccountId}
+                headerRight={<SuggestButton suggesting={suggesting} onPress={onSuggest} />}
+              />
+              {suggestNotice ? <SuggestNotice result={suggestNotice} /> : null}
+            </View>
             <PickerField
               label="Paid with *"
               value={paymentName}
@@ -310,16 +329,21 @@ function PickerField({
   placeholder,
   onPress,
   error,
+  headerRight,
 }: {
   label: string;
   value: string | null;
   placeholder: string;
   onPress: () => void;
   error?: string;
+  headerRight?: ReactNode;
 }) {
   return (
     <View>
-      <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">{label}</Text>
+      <View className="flex-row items-center justify-between">
+        <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">{label}</Text>
+        {headerRight ?? null}
+      </View>
       <Pressable
         onPress={onPress}
         className="mt-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-3"

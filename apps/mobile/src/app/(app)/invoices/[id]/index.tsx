@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { type AuditEvent, AuditHistory } from '../../../../components/AuditHistory';
+import { DateField } from '../../../../components/DateField';
 import { api } from '../../../../lib/api';
 import { getServerUrl } from '../../../../lib/server-url';
 
@@ -406,15 +407,7 @@ export default function InvoiceDetail() {
                   </View>
                 ) : null}
                 <View className="mt-3">
-                  <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
-                    Payment date
-                  </Text>
-                  <TextInput
-                    value={paidOn}
-                    onChangeText={setPaidOn}
-                    autoCapitalize="none"
-                    className="mt-1 rounded-sm border border-ink/15 bg-cream px-3 py-2 text-ink"
-                  />
+                  <DateField label="Payment date" value={paidOn} onChange={setPaidOn} />
                 </View>
                 <Pressable
                   onPress={onMarkPaid}
