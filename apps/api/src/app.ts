@@ -72,6 +72,7 @@ import { cors } from 'hono/cors';
 import { validator } from 'hono/validator';
 import { v7 as uuidv7 } from 'uuid';
 import type { ApiAuth } from './lib/auth.js';
+import { buildCustomerStatement } from './lib/customer-statement.js';
 import { escapeHtml } from './lib/html.js';
 import { sendInvoiceEmail } from './lib/invoice-email.js';
 import { suggestNextEstimateNumber, suggestNextInvoiceNumber } from './lib/invoice-number.js';
@@ -88,6 +89,7 @@ import type { Mailer } from './lib/mailer.js';
 import { applyCursor, keysetOrderBy, parseLimit, slicePage } from './lib/pagination.js';
 import { generateOnce } from './lib/recurring.js';
 import { formatSender } from './lib/sender.js';
+import { sendStatementEmail } from './lib/statement-email.js';
 import { type StripeBundle, decimalDollarsToCents } from './lib/stripe.js';
 import { type RlsVariables, rlsContext } from './middleware/rls-context.js';
 
@@ -2514,6 +2516,78 @@ export function createApp(deps: AppDeps) {
           overdueTotal: stats?.overdueTotal ?? '0.00',
         });
       })
+      // Customer statement — a send-to-customer account document (not a /reports
+      // analytics page): the customer's issued invoices as a chronological
+      // charge/payment ledger with a running balance, ending in the balance due.
+      // Each issued invoice (status sent or paid; drafts unbilled, voided
+      // excluded) is a charge on its issue date; a paid one adds a payment on
+      // its paid date. The closing balance equals the customer's outstanding AR.
+      .get('/api/customers/:id/statement', async (c) => {
+        const id = c.req.param('id');
+        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+        const statement = await buildCustomerStatement(c.get('tx'), c.get('accountId'), id);
+        if (!statement) return c.json({ error: 'customer_not_found' }, 404);
+        return c.json(statement);
+      })
+      // Email the statement to the customer (or a `to` override). Reuses the
+      // invoice-send contract: mailer-not-configured => 500, bad recipient =>
+      // 400, mailer throw => 502. Best-effort audit on success. The statement
+      // has no public link, so the email carries the ledger itself.
+      .post(
+        '/api/customers/:id/statement/send',
+        validator('json', (value, c) => {
+          const v = (value ?? {}) as { to?: unknown };
+          if (v.to !== undefined && typeof v.to !== 'string') {
+            return c.json({ error: 'invalid_body' }, 400);
+          }
+          return { to: typeof v.to === 'string' ? v.to : undefined };
+        }),
+        async (c) => {
+          const id = c.req.param('id');
+          if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+          if (!deps.mailer) return c.json({ error: 'email_not_configured' }, 500);
+
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+          const statement = await buildCustomerStatement(tx, accountId, id);
+          if (!statement) return c.json({ error: 'customer_not_found' }, 404);
+
+          const toOverride = c.req.valid('json').to?.trim() || null;
+          const to = (toOverride ?? statement.customer.email ?? '').trim();
+          if (!to || !EMAIL_RE.test(to)) return c.json({ error: 'invalid_recipient' }, 400);
+
+          // companyId (for the audit) + replyToEmail in one join through the
+          // customer (the statement object intentionally doesn't expose them).
+          const [meta] = await tx
+            .select({ companyId: customers.companyId, replyToEmail: companies.replyToEmail })
+            .from(customers)
+            .innerJoin(companies, eq(companies.id, customers.companyId))
+            .where(and(eq(customers.id, id), eq(customers.accountId, accountId)))
+            .limit(1);
+
+          let subject: string;
+          try {
+            ({ subject } = await sendStatementEmail(deps.mailer, to, {
+              statement,
+              emailFrom: deps.emailFrom,
+              replyToEmail: meta?.replyToEmail ?? null,
+            }));
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return c.json({ error: 'email_failed', detail: message }, 502);
+          }
+
+          await c.var.audit({
+            entityType: 'customer',
+            entityId: id,
+            action: 'statement-emailed',
+            after: { to, subject, balanceDue: statement.balanceDue },
+            companyId: meta?.companyId ?? statement.customer.id,
+          });
+
+          return c.json({ sentTo: to });
+        },
+      )
       // hono/validator middleware: lifts the json body into the typed Input
       // so hc<AppType>() infers `{ param, json }` on .$patch. Without it the
       // client would only see `{ param }` (path-param-only) and reject the
