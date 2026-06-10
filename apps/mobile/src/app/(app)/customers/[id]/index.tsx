@@ -6,7 +6,9 @@ import { type AuditEvent, AuditHistory } from '../../../../components/AuditHisto
 import { api } from '../../../../lib/api';
 
 // Mirror of the basic-fields half of apps/web's /customers/[id], plus the
-// per-entity audit trail (M11e). Payment-reliability is a later mobile slice.
+// per-entity audit trail (M11e) and the late-payer "payment reliability"
+// sidebar (the same deterministic API figures + headline/tone the web page
+// derives — no LLM).
 type Customer = {
   name: string;
   email: string | null;
@@ -19,16 +21,63 @@ type Customer = {
   country: string | null;
   notes: string | null;
 };
+type Reliability = {
+  paidCount: number;
+  lateCount: number;
+  onTimeCount: number;
+  latePct: number | null;
+  avgDaysLate: number | null;
+  overdueCount: number;
+  overdueTotal: string;
+};
 type DetailState =
   | { state: 'loading' }
   | { state: 'ready'; customer: Customer }
   | { state: 'error' };
+
+const fmt = (s: string) =>
+  Number(s).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+
+// Headline + tone from the reliability figures, ported verbatim from web's
+// /customers/[id]. Needs >= 2 paid invoices to state a pattern; below that we
+// only surface a live overdue warning, if any.
+function deriveReliability(
+  r: Reliability | null,
+): { headline: string; tone: 'warning' | 'good' | 'info' } | null {
+  if (!r) return null;
+  const overdue =
+    r.overdueCount > 0
+      ? `${r.overdueCount} invoice${r.overdueCount === 1 ? '' : 's'} overdue now (${fmt(r.overdueTotal)})`
+      : null;
+  if (r.paidCount < 2) {
+    return overdue ? { headline: overdue, tone: 'warning' } : null;
+  }
+  if (r.lateCount === 0) {
+    return { headline: `Always pays on time (${r.paidCount} invoices)`, tone: 'good' };
+  }
+  const days =
+    r.avgDaysLate && r.avgDaysLate > 0
+      ? ` — about ${r.avgDaysLate} ${r.avgDaysLate === 1 ? 'day' : 'days'} past due`
+      : '';
+  return {
+    headline: `Pays late ${r.lateCount} of ${r.paidCount} times${days}`,
+    tone: (r.latePct ?? 0) >= 50 ? 'warning' : 'info',
+  };
+}
+
+const toneClass = (tone: 'warning' | 'good' | 'info') =>
+  tone === 'warning'
+    ? 'border-oxblood/30 bg-oxblood/5'
+    : tone === 'good'
+      ? 'border-gold-deep/30 bg-gold-deep/5'
+      : 'border-ink/15 bg-cream-warm';
 
 export default function CustomerDetail() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [detail, setDetail] = useState<DetailState>({ state: 'loading' });
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
+  const [reliability, setReliability] = useState<Reliability | null>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -69,6 +118,13 @@ export default function CustomerDetail() {
           if (active && res.ok) setAuditEvents((await res.json()).events);
         })
         .catch(() => {});
+      // Payment reliability — best-effort, same degrade-to-null contract.
+      api.api.customers[':id']['payment-reliability']
+        .$get({ param: { id } })
+        .then(async (res) => {
+          if (active && res.ok) setReliability(await res.json());
+        })
+        .catch(() => {});
       return () => {
         active = false;
       };
@@ -76,6 +132,7 @@ export default function CustomerDetail() {
   );
 
   const c = detail.state === 'ready' ? detail.customer : null;
+  const reliabilityView = deriveReliability(reliability);
   const addressLines = c
     ? [
         c.addressLine1,
@@ -131,6 +188,26 @@ export default function CustomerDetail() {
               ) : null}
               {c.notes ? <DetailRow label="Notes" value={c.notes} /> : null}
             </View>
+            {reliabilityView ? (
+              <View className="mt-8">
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                  Payment reliability
+                </Text>
+                <View
+                  className={`mt-3 rounded-sm border px-4 py-3 ${toneClass(reliabilityView.tone)}`}
+                >
+                  <Text className="text-sm text-ink/80">{reliabilityView.headline}</Text>
+                </View>
+                {reliability && reliability.paidCount >= 2 && reliability.overdueCount > 0 ? (
+                  <View className="mt-2 rounded-sm border border-oxblood/30 bg-oxblood/5 px-4 py-3">
+                    <Text className="text-sm text-ink/80">
+                      {reliability.overdueCount} invoice{reliability.overdueCount === 1 ? '' : 's'}{' '}
+                      overdue now ({fmt(reliability.overdueTotal)})
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
             <AuditHistory events={auditEvents} />
           </>
         )}
