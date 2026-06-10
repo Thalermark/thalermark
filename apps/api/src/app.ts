@@ -114,6 +114,42 @@ function isValidDateParam(s: string): boolean {
   return DATE_PARAM_RE.test(s) && !Number.isNaN(new Date(`${s}T00:00:00Z`).getTime());
 }
 
+// Parse a from/to reporting window shared by the report endpoints. Both are
+// optional; the default is year-to-date through today. Returns the half-open
+// [fromDate, toExclusive) (to + 1 day, so the last day is fully included — the
+// same convention as the ledger export / dashboard) plus the inclusive display
+// strings; or an `error` code the caller turns into a 400. `from`/`to` are also
+// suitable for direct comparison against bare `date` columns (issue_date), which
+// compare inclusively on both ends.
+type ReportWindow = { fromDate: Date; toExclusive: Date; from: string; to: string };
+function parseReportWindow(
+  fromRaw: string | undefined,
+  toRaw: string | undefined,
+): ReportWindow | { error: 'invalid_from' | 'invalid_to' | 'invalid_range' } {
+  const now = new Date();
+  let fromDate: Date;
+  if (fromRaw !== undefined) {
+    fromDate = new Date(`${fromRaw}T00:00:00Z`);
+    if (Number.isNaN(fromDate.getTime())) return { error: 'invalid_from' };
+  } else {
+    fromDate = new Date(Date.UTC(now.getUTCFullYear(), 0, 1));
+  }
+  let toExclusive: Date;
+  if (toRaw !== undefined) {
+    const t = new Date(`${toRaw}T00:00:00Z`);
+    if (Number.isNaN(t.getTime())) return { error: 'invalid_to' };
+    toExclusive = new Date(t);
+  } else {
+    toExclusive = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  }
+  toExclusive.setUTCDate(toExclusive.getUTCDate() + 1);
+  if (fromDate >= toExclusive) return { error: 'invalid_range' };
+  const ymd = (d: Date) => d.toISOString().slice(0, 10);
+  const toInclusive = new Date(toExclusive);
+  toInclusive.setUTCDate(toInclusive.getUTCDate() - 1);
+  return { fromDate, toExclusive, from: ymd(fromDate), to: ymd(toInclusive) };
+}
+
 // Expense journal entries are dated to the expense's calendar date, not the
 // data-entry time — an expense dated Dec 31 entered Jan 2 must land in the
 // prior tax period so the Schedule C trial balance is right at year ends.
@@ -1559,28 +1595,9 @@ export function createApp(deps: AppDeps) {
           if (!company) return c.json({ error: 'company_not_found' }, 404);
 
           const { from: fromRaw, to: toRaw } = c.req.valid('query');
-          const now = new Date();
-          let fromDate: Date;
-          if (fromRaw !== undefined) {
-            fromDate = new Date(`${fromRaw}T00:00:00Z`);
-            if (Number.isNaN(fromDate.getTime())) return c.json({ error: 'invalid_from' }, 400);
-          } else {
-            // Default: start of the current calendar year (YTD).
-            fromDate = new Date(Date.UTC(now.getUTCFullYear(), 0, 1));
-          }
-          let toExclusive: Date;
-          if (toRaw !== undefined) {
-            const t = new Date(`${toRaw}T00:00:00Z`);
-            if (Number.isNaN(t.getTime())) return c.json({ error: 'invalid_to' }, 400);
-            toExclusive = new Date(t);
-          } else {
-            // Default upper bound: today.
-            toExclusive = new Date(
-              Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
-            );
-          }
-          toExclusive.setUTCDate(toExclusive.getUTCDate() + 1);
-          if (fromDate >= toExclusive) return c.json({ error: 'invalid_range' }, 400);
+          const win = parseReportWindow(fromRaw, toRaw);
+          if ('error' in win) return c.json({ error: win.error }, 400);
+          const { fromDate, toExclusive, from, to } = win;
 
           // Per-account net in the account's normal-balance direction: when a
           // line's side matches the account's normal_balance it adds, else it
@@ -1639,17 +1656,193 @@ export function createApp(deps: AppDeps) {
             }
           }
 
-          const ymd = (d: Date) => d.toISOString().slice(0, 10);
-          const toInclusive = new Date(toExclusive);
-          toInclusive.setUTCDate(toInclusive.getUTCDate() - 1);
           return c.json({
-            from: ymd(fromDate),
-            to: ymd(toInclusive),
+            from,
+            to,
             revenue,
             expenses,
             totalRevenue: totalRevenue.toFixed(2),
             totalExpenses: totalExpenses.toFixed(2),
             netProfit: (totalRevenue - totalExpenses).toFixed(2),
+          });
+        },
+      )
+      // Sales by customer (insight set). Pre-tax sales (subtotal) per customer
+      // for invoices issued in the window, sent or paid (drafts + voided
+      // excluded). Top 25 by sales; the grand total sums ALL customers (computed
+      // from the full result, sliced in app code) so "Top 25 of $X" is honest.
+      .get(
+        '/api/companies/:id/sales-by-customer',
+        validator('query', (v) => ({
+          from: typeof v.from === 'string' ? v.from : undefined,
+          to: typeof v.to === 'string' ? v.to : undefined,
+        })),
+        async (c) => {
+          const id = c.req.param('id');
+          if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+          const [company] = await tx
+            .select({ id: companies.id })
+            .from(companies)
+            .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
+            .limit(1);
+          if (!company) return c.json({ error: 'company_not_found' }, 404);
+
+          const { from: fromRaw, to: toRaw } = c.req.valid('query');
+          const win = parseReportWindow(fromRaw, toRaw);
+          if ('error' in win) return c.json({ error: win.error }, 400);
+
+          const rows = await tx
+            .select({
+              customerId: invoices.customerId,
+              name: customers.name,
+              sales: sql<string>`sum(${invoices.subtotal})::numeric(15,2)`,
+              invoiceCount: sql<number>`count(*)::int`,
+            })
+            .from(invoices)
+            .leftJoin(customers, eq(customers.id, invoices.customerId))
+            .where(
+              and(
+                eq(invoices.accountId, accountId),
+                eq(invoices.companyId, id),
+                inArray(invoices.status, ['sent', 'paid']),
+                gte(invoices.issueDate, win.from),
+                lte(invoices.issueDate, win.to),
+              ),
+            )
+            .groupBy(invoices.customerId, customers.name)
+            .orderBy(sql`sum(${invoices.subtotal}) desc`);
+
+          const totalSales = rows.reduce((s, r) => s + Number(r.sales), 0).toFixed(2);
+          return c.json({
+            from: win.from,
+            to: win.to,
+            customers: rows.slice(0, 25).map((r) => ({
+              customerId: r.customerId,
+              name: r.name,
+              sales: r.sales ?? '0.00',
+              invoiceCount: r.invoiceCount,
+            })),
+            totalSales,
+          });
+        },
+      )
+      // Revenue over time (insight set). Pre-tax sales per calendar month for
+      // invoices issued in the window, sent or paid. Months with no sales are
+      // simply absent (the web page fills the gaps for a continuous trend).
+      .get(
+        '/api/companies/:id/revenue-over-time',
+        validator('query', (v) => ({
+          from: typeof v.from === 'string' ? v.from : undefined,
+          to: typeof v.to === 'string' ? v.to : undefined,
+        })),
+        async (c) => {
+          const id = c.req.param('id');
+          if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+          const [company] = await tx
+            .select({ id: companies.id })
+            .from(companies)
+            .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
+            .limit(1);
+          if (!company) return c.json({ error: 'company_not_found' }, 404);
+
+          const { from: fromRaw, to: toRaw } = c.req.valid('query');
+          const win = parseReportWindow(fromRaw, toRaw);
+          if ('error' in win) return c.json({ error: win.error }, 400);
+
+          const monthExpr = sql<string>`to_char(date_trunc('month', ${invoices.issueDate}::date), 'YYYY-MM')`;
+          const rows = await tx
+            .select({
+              month: monthExpr,
+              revenue: sql<string>`sum(${invoices.subtotal})::numeric(15,2)`,
+            })
+            .from(invoices)
+            .where(
+              and(
+                eq(invoices.accountId, accountId),
+                eq(invoices.companyId, id),
+                inArray(invoices.status, ['sent', 'paid']),
+                gte(invoices.issueDate, win.from),
+                lte(invoices.issueDate, win.to),
+              ),
+            )
+            .groupBy(monthExpr)
+            .orderBy(monthExpr);
+
+          const total = rows.reduce((s, r) => s + Number(r.revenue), 0).toFixed(2);
+          return c.json({
+            from: win.from,
+            to: win.to,
+            months: rows.map((r) => ({ month: r.month, revenue: r.revenue ?? '0.00' })),
+            total,
+          });
+        },
+      )
+      // Estimate win rate (insight set). Estimate counts + pre-tax value grouped
+      // by status for estimates issued in the window. Win rate = accepted /
+      // (accepted + declined + expired) by count — "decided" excludes still-open
+      // draft/sent. Null when nothing has been decided yet.
+      .get(
+        '/api/companies/:id/estimate-win-rate',
+        validator('query', (v) => ({
+          from: typeof v.from === 'string' ? v.from : undefined,
+          to: typeof v.to === 'string' ? v.to : undefined,
+        })),
+        async (c) => {
+          const id = c.req.param('id');
+          if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+          const [company] = await tx
+            .select({ id: companies.id })
+            .from(companies)
+            .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
+            .limit(1);
+          if (!company) return c.json({ error: 'company_not_found' }, 404);
+
+          const { from: fromRaw, to: toRaw } = c.req.valid('query');
+          const win = parseReportWindow(fromRaw, toRaw);
+          if ('error' in win) return c.json({ error: win.error }, 400);
+
+          const rows = await tx
+            .select({
+              status: estimates.status,
+              count: sql<number>`count(*)::int`,
+              value: sql<string>`sum(${estimates.subtotal})::numeric(15,2)`,
+            })
+            .from(estimates)
+            .where(
+              and(
+                eq(estimates.accountId, accountId),
+                eq(estimates.companyId, id),
+                gte(estimates.issueDate, win.from),
+                lte(estimates.issueDate, win.to),
+              ),
+            )
+            .groupBy(estimates.status);
+
+          // Normalize to a fixed status set (zeros for absent statuses) so the
+          // page renders consistently.
+          const STATUSES = ['draft', 'sent', 'accepted', 'declined', 'expired'] as const;
+          const byCode = new Map(rows.map((r) => [r.status, r]));
+          const byStatus = STATUSES.map((status) => {
+            const row = byCode.get(status);
+            return { status, count: row?.count ?? 0, value: row?.value ?? '0.00' };
+          });
+          const countFor = (s: string) => byStatus.find((b) => b.status === s)?.count ?? 0;
+          const accepted = countFor('accepted');
+          const decided = accepted + countFor('declined') + countFor('expired');
+          return c.json({
+            from: win.from,
+            to: win.to,
+            byStatus,
+            acceptedCount: accepted,
+            decidedCount: decided,
+            // 4-dp ratio (e.g. "0.6667"); null when nothing decided yet.
+            winRate: decided > 0 ? (accepted / decided).toFixed(4) : null,
           });
         },
       )

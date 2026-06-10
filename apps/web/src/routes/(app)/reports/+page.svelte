@@ -13,6 +13,21 @@
       blurb: 'Where the money went, grouped by your Schedule C buckets.',
     },
     {
+      href: '/reports/sales-by-customer',
+      title: 'Sales by customer',
+      blurb: 'Your best customers by revenue over a period.',
+    },
+    {
+      href: '/reports/revenue-over-time',
+      title: 'Revenue over time',
+      blurb: 'Monthly sales trend across the period.',
+    },
+    {
+      href: '/reports/estimate-win-rate',
+      title: 'Estimate win rate',
+      blurb: 'How many quotes turn into accepted work.',
+    },
+    {
       href: '/reports/top-products',
       title: 'Top products',
       blurb: 'Best-selling items and services by revenue.',
