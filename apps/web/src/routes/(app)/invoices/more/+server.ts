@@ -4,14 +4,20 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 
 // "Load more" proxy for the invoices list. customerName arrives joined from
-// the API, so the appended rows match the SSR shape with no client lookup.
+// the API, so the appended rows match the SSR shape with no client lookup. The
+// active filters ride along so "Load more" stays within the filtered set.
+const FILTER_KEYS = ['status', 'q', 'from', 'to', 'customerId'] as const;
+
 export const GET: RequestHandler = async (event) => {
-  const cursor = event.url.searchParams.get('cursor') ?? undefined;
-  const status = event.url.searchParams.get('status') ?? undefined;
+  const sp = event.url.searchParams;
   const client = serverApiClient(event);
   const query: Record<string, string> = { limit: String(PAGE_SIZE) };
+  const cursor = sp.get('cursor');
   if (cursor) query.cursor = cursor;
-  if (status) query.status = status;
+  for (const k of FILTER_KEYS) {
+    const v = sp.get(k);
+    if (v) query[k] = v;
+  }
   const res = await client.api.invoices.$get({ query });
   if (!res.ok) return json({ rows: [], nextCursor: null }, { status: res.status });
   const { invoices, nextCursor } = await res.json();

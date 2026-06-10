@@ -63,6 +63,7 @@ import {
   isNull,
   lt,
   lte,
+  or,
   sql,
 } from 'drizzle-orm';
 import { Hono } from 'hono';
@@ -102,6 +103,15 @@ const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 // default backslash escape character, so backslash itself is escaped too.
 function escapeLike(s: string): string {
   return s.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+}
+
+// Validate a YYYY-MM-DD list-filter param (from=/to= on the invoice + estimate
+// lists). The date columns are bare `date` strings, so a valid value can bind
+// straight into gte()/lte() and compares chronologically; this guard just
+// keeps a malformed value (from=banana) from reaching Postgres as a cast error.
+const DATE_PARAM_RE = /^\d{4}-\d{2}-\d{2}$/;
+function isValidDateParam(s: string): boolean {
+  return DATE_PARAM_RE.test(s) && !Number.isNaN(new Date(`${s}T00:00:00Z`).getTime());
 }
 
 // Expense journal entries are dated to the expense's calendar date, not the
@@ -1815,6 +1825,10 @@ export function createApp(deps: AppDeps) {
         const tx = c.get('tx');
         const accountId = c.get('accountId');
         const companyId = c.req.query('companyId');
+        // Filters: q searches name OR email; openInvoices narrows to customers
+        // who have at least one issued-but-unpaid invoice (status 'sent').
+        const q = c.req.query('q');
+        const openInvoices = c.req.query('openInvoices') === 'true';
         const limit = parseLimit(c.req.query('limit'));
         if (limit === null) return c.json({ error: 'invalid_limit' }, 400);
         const keys = [
@@ -1825,6 +1839,20 @@ export function createApp(deps: AppDeps) {
         if (keyset === 'invalid') return c.json({ error: 'invalid_cursor' }, 400);
         const conditions = [eq(customers.accountId, accountId)];
         if (companyId) conditions.push(eq(customers.companyId, companyId));
+        if (q) {
+          const term = `%${escapeLike(q)}%`;
+          // biome-ignore lint/style/noNonNullAssertion: or() with >=1 arg is non-null
+          conditions.push(or(ilike(customers.name, term), ilike(customers.email, term))!);
+        }
+        if (openInvoices) {
+          // drafts aren't owed yet; paid/voided are closed — 'sent' is the
+          // "owes you money" set. Subquery keeps the keyset scan on customers.
+          const owing = tx
+            .select({ id: invoices.customerId })
+            .from(invoices)
+            .where(and(eq(invoices.accountId, accountId), eq(invoices.status, 'sent')));
+          conditions.push(inArray(customers.id, owing));
+        }
         if (keyset) conditions.push(keyset);
         const rows = await tx
           .select()
@@ -2290,6 +2318,19 @@ export function createApp(deps: AppDeps) {
         const accountId = c.get('accountId');
         const companyId = c.req.query('companyId');
         const status = c.req.query('status');
+        // Filters (slice mirrors the web/mobile filter bars): q searches the
+        // invoice number OR the joined customer name; from/to bound issueDate
+        // (inclusive); customerId narrows to one customer. All compose with the
+        // keyset scan as plain extra WHERE conditions.
+        const q = c.req.query('q');
+        const from = c.req.query('from');
+        const to = c.req.query('to');
+        const customerId = c.req.query('customerId');
+        if (from !== undefined && !isValidDateParam(from))
+          return c.json({ error: 'invalid_from' }, 400);
+        if (to !== undefined && !isValidDateParam(to)) return c.json({ error: 'invalid_to' }, 400);
+        if (customerId !== undefined && !UUID_RE.test(customerId))
+          return c.json({ error: 'invalid_customer_id' }, 400);
         const limit = parseLimit(c.req.query('limit'));
         if (limit === null) return c.json({ error: 'invalid_limit' }, 400);
         const keys = [
@@ -2301,6 +2342,14 @@ export function createApp(deps: AppDeps) {
         const conditions = [eq(invoices.accountId, accountId)];
         if (companyId) conditions.push(eq(invoices.companyId, companyId));
         if (status) conditions.push(eq(invoices.status, status));
+        if (customerId) conditions.push(eq(invoices.customerId, customerId));
+        if (from) conditions.push(gte(invoices.issueDate, from));
+        if (to) conditions.push(lte(invoices.issueDate, to));
+        if (q) {
+          const term = `%${escapeLike(q)}%`;
+          // biome-ignore lint/style/noNonNullAssertion: or() with >=1 arg is non-null
+          conditions.push(or(ilike(invoices.number, term), ilike(customers.name, term))!);
+        }
         if (keyset) conditions.push(keyset);
         // LEFT JOIN the customer name so the list renders without the client
         // fetching every customer (which paginated lists can't do at volume).
@@ -3064,6 +3113,17 @@ export function createApp(deps: AppDeps) {
         const accountId = c.get('accountId');
         const companyId = c.req.query('companyId');
         const status = c.req.query('status');
+        // Filters mirror the invoice list: q (number OR customer name),
+        // from/to (issueDate, inclusive), customerId.
+        const q = c.req.query('q');
+        const from = c.req.query('from');
+        const to = c.req.query('to');
+        const customerId = c.req.query('customerId');
+        if (from !== undefined && !isValidDateParam(from))
+          return c.json({ error: 'invalid_from' }, 400);
+        if (to !== undefined && !isValidDateParam(to)) return c.json({ error: 'invalid_to' }, 400);
+        if (customerId !== undefined && !UUID_RE.test(customerId))
+          return c.json({ error: 'invalid_customer_id' }, 400);
         const limit = parseLimit(c.req.query('limit'));
         if (limit === null) return c.json({ error: 'invalid_limit' }, 400);
         const keys = [
@@ -3075,6 +3135,14 @@ export function createApp(deps: AppDeps) {
         const conditions = [eq(estimates.accountId, accountId)];
         if (companyId) conditions.push(eq(estimates.companyId, companyId));
         if (status) conditions.push(eq(estimates.status, status));
+        if (customerId) conditions.push(eq(estimates.customerId, customerId));
+        if (from) conditions.push(gte(estimates.issueDate, from));
+        if (to) conditions.push(lte(estimates.issueDate, to));
+        if (q) {
+          const term = `%${escapeLike(q)}%`;
+          // biome-ignore lint/style/noNonNullAssertion: or() with >=1 arg is non-null
+          conditions.push(or(ilike(estimates.number, term), ilike(customers.name, term))!);
+        }
         if (keyset) conditions.push(keyset);
         // LEFT JOIN the customer name (see /api/invoices for the rationale).
         const rows = await tx
