@@ -150,6 +150,27 @@ function parseReportWindow(
   return { fromDate, toExclusive, from: ymd(fromDate), to: ymd(toInclusive) };
 }
 
+// Parse a single as-of date (YYYY-MM-DD) for point-in-time reports (balance
+// sheet, A/R aging). Default is today. Returns the inclusive display string +
+// the half-open upper bound (asOf + 1 day) so a balance includes everything
+// posted any time on the as-of day; or an `error` for a 400.
+function parseAsOf(
+  raw: string | undefined,
+): { asOf: string; asOfExclusive: Date } | { error: 'invalid_as_of' } {
+  const now = new Date();
+  let d: Date;
+  if (raw !== undefined) {
+    d = new Date(`${raw}T00:00:00Z`);
+    if (Number.isNaN(d.getTime())) return { error: 'invalid_as_of' };
+  } else {
+    d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  }
+  const asOf = d.toISOString().slice(0, 10);
+  const asOfExclusive = new Date(d);
+  asOfExclusive.setUTCDate(asOfExclusive.getUTCDate() + 1);
+  return { asOf, asOfExclusive };
+}
+
 // Expense journal entries are dated to the expense's calendar date, not the
 // data-entry time — an expense dated Dec 31 entered Jan 2 must land in the
 // prior tax period so the Schedule C trial balance is right at year ends.
@@ -1843,6 +1864,248 @@ export function createApp(deps: AppDeps) {
             decidedCount: decided,
             // 4-dp ratio (e.g. "0.6667"); null when nothing decided yet.
             winRate: decided > 0 ? (accepted / decided).toFixed(4) : null,
+          });
+        },
+      )
+      // Balance sheet (the other primary financial statement, paired with P&L).
+      // Point-in-time: every account's signed balance as of a date. The books
+      // are never closed, so revenue − expenses through the as-of date is folded
+      // into equity as a "Retained earnings" line — that's what makes
+      // Assets = Liabilities + Equity hold (it follows directly from the trial
+      // balance always balancing: Assets+Expenses = Liabilities+Equity+Revenue).
+      .get(
+        '/api/companies/:id/balance-sheet',
+        validator('query', (v) => ({ asOf: typeof v.asOf === 'string' ? v.asOf : undefined })),
+        async (c) => {
+          const id = c.req.param('id');
+          if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+          const [company] = await tx
+            .select({ id: companies.id })
+            .from(companies)
+            .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
+            .limit(1);
+          if (!company) return c.json({ error: 'company_not_found' }, 404);
+
+          const parsed = parseAsOf(c.req.valid('query').asOf);
+          if ('error' in parsed) return c.json({ error: parsed.error }, 400);
+          const { asOf, asOfExclusive } = parsed;
+
+          const rows = await tx
+            .select({
+              code: chartOfAccounts.code,
+              name: chartOfAccounts.name,
+              accountType: chartOfAccounts.accountType,
+              amount: sql<string>`sum(case when ${journalLines.side} = ${chartOfAccounts.normalBalance} then ${journalLines.amount} else -${journalLines.amount} end)::numeric(15,2)`,
+            })
+            .from(journalLines)
+            .innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id))
+            .innerJoin(chartOfAccounts, eq(journalLines.coaAccountId, chartOfAccounts.id))
+            .where(
+              and(
+                eq(journalEntries.companyId, id),
+                eq(journalEntries.accountId, accountId),
+                lt(journalEntries.postedAt, asOfExclusive),
+              ),
+            )
+            .groupBy(chartOfAccounts.code, chartOfAccounts.name, chartOfAccounts.accountType)
+            .orderBy(asc(chartOfAccounts.code));
+
+          type Line = { code: string; name: string; amount: string };
+          const assets: Line[] = [];
+          const liabilities: Line[] = [];
+          const equity: Line[] = [];
+          let totalAssets = 0;
+          let totalLiabilities = 0;
+          let equitySum = 0;
+          let revenueSum = 0;
+          let expenseSum = 0;
+          for (const r of rows) {
+            const amt = Number(r.amount);
+            if (amt === 0) continue;
+            const line: Line = { code: r.code, name: r.name, amount: r.amount };
+            if (r.accountType === 'asset') {
+              assets.push(line);
+              totalAssets += amt;
+            } else if (r.accountType === 'liability') {
+              liabilities.push(line);
+              totalLiabilities += amt;
+            } else if (r.accountType === 'equity') {
+              equity.push(line);
+              equitySum += amt;
+            } else if (r.accountType === 'revenue') {
+              revenueSum += amt;
+            } else {
+              expenseSum += amt;
+            }
+          }
+          // Net income (retained earnings while the books stay open) closes the
+          // identity: Assets = Liabilities + (explicit equity + net income).
+          const netIncome = revenueSum - expenseSum;
+          const totalEquity = equitySum + netIncome;
+          const totalLiabilitiesAndEquity = totalLiabilities + totalEquity;
+          return c.json({
+            asOf,
+            assets,
+            liabilities,
+            equity,
+            netIncome: netIncome.toFixed(2),
+            totalAssets: totalAssets.toFixed(2),
+            totalLiabilities: totalLiabilities.toFixed(2),
+            totalEquity: totalEquity.toFixed(2),
+            totalLiabilitiesAndEquity: totalLiabilitiesAndEquity.toFixed(2),
+            // True by construction (every entry balances); surfaced as an
+            // integrity check — a false here means the ledger has drifted.
+            balanced: Math.abs(totalAssets - totalLiabilitiesAndEquity) < 0.005,
+          });
+        },
+      )
+      // A/R aging (getting-paid set). Currently-outstanding invoices (status
+      // 'sent' — issued but unpaid; no partial payments in MVP, so the owed
+      // amount is the invoice total) bucketed by days past due relative to the
+      // as-of date. The total ties to the AR ledger balance.
+      .get(
+        '/api/companies/:id/ar-aging',
+        validator('query', (v) => ({ asOf: typeof v.asOf === 'string' ? v.asOf : undefined })),
+        async (c) => {
+          const id = c.req.param('id');
+          if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+          const [company] = await tx
+            .select({ id: companies.id })
+            .from(companies)
+            .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
+            .limit(1);
+          if (!company) return c.json({ error: 'company_not_found' }, 404);
+
+          const parsed = parseAsOf(c.req.valid('query').asOf);
+          if ('error' in parsed) return c.json({ error: parsed.error }, 400);
+          const { asOf } = parsed;
+
+          const rows = await tx
+            .select({
+              id: invoices.id,
+              number: invoices.number,
+              customerName: customers.name,
+              dueDate: invoices.dueDate,
+              total: invoices.total,
+            })
+            .from(invoices)
+            .leftJoin(customers, eq(customers.id, invoices.customerId))
+            .where(
+              and(
+                eq(invoices.accountId, accountId),
+                eq(invoices.companyId, id),
+                eq(invoices.status, 'sent'),
+              ),
+            );
+
+          // Days past due = asOf − dueDate (both bare dates, UTC midnight). A
+          // negative value = not yet due → the "current" bucket.
+          const asOfMs = new Date(`${asOf}T00:00:00Z`).getTime();
+          const BUCKETS = [
+            { key: 'current', label: 'Current', min: Number.NEGATIVE_INFINITY, max: 0 },
+            { key: '1-30', label: '1–30 days', min: 1, max: 30 },
+            { key: '31-60', label: '31–60 days', min: 31, max: 60 },
+            { key: '61-90', label: '61–90 days', min: 61, max: 90 },
+            { key: '90+', label: '90+ days', min: 91, max: Number.POSITIVE_INFINITY },
+          ];
+          const bucketTotals = new Map(BUCKETS.map((b) => [b.key, { count: 0, amount: 0 }]));
+          const outstanding = rows
+            .map((r) => {
+              const dueMs = new Date(`${r.dueDate}T00:00:00Z`).getTime();
+              const daysPastDue = Math.round((asOfMs - dueMs) / 86_400_000);
+              const bucket = BUCKETS.find((b) => daysPastDue >= b.min && daysPastDue <= b.max);
+              const key = bucket?.key ?? 'current';
+              const agg = bucketTotals.get(key);
+              if (agg) {
+                agg.count += 1;
+                agg.amount += Number(r.total);
+              }
+              return {
+                id: r.id,
+                number: r.number,
+                customerName: r.customerName,
+                dueDate: r.dueDate,
+                daysPastDue,
+                amount: r.total,
+              };
+            })
+            // Most overdue first.
+            .sort((a, b) => b.daysPastDue - a.daysPastDue);
+
+          const total = outstanding.reduce((s, r) => s + Number(r.amount), 0).toFixed(2);
+          return c.json({
+            asOf,
+            buckets: BUCKETS.map((b) => {
+              const agg = bucketTotals.get(b.key);
+              return {
+                key: b.key,
+                label: b.label,
+                count: agg?.count ?? 0,
+                amount: (agg?.amount ?? 0).toFixed(2),
+              };
+            }),
+            invoices: outstanding,
+            total,
+          });
+        },
+      )
+      // Sales tax collected (getting-paid set). Net movement on Sales Tax
+      // Payable (COA 2200, per SOLE_PROP_COA) over the window — sent invoices
+      // credit it, voids debit it, so credit−debit is tax owed to the state for
+      // the period. Bucketed by the month the posting landed (mark-sent time).
+      .get(
+        '/api/companies/:id/sales-tax',
+        validator('query', (v) => ({
+          from: typeof v.from === 'string' ? v.from : undefined,
+          to: typeof v.to === 'string' ? v.to : undefined,
+        })),
+        async (c) => {
+          const id = c.req.param('id');
+          if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+          const [company] = await tx
+            .select({ id: companies.id })
+            .from(companies)
+            .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
+            .limit(1);
+          if (!company) return c.json({ error: 'company_not_found' }, 404);
+
+          const { from: fromRaw, to: toRaw } = c.req.valid('query');
+          const win = parseReportWindow(fromRaw, toRaw);
+          if ('error' in win) return c.json({ error: win.error }, 400);
+
+          const monthExpr = sql<string>`to_char(date_trunc('month', ${journalEntries.postedAt}), 'YYYY-MM')`;
+          const rows = await tx
+            .select({
+              month: monthExpr,
+              collected: sql<string>`sum(case when ${journalLines.side} = 'credit' then ${journalLines.amount} else -${journalLines.amount} end)::numeric(15,2)`,
+            })
+            .from(journalLines)
+            .innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id))
+            .innerJoin(chartOfAccounts, eq(journalLines.coaAccountId, chartOfAccounts.id))
+            .where(
+              and(
+                eq(journalEntries.companyId, id),
+                eq(journalEntries.accountId, accountId),
+                eq(chartOfAccounts.code, '2200'),
+                gte(journalEntries.postedAt, win.fromDate),
+                lt(journalEntries.postedAt, win.toExclusive),
+              ),
+            )
+            .groupBy(monthExpr)
+            .orderBy(monthExpr);
+
+          const total = rows.reduce((s, r) => s + Number(r.collected), 0).toFixed(2);
+          return c.json({
+            from: win.from,
+            to: win.to,
+            months: rows.map((r) => ({ month: r.month, collected: r.collected ?? '0.00' })),
+            total,
           });
         },
       )
