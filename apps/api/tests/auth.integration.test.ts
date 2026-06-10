@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
 import { createApiAuth } from '../src/lib/auth.js';
 import { createApiDatabase } from '../src/lib/db.js';
-import { getTestDb, resetDb } from './test-helper.js';
+import { appDatabaseUrl, getTestDb, resetDb } from './test-helper.js';
 
 // End-to-end: POST /api/auth/sign-up/email through the real Hono app → BA
 // → Drizzle adapter → Postgres. Confirms the wiring in app.ts mounts the
@@ -16,9 +16,9 @@ describe('POST /api/auth/sign-up/email', () => {
   it('creates an auth_user and returns a session cookie', async () => {
     const url = process.env.DATABASE_URL;
     if (!url) throw new Error('DATABASE_URL not set');
-    const handle = createApiDatabase(url);
+    const handle = createApiDatabase(appDatabaseUrl());
     try {
-      const auth = createApiAuth(handle.db, {
+      const auth = createApiAuth(getTestDb(), {
         nodeEnv: 'test',
         port: 3000,
         logLevel: 'info',
@@ -39,7 +39,7 @@ describe('POST /api/auth/sign-up/email', () => {
         stripeWebhookSecret: undefined,
         recurringSweepCron: '0 6 * * *',
       });
-      const app = createApp({ auth, db: handle.db });
+      const app = createApp({ auth, db: handle.db, bootstrapDb: getTestDb() });
 
       const res = await app.request('/api/auth/sign-up/email', {
         method: 'POST',
@@ -73,9 +73,9 @@ describe('POST /api/auth/sign-up/email', () => {
   it('issues a set-auth-token usable as Bearer credentials on /api/me', async () => {
     const url = process.env.DATABASE_URL;
     if (!url) throw new Error('DATABASE_URL not set');
-    const handle = createApiDatabase(url);
+    const handle = createApiDatabase(appDatabaseUrl());
     try {
-      const auth = createApiAuth(handle.db, {
+      const auth = createApiAuth(getTestDb(), {
         nodeEnv: 'test',
         port: 3000,
         logLevel: 'info',
@@ -96,7 +96,7 @@ describe('POST /api/auth/sign-up/email', () => {
         stripeWebhookSecret: undefined,
         recurringSweepCron: '0 6 * * *',
       });
-      const app = createApp({ auth, db: handle.db });
+      const app = createApp({ auth, db: handle.db, bootstrapDb: getTestDb() });
 
       const signUp = await app.request('/api/auth/sign-up/email', {
         method: 'POST',

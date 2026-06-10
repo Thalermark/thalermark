@@ -10,7 +10,7 @@ import { createApp } from '../src/app.js';
 import type { Env } from '../src/env.js';
 import { createApiAuth } from '../src/lib/auth.js';
 import { createApiDatabase } from '../src/lib/db.js';
-import { getTestDb, resetDb } from './test-helper.js';
+import { appDatabaseUrl, getTestDb, resetDb } from './test-helper.js';
 
 // 8.9h — receipt extraction. Exercises POST /api/expenses/:id/extract against a
 // stub extractor (no live model) + the local-FS storage adapter: success path,
@@ -79,12 +79,13 @@ const throwingExtractor: ReceiptExtractor = {
 function buildApp(opts: { extractor?: ReceiptExtractor | null; withStorage?: boolean } = {}) {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL not set');
-  const handle = createApiDatabase(url);
-  const auth = createApiAuth(handle.db, { ...testEnv, databaseUrl: url });
+  const handle = createApiDatabase(appDatabaseUrl());
+  const auth = createApiAuth(getTestDb(), { ...testEnv, databaseUrl: url });
   const withStorage = opts.withStorage ?? true;
   const app = createApp({
     auth,
     db: handle.db,
+    bootstrapDb: getTestDb(),
     publicAppUrl: testEnv.publicAppUrl,
     storage: withStorage ? createLocalFsProvider({ baseDir: storageDir, secret: SECRET }) : null,
     localFileServe: withStorage ? { secret: SECRET, baseDir: storageDir } : null,

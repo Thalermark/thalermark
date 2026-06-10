@@ -5,7 +5,7 @@ import { createApp } from '../src/app.js';
 import type { Env } from '../src/env.js';
 import { createApiAuth } from '../src/lib/auth.js';
 import { createApiDatabase } from '../src/lib/db.js';
-import { getTestDb, resetDb } from './test-helper.js';
+import { appDatabaseUrl, getTestDb, resetDb } from './test-helper.js';
 
 // Keyset cursor pagination is implemented once in src/lib/pagination.ts and
 // applied uniformly across the list endpoints, so we exercise the contract
@@ -75,9 +75,14 @@ async function userContext(email: string): Promise<{ accountId: string; companyI
 function buildApp() {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL not set');
-  const handle = createApiDatabase(url);
-  const auth = createApiAuth(handle.db, { ...testEnv, databaseUrl: url });
-  const app = createApp({ auth, db: handle.db, publicAppUrl: testEnv.publicAppUrl });
+  const handle = createApiDatabase(appDatabaseUrl());
+  const auth = createApiAuth(getTestDb(), { ...testEnv, databaseUrl: url });
+  const app = createApp({
+    auth,
+    db: handle.db,
+    bootstrapDb: getTestDb(),
+    publicAppUrl: testEnv.publicAppUrl,
+  });
   return { app, handle };
 }
 

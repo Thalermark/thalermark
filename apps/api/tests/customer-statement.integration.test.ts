@@ -5,7 +5,7 @@ import { createApp } from '../src/app.js';
 import type { Env } from '../src/env.js';
 import { createApiAuth } from '../src/lib/auth.js';
 import { createApiDatabase } from '../src/lib/db.js';
-import { getTestDb, resetDb } from './test-helper.js';
+import { appDatabaseUrl, getTestDb, resetDb } from './test-helper.js';
 
 // Customer statement: a customer's issued invoices as a chronological
 // charge/payment ledger with a running balance ending in the balance due.
@@ -92,11 +92,12 @@ function makeRecorder() {
 function buildApp(opts: { mailer?: import('../src/lib/mailer.js').Mailer } = {}) {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL not set');
-  const handle = createApiDatabase(url);
-  const auth = createApiAuth(handle.db, { ...testEnv, databaseUrl: url });
+  const handle = createApiDatabase(appDatabaseUrl());
+  const auth = createApiAuth(getTestDb(), { ...testEnv, databaseUrl: url });
   const app = createApp({
     auth,
     db: handle.db,
+    bootstrapDb: getTestDb(),
     publicAppUrl: testEnv.publicAppUrl,
     mailer: opts.mailer,
     emailFrom: 'Thalermark <test@thalermark.test>',

@@ -20,7 +20,7 @@ import type { Env } from '../src/env.js';
 import { createApiAuth } from '../src/lib/auth.js';
 import { createApiDatabase } from '../src/lib/db.js';
 import { createStripeBundle } from '../src/lib/stripe.js';
-import { getTestDb, resetDb } from './test-helper.js';
+import { appDatabaseUrl, getTestDb, resetDb } from './test-helper.js';
 
 const TEST_WEBHOOK_SECRET = 'whsec_test_secret_for_signature_helper';
 
@@ -52,8 +52,8 @@ const testEnv: Env = {
 function buildApp() {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL not set');
-  const handle = createApiDatabase(url);
-  const auth = createApiAuth(handle.db, { ...testEnv, databaseUrl: url });
+  const handle = createApiDatabase(appDatabaseUrl());
+  const auth = createApiAuth(getTestDb(), { ...testEnv, databaseUrl: url });
   const stripe = createStripeBundle({
     secretKey: testEnv.stripeSecretKey,
     publishableKey: testEnv.stripePublishableKey,
@@ -62,6 +62,7 @@ function buildApp() {
   const app = createApp({
     auth,
     db: handle.db,
+    bootstrapDb: getTestDb(),
     publicAppUrl: testEnv.publicAppUrl,
     stripe,
   });
@@ -295,9 +296,14 @@ describe('Stripe webhook', () => {
   it('returns 503 when Stripe is not configured', async () => {
     const url = process.env.DATABASE_URL;
     if (!url) throw new Error('DATABASE_URL not set');
-    const handle = createApiDatabase(url);
-    const auth = createApiAuth(handle.db, { ...testEnv, databaseUrl: url });
-    const app = createApp({ auth, db: handle.db, publicAppUrl: testEnv.publicAppUrl });
+    const handle = createApiDatabase(appDatabaseUrl());
+    const auth = createApiAuth(getTestDb(), { ...testEnv, databaseUrl: url });
+    const app = createApp({
+      auth,
+      db: handle.db,
+      bootstrapDb: getTestDb(),
+      publicAppUrl: testEnv.publicAppUrl,
+    });
     try {
       const res = await app.request('/api/webhooks/stripe', {
         method: 'POST',

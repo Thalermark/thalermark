@@ -9,7 +9,7 @@ import { createApp } from '../src/app.js';
 import type { Env } from '../src/env.js';
 import { createApiAuth } from '../src/lib/auth.js';
 import { createApiDatabase } from '../src/lib/db.js';
-import { getTestDb, resetDb } from './test-helper.js';
+import { appDatabaseUrl, getTestDb, resetDb } from './test-helper.js';
 
 // Company logo — exercises the upload → signed-URL → /api/files serve → delete
 // chain against the local-FS adapter, plus the media-type guard. Mirrors the
@@ -51,12 +51,13 @@ let storageDir: string;
 function buildApp() {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL not set');
-  const handle = createApiDatabase(url);
-  const auth = createApiAuth(handle.db, { ...testEnv, databaseUrl: url });
+  const handle = createApiDatabase(appDatabaseUrl());
+  const auth = createApiAuth(getTestDb(), { ...testEnv, databaseUrl: url });
   const storage = createLocalFsProvider({ baseDir: storageDir, secret: SECRET });
   const app = createApp({
     auth,
     db: handle.db,
+    bootstrapDb: getTestDb(),
     publicAppUrl: testEnv.publicAppUrl,
     storage,
     localFileServe: { secret: SECRET, baseDir: storageDir },
