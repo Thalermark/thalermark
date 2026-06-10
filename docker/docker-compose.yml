@@ -55,6 +55,18 @@ services:
       PUBLIC_APP_URL: "https://${THALERMARK_DOMAIN:-localhost}"
       # CSRF allowlist — browser origin + mobile scheme.
       TRUSTED_ORIGINS: "https://${THALERMARK_DOMAIN:-localhost},thalermark://"
+      # Receipt storage. Self-host uses the local-FS driver: receipts are written
+      # to the storage_data volume below and served back through the signed
+      # /api/files/<token> route. These two override whatever the root .env sets
+      # (it ships the dev MinIO config). Set STORAGE_URL_SECRET in .env (a long
+      # random value — it signs those tokens) to enable receipt capture; without
+      # it the stack still comes up, receipt upload just returns 503. For
+      # multi-node or large deployments, point at an S3-compatible store (R2,
+      # MinIO) instead — see the deployment docs' "Storage options".
+      STORAGE_DRIVER: local
+      STORAGE_LOCAL_PATH: /app/data/storage
+    volumes:
+      - storage_data:/app/data/storage
     depends_on:
       postgres:
         condition: service_healthy
@@ -103,5 +115,6 @@ services:
 
 volumes:
   postgres_data:
+  storage_data:
   caddy_data:
   caddy_config:

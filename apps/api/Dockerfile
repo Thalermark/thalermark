@@ -75,8 +75,14 @@ ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=builder /out ./
 
-# Drop privileges. The deployed slice is read-only for the app user.
-RUN addgroup -S app && adduser -S -G app app && chown -R app:app /app
+# Drop privileges. The deployed slice is read-only for the app user, except the
+# local-FS receipt store: pre-create /app/data/storage before the chown so the
+# compose's named volume seeds with app ownership on first mount (a root-owned
+# volume would be unwritable by the non-root app user). S3/R2 deployments ignore
+# this dir.
+RUN addgroup -S app && adduser -S -G app app \
+ && mkdir -p /app/data/storage \
+ && chown -R app:app /app
 USER app
 
 EXPOSE 3000
