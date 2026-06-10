@@ -1508,14 +1508,148 @@ export function createApp(deps: AppDeps) {
               sql`(${invoiceLineItems.sourceItemId} is null) asc, sum(${invoiceLineItems.amount}) desc`,
             );
 
-          return c.json({
-            basis,
-            products: rows.map((r) => ({
-              sourceItemId: r.sourceItemId,
+          const mapped = rows.map((r) => ({
+            sourceItemId: r.sourceItemId,
+            name: r.name,
+            revenue: r.revenue ?? '0.00',
+            lineCount: r.lineCount,
+          }));
+          // Top 25 catalogued products by revenue, plus the single
+          // "Uncatalogued / other" bucket (hand-typed lines) appended as
+          // context — it's an "other" row, not a product, so it doesn't consume
+          // a slot in the top 25. Slicing in app code (rows are already ordered
+          // products-first, bucket-last) keeps the bucket regardless of how many
+          // products there are; a bare LIMIT would drop it.
+          const TOP_N = 25;
+          const products = mapped.filter((p) => p.sourceItemId !== null).slice(0, TOP_N);
+          const bucket = mapped.filter((p) => p.sourceItemId === null);
+          return c.json({ basis, products: [...products, ...bucket] });
+        },
+      )
+      // Profit & Loss report (the tax set). Accrual income statement read
+      // straight off the GL: revenue + expense accounts, summed in their
+      // normal-balance direction over a [from, to] window (inclusive, to+1 day
+      // exclusive on the upper bound — same convention as the ledger export and
+      // dashboard). Default window is year-to-date. Each account's signed net
+      // (per-account window sum) is reversal-safe by construction: a void/edit
+      // posts a reversing entry that flips the sign, so an in-window correction
+      // nets out and a cross-period one lands in the period it was posted (real
+      // accrual behavior) — no per-source netting like cashFlowNet needs.
+      // taxMapping (Schedule C line) rides along so the expense breakdown
+      // doubles as a tax-prep view. Powers both /reports/profit-and-loss and
+      // /reports/expenses-by-category (the expense section).
+      .get(
+        '/api/companies/:id/profit-loss',
+        validator('query', (v) => ({
+          from: typeof v.from === 'string' ? v.from : undefined,
+          to: typeof v.to === 'string' ? v.to : undefined,
+        })),
+        async (c) => {
+          const id = c.req.param('id');
+          if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+
+          const [company] = await tx
+            .select({ id: companies.id })
+            .from(companies)
+            .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
+            .limit(1);
+          if (!company) return c.json({ error: 'company_not_found' }, 404);
+
+          const { from: fromRaw, to: toRaw } = c.req.valid('query');
+          const now = new Date();
+          let fromDate: Date;
+          if (fromRaw !== undefined) {
+            fromDate = new Date(`${fromRaw}T00:00:00Z`);
+            if (Number.isNaN(fromDate.getTime())) return c.json({ error: 'invalid_from' }, 400);
+          } else {
+            // Default: start of the current calendar year (YTD).
+            fromDate = new Date(Date.UTC(now.getUTCFullYear(), 0, 1));
+          }
+          let toExclusive: Date;
+          if (toRaw !== undefined) {
+            const t = new Date(`${toRaw}T00:00:00Z`);
+            if (Number.isNaN(t.getTime())) return c.json({ error: 'invalid_to' }, 400);
+            toExclusive = new Date(t);
+          } else {
+            // Default upper bound: today.
+            toExclusive = new Date(
+              Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+            );
+          }
+          toExclusive.setUTCDate(toExclusive.getUTCDate() + 1);
+          if (fromDate >= toExclusive) return c.json({ error: 'invalid_range' }, 400);
+
+          // Per-account net in the account's normal-balance direction: when a
+          // line's side matches the account's normal_balance it adds, else it
+          // subtracts. Revenue (credit-normal) => credit−debit; expense
+          // (debit-normal) => debit−credit.
+          const rows = await tx
+            .select({
+              code: chartOfAccounts.code,
+              name: chartOfAccounts.name,
+              accountType: chartOfAccounts.accountType,
+              taxMapping: chartOfAccounts.taxMapping,
+              amount: sql<string>`sum(case when ${journalLines.side} = ${chartOfAccounts.normalBalance} then ${journalLines.amount} else -${journalLines.amount} end)::numeric(15,2)`,
+            })
+            .from(journalLines)
+            .innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id))
+            .innerJoin(chartOfAccounts, eq(journalLines.coaAccountId, chartOfAccounts.id))
+            .where(
+              and(
+                eq(journalEntries.companyId, id),
+                eq(journalEntries.accountId, accountId),
+                inArray(chartOfAccounts.accountType, ['revenue', 'expense']),
+                gte(journalEntries.postedAt, fromDate),
+                lt(journalEntries.postedAt, toExclusive),
+              ),
+            )
+            .groupBy(
+              chartOfAccounts.code,
+              chartOfAccounts.name,
+              chartOfAccounts.accountType,
+              chartOfAccounts.taxMapping,
+            )
+            .orderBy(asc(chartOfAccounts.code));
+
+          type Line = { code: string; name: string; taxMapping: string | null; amount: string };
+          const revenue: Line[] = [];
+          const expenses: Line[] = [];
+          let totalRevenue = 0;
+          let totalExpenses = 0;
+          for (const r of rows) {
+            const amt = Number(r.amount);
+            // Drop accounts that net to zero in the window (e.g. a sale fully
+            // voided in-period) so the statement isn't cluttered with no-ops.
+            if (amt === 0) continue;
+            const line: Line = {
+              code: r.code,
               name: r.name,
-              revenue: r.revenue ?? '0.00',
-              lineCount: r.lineCount,
-            })),
+              taxMapping: r.taxMapping,
+              amount: r.amount,
+            };
+            if (r.accountType === 'revenue') {
+              revenue.push(line);
+              totalRevenue += amt;
+            } else {
+              expenses.push(line);
+              totalExpenses += amt;
+            }
+          }
+
+          const ymd = (d: Date) => d.toISOString().slice(0, 10);
+          const toInclusive = new Date(toExclusive);
+          toInclusive.setUTCDate(toInclusive.getUTCDate() - 1);
+          return c.json({
+            from: ymd(fromDate),
+            to: ymd(toInclusive),
+            revenue,
+            expenses,
+            totalRevenue: totalRevenue.toFixed(2),
+            totalExpenses: totalExpenses.toFixed(2),
+            netProfit: (totalRevenue - totalExpenses).toFixed(2),
           });
         },
       )

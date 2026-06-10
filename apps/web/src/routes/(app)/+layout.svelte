@@ -20,7 +20,7 @@
         <a href="/estimates" class="hover:text-ink">Estimates</a>
         <a href="/expenses" class="hover:text-ink">Expenses</a>
         <a href="/customers" class="hover:text-ink">Customers</a>
-        <a href="/reports/top-products" class="hover:text-ink">Reports</a>
+        <a href="/reports" class="hover:text-ink">Reports</a>
       </nav>
       <UserMenu name={session.user.name} email={session.user.email} />
     {/if}

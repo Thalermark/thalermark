@@ -48,8 +48,8 @@
 </div>
 
 <p class="mt-3 text-sm text-ink/60">
-  {basisNote} A sales lens, not a tax figure — the “Uncatalogued / other” row collects hand-typed
-  lines so the rows tie back to revenue.
+  {basisNote} The top 25 by revenue, plus an “Uncatalogued / other” row for hand-typed lines. A
+  sales lens, not a tax figure.
 </p>
 
 {#if data.products.length === 0}

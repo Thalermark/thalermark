@@ -335,4 +335,46 @@ describe('GET /api/companies/:id/top-products', () => {
       await handle.close();
     }
   });
+
+  it('caps at the top 25 products by revenue but always keeps the bucket', async () => {
+    const { app, handle } = buildApp();
+    try {
+      const cookie = await signUp(app, 'cap@example.com');
+      const { accountId, companyId } = await userContext('cap@example.com');
+      const ctx: Ctx = { cookie, accountId, companyId };
+      const customer = await createCustomer(app, ctx);
+
+      // 27 catalogued items with distinct, descending revenue (item k => 100-k),
+      // all on one paid invoice, plus a hand-typed line for the bucket.
+      const lines: Line[] = [];
+      for (let k = 1; k <= 27; k++) {
+        const amount = `${100 - k}.00`;
+        const id = await createItem(app, ctx, `Item ${k}`, amount);
+        lines.push({
+          description: `Item ${k}`,
+          quantity: '1',
+          unitPrice: amount,
+          amount,
+          sourceItemId: id,
+        });
+      }
+      lines.push({ description: 'Hand-typed', quantity: '1', unitPrice: '5.00', amount: '5.00' });
+      const inv = await createInvoice(app, ctx, customer, 'INV-CAP', lines);
+      await markPaid(app, ctx, inv);
+
+      const report = await topProducts(app, ctx);
+      // 25 catalogued + the bucket = 26 rows; bucket is last.
+      expect(report.products).toHaveLength(26);
+      const catalogued = report.products.filter((p) => p.sourceItemId !== null);
+      expect(catalogued).toHaveLength(25);
+      expect(report.products.at(-1)?.sourceItemId).toBeNull();
+      // The two lowest-revenue items (26 => $74, 27 => $73) are dropped.
+      const names = catalogued.map((p) => p.name);
+      expect(names).toContain('Item 1');
+      expect(names).not.toContain('Item 26');
+      expect(names).not.toContain('Item 27');
+    } finally {
+      await handle.close();
+    }
+  });
 });
