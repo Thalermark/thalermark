@@ -13,6 +13,21 @@
       blurb: 'Where the money went, grouped by your Schedule C buckets.',
     },
     {
+      href: '/reports/balance-sheet',
+      title: 'Balance sheet',
+      blurb: 'What you own and owe — assets, liabilities, and equity.',
+    },
+    {
+      href: '/reports/ar-aging',
+      title: 'A/R aging',
+      blurb: 'Unpaid invoices by how overdue they are — who to chase.',
+    },
+    {
+      href: '/reports/sales-tax',
+      title: 'Sales tax collected',
+      blurb: 'Tax billed on invoices over a period, ready to remit.',
+    },
+    {
       href: '/reports/sales-by-customer',
       title: 'Sales by customer',
       blurb: 'Your best customers by revenue over a period.',

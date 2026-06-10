@@ -155,3 +155,81 @@ export async function loadEstimateWinRate(event: Parameters<typeof serverApiClie
   const report = (await res.json()) as EstimateWinRate;
   return { report, presets, activeKey: activePresetKey(presets, report.from, report.to) };
 }
+
+// Point-in-time reports (balance sheet, A/R aging) take a single ?asOf= date
+// (default today) instead of a window — no presets, just a date input.
+async function reportContextAsOf(event: Parameters<typeof serverApiClient>[0]) {
+  const client = serverApiClient(event);
+  const companiesRes = await client.api.companies.$get();
+  if (!companiesRes.ok) throw error(companiesRes.status, 'failed to load companies');
+  const { companies } = await companiesRes.json();
+  const company = companies[0];
+  if (!company) throw error(500, 'no company on this account');
+  const asOf = event.url.searchParams.get('asOf') || ymd(new Date());
+  return { client, companyId: company.id, asOf };
+}
+
+export type BalanceSheet = {
+  asOf: string;
+  assets: { code: string; name: string; amount: string }[];
+  liabilities: { code: string; name: string; amount: string }[];
+  equity: { code: string; name: string; amount: string }[];
+  netIncome: string;
+  totalAssets: string;
+  totalLiabilities: string;
+  totalEquity: string;
+  totalLiabilitiesAndEquity: string;
+  balanced: boolean;
+};
+
+export async function loadBalanceSheet(event: Parameters<typeof serverApiClient>[0]) {
+  const { client, companyId, asOf } = await reportContextAsOf(event);
+  const res = await client.api.companies[':id']['balance-sheet'].$get({
+    param: { id: companyId },
+    query: { asOf },
+  });
+  if (!res.ok) throw error(res.status, 'failed to load report');
+  return { report: (await res.json()) as BalanceSheet };
+}
+
+export type ArAging = {
+  asOf: string;
+  buckets: { key: string; label: string; count: number; amount: string }[];
+  invoices: {
+    id: string;
+    number: string;
+    customerName: string | null;
+    dueDate: string;
+    daysPastDue: number;
+    amount: string;
+  }[];
+  total: string;
+};
+
+export async function loadArAging(event: Parameters<typeof serverApiClient>[0]) {
+  const { client, companyId, asOf } = await reportContextAsOf(event);
+  const res = await client.api.companies[':id']['ar-aging'].$get({
+    param: { id: companyId },
+    query: { asOf },
+  });
+  if (!res.ok) throw error(res.status, 'failed to load report');
+  return { report: (await res.json()) as ArAging };
+}
+
+export type SalesTax = {
+  from: string;
+  to: string;
+  months: { month: string; collected: string }[];
+  total: string;
+};
+
+export async function loadSalesTax(event: Parameters<typeof serverApiClient>[0]) {
+  const { client, companyId, from, to, presets } = await reportContext(event);
+  const res = await client.api.companies[':id']['sales-tax'].$get({
+    param: { id: companyId },
+    query: { from, to },
+  });
+  if (!res.ok) throw error(res.status, 'failed to load report');
+  const report = (await res.json()) as SalesTax;
+  return { report, presets, activeKey: activePresetKey(presets, report.from, report.to) };
+}
