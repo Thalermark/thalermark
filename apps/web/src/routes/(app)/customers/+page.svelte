@@ -83,6 +83,7 @@
       name="openInvoices"
       value="true"
       checked={filters.openInvoices}
+      onchange={(e) => e.currentTarget.form?.requestSubmit()}
       class="rounded-sm border-ink/30 text-gold-deep focus:ring-gold-deep"
     />
     Has open invoices

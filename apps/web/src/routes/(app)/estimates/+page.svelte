@@ -86,6 +86,7 @@
     Status
     <select
       name="status"
+      onchange={(e) => e.currentTarget.form?.requestSubmit()}
       class="rounded-sm border border-ink/15 bg-cream px-2 py-1.5 text-sm normal-case tracking-normal text-ink"
     >
       <option value="" selected={filters.status === ''}>All</option>
@@ -98,6 +99,7 @@
     Customer
     <select
       name="customerId"
+      onchange={(e) => e.currentTarget.form?.requestSubmit()}
       class="rounded-sm border border-ink/15 bg-cream px-2 py-1.5 text-sm normal-case tracking-normal text-ink"
     >
       <option value="" selected={filters.customerId === ''}>All</option>
