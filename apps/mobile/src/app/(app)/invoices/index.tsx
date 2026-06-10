@@ -1,13 +1,24 @@
 import { useRouter } from 'expo-router';
-import { useCallback } from 'react';
-import { ActivityIndicator, FlatList, Pressable, Text, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, FlatList, Pressable, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+  CustomerFilterField,
+  type SelectedCustomer,
+} from '../../../components/CustomerFilterField';
+import { DateField } from '../../../components/DateField';
+import { FilterChips } from '../../../components/FilterChips';
 import { api } from '../../../lib/api';
 import { pageQuery, usePaginatedList } from '../../../lib/use-paginated-list';
 
 // Mirror of apps/web's /invoices list. customerName is LEFT JOINed by the API
 // now (#195), so the list no longer fetches every customer to resolve names —
 // that doesn't survive pagination. Keyset infinite scroll via usePaginatedList.
+//
+// Filters mirror the web filter bar: search (q, number OR customer name),
+// status, date range (issueDate), and a single customer. usePaginatedList
+// reloads page 1 whenever fetchPage's identity changes, so flipping any filter
+// re-runs the query from the top.
 type InvoiceRow = {
   id: string;
   number: string;
@@ -18,28 +29,62 @@ type InvoiceRow = {
   total: string;
 };
 
+const STATUS_OPTIONS = [
+  { label: 'All', value: '' },
+  { label: 'Draft', value: 'draft' },
+  { label: 'Sent', value: 'sent' },
+  { label: 'Paid', value: 'paid' },
+  { label: 'Voided', value: 'voided' },
+];
+
 export default function InvoicesList() {
   const router = useRouter();
 
-  const fetchPage = useCallback(async (cursor: string | null) => {
-    const res = await api.api.invoices.$get({ query: pageQuery(cursor) });
-    if (!res.ok) return null;
-    const { invoices, nextCursor } = await res.json();
-    return {
-      rows: invoices.map(
-        (i): InvoiceRow => ({
-          id: i.id,
-          number: i.number,
-          customerName: i.customerName ?? null,
-          status: i.status,
-          dueDate: i.dueDate,
-          currency: i.currency,
-          total: i.total,
-        }),
-      ),
-      nextCursor,
-    };
-  }, []);
+  const [q, setQ] = useState('');
+  const [appliedQ, setAppliedQ] = useState('');
+  const [status, setStatus] = useState('');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [customer, setCustomer] = useState<SelectedCustomer | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
+  // Debounce the search box so each keystroke doesn't refetch.
+  useEffect(() => {
+    const t = setTimeout(() => setAppliedQ(q.trim()), 300);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  const advancedActive = Boolean(from || to || customer);
+  const anyFilter = Boolean(appliedQ || status || advancedActive);
+
+  const fetchPage = useCallback(
+    async (cursor: string | null) => {
+      const query: Record<string, string> = pageQuery(cursor);
+      if (appliedQ) query.q = appliedQ;
+      if (status) query.status = status;
+      if (from) query.from = from;
+      if (to) query.to = to;
+      if (customer) query.customerId = customer.id;
+      const res = await api.api.invoices.$get({ query });
+      if (!res.ok) return null;
+      const { invoices, nextCursor } = await res.json();
+      return {
+        rows: invoices.map(
+          (i): InvoiceRow => ({
+            id: i.id,
+            number: i.number,
+            customerName: i.customerName ?? null,
+            status: i.status,
+            dueDate: i.dueDate,
+            currency: i.currency,
+            total: i.total,
+          }),
+        ),
+        nextCursor,
+      };
+    },
+    [appliedQ, status, from, to, customer],
+  );
 
   const { list, loadingMore, loadMore } = usePaginatedList(fetchPage);
 
@@ -68,6 +113,55 @@ export default function InvoicesList() {
         <Text className="text-gold-deep">→</Text>
       </Pressable>
 
+      <View className="mt-4 flex-row items-center gap-2 px-6">
+        <TextInput
+          value={q}
+          onChangeText={setQ}
+          placeholder="Search number or customer"
+          returnKeyType="search"
+          className="flex-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2.5 text-ink"
+        />
+        <Pressable
+          onPress={() => setShowAdvanced((v) => !v)}
+          className={`rounded-sm border px-3 py-2.5 ${
+            advancedActive ? 'border-ink bg-ink' : 'border-ink/20 bg-cream-warm'
+          }`}
+        >
+          <Text
+            className={`font-mono text-xs uppercase tracking-widest ${
+              advancedActive ? 'text-cream' : 'text-ink/60'
+            }`}
+          >
+            Filters
+          </Text>
+        </Pressable>
+      </View>
+
+      <View className="mt-3">
+        <FilterChips options={STATUS_OPTIONS} value={status} onChange={setStatus} />
+      </View>
+
+      {showAdvanced ? (
+        <View className="mt-3 gap-3 px-6">
+          <View className="flex-row gap-3">
+            <View className="flex-1">
+              <DateField label="Issued from" value={from} onChange={setFrom} optional />
+            </View>
+            <View className="flex-1">
+              <DateField label="To" value={to} onChange={setTo} optional />
+            </View>
+          </View>
+          <View>
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+              Customer
+            </Text>
+            <View className="mt-1">
+              <CustomerFilterField selected={customer} onChange={setCustomer} />
+            </View>
+          </View>
+        </View>
+      ) : null}
+
       {list.state === 'loading' ? (
         <View className="mt-12 items-center">
           <ActivityIndicator color="#0f1626" />
@@ -75,13 +169,16 @@ export default function InvoicesList() {
       ) : list.state === 'error' ? (
         <Text className="mt-8 px-6 text-sm text-oxblood">Couldn't load invoices.</Text>
       ) : list.rows.length === 0 ? (
-        <Text className="mt-8 px-6 text-ink/70">No invoices yet.</Text>
+        <Text className="mt-8 px-6 text-ink/70">
+          {anyFilter ? 'No invoices match these filters.' : 'No invoices yet.'}
+        </Text>
       ) : (
         <FlatList
           data={list.rows}
           keyExtractor={(i) => i.id}
           className="mt-6"
           contentContainerClassName="px-6 pb-6"
+          keyboardShouldPersistTaps="handled"
           ItemSeparatorComponent={() => <View className="h-px bg-ink/10" />}
           onEndReached={loadMore}
           onEndReachedThreshold={0.4}

@@ -6,8 +6,12 @@
 
   let { data }: PageProps = $props();
 
-  const { filters } = $derived(data);
+  const { filters, customers } = $derived(data);
   const STATUSES = ['draft', 'sent', 'accepted', 'declined', 'expired'];
+  // Any filter active → show the "Clear" affordance + the "none match" empty copy.
+  const anyFilter = $derived(
+    Boolean(filters.status || filters.q || filters.from || filters.to || filters.customerId),
+  );
 
   // See /customers for the untrack() seed-and-re-seed pattern.
   type Row = (typeof data.estimates)[number];
@@ -30,7 +34,13 @@
     loading = true;
     loadError = false;
     try {
-      const page = await fetchMore<Row>('/estimates/more', cursor, { status: filters.status });
+      const page = await fetchMore<Row>('/estimates/more', cursor, {
+        status: filters.status,
+        q: filters.q,
+        from: filters.from,
+        to: filters.to,
+        customerId: filters.customerId,
+      });
       rows = [...rows, ...page.rows];
       cursor = page.nextCursor;
     } catch {
@@ -56,12 +66,22 @@
   </a>
 </div>
 
-<!-- Status filter. Plain GET form so the filter lives in the URL (shareable,
-     back-button friendly) and re-runs load() with a fresh page 1. -->
+<!-- Filters. Plain GET form so they live in the URL (shareable, back-button
+     friendly) and re-run load() with a fresh page 1. -->
 <form
   method="GET"
   class="mt-8 flex flex-wrap items-end gap-3 rounded-sm border border-ink/10 bg-cream-warm p-4"
 >
+  <label class="flex flex-1 flex-col gap-1 text-xs uppercase tracking-widest text-ink/50">
+    Search
+    <input
+      type="search"
+      name="q"
+      value={filters.q}
+      placeholder="Number or customer"
+      class="min-w-40 rounded-sm border border-ink/15 bg-cream px-2 py-1.5 text-sm normal-case tracking-normal text-ink"
+    />
+  </label>
   <label class="flex flex-col gap-1 text-xs uppercase tracking-widest text-ink/50">
     Status
     <select
@@ -74,20 +94,50 @@
       {/each}
     </select>
   </label>
+  <label class="flex flex-col gap-1 text-xs uppercase tracking-widest text-ink/50">
+    Customer
+    <select
+      name="customerId"
+      class="rounded-sm border border-ink/15 bg-cream px-2 py-1.5 text-sm normal-case tracking-normal text-ink"
+    >
+      <option value="" selected={filters.customerId === ''}>All</option>
+      {#each customers as c (c.id)}
+        <option value={c.id} selected={filters.customerId === c.id}>{c.name}</option>
+      {/each}
+    </select>
+  </label>
+  <label class="flex flex-col gap-1 text-xs uppercase tracking-widest text-ink/50">
+    Issued from
+    <input
+      type="date"
+      name="from"
+      value={filters.from}
+      class="rounded-sm border border-ink/15 bg-cream px-2 py-1.5 text-sm normal-case tracking-normal text-ink"
+    />
+  </label>
+  <label class="flex flex-col gap-1 text-xs uppercase tracking-widest text-ink/50">
+    To
+    <input
+      type="date"
+      name="to"
+      value={filters.to}
+      class="rounded-sm border border-ink/15 bg-cream px-2 py-1.5 text-sm normal-case tracking-normal text-ink"
+    />
+  </label>
   <button
     type="submit"
     class="rounded-sm bg-ink px-4 py-2 text-sm font-medium text-cream transition-colors hover:bg-gold-deep"
   >
     Filter
   </button>
-  {#if filters.status}
+  {#if anyFilter}
     <a href="/estimates" class="text-sm text-ink/60 hover:text-ink">Clear</a>
   {/if}
 </form>
 
 {#if rows.length === 0}
   <p class="mt-8 text-ink/70">
-    {filters.status ? 'No estimates match this filter.' : 'No estimates yet.'}
+    {anyFilter ? 'No estimates match these filters.' : 'No estimates yet.'}
   </p>
 {:else}
   <div class="mt-8 overflow-hidden rounded-sm border border-ink/10 bg-cream-warm">
