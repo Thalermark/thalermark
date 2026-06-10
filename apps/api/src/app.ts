@@ -832,17 +832,21 @@ export function createApp(deps: AppDeps) {
       })
       .post('/api/invitations/:token/accept', async (c) => {
         // Bootstrap path: rls-context set userId from the session but did not
-        // open a tenant tx (the accepting user is not yet a member). Use the
-        // raw db; uniqueness on token + the freshness checks below are enough.
+        // open a tenant tx (the accepting user is not yet a member, so no
+        // account context is set). Read + write via bootstrapDb (RLS-bypass):
+        // under the app role the invitation + membership rows are invisible
+        // without app.current_account_id, so deps.db would 404 every accept and
+        // the membership insert would be blocked. Token uniqueness + the
+        // freshness/email checks below are the gate.
         const userId = c.get('userId');
-        const [user] = await deps.db
+        const [user] = await bootstrapDb
           .select({ id: authUser.id, email: authUser.email })
           .from(authUser)
           .where(eq(authUser.id, userId));
         if (!user) return c.json({ error: 'unauthorized' }, 401);
 
         const token = c.req.param('token');
-        const [invite] = await deps.db
+        const [invite] = await bootstrapDb
           .select()
           .from(invitations)
           .where(and(eq(invitations.token, token), isNull(invitations.acceptedAt)));
@@ -854,7 +858,7 @@ export function createApp(deps: AppDeps) {
         }
 
         const acceptedAt = new Date();
-        await deps.db.transaction(async (tx) => {
+        await bootstrapDb.transaction(async (tx) => {
           await tx
             .insert(memberships)
             .values({ id: uuidv7(), userId: user.id, accountId: invite.accountId })

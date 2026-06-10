@@ -6,7 +6,7 @@ import type { Env } from '../src/env.js';
 import { createApiAuth } from '../src/lib/auth.js';
 import { createApiDatabase } from '../src/lib/db.js';
 import type { Mailer } from '../src/lib/mailer.js';
-import { getTestDb, resetDb } from './test-helper.js';
+import { appDatabaseUrl, getTestDb, resetDb } from './test-helper.js';
 
 // Recorder mailer mirrors the shape used in invoices.integration.test.ts —
 // each .send() call appends to `sent`; the throws flag flips the next send
@@ -81,11 +81,12 @@ async function userAndAccount(email: string): Promise<{ userId: string; accountI
 function buildApp(opts: { mailer?: Mailer } = {}) {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL not set');
-  const handle = createApiDatabase(url);
-  const auth = createApiAuth(handle.db, { ...testEnv, databaseUrl: url });
+  const handle = createApiDatabase(appDatabaseUrl());
+  const auth = createApiAuth(getTestDb(), { ...testEnv, databaseUrl: url });
   const app = createApp({
     auth,
     db: handle.db,
+    bootstrapDb: getTestDb(),
     publicAppUrl: testEnv.publicAppUrl,
     mailer: opts.mailer ?? makeRecorder().mailer,
     emailFrom: testEnv.emailFrom,

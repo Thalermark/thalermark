@@ -19,7 +19,7 @@ import { createApiAuth } from '../src/lib/auth.js';
 import { createApiDatabase } from '../src/lib/db.js';
 import type { StripeBundle } from '../src/lib/stripe.js';
 import { createStripeBundle } from '../src/lib/stripe.js';
-import { getTestDb, resetDb } from './test-helper.js';
+import { appDatabaseUrl, getTestDb, resetDb } from './test-helper.js';
 
 const TEST_WEBHOOK_SECRET = 'whsec_test_secret_for_signature_helper';
 
@@ -115,11 +115,12 @@ function makeStubStripe(stubs: ConnectStubs = {}): StripeBundle {
 function buildApp(stripe: StripeBundle | null | undefined) {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL not set');
-  const handle = createApiDatabase(url);
-  const auth = createApiAuth(handle.db, { ...testEnv, databaseUrl: url });
+  const handle = createApiDatabase(appDatabaseUrl());
+  const auth = createApiAuth(getTestDb(), { ...testEnv, databaseUrl: url });
   const app = createApp({
     auth,
     db: handle.db,
+    bootstrapDb: getTestDb(),
     publicAppUrl: testEnv.publicAppUrl,
     stripe,
   });
@@ -129,8 +130,8 @@ function buildApp(stripe: StripeBundle | null | undefined) {
 function buildAppWithRealStripe() {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL not set');
-  const handle = createApiDatabase(url);
-  const auth = createApiAuth(handle.db, { ...testEnv, databaseUrl: url });
+  const handle = createApiDatabase(appDatabaseUrl());
+  const auth = createApiAuth(getTestDb(), { ...testEnv, databaseUrl: url });
   const stripe = createStripeBundle({
     secretKey: testEnv.stripeSecretKey,
     publishableKey: testEnv.stripePublishableKey,
@@ -140,6 +141,7 @@ function buildAppWithRealStripe() {
   const app = createApp({
     auth,
     db: handle.db,
+    bootstrapDb: getTestDb(),
     publicAppUrl: testEnv.publicAppUrl,
     stripe,
   });

@@ -6,7 +6,7 @@ import { createApp } from '../src/app.js';
 import type { Env } from '../src/env.js';
 import { createApiAuth } from '../src/lib/auth.js';
 import { createApiDatabase } from '../src/lib/db.js';
-import { getTestDb, resetDb } from './test-helper.js';
+import { appDatabaseUrl, getTestDb, resetDb } from './test-helper.js';
 
 const testEnv: Env = {
   nodeEnv: 'test',
@@ -59,9 +59,9 @@ async function seedAccountAndMembership(userId: string): Promise<string> {
 function buildApp() {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL not set');
-  const handle = createApiDatabase(url);
-  const auth = createApiAuth(handle.db, { ...testEnv, databaseUrl: url });
-  const app = createApp({ auth, db: handle.db });
+  const handle = createApiDatabase(appDatabaseUrl());
+  const auth = createApiAuth(getTestDb(), { ...testEnv, databaseUrl: url });
+  const app = createApp({ auth, db: handle.db, bootstrapDb: getTestDb() });
   return { app, handle };
 }
 

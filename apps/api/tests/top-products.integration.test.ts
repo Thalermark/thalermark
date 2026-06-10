@@ -5,7 +5,7 @@ import { createApp } from '../src/app.js';
 import type { Env } from '../src/env.js';
 import { createApiAuth } from '../src/lib/auth.js';
 import { createApiDatabase } from '../src/lib/db.js';
-import { getTestDb, resetDb } from './test-helper.js';
+import { appDatabaseUrl, getTestDb, resetDb } from './test-helper.js';
 
 // I5 — top-products report. A deterministic GROUP BY source_item_id aggregate
 // over invoice line items, with an "Uncatalogued / other" bucket (null source)
@@ -44,9 +44,14 @@ function extractSessionCookie(res: Response): string {
 function buildApp() {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL not set');
-  const handle = createApiDatabase(url);
-  const auth = createApiAuth(handle.db, { ...testEnv, databaseUrl: url });
-  const app = createApp({ auth, db: handle.db, publicAppUrl: testEnv.publicAppUrl });
+  const handle = createApiDatabase(appDatabaseUrl());
+  const auth = createApiAuth(getTestDb(), { ...testEnv, databaseUrl: url });
+  const app = createApp({
+    auth,
+    db: handle.db,
+    bootstrapDb: getTestDb(),
+    publicAppUrl: testEnv.publicAppUrl,
+  });
   return { app, handle };
 }
 

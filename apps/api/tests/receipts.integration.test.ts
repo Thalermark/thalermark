@@ -9,7 +9,7 @@ import { createApp } from '../src/app.js';
 import type { Env } from '../src/env.js';
 import { createApiAuth } from '../src/lib/auth.js';
 import { createApiDatabase } from '../src/lib/db.js';
-import { getTestDb, resetDb } from './test-helper.js';
+import { appDatabaseUrl, getTestDb, resetDb } from './test-helper.js';
 
 // 8.9g — receipt capture. Exercises the upload → signed-URL → /api/files serve
 // → delete chain against the local-FS storage adapter, plus validation and
@@ -51,14 +51,15 @@ let storageDir: string;
 function buildApp(opts: { withStorage?: boolean } = { withStorage: true }) {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL not set');
-  const handle = createApiDatabase(url);
-  const auth = createApiAuth(handle.db, { ...testEnv, databaseUrl: url });
+  const handle = createApiDatabase(appDatabaseUrl());
+  const auth = createApiAuth(getTestDb(), { ...testEnv, databaseUrl: url });
   const storage = opts.withStorage
     ? createLocalFsProvider({ baseDir: storageDir, secret: SECRET })
     : null;
   const app = createApp({
     auth,
     db: handle.db,
+    bootstrapDb: getTestDb(),
     publicAppUrl: testEnv.publicAppUrl,
     storage,
     localFileServe: opts.withStorage ? { secret: SECRET, baseDir: storageDir } : null,

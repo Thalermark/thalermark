@@ -8,7 +8,7 @@ import { createApp } from '../src/app.js';
 import type { Env } from '../src/env.js';
 import { createApiAuth } from '../src/lib/auth.js';
 import { createApiDatabase } from '../src/lib/db.js';
-import { resetDb } from './test-helper.js';
+import { appDatabaseUrl, getTestDb, resetDb } from './test-helper.js';
 
 // Address autocomplete (GET /api/locations/autocomplete) — the route the mobile
 // customer form uses (web has its own SvelteKit proxy). Exercises the happy path
@@ -83,11 +83,12 @@ const throwingProvider: AddressAutocompleteProvider = {
 function buildApp(opts: { addressProvider?: AddressAutocompleteProvider | null } = {}) {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL not set');
-  const handle = createApiDatabase(url);
-  const auth = createApiAuth(handle.db, { ...testEnv, databaseUrl: url });
+  const handle = createApiDatabase(appDatabaseUrl());
+  const auth = createApiAuth(getTestDb(), { ...testEnv, databaseUrl: url });
   const app = createApp({
     auth,
     db: handle.db,
+    bootstrapDb: getTestDb(),
     publicAppUrl: testEnv.publicAppUrl,
     addressProvider: opts.addressProvider === undefined ? okProvider() : opts.addressProvider,
   });

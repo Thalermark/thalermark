@@ -6,7 +6,7 @@ import { createApp } from '../src/app.js';
 import type { Env } from '../src/env.js';
 import { createApiAuth } from '../src/lib/auth.js';
 import { createApiDatabase } from '../src/lib/db.js';
-import { getTestDb, resetDb } from './test-helper.js';
+import { appDatabaseUrl, getTestDb, resetDb } from './test-helper.js';
 
 // Text expense categorization. Exercises POST /api/expenses/categorize against a
 // stub categorizer (no live model): success path + code→account-id resolution,
@@ -65,11 +65,12 @@ const throwingCategorizer: ExpenseCategorizer = {
 function buildApp(opts: { categorizer?: ExpenseCategorizer | null } = {}) {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL not set');
-  const handle = createApiDatabase(url);
-  const auth = createApiAuth(handle.db, { ...testEnv, databaseUrl: url });
+  const handle = createApiDatabase(appDatabaseUrl());
+  const auth = createApiAuth(getTestDb(), { ...testEnv, databaseUrl: url });
   const app = createApp({
     auth,
     db: handle.db,
+    bootstrapDb: getTestDb(),
     publicAppUrl: testEnv.publicAppUrl,
     categorizer: opts.categorizer === undefined ? okCategorizer() : opts.categorizer,
   });
