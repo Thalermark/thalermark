@@ -1,4 +1,4 @@
-import type { CustomerStatement } from './customer-statement.js';
+import type { CustomerStatement, StatementLine } from './customer-statement.js';
 import { escapeHtml } from './html.js';
 import type { Mailer } from './mailer.js';
 import { formatSender } from './sender.js';
@@ -28,50 +28,45 @@ export function buildStatementEmail(input: StatementEmailInput): {
   const greeting = `Hi ${statement.customer.name},`;
   const subject = `Statement from ${companyName} — balance due ${money(statement.balanceDue)}`;
 
+  const sign = (l: StatementLine) =>
+    l.charge ? `+${money(l.charge)}` : l.payment ? `-${money(l.payment)}` : '';
   const textLines = statement.lines.map(
-    (l) =>
-      `${l.date}  ${l.description}  ` +
-      `${l.charge ? `+${money(l.charge)}` : l.payment ? `-${money(l.payment)}` : ''}  ` +
-      `(${money(l.balance)})`,
+    (l) => `${l.date}  ${l.description}  ${sign(l)}  (${money(l.balance)})`,
   );
-  const text =
-    `${greeting}\n\n` +
-    `Here's your account statement from ${companyName} as of ${statement.statementDate}.\n\n` +
-    (textLines.length ? `${textLines.join('\n')}\n\n` : 'No invoices on file.\n\n') +
-    `Total invoiced: ${money(statement.totalCharges)}\n` +
-    `Total paid: ${money(statement.totalPayments)}\n` +
-    `Balance due: ${money(statement.balanceDue)}\n\n` +
-    `— ${companyName}`;
+  const text = [
+    `${greeting}`,
+    '',
+    `Here's your account statement from ${companyName} as of ${statement.statementDate}.`,
+    '',
+    ...(textLines.length ? textLines : ['No invoices on file.']),
+    '',
+    `Total invoiced: ${money(statement.totalCharges)}`,
+    `Total paid: ${money(statement.totalPayments)}`,
+    `Balance due: ${money(statement.balanceDue)}`,
+    '',
+    `— ${companyName}`,
+  ].join('\n');
 
+  const cell = (v: string, right = false) =>
+    `<td style="padding:4px 8px;${right ? 'text-align:right;' : ''}">${v}</td>`;
   const rows = statement.lines
     .map(
       (l) =>
-        `<tr>` +
-        `<td style="padding:4px 8px;">${escapeHtml(l.date)}</td>` +
-        `<td style="padding:4px 8px;">${escapeHtml(l.description)}</td>` +
-        `<td style="padding:4px 8px;text-align:right;">${l.charge ? escapeHtml(money(l.charge)) : ''}</td>` +
-        `<td style="padding:4px 8px;text-align:right;">${l.payment ? escapeHtml(money(l.payment)) : ''}</td>` +
-        `<td style="padding:4px 8px;text-align:right;">${escapeHtml(money(l.balance))}</td>` +
-        `</tr>`,
+        `<tr>${cell(escapeHtml(l.date))}${cell(escapeHtml(l.description))}${cell(l.charge ? escapeHtml(money(l.charge)) : '', true)}${cell(l.payment ? escapeHtml(money(l.payment)) : '', true)}${cell(escapeHtml(money(l.balance)), true)}</tr>`,
     )
     .join('');
+  const head =
+    '<thead><tr style="text-align:left;border-bottom:1px solid #ccc;"><th style="padding:4px 8px;">Date</th><th style="padding:4px 8px;">Description</th><th style="padding:4px 8px;text-align:right;">Charge</th><th style="padding:4px 8px;text-align:right;">Payment</th><th style="padding:4px 8px;text-align:right;">Balance</th></tr></thead>';
   const table = statement.lines.length
-    ? `<table style="border-collapse:collapse;width:100%;font-size:14px;">` +
-      `<thead><tr style="text-align:left;border-bottom:1px solid #ccc;">` +
-      `<th style="padding:4px 8px;">Date</th><th style="padding:4px 8px;">Description</th>` +
-      `<th style="padding:4px 8px;text-align:right;">Charge</th>` +
-      `<th style="padding:4px 8px;text-align:right;">Payment</th>` +
-      `<th style="padding:4px 8px;text-align:right;">Balance</th>` +
-      `</tr></thead><tbody>${rows}</tbody></table>`
-    : `<p>No invoices on file.</p>`;
-  const html =
-    `<p>${escapeHtml(greeting)}</p>` +
-    `<p>Here's your account statement from <strong>${escapeHtml(companyName)}</strong> as of ${escapeHtml(statement.statementDate)}.</p>` +
-    table +
-    `<p style="margin-top:16px;">Total invoiced: ${escapeHtml(money(statement.totalCharges))}<br>` +
-    `Total paid: ${escapeHtml(money(statement.totalPayments))}<br>` +
-    `<strong>Balance due: ${escapeHtml(money(statement.balanceDue))}</strong></p>` +
-    `<p>— ${escapeHtml(companyName)}</p>`;
+    ? `<table style="border-collapse:collapse;width:100%;font-size:14px;">${head}<tbody>${rows}</tbody></table>`
+    : '<p>No invoices on file.</p>';
+  const html = [
+    `<p>${escapeHtml(greeting)}</p>`,
+    `<p>Here's your account statement from <strong>${escapeHtml(companyName)}</strong> as of ${escapeHtml(statement.statementDate)}.</p>`,
+    table,
+    `<p style="margin-top:16px;">Total invoiced: ${escapeHtml(money(statement.totalCharges))}<br>Total paid: ${escapeHtml(money(statement.totalPayments))}<br><strong>Balance due: ${escapeHtml(money(statement.balanceDue))}</strong></p>`,
+    `<p>— ${escapeHtml(companyName)}</p>`,
+  ].join('');
 
   return { subject, text, html };
 }
