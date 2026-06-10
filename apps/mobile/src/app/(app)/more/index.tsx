@@ -21,7 +21,7 @@ type Entry = {
     | '/more/switch-account'
     | '/more/activity'
     | '/more/items'
-    | '/more/top-products'
+    | '/more/reports'
     | '/more/business'
     | '/more/payments'
     | '/more/email';
@@ -74,10 +74,10 @@ const CATALOG_ENTRIES: Entry[] = [
     subtitle: 'A reusable catalog you can pull into any invoice or estimate.',
   },
   {
-    href: '/more/top-products',
+    href: '/more/reports',
     icon: 'bar-chart-outline',
-    title: 'Top products',
-    subtitle: 'Which catalog items bring in the most revenue.',
+    title: 'Reports',
+    subtitle: 'Profit & loss, A/R aging, sales, tax, top products, and more.',
   },
 ];
 
