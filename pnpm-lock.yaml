@@ -49,6 +49,9 @@ importers:
       '@thalermark/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@thalermark/location':
+        specifier: workspace:*
+        version: link:../../packages/location
       '@thalermark/logger':
         specifier: workspace:*
         version: link:../../packages/logger

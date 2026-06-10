@@ -22,6 +22,7 @@
     "@thalermark/ai": "workspace:*",
     "@thalermark/auth": "workspace:*",
     "@thalermark/db": "workspace:*",
+    "@thalermark/location": "workspace:*",
     "@thalermark/logger": "workspace:*",
     "@thalermark/storage": "workspace:*",
     "@thalermark/telemetry": "workspace:*",

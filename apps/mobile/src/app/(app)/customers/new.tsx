@@ -12,6 +12,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { AddressField, type AddressSuggestion } from '../../../components/AddressField';
 import { api } from '../../../lib/api';
 import { type DupeCandidate, findEmailDupe, findNameDupes } from '../../../lib/customer-dupes';
 
@@ -94,6 +95,19 @@ export default function NewCustomer() {
   );
 
   const set = (key: FieldKey, val: string) => setValues((v) => ({ ...v, [key]: val }));
+
+  // Picking an address suggestion rewrites Street + fans the rest into the
+  // sibling city / region / postalCode / country fields (a programmatic write,
+  // so it doesn't re-trigger the type-ahead).
+  const applyAddress = (s: AddressSuggestion) =>
+    setValues((v) => ({
+      ...v,
+      addressLine1: s.addressLine1,
+      city: s.city,
+      region: s.region,
+      postalCode: s.postalCode,
+      country: s.country,
+    }));
 
   const emailDupe = useMemo(
     () => findEmailDupe(values.email, customers),
@@ -232,10 +246,11 @@ export default function NewCustomer() {
               onChangeText={(t) => set('phone', t)}
               keyboardType="phone-pad"
             />
-            <Field
-              label="Street"
+            <AddressField
               value={values.addressLine1}
               onChangeText={(t) => set('addressLine1', t)}
+              onPick={applyAddress}
+              country={values.country}
             />
             <Field
               label="Suite, unit, etc."
