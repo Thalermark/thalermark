@@ -123,7 +123,7 @@ describe('address autocomplete', () => {
       const body = (await res.json()) as { suggestions: AddressSuggestion[]; degraded: boolean };
       expect(body.degraded).toBe(false);
       expect(body.suggestions).toHaveLength(1);
-      expect(body.suggestions[0].addressLine1).toBe('123 Main St');
+      expect(body.suggestions[0]?.addressLine1).toBe('123 Main St');
       // q is trimmed/passed through; country is upper-cased to the ISO bias.
       expect(lastQuery?.q).toBe('123 Main');
       expect(lastQuery?.country).toBe('US');

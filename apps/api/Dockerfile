@@ -35,6 +35,7 @@ COPY apps/api/package.json apps/api/
 COPY packages/ai/package.json packages/ai/
 COPY packages/auth/package.json packages/auth/
 COPY packages/db/package.json packages/db/
+COPY packages/location/package.json packages/location/
 COPY packages/logger/package.json packages/logger/
 COPY packages/storage/package.json packages/storage/
 COPY packages/telemetry/package.json packages/telemetry/
