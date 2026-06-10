@@ -1,0 +1,145 @@
+import { type Database, type Transaction, companies, customers, invoices } from '@thalermark/db';
+import { and, eq, inArray } from 'drizzle-orm';
+
+// Customer statement builder, shared by GET /api/customers/:id/statement and
+// the email-send route so the on-screen / printed / emailed statement are the
+// same data. The customer's issued invoices (status sent or paid; drafts are
+// unbilled, voided excluded) become a chronological charge/payment ledger with
+// a running balance; the closing balance equals the customer's outstanding AR.
+
+export type StatementLine = {
+  date: string;
+  description: string;
+  charge: string | null;
+  payment: string | null;
+  balance: string;
+};
+
+export type CustomerStatement = {
+  statementDate: string;
+  company: { name: string; businessAddress: string | null; businessPhone: string | null };
+  customer: {
+    id: string;
+    name: string;
+    email: string | null;
+    phone: string | null;
+    addressLine1: string | null;
+    addressLine2: string | null;
+    city: string | null;
+    region: string | null;
+    postalCode: string | null;
+    country: string | null;
+  };
+  lines: StatementLine[];
+  totalCharges: string;
+  totalPayments: string;
+  balanceDue: string;
+};
+
+export async function buildCustomerStatement(
+  tx: Database | Transaction,
+  accountId: string,
+  customerId: string,
+): Promise<CustomerStatement | null> {
+  const [customer] = await tx
+    .select()
+    .from(customers)
+    .where(and(eq(customers.id, customerId), eq(customers.accountId, accountId)))
+    .limit(1);
+  if (!customer) return null;
+
+  const [company] = await tx
+    .select({
+      name: companies.name,
+      businessAddress: companies.businessAddress,
+      businessPhone: companies.businessPhone,
+    })
+    .from(companies)
+    .where(and(eq(companies.id, customer.companyId), eq(companies.accountId, accountId)))
+    .limit(1);
+
+  const invs = await tx
+    .select({
+      number: invoices.number,
+      issueDate: invoices.issueDate,
+      total: invoices.total,
+      paidAt: invoices.paidAt,
+    })
+    .from(invoices)
+    .where(
+      and(
+        eq(invoices.accountId, accountId),
+        eq(invoices.customerId, customerId),
+        inArray(invoices.status, ['sent', 'paid']),
+      ),
+    );
+
+  // sort: charge before its payment on the same date.
+  type Entry = StatementLine & { sort: number };
+  const entries: (Omit<Entry, 'balance'> & { sort: number })[] = [];
+  for (const inv of invs) {
+    entries.push({
+      date: inv.issueDate,
+      description: `Invoice ${inv.number}`,
+      charge: inv.total,
+      payment: null,
+      sort: 0,
+    });
+    if (inv.paidAt) {
+      entries.push({
+        date: inv.paidAt.toISOString().slice(0, 10),
+        description: `Payment received — ${inv.number}`,
+        charge: null,
+        payment: inv.total,
+        sort: 1,
+      });
+    }
+  }
+  entries.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.sort - b.sort));
+
+  let running = 0;
+  let totalCharges = 0;
+  let totalPayments = 0;
+  const lines: StatementLine[] = entries.map((e) => {
+    if (e.charge) {
+      running += Number(e.charge);
+      totalCharges += Number(e.charge);
+    }
+    if (e.payment) {
+      running -= Number(e.payment);
+      totalPayments += Number(e.payment);
+    }
+    return {
+      date: e.date,
+      description: e.description,
+      charge: e.charge,
+      payment: e.payment,
+      balance: running.toFixed(2),
+    };
+  });
+
+  return {
+    statementDate: new Date().toISOString().slice(0, 10),
+    company: {
+      name: company?.name ?? '',
+      businessAddress: company?.businessAddress ?? null,
+      businessPhone: company?.businessPhone ?? null,
+    },
+    customer: {
+      id: customer.id,
+      name: customer.name,
+      email: customer.email,
+      phone: customer.phone,
+      addressLine1: customer.addressLine1,
+      addressLine2: customer.addressLine2,
+      city: customer.city,
+      region: customer.region,
+      postalCode: customer.postalCode,
+      country: customer.country,
+    },
+    lines,
+    totalCharges: totalCharges.toFixed(2),
+    totalPayments: totalPayments.toFixed(2),
+    balanceDue: running.toFixed(2),
+  };
+}

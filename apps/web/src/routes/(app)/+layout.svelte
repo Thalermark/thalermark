@@ -7,7 +7,7 @@
   const session = $derived(page.data.session);
 </script>
 
-<header class="border-b border-ink/10 bg-cream">
+<header class="border-b border-ink/10 bg-cream print:hidden">
   <div class="mx-auto flex max-w-5xl items-center justify-between gap-6 px-6 py-6">
     <a href="/" class="wordmark wordmark-small text-ink" aria-label="Thalermark home">
       <span class="strike"></span>

@@ -56,12 +56,20 @@
   <h1 class="font-serif text-4xl font-light leading-none tracking-tight text-ink">
     {c.name}<span class="text-gold-deep">.</span>
   </h1>
-  <a
-    href="/customers/{c.id}/edit"
-    class="rounded-sm border border-ink/20 px-3 py-1 font-mono text-xs uppercase tracking-widest text-ink/70 hover:border-gold-deep hover:text-gold-deep"
-  >
-    Edit
-  </a>
+  <div class="flex items-center gap-2">
+    <a
+      href="/customers/{c.id}/statement"
+      class="rounded-sm border border-ink/20 px-3 py-1 font-mono text-xs uppercase tracking-widest text-ink/70 hover:border-gold-deep hover:text-gold-deep"
+    >
+      Statement
+    </a>
+    <a
+      href="/customers/{c.id}/edit"
+      class="rounded-sm border border-ink/20 px-3 py-1 font-mono text-xs uppercase tracking-widest text-ink/70 hover:border-gold-deep hover:text-gold-deep"
+    >
+      Edit
+    </a>
+  </div>
 </div>
 
 <dl class="mt-8 grid grid-cols-1 gap-x-12 gap-y-6 sm:grid-cols-2">
