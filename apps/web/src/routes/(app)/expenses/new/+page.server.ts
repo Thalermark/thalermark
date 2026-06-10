@@ -21,7 +21,7 @@ export const load: PageServerLoad = async (event) => {
   if (!companiesRes.ok) throw error(companiesRes.status, 'failed to load companies');
   const { companies } = await companiesRes.json();
   const company = companies[0];
-  if (!company) throw error(500, 'no company on this account');
+  if (!company) throw error(500, 'no company in this workspace');
 
   const [expenseRes, assetRes] = await Promise.all([
     client.api.companies[':id'].accounts.$get({
@@ -104,7 +104,7 @@ function formErrorFor(code: string): string {
     case 'invalid_payment_account':
       return 'That payment account is no longer valid. Pick another.';
     case 'company_not_found':
-      return 'No company on this account.';
+      return 'No company in this workspace.';
     default:
       return code;
   }
@@ -147,7 +147,7 @@ export const actions: Actions = {
     const companiesRes = await client.api.companies.$get();
     if (!companiesRes.ok) throw error(companiesRes.status, 'failed to load companies');
     const companyId = (await companiesRes.json()).companies[0]?.id;
-    if (!companyId) return fail(400, { values, formError: 'No company on this account.' });
+    if (!companyId) return fail(400, { values, formError: 'No company in this workspace.' });
 
     const res = await client.api.expenses.categorize.$post({
       json: {
@@ -184,7 +184,7 @@ export const actions: Actions = {
     if (!companiesRes.ok) throw error(companiesRes.status, 'failed to load companies');
     const { companies } = await companiesRes.json();
     const companyId = companies[0]?.id;
-    if (!companyId) return fail(400, { values, formError: 'No company on this account.' });
+    if (!companyId) return fail(400, { values, formError: 'No company in this workspace.' });
 
     const parsed = expenseCreateSchema.safeParse({
       companyId,

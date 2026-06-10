@@ -821,8 +821,8 @@ export function createApp(deps: AppDeps) {
           await deps.mailer.send({
             to: email,
             subject: 'You have been invited to Thalermark',
-            text: `You have been invited to join an account on Thalermark.\n\nAccept the invitation: ${url}\n\nThe link expires in 7 days.\n`,
-            html: `<p>You have been invited to join an account on Thalermark.</p><p><a href="${escapeHtml(url)}">Accept invitation</a></p><p>The link expires in 7 days.</p>`,
+            text: `You have been invited to join a workspace on Thalermark.\n\nAccept the invitation: ${url}\n\nThe link expires in 7 days.\n`,
+            html: `<p>You have been invited to join a workspace on Thalermark.</p><p><a href="${escapeHtml(url)}">Accept invitation</a></p><p>The link expires in 7 days.</p>`,
           });
         } catch {
           return c.json({ error: 'mailer_send_failed' }, 502);

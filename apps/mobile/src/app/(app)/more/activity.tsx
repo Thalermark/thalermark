@@ -39,7 +39,7 @@ export default function Activity() {
 
         <Text className="mt-3 font-serif text-3xl font-light text-ink">Activity</Text>
         <Text className="mt-2 text-sm text-ink/60">
-          Recent changes across your account. Newest first.
+          Recent changes across your workspace. Newest first.
         </Text>
 
         {list.state === 'loading' ? (

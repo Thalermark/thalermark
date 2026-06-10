@@ -80,7 +80,7 @@
     {#if invite.inviterName}<span class="font-medium">{invite.inviterName}</span> invited you to join
     {:else}You've been invited to join{/if}
     <span class="font-medium">{invite.accountName}</span>. Set a password below to join their
-    organization.
+    workspace.
   </p>
 {:else if inviteStale}
   <p class="mt-4 rounded-sm border border-oxblood/30 bg-oxblood/5 px-4 py-3 text-sm text-oxblood">
@@ -128,7 +128,7 @@
     disabled={submitting}
     class="w-full rounded-sm bg-ink px-3 py-3 text-sm font-medium text-cream transition-colors hover:bg-gold-deep disabled:opacity-50"
   >
-    {invite ? 'Join organization' : COPY.signUp.submit}
+    {invite ? 'Join workspace' : COPY.signUp.submit}
   </button>
 </form>
 

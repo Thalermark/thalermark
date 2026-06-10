@@ -10,7 +10,7 @@ export const load: PageServerLoad = async (event) => {
 
   // MVP single-company path, same first-company pick as the other settings tabs.
   const company = companies[0];
-  if (!company) throw error(500, 'no company on this account');
+  if (!company) throw error(500, 'no company in this workspace');
 
   // Signed URL for the logo preview (same best-effort pattern as the expense
   // receipt). A 404 (no logo) or any failure simply renders the empty state.

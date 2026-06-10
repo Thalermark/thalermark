@@ -14,7 +14,7 @@ export const load: PageServerLoad = async (event) => {
   if (!companiesRes.ok) throw error(companiesRes.status, 'failed to load companies');
   const { companies } = await companiesRes.json();
   const company = companies[0];
-  if (!company) throw error(500, 'no company on this account');
+  if (!company) throw error(500, 'no company in this workspace');
 
   const params = event.url.searchParams;
   const from = params.get('from') ?? '';

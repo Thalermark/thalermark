@@ -46,7 +46,7 @@ async function reportContext(event: Parameters<typeof serverApiClient>[0]) {
   if (!companiesRes.ok) throw error(companiesRes.status, 'failed to load companies');
   const { companies } = await companiesRes.json();
   const company = companies[0];
-  if (!company) throw error(500, 'no company on this account');
+  if (!company) throw error(500, 'no company in this workspace');
 
   const presets = periodPresets();
   const ytd = presets.find((p) => p.key === 'ytd');
@@ -164,7 +164,7 @@ async function reportContextAsOf(event: Parameters<typeof serverApiClient>[0]) {
   if (!companiesRes.ok) throw error(companiesRes.status, 'failed to load companies');
   const { companies } = await companiesRes.json();
   const company = companies[0];
-  if (!company) throw error(500, 'no company on this account');
+  if (!company) throw error(500, 'no company in this workspace');
   const asOf = event.url.searchParams.get('asOf') || ymd(new Date());
   return { client, companyId: company.id, asOf };
 }

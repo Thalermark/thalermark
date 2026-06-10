@@ -53,7 +53,7 @@ export default function SelectCompany() {
     <SafeAreaView className="flex-1 bg-cream">
       <View className="flex-1 px-6 pt-12">
         <Text className="font-mono text-xs uppercase tracking-widest text-gold-deep">
-          {COPY.account}
+          {COPY.workspace}
         </Text>
         <Text className="mt-3 font-serif text-3xl font-light text-ink">
           {COPY.selectCompany.title}
@@ -65,7 +65,7 @@ export default function SelectCompany() {
           </View>
         ) : screen.state === 'empty' ? (
           <View className="mt-8 rounded-sm border border-oxblood/30 bg-oxblood/5 p-5">
-            <Text className="font-medium text-oxblood">Your account isn't set up yet.</Text>
+            <Text className="font-medium text-oxblood">Your workspace isn't set up yet.</Text>
             <Text className="mt-2 text-sm text-ink/75">
               We couldn't find any companies linked to your sign-in. This usually means your sign-up
               didn't finish. Contact support or sign out and try again.

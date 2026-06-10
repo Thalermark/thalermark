@@ -55,15 +55,15 @@ const ACCOUNT_ENTRY: Entry = {
 const SWITCH_ENTRY: Entry = {
   href: '/more/switch-account',
   icon: 'swap-horizontal-outline',
-  title: 'Switch account',
-  subtitle: 'Move between the accounts you belong to.',
+  title: 'Switch workspace',
+  subtitle: 'Move between the workspaces you belong to.',
 };
 
 const ACTIVITY_ENTRY: Entry = {
   href: '/more/activity',
   icon: 'pulse-outline',
   title: 'Activity',
-  subtitle: 'Recent changes across your account.',
+  subtitle: 'Recent changes across your workspace.',
 };
 
 const CATALOG_ENTRIES: Entry[] = [
@@ -139,7 +139,7 @@ export default function MoreHub() {
         <Text className="mt-2 font-serif text-3xl font-light text-ink">{accountName ?? ' '}</Text>
 
         <Section label="Sales" entries={SALES_ENTRIES} onOpen={(href) => router.push(href)} />
-        <Section label="Account" entries={accountEntries} onOpen={(href) => router.push(href)} />
+        <Section label="Workspace" entries={accountEntries} onOpen={(href) => router.push(href)} />
         <Section
           label="Catalog & reports"
           entries={CATALOG_ENTRIES}

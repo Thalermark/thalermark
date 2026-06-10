@@ -56,10 +56,10 @@ export default function SwitchAccount() {
         <Pressable onPress={() => router.push('/more')}>
           <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">← More</Text>
         </Pressable>
-        <Text className="mt-3 font-serif text-3xl font-light text-ink">Switch account</Text>
+        <Text className="mt-3 font-serif text-3xl font-light text-ink">Switch workspace</Text>
         <Text className="mt-3 text-sm text-ink/60">
-          Pick which account to work in. Everything — invoices, customers, the dashboard — re-scopes
-          to your choice.
+          Pick which workspace to work in. Everything — invoices, customers, the dashboard —
+          re-scopes to your choice.
         </Text>
 
         {screen.state === 'loading' ? (
@@ -67,7 +67,7 @@ export default function SwitchAccount() {
             <ActivityIndicator color="#0f1626" />
           </View>
         ) : screen.state === 'error' ? (
-          <Text className="mt-8 text-sm text-oxblood">Couldn't load your accounts.</Text>
+          <Text className="mt-8 text-sm text-oxblood">Couldn't load your workspaces.</Text>
         ) : (
           <View className="mt-8 overflow-hidden rounded-sm border border-ink/10 bg-cream-warm">
             {screen.memberships.map((m, i) => {

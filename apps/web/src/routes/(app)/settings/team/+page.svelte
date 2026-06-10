@@ -14,7 +14,7 @@
   Team<span class="text-gold-deep">.</span>
 </h1>
 <p class="mt-3 text-sm text-ink/60">
-  Everyone here shares full access to this account. Invite a teammate by email — they'll get a link
+  Everyone here shares full access to this workspace. Invite a teammate by email — they'll get a link
   to join.
 </p>
 

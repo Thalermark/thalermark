@@ -238,7 +238,7 @@ export default function NewExpense() {
             <Field label="Memo" value={memo} onChangeText={setMemo} />
 
             {noCompany ? (
-              <Text className="text-xs text-oxblood">No company on this account.</Text>
+              <Text className="text-xs text-oxblood">No company in this workspace.</Text>
             ) : null}
 
             <Pressable

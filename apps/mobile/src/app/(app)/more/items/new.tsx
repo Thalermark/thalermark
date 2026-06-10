@@ -60,7 +60,7 @@ export default function NewItem() {
 
   async function onSubmit() {
     if (!companyId) {
-      setFormError('No company on this account.');
+      setFormError('No company in this workspace.');
       return;
     }
     setFormError(null);
@@ -109,7 +109,7 @@ export default function NewItem() {
       values={values}
       onChange={set}
       fieldErrors={fieldErrors}
-      formError={noCompany ? 'No company on this account.' : formError}
+      formError={noCompany ? 'No company in this workspace.' : formError}
       submitting={submitting}
       canSubmit={canSubmit}
       onSubmit={onSubmit}
