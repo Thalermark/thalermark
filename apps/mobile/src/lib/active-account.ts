@@ -16,11 +16,18 @@ export type Membership = { accountId: string; name: string };
 export type ActiveAccountResult =
   | { status: 'ok'; accountId: string }
   | { status: 'select'; memberships: Membership[] }
-  | { status: 'none' };
+  | { status: 'none' }
+  | { status: 'error' };
 
 export async function resolveActiveAccount(): Promise<ActiveAccountResult> {
-  const res = await api.api.me.$get();
-  if (!res.ok) return { status: 'none' };
+  const res = await api.api.me.$get().catch(() => null);
+  // null = network error; 401 = session gone (the gate already checked the
+  // session, so this is a rare race) → fall to the picker. Any other non-OK
+  // (a 5xx — e.g. the DB is a migration behind) is a SERVER fault: surface it
+  // as 'error' rather than masquerading as the "workspace isn't set up" state.
+  if (!res) return { status: 'error' };
+  if (res.status === 401) return { status: 'none' };
+  if (!res.ok) return { status: 'error' };
   const { memberships } = await res.json();
 
   // 0 memberships: sign-up never finished wiring an account. Web sends these
