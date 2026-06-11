@@ -73,7 +73,11 @@ export function createAuth(db: Database, options: CreateAuthOptions) {
               // address). Multiple invites → join each. Mark them accepted so
               // they don't linger as pending on the inviter's team page.
               const pending = await tx
-                .select({ id: invitations.id, accountId: invitations.accountId })
+                .select({
+                  id: invitations.id,
+                  accountId: invitations.accountId,
+                  role: invitations.role,
+                })
                 .from(invitations)
                 .where(
                   and(
@@ -88,7 +92,12 @@ export function createAuth(db: Database, options: CreateAuthOptions) {
                 for (const inv of pending) {
                   await tx
                     .insert(memberships)
-                    .values({ id: uuidv7(), userId: user.id, accountId: inv.accountId })
+                    .values({
+                      id: uuidv7(),
+                      userId: user.id,
+                      accountId: inv.accountId,
+                      role: inv.role,
+                    })
                     .onConflictDoNothing({ target: [memberships.userId, memberships.accountId] });
                   await tx
                     .update(invitations)

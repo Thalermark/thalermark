@@ -766,9 +766,13 @@ describe('DELETE /api/team/:userId (remove + leave)', () => {
     }
   });
 
-  it('refuses to remove the owner (403)', async () => {
+  it('a member cannot remove another member — including the owner (403 forbidden)', async () => {
     const { app, handle } = buildApp();
     try {
+      // newhire is a 'member' (no team:manage), so removing anyone but
+      // themselves is gated before owner-protection is even reached. The
+      // owner-protection invariant for a privileged actor is covered in
+      // roles-authz.integration.test.ts.
       const { ownerId, newhireCookie, accountId } = await twoMemberAccount(app);
       const res = await app.request(`/api/team/${ownerId}`, {
         method: 'DELETE',
@@ -776,7 +780,7 @@ describe('DELETE /api/team/:userId (remove + leave)', () => {
       });
       expect(res.status).toBe(403);
       const body = (await res.json()) as { error: string };
-      expect(body.error).toBe('cannot_remove_owner');
+      expect(body.error).toBe('forbidden');
     } finally {
       await handle.close();
     }
