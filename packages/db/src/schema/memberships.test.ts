@@ -120,6 +120,30 @@ describe('memberships', () => {
     expect(row?.role).toBe('member');
   });
 
+  it('accepts each of the five roles', async () => {
+    const db = getTestDb();
+    const accountId = uuidv7();
+    await db.insert(accounts).values({ id: accountId, name: 'All Roles' });
+
+    // owner is capped at one per account by the partial unique index, so put it
+    // in its own account; the other four share this one.
+    const ownerAccountId = uuidv7();
+    await db.insert(accounts).values({ id: ownerAccountId, name: 'Owner Role' });
+    const ownerUserId = uuidv7();
+    await db.insert(authUser).values({ id: ownerUserId, email: 'owner-role@example.com' });
+    await db
+      .insert(memberships)
+      .values({ id: uuidv7(), userId: ownerUserId, accountId: ownerAccountId, role: 'owner' });
+
+    for (const role of ['admin', 'member', 'accountant', 'viewer'] as const) {
+      const userId = uuidv7();
+      await db.insert(authUser).values({ id: userId, email: `${role}@example.com` });
+      await db.insert(memberships).values({ id: uuidv7(), userId, accountId, role });
+      const [row] = await db.select().from(memberships).where(eq(memberships.userId, userId));
+      expect(row?.role).toBe(role);
+    }
+  });
+
   it('rejects an unknown role (CHECK constraint)', async () => {
     const db = getTestDb();
     const userId = uuidv7();
@@ -130,10 +154,11 @@ describe('memberships', () => {
 
     await expect(
       // role is free text at the type level; the CHECK constraint is the runtime
-      // guard that rejects anything outside ('owner','member').
+      // guard that rejects anything outside
+      // ('owner','admin','member','accountant','viewer').
       db
         .insert(memberships)
-        .values({ id: uuidv7(), userId, accountId, role: 'admin' }),
+        .values({ id: uuidv7(), userId, accountId, role: 'superuser' }),
     ).rejects.toThrow();
   });
 

@@ -6,3 +6,4 @@ export * from './invoice.js';
 export * from './item.js';
 export * from './money.js';
 export * from './recurring-invoice.js';
+export * from './roles.js';

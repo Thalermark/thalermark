@@ -1,4 +1,5 @@
-import { index, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import { check, index, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { accounts } from './accounts.js';
 import { authUser } from './auth.js';
 
@@ -16,6 +17,10 @@ export const invitations = pgTable(
       .notNull()
       .references(() => accounts.id, { onDelete: 'cascade' }),
     email: text('email').notNull(),
+    // The workspace role the invitee receives on accept (carried to the
+    // memberships row in both the accept handler and the invited-signup hook).
+    // Owner is excluded — you become owner only via the transfer-ownership flow.
+    role: text('role').notNull().default('member'),
     token: text('token').notNull().unique(),
     invitedByUserId: uuid('invited_by_user_id')
       .notNull()
@@ -36,6 +41,10 @@ export const invitations = pgTable(
   (table) => ({
     accountIdIdx: index('invitations_account_id_idx').on(table.accountId),
     emailIdx: index('invitations_email_idx').on(table.email),
+    roleCheck: check(
+      'invitations_role_check',
+      sql`role in ('admin', 'member', 'accountant', 'viewer')`,
+    ),
   }),
 );
 

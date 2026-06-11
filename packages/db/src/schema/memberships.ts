@@ -13,13 +13,15 @@ export const memberships = pgTable(
     accountId: uuid('account_id')
       .notNull()
       .references(() => accounts.id, { onDelete: 'cascade' }),
-    // 'owner' = the workspace creator, who is PROTECTED: an owner cannot be
-    // removed by anyone else and cannot leave (leaving would orphan the
-    // workspace). 'member' = everyone else (invited teammates), who can be
-    // removed and can leave. MVP grants both roles the same access — the role
-    // only drives the owner-protection guards today; v1.1 extends the CHECK
-    // below with granular roles (admin/accountant/viewer). The partial unique
-    // index caps it at one owner per account. account (code) == Workspace (UI).
+    // Authorization role within the workspace (see packages/validation roles.ts
+    // for the capability matrix). 'owner' = the workspace creator, PROTECTED:
+    // cannot be removed or leave (that would orphan the workspace) and is
+    // reachable only via the transfer-ownership flow. The other four
+    // (admin/member/accountant/viewer) are assignable by invite or role change.
+    // Roles are enforced in the app layer (the rls-context probe loads this into
+    // request context, then `requireCapability` gates mutating routes); RLS stays
+    // isolation-only. The partial unique index caps it at one owner per account.
+    // account (code) == Workspace (UI).
     role: text('role').notNull().default('member'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -33,7 +35,10 @@ export const memberships = pgTable(
     oneOwnerPerAccount: uniqueIndex('memberships_one_owner_per_account')
       .on(table.accountId)
       .where(sql`role = 'owner'`),
-    roleCheck: check('memberships_role_check', sql`role in ('owner', 'member')`),
+    roleCheck: check(
+      'memberships_role_check',
+      sql`role in ('owner', 'admin', 'member', 'accountant', 'viewer')`,
+    ),
   }),
 );
 

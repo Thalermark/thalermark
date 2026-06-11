@@ -62,6 +62,62 @@ describe('invitations', () => {
     ).rejects.toThrow();
   });
 
+  it('defaults role to member and accepts the four invitable roles', async () => {
+    const db = getTestDb();
+    const accountId = uuidv7();
+    const inviterId = uuidv7();
+
+    await db.insert(accounts).values({ id: accountId, name: 'Acme' });
+    await db.insert(authUser).values({ id: inviterId, email: 'inviter@example.com' });
+
+    const defaultId = uuidv7();
+    await db.insert(invitations).values({
+      id: defaultId,
+      accountId,
+      email: 'default@example.com',
+      token: 'tok-default',
+      invitedByUserId: inviterId,
+      expiresAt: new Date(Date.now() + HOUR),
+    });
+    const [row] = await db.select().from(invitations).where(eq(invitations.id, defaultId));
+    expect(row?.role).toBe('member');
+
+    for (const role of ['admin', 'member', 'accountant', 'viewer'] as const) {
+      await db.insert(invitations).values({
+        id: uuidv7(),
+        accountId,
+        email: `${role}@example.com`,
+        role,
+        token: `tok-${role}`,
+        invitedByUserId: inviterId,
+        expiresAt: new Date(Date.now() + HOUR),
+      });
+    }
+  });
+
+  it('rejects owner and unknown roles (CHECK constraint)', async () => {
+    const db = getTestDb();
+    const accountId = uuidv7();
+    const inviterId = uuidv7();
+
+    await db.insert(accounts).values({ id: accountId, name: 'Acme' });
+    await db.insert(authUser).values({ id: inviterId, email: 'inviter@example.com' });
+
+    for (const role of ['owner', 'superuser']) {
+      await expect(
+        db.insert(invitations).values({
+          id: uuidv7(),
+          accountId,
+          email: 'bad@example.com',
+          role,
+          token: `tok-${role}`,
+          invitedByUserId: inviterId,
+          expiresAt: new Date(Date.now() + HOUR),
+        }),
+      ).rejects.toThrow();
+    }
+  });
+
   it('cascades delete from accounts → invitations', async () => {
     const db = getTestDb();
     const accountId = uuidv7();
