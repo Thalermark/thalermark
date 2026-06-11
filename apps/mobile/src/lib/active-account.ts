@@ -1,3 +1,4 @@
+import type { Role } from '@thalermark/validation';
 import { api } from './api';
 import { getActiveAccountId, setActiveAccountId } from './secure-store';
 
@@ -11,10 +12,14 @@ import { getActiveAccountId, setActiveAccountId } from './secure-store';
 // tenant context (no `x-account-id` needed), and is the source of truth for
 // which accounts the user may pick.
 
-export type Membership = { accountId: string; name: string };
+// role crosses the wire as a plain string (a Drizzle text column with a CHECK);
+// it's narrowed to Role at the boundary below, where the active result is built.
+export type Membership = { accountId: string; name: string; role: string };
 
 export type ActiveAccountResult =
-  | { status: 'ok'; accountId: string }
+  // role is the active membership's role — carried so the (app) gate can hand it
+  // to RoleProvider for UX capability gating (the API stays authoritative).
+  | { status: 'ok'; accountId: string; role: Role }
   | { status: 'select'; memberships: Membership[] }
   | { status: 'none' }
   | { status: 'error' };
@@ -39,14 +44,15 @@ export async function resolveActiveAccount(): Promise<ActiveAccountResult> {
     const only = memberships[0];
     if (!only) return { status: 'none' };
     await setActiveAccountId(only.accountId);
-    return { status: 'ok', accountId: only.accountId };
+    return { status: 'ok', accountId: only.accountId, role: only.role as Role };
   }
 
   // Several: honor a previously stored choice if it's still a valid membership,
   // otherwise make the user pick.
   const stored = await getActiveAccountId();
-  if (stored && memberships.some((m) => m.accountId === stored)) {
-    return { status: 'ok', accountId: stored };
+  const active = stored ? memberships.find((m) => m.accountId === stored) : undefined;
+  if (active) {
+    return { status: 'ok', accountId: active.accountId, role: active.role as Role };
   }
   return { status: 'select', memberships };
 }

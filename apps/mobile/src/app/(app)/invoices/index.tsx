@@ -9,6 +9,7 @@ import {
 import { DateField } from '../../../components/DateField';
 import { FilterChips } from '../../../components/FilterChips';
 import { api } from '../../../lib/api';
+import { useMay } from '../../../lib/role';
 import { pageQuery, usePaginatedList } from '../../../lib/use-paginated-list';
 
 // Mirror of apps/web's /invoices list. customerName is LEFT JOINed by the API
@@ -39,6 +40,7 @@ const STATUS_OPTIONS = [
 
 export default function InvoicesList() {
   const router = useRouter();
+  const canCreate = useMay('sales:write');
 
   const [q, setQ] = useState('');
   const [appliedQ, setAppliedQ] = useState('');
@@ -97,12 +99,14 @@ export default function InvoicesList() {
           </Text>
           <Text className="mt-2 font-serif text-3xl font-light text-ink">All invoices</Text>
         </View>
-        <Pressable
-          onPress={() => router.push('/invoices/new')}
-          className="rounded-sm bg-ink px-4 py-2 active:bg-gold-deep"
-        >
-          <Text className="text-sm font-medium text-cream">+ New</Text>
-        </Pressable>
+        {canCreate ? (
+          <Pressable
+            onPress={() => router.push('/invoices/new')}
+            className="rounded-sm bg-ink px-4 py-2 active:bg-gold-deep"
+          >
+            <Text className="text-sm font-medium text-cream">+ New</Text>
+          </Pressable>
+        ) : null}
       </View>
 
       <Pressable

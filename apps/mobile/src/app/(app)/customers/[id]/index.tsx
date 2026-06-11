@@ -4,6 +4,7 @@ import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-nati
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { type AuditEvent, AuditHistory } from '../../../../components/AuditHistory';
 import { api } from '../../../../lib/api';
+import { useMay } from '../../../../lib/role';
 
 // Mirror of the basic-fields half of apps/web's /customers/[id], plus the
 // per-entity audit trail (M11e) and the late-payer "payment reliability"
@@ -131,6 +132,9 @@ export default function CustomerDetail() {
     }, [id]),
   );
 
+  // Role gate (UX only — the API is authoritative). Editing a customer is
+  // `customers:write`.
+  const canWrite = useMay('customers:write');
   const c = detail.state === 'ready' ? detail.customer : null;
   const reliabilityView = deriveReliability(reliability);
   const addressLines = c
@@ -162,14 +166,16 @@ export default function CustomerDetail() {
           <>
             <View className="mt-3 flex-row items-start justify-between gap-3">
               <Text className="flex-1 font-serif text-3xl font-light text-ink">{c.name}</Text>
-              <Pressable
-                onPress={() => router.push(`/customers/${id}/edit`)}
-                className="mt-1 rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep"
-              >
-                <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
-                  Edit
-                </Text>
-              </Pressable>
+              {canWrite ? (
+                <Pressable
+                  onPress={() => router.push(`/customers/${id}/edit`)}
+                  className="mt-1 rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep"
+                >
+                  <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
+                    Edit
+                  </Text>
+                </Pressable>
+              ) : null}
             </View>
             <View className="mt-8 space-y-6">
               {c.email ? <DetailRow label="Email" value={c.email} /> : null}

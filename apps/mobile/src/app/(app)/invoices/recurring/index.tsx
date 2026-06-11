@@ -3,6 +3,7 @@ import { useCallback } from 'react';
 import { ActivityIndicator, FlatList, Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from '../../../../lib/api';
+import { useMay } from '../../../../lib/role';
 import { pageQuery, usePaginatedList } from '../../../../lib/use-paginated-list';
 
 // Recurring schedules list. Lives in the invoices Stack (reached via the
@@ -27,6 +28,7 @@ function cadenceLabel(frequency: string, interval: number): string {
 
 export default function RecurringList() {
   const router = useRouter();
+  const canCreate = useMay('sales:write');
 
   const fetchPage = useCallback(async (cursor: string | null) => {
     const res = await api.api['recurring-invoices'].$get({ query: pageQuery(cursor) });
@@ -62,12 +64,14 @@ export default function RecurringList() {
         </Text>
         <View className="mt-2 flex-row items-end justify-between">
           <Text className="font-serif text-3xl font-light text-ink">Recurring</Text>
-          <Pressable
-            onPress={() => router.push('/invoices/recurring/new')}
-            className="rounded-sm bg-ink px-4 py-2 active:bg-gold-deep"
-          >
-            <Text className="text-sm font-medium text-cream">+ New</Text>
-          </Pressable>
+          {canCreate ? (
+            <Pressable
+              onPress={() => router.push('/invoices/recurring/new')}
+              className="rounded-sm bg-ink px-4 py-2 active:bg-gold-deep"
+            >
+              <Text className="text-sm font-medium text-cream">+ New</Text>
+            </Pressable>
+          ) : null}
         </View>
       </View>
 

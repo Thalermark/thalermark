@@ -3,6 +3,7 @@ import { useCallback, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from '../../../../lib/api';
+import { useMay } from '../../../../lib/role';
 import { pageQuery, usePaginatedList } from '../../../../lib/use-paginated-list';
 
 // Mirror of apps/web's /settings/items. Account-scoped via x-account-id; keyset
@@ -24,6 +25,7 @@ const priceLabel = (unitPrice: string, unitLabel: string | null) =>
 
 export default function ItemsList() {
   const router = useRouter();
+  const canCreate = useMay('sales:write');
   const [showArchived, setShowArchived] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -74,12 +76,14 @@ export default function ItemsList() {
         </Pressable>
         <View className="mt-3 flex-row items-end justify-between">
           <Text className="font-serif text-3xl font-light text-ink">Products &amp; services</Text>
-          <Pressable
-            onPress={() => router.push('/more/items/new')}
-            className="rounded-sm bg-ink px-4 py-2 active:bg-gold-deep"
-          >
-            <Text className="text-sm font-medium text-cream">+ New</Text>
-          </Pressable>
+          {canCreate ? (
+            <Pressable
+              onPress={() => router.push('/more/items/new')}
+              className="rounded-sm bg-ink px-4 py-2 active:bg-gold-deep"
+            >
+              <Text className="text-sm font-medium text-cream">+ New</Text>
+            </Pressable>
+          ) : null}
         </View>
         <Pressable onPress={() => setShowArchived((s) => !s)} className="mt-4 self-start">
           <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">

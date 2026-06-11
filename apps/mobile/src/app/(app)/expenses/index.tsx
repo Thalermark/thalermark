@@ -3,6 +3,7 @@ import { useCallback } from 'react';
 import { ActivityIndicator, FlatList, Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from '../../../lib/api';
+import { useMay } from '../../../lib/role';
 import { pageQuery, usePaginatedList } from '../../../lib/use-paginated-list';
 
 // Mirror of apps/web's /expenses list. Rows show merchant / amount / date —
@@ -12,6 +13,7 @@ type ExpenseRow = { id: string; merchant: string; amount: string; expenseDate: s
 
 export default function ExpensesList() {
   const router = useRouter();
+  const canCreate = useMay('expenses:write');
 
   const fetchPage = useCallback(async (cursor: string | null) => {
     const res = await api.api.expenses.$get({ query: pageQuery(cursor) });
@@ -41,12 +43,14 @@ export default function ExpensesList() {
           </Text>
           <Text className="mt-2 font-serif text-3xl font-light text-ink">All expenses</Text>
         </View>
-        <Pressable
-          onPress={() => router.push('/expenses/new')}
-          className="rounded-sm bg-ink px-4 py-2 active:bg-gold-deep"
-        >
-          <Text className="text-sm font-medium text-cream">+ New</Text>
-        </Pressable>
+        {canCreate ? (
+          <Pressable
+            onPress={() => router.push('/expenses/new')}
+            className="rounded-sm bg-ink px-4 py-2 active:bg-gold-deep"
+          >
+            <Text className="text-sm font-medium text-cream">+ New</Text>
+          </Pressable>
+        ) : null}
       </View>
 
       {list.state === 'loading' ? (
