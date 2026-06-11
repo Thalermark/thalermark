@@ -46,8 +46,10 @@ export default function Home() {
   const [anomalies, setAnomalies] = useState<Anomalies>({ overall: null, categories: [] });
   const [nudges, setNudges] = useState<Nudge[]>([]);
   const [nudgesLoading, setNudgesLoading] = useState(false);
+  const [pendingInvites, setPendingInvites] = useState(0);
 
-  // Resolve the active company once on focus (Home is the first authed screen).
+  // Resolve the active company once on focus (Home is the first authed screen),
+  // plus any pending workspace invitations for the notice below.
   useFocusEffect(
     useCallback(() => {
       let active = true;
@@ -63,6 +65,17 @@ export default function Home() {
           }
         })
         .catch(() => {});
+
+      // Pending invitations (bootstrap route) → a notice that deep-links to the
+      // Workspace screen, where they can accept/decline.
+      api.api.me.invitations
+        .$get()
+        .then(async (res) => {
+          if (!active || !res.ok) return;
+          setPendingInvites((await res.json()).invitations.length);
+        })
+        .catch(() => {});
+
       return () => {
         active = false;
       };
@@ -138,6 +151,22 @@ export default function Home() {
             </Text>
           </Pressable>
         </View>
+
+        {/* Pending workspace invitations → Workspace screen to accept/decline */}
+        {pendingInvites > 0 ? (
+          <Pressable
+            onPress={() => router.push('/more/switch-account')}
+            className="mt-6 flex-row items-center justify-between rounded-sm border border-gold-deep/30 bg-gold-deep/5 px-4 py-3 active:bg-gold-deep/10"
+          >
+            <Text className="flex-1 text-sm text-ink">
+              You have {pendingInvites} pending workspace{' '}
+              {pendingInvites === 1 ? 'invitation' : 'invitations'}.
+            </Text>
+            <Text className="ml-3 font-mono text-xs uppercase tracking-widest text-gold-deep">
+              Review →
+            </Text>
+          </Pressable>
+        ) : null}
 
         {/* Period selector */}
         <View className="mt-6 flex-row flex-wrap gap-2">
