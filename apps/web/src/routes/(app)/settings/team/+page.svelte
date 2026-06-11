@@ -35,10 +35,37 @@
           </p>
           <p class="text-sm text-ink/60">{member.email}</p>
         </div>
-        <span class="text-sm text-ink/50">Joined {formatDate(member.joinedAt)}</span>
+        <div class="flex items-center gap-4">
+          <span class="text-sm text-ink/50">Joined {formatDate(member.joinedAt)}</span>
+          {#if member.role === 'owner'}
+            <span class="font-mono text-xs uppercase tracking-widest text-gold-deep">Owner</span>
+          {:else if member.isYou}
+            <form method="POST" action="?/leave">
+              <button
+                type="submit"
+                class="rounded-sm border border-ink/30 px-3 py-1.5 text-sm font-medium text-ink transition-colors hover:border-oxblood hover:text-oxblood"
+              >
+                Leave
+              </button>
+            </form>
+          {:else}
+            <form method="POST" action="?/remove">
+              <input type="hidden" name="userId" value={member.userId} />
+              <button
+                type="submit"
+                class="rounded-sm border border-ink/30 px-3 py-1.5 text-sm font-medium text-ink transition-colors hover:border-oxblood hover:text-oxblood"
+              >
+                Remove
+              </button>
+            </form>
+          {/if}
+        </div>
       </li>
     {/each}
   </ul>
+  {#if form?.memberError}
+    <p class="border-t border-ink/10 px-6 py-4 text-sm text-oxblood">{form.memberError}</p>
+  {/if}
 </section>
 
 <!-- Invite form -->
@@ -87,7 +114,9 @@
             <p class="text-sm text-ink">{invite.email}</p>
             <p class="text-sm text-ink/50">Sent {formatDate(invite.createdAt)}</p>
           </div>
-          {#if invite.expired}
+          {#if invite.declined}
+            <span class="font-mono text-xs uppercase tracking-widest text-ink/40">Declined</span>
+          {:else if invite.expired}
             <span class="font-mono text-xs uppercase tracking-widest text-rose-700">Expired</span>
           {:else}
             <span class="text-sm text-ink/50">Expires {formatDate(invite.expiresAt)}</span>

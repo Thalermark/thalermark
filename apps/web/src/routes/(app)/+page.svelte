@@ -52,6 +52,20 @@
   {/each}
 </div>
 
+{#if data.pendingInvites > 0}
+  <a
+    href="/select-company"
+    class="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-sm border border-gold-deep/30 bg-gold-deep/5 px-4 py-3 text-sm text-ink transition-colors hover:bg-gold-deep/10"
+  >
+    <span>
+      You have {data.pendingInvites} pending workspace {data.pendingInvites === 1
+        ? 'invitation'
+        : 'invitations'}.
+    </span>
+    <span class="font-mono text-xs uppercase tracking-widest text-gold-deep">Review →</span>
+  </a>
+{/if}
+
 {#if data.needsBusinessDetails}
   <a
     href="/settings/business"
