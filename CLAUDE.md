@@ -20,9 +20,9 @@ Domain: `thalermark.com` (registered).
 
 ## Where We Are
 
-Business requirements complete. Tech stack locked. Phase 0 (repo skeleton + tooling) complete.
+Business requirements complete. Tech stack locked. **Phases 0–9 shipped — the locked MVP is feature-complete on web and mobile** (invoicing, estimates, expenses + receipt OCR, customers, hidden double-entry ledger, audit trail, position dashboard, the full AI insight layer, recurring invoices, items catalog, reports, pagination, and workspace roles). See SCAFFOLDING.md for the realized 0–9 phase record.
 
-Next: Phase 1 — database foundation + RLS policies in `packages/db/`. See SCAFFOLDING.md for the full 0→7 phase plan that lands us at the first MVP feature.
+**Now:** production hardening + commercialization. The product in this repo is AGPL/public; the managed **Cloud/SaaS** layer is planned as a separate private repo (open-core), so it lives outside this repo. Next public-repo work: the open-core *seam* (provider interfaces + community defaults) plus production hardening — a new SCAFFOLDING phase.
 
 ---
 
@@ -49,7 +49,7 @@ This is the official product name. Use it everywhere.
 - **Backend language:** TypeScript on Node 24 LTS
 - **Backend framework:** Hono (via `@hono/node-server`)
 - **ORM:** Drizzle (clean RLS interplay, first-class pgvector, SQL-transparent)
-- **Auth:** Better Auth (cookies for web, bearer tokens for mobile, organizations plugin for account/company memberships, self-hosted in our DB)
+- **Auth:** Better Auth (cookies for web, bearer tokens for mobile, self-hosted in our DB). The organizations plugin is **off** — multi-tenancy (accounts/companies/memberships) is Thalermark's own domain, not Better Auth's.
 - **LLM:** Anthropic Claude default (Sonnet 4.6 + Haiku 4.5) via Vercel AI SDK; BYOK on self-host from day one (env-var: Anthropic, OpenAI, or local Ollama)
 - **API contract:** Hono RPC (end-to-end types from server to web + mobile)
 - **Validation:** Zod (shared schemas in `packages/validation/`)
@@ -94,7 +94,7 @@ Business type (sole prop / LLC / partnership / S-corp / C-corp) is picked once a
 
 **Customers:** inline create during invoicing, dupe detection, Mapbox address autocomplete (Nominatim self-host fallback). Must be seamless.
 
-**Account/Companies/Users:** multi-company per account (company switcher, RLS-isolated), multi-user per account (Better Auth orgs plugin, invite by email, all members same role in MVP).
+**Account/Companies/Users:** multi-company per account (company switcher, RLS-isolated), multi-user per account (custom accounts/companies/memberships, invite by email). *Workspace roles: the 5-role capability model shipped — supersedes the original "all members same role in MVP".*
 
 **Audit trail:** append-only `audit_events` table; every mutation logs actor + timestamp + entity + action + before/after diff. Per-entity history tab + account-wide activity feed. Foundational because deferred audit history is lost forever — distinct from telemetry (telemetry is opt-in user data sent to Thalermark; audit is per-user history kept locally).
 
@@ -104,7 +104,7 @@ Business type (sole prop / LLC / partnership / S-corp / C-corp) is picked once a
 
 **Infrastructure:** telemetry module built first as a trust signal.
 
-**v1.1:** granular roles + per-company permissions, customer opt-in saved card, AI tax readiness (structured), bank feed (Plaid/Teller), natural language queries.
+**v1.1:** per-company permissions (granular *workspace* roles already shipped), customer opt-in saved card, AI tax readiness (structured), bank feed (Plaid/Teller), natural language queries.
 
 **Deferred:** mileage, time tracking, client portal, bills, auto-charge subscription billing.
 
@@ -129,7 +129,7 @@ LLM: Anthropic Claude default (Sonnet 4.6 for reasoning, Haiku 4.5 for fast/chea
 
 ## Folder Structure (Starting Point)
 
-Planned layout. `apps/` and `packages/` are seeded during Phases 1-6 of SCAFFOLDING.md — only the workspace plumbing is live as of Phase 0.
+Realized layout — `apps/` and `packages/` are all built (Phases 1–9). SCAFFOLDING.md has the per-phase detail.
 
 ```
 /
@@ -141,9 +141,12 @@ Planned layout. `apps/` and `packages/` are seeded during Phases 1-6 of SCAFFOLD
 │   ├── api-contract/ # Shared Hono RPC types
 │   ├── validation/   # Shared Zod schemas (invoice, expense, etc.)
 │   ├── db/           # Database schema, migrations, RLS policies
+│   ├── auth/         # Better Auth wiring (createAuth + signup hook)
 │   ├── ai/           # AI/LLM integration layer
 │   ├── telemetry/    # Telemetry module (see TELEMETRY.md)
 │   ├── location/     # Address autocomplete provider abstraction
+│   ├── storage/      # S3 / local-FS object-storage abstraction
+│   ├── logger/       # LogTape wrapper
 │   └── brand/        # Brand constants (name, colours, copy)
 ├── docker/
 │   ├── docker-compose.yml      # self-host: postgres + caddy + api + web

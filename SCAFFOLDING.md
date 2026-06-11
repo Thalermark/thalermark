@@ -1,6 +1,6 @@
 # Scaffolding Plan
 
-**Status:** Phases 0–8 shipped; **Phase 9 (mobile catch-up) COMPLETE (2026-06-09)** — the RN/Expo app now mirrors every web MVP flow (slices M1–M11f, PRs #174–#190). Phase 8 (MVP features) slices 8.1–8.4f, 8.5a–8.5e, 8.6a–8.6c, 8.7a–8.7e, 8.8a–8.8b, L1–L4, 8.9a–8.9h, 8.10–8.15, R1–R4, I1–I5 merged (latest 2026-06-07). Invoice CRUD + status flow, the send-invoice chain (public view → email → Stripe self-host pay → SaaS Stripe Connect onboarding + connected payments), the customer-creation chain (inline create → dupe detection → address autocomplete), the full estimates chain (DB + RLS, CRUD/transitions, web pages, convert-to-invoice, public view + send + accept/decline), audit-history UI (per-entity tab + account-wide /activity feed with collapsible inline diffs), the hidden-double-entry ledger reshape (foundation + invoice-transition postings + business-type wizard + GL / trial-balance export), and the full expenses chain (DB + RLS → ledger posting policy → CRUD API → web list/create/detail/edit → object-storage package → receipt capture → vision-LLM receipt extraction) all complete; plus the position dashboard, the full AI insight layer (5 insights: receipt extraction, expense categorization, cash-flow nudges, late-payer detection, spending anomalies), duplicate-as-template across invoices/estimates/expenses, and the recurring-invoice chain (schema → CRUD → pg-boss generation engine + sweeper → web UI — the first pg-boss consumer); plus the items / products & services catalog (Slice I, scoped 2026-06-07 — table + provenance FK → CRUD API → management surface → line-item autocomplete → top-products report). The full locked MVP web scope is feature-complete, and the **mobile catch-up is now complete too (Phase 9)** — every web MVP flow has a native equivalent. **Remaining MVP work is polish + ship.**
+**Status:** Phases 0–8 shipped; **Phase 9 (mobile catch-up) COMPLETE (2026-06-09)** — the RN/Expo app now mirrors every web MVP flow (slices M1–M11f, PRs #174–#190). Phase 8 (MVP features) slices 8.1–8.4f, 8.5a–8.5e, 8.6a–8.6c, 8.7a–8.7e, 8.8a–8.8b, L1–L4, 8.9a–8.9h, 8.10–8.15, R1–R4, I1–I5 merged (latest 2026-06-07). Invoice CRUD + status flow, the send-invoice chain (public view → email → Stripe self-host pay → SaaS Stripe Connect onboarding + connected payments), the customer-creation chain (inline create → dupe detection → address autocomplete), the full estimates chain (DB + RLS, CRUD/transitions, web pages, convert-to-invoice, public view + send + accept/decline), audit-history UI (per-entity tab + account-wide /activity feed with collapsible inline diffs), the hidden-double-entry ledger reshape (foundation + invoice-transition postings + business-type wizard + GL / trial-balance export), and the full expenses chain (DB + RLS → ledger posting policy → CRUD API → web list/create/detail/edit → object-storage package → receipt capture → vision-LLM receipt extraction) all complete; plus the position dashboard, the full AI insight layer (5 insights: receipt extraction, expense categorization, cash-flow nudges, late-payer detection, spending anomalies), duplicate-as-template across invoices/estimates/expenses, and the recurring-invoice chain (schema → CRUD → pg-boss generation engine + sweeper → web UI — the first pg-boss consumer); plus the items / products & services catalog (Slice I, scoped 2026-06-07 — table + provenance FK → CRUD API → management surface → line-item autocomplete → top-products report). The full locked MVP web scope is feature-complete, and the **mobile catch-up is now complete too (Phase 9)** — every web MVP flow has a native equivalent. **Remaining MVP product work is polish + ship.** **Next: Phase 10 — production hardening + open-core seams** (public-repo prep for a real deploy; the managed layer that fills those seams is maintained out-of-repo).
 **Reads:** Assumes you've read PROJECT.md and TECH-STACK.md.
 
 The shape of work between "all decisions locked" and shipping the MVP. Eight foundation phases (0–7), a Phase 8 for the MVP-feature slices, and a Phase 9 for the mobile catch-up — roughly sequential, each builds on the previous one. Phases 0–7 are the foundation; Phase 8 is where the product becomes visible on web; Phase 9 brings the mobile app to parity.
@@ -21,8 +21,9 @@ The shape of work between "all decisions locked" and shipping the MVP. Eight fou
 | **7** | CI/CD and self-host story | Docker compose for self-hosters, GHA for us | ✅ Shipped (slices 7.1–7.4, PRs #76, #77, #79, #80) |
 | **8** | MVP features — customers + invoices first, then estimates / expenses / dashboard / AI / recurring; items catalog (Slice I) added to scope 2026-06-07 | This is where the product becomes visible | ✅ Shipped — full MVP web scope feature-complete (slices 8.1–8.4f, 8.5a–8.5e, 8.6a–8.6c, 8.7a–8.7e, 8.8a–8.8b, L1–L4, 8.9a–8.9h, 8.10–8.15, R1–R4, I1–I5, PRs #82–#84, #86, #92, #95, #97–#100, #102–#104, #107, #108, #110, #112–#118, #120–#125, #127–#132, #135, #136, #142–#154, #167–#171 — plus mid-phase footguns #87, #88, #90, #91 and quick-follow fix #96). |
 | **9** | Mobile catch-up (M1–M11f) | The RN/Expo app (Phase 6 shell) reaches feature parity with the web MVP | ✅ Shipped (slices M1–M11f, PRs #174–#190) |
+| **10** | Production hardening + open-core seams | Make the product deploy-ready and add extension points (community defaults keep self-host whole) | ⏳ Next |
 
-Foundation shipped (Phases 0–7); Phase 8 delivered the full MVP web scope; Phase 9 brought the mobile app to feature parity. Remaining work is polish + ship (PROJECT.md).
+Foundation shipped (Phases 0–7); Phase 8 delivered the full MVP web scope; Phase 9 brought the mobile app to feature parity. **Phase 10 (next)** hardens the product for production and adds the open-core extension seams; remaining product work is polish + ship (PROJECT.md).
 
 ---
 
@@ -59,7 +60,7 @@ The bones. Goal: `pnpm install` and `pnpm build` both succeed on an empty repo.
 
 **Validation:** `pnpm install` works, Biome lints an empty workspace, Vitest runs an empty test suite, Turborepo orchestrates a no-op build.
 
-**Realized:** shipped in early PRs along with a production-readiness pass (signed commits, PR-required branch protection, Dependabot, CodeQL, secret scanning, SECURITY.md). See `spikes/PRODUCTION-READINESS.md` for the full log.
+**Realized:** shipped in early PRs along with a production-readiness pass (signed commits, PR-required branch protection, Dependabot, CodeQL, secret scanning, SECURITY.md). (The detailed production-readiness log is kept off-repo.)
 
 ---
 
@@ -575,6 +576,38 @@ Order: foundation → the entities in dependency order (customers → invoices �
 - **Expo SDK canonical version pinning** — RN/Expo peer ranges are loose, so a bot bump can move `react`/`react-dom` a patch ahead of the SDK's canonical version and crash launch in Expo Go ("Incompatible React versions"). Run **`npx expo install --check`** after dep bumps; canonical versions live in `node_modules/expo/bundledNativeModules.json`.
 - **`source_item_id` is a snapshot breadcrumb every client must carry** — line-item POST/PATCH payloads must include `sourceItemId` and ship an item type-ahead (`ItemPickerField`), or mobile-created sales silently fall into the top-products "Uncatalogued / other" bucket (no error, totals still tie out).
 - **Mobile runs in Expo Go, not a native build** — `expo start` serves JS over Metro to the installed Expo Go app; do not `expo run:android` (triggers a Gradle build that crashes on a removed `JvmVendorSpec`). The ref-gated once-only bootstrap pattern (M3) applies to any multi-fetch bootstrap.
+
+---
+
+## Phase 10 — Production hardening + open-core seams
+
+Phases 0–9 delivered the product; Phase 10 makes it production-ready and adds the
+extension seams a downstream/managed deployment plugs into. This is all **public-repo,
+self-host-first** work — the community build stays fully functional, because every seam
+ships a default that keeps everything on. *(The managed layer that fills those seams is
+maintained out-of-repo; nothing of it lands here.)*
+
+**Production hardening** (self-host and cloud both benefit):
+- **Object storage in the prod compose** — receipts need a durable home (local-FS driver
+  wired; S3/R2 documented for multi-node).
+- **Managed-Postgres compatibility** — make the read-only (BYPASSRLS) staff role
+  optional/skippable so migrations apply on a no-superuser managed PG; direct-vs-pooled
+  connection split for pg-boss; a deliberate migrate-on-boot-vs-explicit-step choice.
+- **Backups + restore runbook**; confirm error tracking (Sentry/GlitchTip) reports in
+  prod; **email domain auth** (SPF/DKIM) so invoice/invite mail delivers.
+
+**Open-core seams** (interfaces + community defaults, all in this repo):
+- A **capability/entitlement provider** interface, injected through the existing
+  `createApp(deps)` factory, with a community default that returns "unlocked" — self-host
+  behavior unchanged.
+- **Per-account LLM credential resolution** in `packages/ai` — accept an injected
+  credential per call instead of a single global env key (self-host injects the env key).
+- An **account-created hook** and an **admin mount-point** — no-op / unmounted by default.
+- Move the staff read-only role into its **own optional migration**, out of the core
+  schema, so core migrations apply cleanly everywhere.
+
+Sequence hardening ahead of the seams (hardening gates any real deploy; the seams are
+additive). Slices TBD when the phase starts.
 
 ---
 
