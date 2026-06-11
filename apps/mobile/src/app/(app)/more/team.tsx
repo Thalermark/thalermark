@@ -22,6 +22,7 @@ type Member = {
   userId: string;
   name: string | null;
   email: string;
+  role: string;
   joinedAt: string;
   isYou: boolean;
 };
@@ -31,6 +32,7 @@ type Invitation = {
   createdAt: string;
   expiresAt: string;
   expired: boolean;
+  declined: boolean;
 };
 type TeamState =
   | { state: 'loading' }
@@ -47,6 +49,11 @@ const INVITE_ERRORS: Record<string, string> = {
   network: "Couldn't reach the server. Check your connection and try again.",
 };
 
+const MEMBER_ERRORS: Record<string, string> = {
+  cannot_remove_owner: "The workspace owner can't be removed.",
+  member_not_found: 'That person is no longer a member.',
+};
+
 export default function Team() {
   const router = useRouter();
   const [team, setTeam] = useState<TeamState>({ state: 'loading' });
@@ -54,6 +61,8 @@ export default function Team() {
   const [sending, setSending] = useState(false);
   const [sentTo, setSentTo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [busyUser, setBusyUser] = useState<string | null>(null);
+  const [memberError, setMemberError] = useState<string | null>(null);
 
   const load = useCallback((active: () => boolean) => {
     api.api.team
@@ -102,6 +111,32 @@ export default function Team() {
     }
   }
 
+  // Remove another member, or leave the workspace (when userId is yourself).
+  // The API enforces the owner guard. On leaving, bounce home so the gate
+  // re-resolves the active workspace (a remaining one, or the picker).
+  async function onMembership(userId: string, isSelf: boolean) {
+    setBusyUser(userId);
+    setMemberError(null);
+    try {
+      const res = await api.api.team[':userId'].$delete({ param: { userId } });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        setMemberError(MEMBER_ERRORS[body.error ?? ''] ?? 'Could not update membership.');
+        setBusyUser(null);
+        return;
+      }
+      if (isSelf) {
+        router.replace('/');
+        return;
+      }
+      setBusyUser(null);
+      load(() => true);
+    } catch {
+      setMemberError('Could not update membership.');
+      setBusyUser(null);
+    }
+  }
+
   return (
     <SafeAreaView className="flex-1 bg-cream" edges={['top']}>
       <KeyboardAvoidingView
@@ -134,21 +169,45 @@ export default function Team() {
                 {team.members.map((m, i) => (
                   <View
                     key={m.userId}
-                    className={`px-5 py-4 ${i > 0 ? 'border-t border-ink/10' : ''}`}
+                    className={`flex-row items-center justify-between px-5 py-4 ${
+                      i > 0 ? 'border-t border-ink/10' : ''
+                    }`}
                   >
-                    <View className="flex-row items-center gap-2">
-                      <Text className="font-serif text-lg text-ink">{m.name ?? m.email}</Text>
-                      {m.isYou ? (
-                        <Text className="font-mono text-xs uppercase tracking-widest text-ink/40">
-                          You
-                        </Text>
-                      ) : null}
+                    <View className="flex-1">
+                      <View className="flex-row items-center gap-2">
+                        <Text className="font-serif text-lg text-ink">{m.name ?? m.email}</Text>
+                        {m.isYou ? (
+                          <Text className="font-mono text-xs uppercase tracking-widest text-ink/40">
+                            You
+                          </Text>
+                        ) : null}
+                      </View>
+                      <Text className="mt-0.5 text-sm text-ink/60">{m.email}</Text>
+                      <Text className="mt-0.5 text-xs text-ink/40">
+                        Joined {fmtDate(m.joinedAt)}
+                      </Text>
                     </View>
-                    <Text className="mt-0.5 text-sm text-ink/60">{m.email}</Text>
-                    <Text className="mt-0.5 text-xs text-ink/40">Joined {fmtDate(m.joinedAt)}</Text>
+                    {m.role === 'owner' ? (
+                      <Text className="ml-3 font-mono text-xs uppercase tracking-widest text-gold-deep">
+                        Owner
+                      </Text>
+                    ) : (
+                      <Pressable
+                        onPress={() => onMembership(m.userId, m.isYou)}
+                        disabled={busyUser === m.userId}
+                        className="ml-3 rounded-sm border border-ink/30 px-3 py-1.5 active:bg-ink/5 disabled:opacity-50"
+                      >
+                        <Text className="text-sm font-medium text-ink">
+                          {m.isYou ? 'Leave' : 'Remove'}
+                        </Text>
+                      </Pressable>
+                    )}
                   </View>
                 ))}
               </View>
+              {memberError ? (
+                <Text className="mt-3 text-sm text-oxblood">{memberError}</Text>
+              ) : null}
 
               {/* Invite */}
               <Text className="mt-8 font-mono text-xs uppercase tracking-widest text-gold-deep">
@@ -204,7 +263,11 @@ export default function Team() {
                             Sent {fmtDate(inv.createdAt)}
                           </Text>
                         </View>
-                        {inv.expired ? (
+                        {inv.declined ? (
+                          <Text className="font-mono text-xs uppercase tracking-widest text-ink/40">
+                            Declined
+                          </Text>
+                        ) : inv.expired ? (
                           <Text className="font-mono text-xs uppercase tracking-widest text-oxblood">
                             Expired
                           </Text>
