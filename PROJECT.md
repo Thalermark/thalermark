@@ -146,12 +146,12 @@ Precedent: Cal.com, Mattermost, Plane all run this exact model.
 - **Receipt extraction (AI)** — Pro+ / BYOK: vision LLM auto-fills merchant, total, date, tax, category
 
 ### Customers
-- **Customer management** — inline create during invoicing (no page navigation), dupe detection (fuzzy name + strong identifier match), Mapbox address autocomplete with OpenStreetMap Nominatim self-host fallback. Must be seamless; this is the make-or-break interaction.
+- **Customer management** — inline create during invoicing (no page navigation), dupe detection (fuzzy name + strong identifier match), address autocomplete via the keyless US Census geocoder by default (Mapbox is a token-gated upgrade). Must be seamless; this is the make-or-break interaction.
 
 ### Account, Companies, Users
 - **Multi-company per account** — one account can hold multiple companies (a freelancer with side hustles, an accountant managing multiple businesses for themselves). Company switcher in nav; data isolated via RLS at the database level.
-- **Multi-user per account** — one account can have multiple members (family member helping with invoices, partner doing books). Better Auth's organizations plugin handles memberships. Invite by email via Resend; invitee clicks link, signs up or signs in, joins the account.
-- **Single role in MVP** — all members can do everything. Granular roles (admin / member / view-only), per-company permissions, member removal, ownership transfer defer to v1.1.
+- **Multi-user per account** — one account can have multiple members (family member helping with invoices, partner doing books). Memberships are our own `accounts`/`companies`/`memberships` tables — the Better Auth organizations plugin is **not** used (tenancy is our domain). Invite by email via Resend; invitee clicks link, signs up or signs in, joins the account.
+- **Workspace roles** — the 5-role capability model shipped, with member removal + ownership transfer. *(Supersedes the original "single role in MVP".)* Per-company permissions remain a v1.1 item.
 
 ### Audit Trail
 - **Append-only event log** — every mutation (create / update / delete / send / void / pay / accept / decline) writes a record to an `audit_events` table. Fields: actor, timestamp, entity, action, before/after diff (JSONB), IP, user agent. RLS-scoped to account/company like all data.
