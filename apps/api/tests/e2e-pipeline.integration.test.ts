@@ -106,13 +106,15 @@ describe('Phase 3 e2e pipeline', () => {
         telemetryEnabled: true,
         telemetryInstallId: uuidv7(),
       });
-      await db.insert(memberships).values({ id: uuidv7(), userId: me.user.id, accountId });
+      await db
+        .insert(memberships)
+        .values({ id: uuidv7(), userId: me.user.id, accountId, role: 'owner' });
 
       const meAfter = await app.request('/api/me', { headers: { cookie } });
       const meAfterBody = (await meAfter.json()) as {
-        memberships: { accountId: string; name: string }[];
+        memberships: { accountId: string; name: string; role: string }[];
       };
-      expect(meAfterBody.memberships).toEqual([{ accountId, name: 'Pipeline Co' }]);
+      expect(meAfterBody.memberships).toEqual([{ accountId, name: 'Pipeline Co', role: 'owner' }]);
 
       const res = await app.request('/api/__test/pipeline-write', {
         method: 'POST',

@@ -107,6 +107,74 @@ describe('memberships', () => {
     expect(remaining).toHaveLength(0);
   });
 
+  it('defaults role to member when unspecified', async () => {
+    const db = getTestDb();
+    const userId = uuidv7();
+    const accountId = uuidv7();
+
+    await db.insert(authUser).values({ id: userId, email: 'default-role@example.com' });
+    await db.insert(accounts).values({ id: accountId, name: 'Default Role' });
+    await db.insert(memberships).values({ id: uuidv7(), userId, accountId });
+
+    const [row] = await db.select().from(memberships).where(eq(memberships.userId, userId));
+    expect(row?.role).toBe('member');
+  });
+
+  it('rejects an unknown role (CHECK constraint)', async () => {
+    const db = getTestDb();
+    const userId = uuidv7();
+    const accountId = uuidv7();
+
+    await db.insert(authUser).values({ id: userId, email: 'bad-role@example.com' });
+    await db.insert(accounts).values({ id: accountId, name: 'Bad Role' });
+
+    await expect(
+      // role is free text at the type level; the CHECK constraint is the runtime
+      // guard that rejects anything outside ('owner','member').
+      db
+        .insert(memberships)
+        .values({ id: uuidv7(), userId, accountId, role: 'admin' }),
+    ).rejects.toThrow();
+  });
+
+  it('rejects a second owner in the same account (one-owner partial index)', async () => {
+    const db = getTestDb();
+    const accountId = uuidv7();
+    const ownerA = uuidv7();
+    const ownerB = uuidv7();
+
+    await db.insert(authUser).values([
+      { id: ownerA, email: 'owner-a@example.com' },
+      { id: ownerB, email: 'owner-b@example.com' },
+    ]);
+    await db.insert(accounts).values({ id: accountId, name: 'Two Owners' });
+    await db.insert(memberships).values({ id: uuidv7(), userId: ownerA, accountId, role: 'owner' });
+
+    await expect(
+      db.insert(memberships).values({ id: uuidv7(), userId: ownerB, accountId, role: 'owner' }),
+    ).rejects.toThrow();
+  });
+
+  it('allows an owner in each of two different accounts', async () => {
+    const db = getTestDb();
+    const userId = uuidv7();
+    const accountAId = uuidv7();
+    const accountBId = uuidv7();
+
+    await db.insert(authUser).values({ id: userId, email: 'multi-owner@example.com' });
+    await db.insert(accounts).values([
+      { id: accountAId, name: 'Owned A' },
+      { id: accountBId, name: 'Owned B' },
+    ]);
+    await db.insert(memberships).values([
+      { id: uuidv7(), userId, accountId: accountAId, role: 'owner' },
+      { id: uuidv7(), userId, accountId: accountBId, role: 'owner' },
+    ]);
+
+    const rows = await db.select().from(memberships).where(eq(memberships.userId, userId));
+    expect(rows.filter((r) => r.role === 'owner')).toHaveLength(2);
+  });
+
   it('allows one user to belong to multiple accounts', async () => {
     const db = getTestDb();
     const userId = uuidv7();

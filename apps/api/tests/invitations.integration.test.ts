@@ -1,5 +1,6 @@
-import { accounts, authUser, invitations, memberships } from '@thalermark/db';
+import { accounts, auditEvents, authUser, invitations, memberships } from '@thalermark/db';
 import { eq } from 'drizzle-orm';
+import { v7 as uuidv7 } from 'uuid';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
 import type { Env } from '../src/env.js';
@@ -368,13 +369,14 @@ describe('GET /api/team', () => {
       });
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
-        members: { userId: string; email: string; isYou: boolean }[];
+        members: { userId: string; email: string; role: string; isYou: boolean }[];
         invitations: { email: string; expired: boolean }[];
       };
 
       expect(body.members).toHaveLength(1);
       expect(body.members[0]?.userId).toBe(userId);
       expect(body.members[0]?.email).toBe('owner@example.com');
+      expect(body.members[0]?.role).toBe('owner');
       expect(body.members[0]?.isYou).toBe(true);
 
       expect(body.invitations).toHaveLength(1);
@@ -530,6 +532,304 @@ describe('invited sign-up joins the inviting account (no personal company)', () 
         .from(memberships)
         .where(eq(memberships.userId, solo.id));
       expect(mships).toHaveLength(1);
+    } finally {
+      await handle.close();
+    }
+  });
+});
+
+describe('GET /api/me/invitations', () => {
+  beforeEach(resetDb);
+
+  it('lists pending invitations addressed to the session user', async () => {
+    const { app, handle } = buildApp();
+    try {
+      const ownerCookie = await signUp(app, 'host@example.com');
+      const { accountId } = await userAndAccount('host@example.com');
+      // Existing user: sign up first (own account), THEN get invited → the invite
+      // stays pending (the signup hook only auto-joins at signup time).
+      const guestCookie = await signUp(app, 'guest@example.com');
+      const inviteRes = await app.request('/api/invitations', {
+        method: 'POST',
+        headers: {
+          cookie: ownerCookie,
+          'x-account-id': accountId,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ email: 'guest@example.com' }),
+      });
+      const { token } = (await inviteRes.json()) as { token: string };
+
+      const res = await app.request('/api/me/invitations', { headers: { cookie: guestCookie } });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        invitations: { token: string; accountName: string; inviterName: string | null }[];
+      };
+      expect(body.invitations).toHaveLength(1);
+      expect(body.invitations[0]?.token).toBe(token);
+      expect(body.invitations[0]?.accountName).toBe('host@example.com');
+      expect(body.invitations[0]?.inviterName).toBe('host@example.com');
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('excludes accepted, declined, and other users’ invitations', async () => {
+    const { app, handle } = buildApp();
+    try {
+      const ownerCookie = await signUp(app, 'host2@example.com');
+      const { accountId } = await userAndAccount('host2@example.com');
+      const guestCookie = await signUp(app, 'guest2@example.com');
+
+      // An invite for someone else — must not appear for guest2.
+      await app.request('/api/invitations', {
+        method: 'POST',
+        headers: {
+          cookie: ownerCookie,
+          'x-account-id': accountId,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ email: 'someone-else@example.com' }),
+      });
+      // A pending invite for guest2, then accepted → drops off the list.
+      const inviteRes = await app.request('/api/invitations', {
+        method: 'POST',
+        headers: {
+          cookie: ownerCookie,
+          'x-account-id': accountId,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ email: 'guest2@example.com' }),
+      });
+      const { token } = (await inviteRes.json()) as { token: string };
+      await app.request(`/api/invitations/${token}/accept`, {
+        method: 'POST',
+        headers: { cookie: guestCookie },
+      });
+
+      const res = await app.request('/api/me/invitations', { headers: { cookie: guestCookie } });
+      const body = (await res.json()) as { invitations: unknown[] };
+      expect(body.invitations).toHaveLength(0);
+    } finally {
+      await handle.close();
+    }
+  });
+});
+
+describe('POST /api/invitations/:token/decline', () => {
+  beforeEach(resetDb);
+
+  it('stamps declined_at, drops off the invitee list, surfaces on the team page', async () => {
+    const { app, handle } = buildApp();
+    try {
+      const ownerCookie = await signUp(app, 'host3@example.com');
+      const { accountId } = await userAndAccount('host3@example.com');
+      const guestCookie = await signUp(app, 'guest3@example.com');
+      const inviteRes = await app.request('/api/invitations', {
+        method: 'POST',
+        headers: {
+          cookie: ownerCookie,
+          'x-account-id': accountId,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ email: 'guest3@example.com' }),
+      });
+      const { token } = (await inviteRes.json()) as { token: string };
+
+      const declineRes = await app.request(`/api/invitations/${token}/decline`, {
+        method: 'POST',
+        headers: { cookie: guestCookie },
+      });
+      expect(declineRes.status).toBe(200);
+
+      const [row] = await getTestDb()
+        .select()
+        .from(invitations)
+        .where(eq(invitations.token, token));
+      expect(row?.declinedAt).not.toBeNull();
+
+      // Gone from the invitee's pending list.
+      const meRes = await app.request('/api/me/invitations', { headers: { cookie: guestCookie } });
+      expect(((await meRes.json()) as { invitations: unknown[] }).invitations).toHaveLength(0);
+
+      // The inviter sees the outcome on the team page (declined flag set).
+      const teamRes = await app.request('/api/team', {
+        headers: { cookie: ownerCookie, 'x-account-id': accountId },
+      });
+      const team = (await teamRes.json()) as {
+        invitations: { email: string; declined: boolean }[];
+      };
+      expect(team.invitations.find((i) => i.email === 'guest3@example.com')?.declined).toBe(true);
+
+      // A declined invite can no longer be accepted.
+      const acceptRes = await app.request(`/api/invitations/${token}/accept`, {
+        method: 'POST',
+        headers: { cookie: guestCookie },
+      });
+      expect(acceptRes.status).toBe(404);
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('rejects a mismatched email (403) and is idempotent for the invitee', async () => {
+    const { app, handle } = buildApp();
+    try {
+      const ownerCookie = await signUp(app, 'host4@example.com');
+      const { accountId } = await userAndAccount('host4@example.com');
+      const guestCookie = await signUp(app, 'invitee4@example.com');
+      const inviteRes = await app.request('/api/invitations', {
+        method: 'POST',
+        headers: {
+          cookie: ownerCookie,
+          'x-account-id': accountId,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ email: 'invitee4@example.com' }),
+      });
+      const { token } = (await inviteRes.json()) as { token: string };
+
+      const wrongCookie = await signUp(app, 'wrong4@example.com');
+      const wrongRes = await app.request(`/api/invitations/${token}/decline`, {
+        method: 'POST',
+        headers: { cookie: wrongCookie },
+      });
+      expect(wrongRes.status).toBe(403);
+
+      const first = await app.request(`/api/invitations/${token}/decline`, {
+        method: 'POST',
+        headers: { cookie: guestCookie },
+      });
+      expect(first.status).toBe(200);
+      const second = await app.request(`/api/invitations/${token}/decline`, {
+        method: 'POST',
+        headers: { cookie: guestCookie },
+      });
+      expect(second.status).toBe(200);
+    } finally {
+      await handle.close();
+    }
+  });
+});
+
+describe('DELETE /api/team/:userId (remove + leave)', () => {
+  beforeEach(resetDb);
+
+  // owner@ owns account A; newhire@ is invited and auto-joins A as a 'member'
+  // (the signup hook joins them, no personal account). Returns both users' ids
+  // + the shared account.
+  async function twoMemberAccount(app: ReturnType<typeof createApp>) {
+    const ownerCookie = await signUp(app, 'owner@example.com');
+    const { userId: ownerId, accountId } = await userAndAccount('owner@example.com');
+    await app.request('/api/invitations', {
+      method: 'POST',
+      headers: {
+        cookie: ownerCookie,
+        'x-account-id': accountId,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ email: 'newhire@example.com' }),
+    });
+    const newhireCookie = await signUp(app, 'newhire@example.com');
+    const { userId: newhireId } = await userAndAccount('newhire@example.com');
+    return { ownerCookie, ownerId, newhireCookie, newhireId, accountId };
+  }
+
+  it('owner removes a member: access revoked + audit logged', async () => {
+    const { app, handle } = buildApp();
+    try {
+      const { ownerCookie, ownerId, newhireCookie, newhireId, accountId } =
+        await twoMemberAccount(app);
+
+      const res = await app.request(`/api/team/${newhireId}`, {
+        method: 'DELETE',
+        headers: { cookie: ownerCookie, 'x-account-id': accountId },
+      });
+      expect(res.status).toBe(200);
+
+      // Removed user now hits account_revoked on a tenant request.
+      const revoked = await app.request('/api/team', {
+        headers: { cookie: newhireCookie, 'x-account-id': accountId },
+      });
+      expect(revoked.status).toBe(403);
+
+      const audits = await getTestDb()
+        .select()
+        .from(auditEvents)
+        .where(eq(auditEvents.entityId, newhireId));
+      expect(audits).toHaveLength(1);
+      expect(audits[0]?.action).toBe('remove');
+      expect(audits[0]?.actorUserId).toBe(ownerId);
+      expect(audits[0]?.accountId).toBe(accountId);
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('refuses to remove the owner (403)', async () => {
+    const { app, handle } = buildApp();
+    try {
+      const { ownerId, newhireCookie, accountId } = await twoMemberAccount(app);
+      const res = await app.request(`/api/team/${ownerId}`, {
+        method: 'DELETE',
+        headers: { cookie: newhireCookie, 'x-account-id': accountId },
+      });
+      expect(res.status).toBe(403);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toBe('cannot_remove_owner');
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('lets a member leave (self-removal), logged as leave', async () => {
+    const { app, handle } = buildApp();
+    try {
+      const { newhireCookie, newhireId, accountId } = await twoMemberAccount(app);
+      const res = await app.request(`/api/team/${newhireId}`, {
+        method: 'DELETE',
+        headers: { cookie: newhireCookie, 'x-account-id': accountId },
+      });
+      expect(res.status).toBe(200);
+
+      const revoked = await app.request('/api/team', {
+        headers: { cookie: newhireCookie, 'x-account-id': accountId },
+      });
+      expect(revoked.status).toBe(403);
+
+      const [audit] = await getTestDb()
+        .select()
+        .from(auditEvents)
+        .where(eq(auditEvents.entityId, newhireId));
+      expect(audit?.action).toBe('leave');
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('refuses to let the owner leave (403)', async () => {
+    const { app, handle } = buildApp();
+    try {
+      const { ownerCookie, ownerId, accountId } = await twoMemberAccount(app);
+      const res = await app.request(`/api/team/${ownerId}`, {
+        method: 'DELETE',
+        headers: { cookie: ownerCookie, 'x-account-id': accountId },
+      });
+      expect(res.status).toBe(403);
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('404s an unknown member', async () => {
+    const { app, handle } = buildApp();
+    try {
+      const { ownerCookie, accountId } = await twoMemberAccount(app);
+      const res = await app.request(`/api/team/${uuidv7()}`, {
+        method: 'DELETE',
+        headers: { cookie: ownerCookie, 'x-account-id': accountId },
+      });
+      expect(res.status).toBe(404);
     } finally {
       await handle.close();
     }

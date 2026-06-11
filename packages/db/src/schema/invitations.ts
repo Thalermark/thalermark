@@ -25,6 +25,11 @@ export const invitations = pgTable(
     acceptedByUserId: uuid('accepted_by_user_id').references(() => authUser.id, {
       onDelete: 'set null',
     }),
+    // Set when the invitee declines via POST /api/invitations/:token/decline.
+    // Mutually exclusive with acceptedAt in practice; a declined invite is
+    // terminal (accept/auto-join skip it). Lets the inviter see the outcome on
+    // the team page instead of the invite silently lingering as "pending".
+    declinedAt: timestamp('declined_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
