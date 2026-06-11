@@ -114,7 +114,7 @@ export default function Team() {
           </Pressable>
           <Text className="mt-3 font-serif text-3xl font-light text-ink">Team</Text>
           <Text className="mt-3 text-sm text-ink/60">
-            Everyone here shares full access to this account. Invite a teammate by email — they'll
+            Everyone here shares full access to this workspace. Invite a teammate by email — they'll
             get a link to join.
           </Text>
 

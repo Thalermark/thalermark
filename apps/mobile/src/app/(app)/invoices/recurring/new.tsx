@@ -144,7 +144,7 @@ export default function NewRecurring() {
 
   async function onSubmit() {
     if (!companyId) {
-      setFormError('No company on this account.');
+      setFormError('No company in this workspace.');
       return;
     }
     setFormError(null);
@@ -482,7 +482,7 @@ export default function NewRecurring() {
             </View>
 
             {noCompany ? (
-              <Text className="text-xs text-oxblood">No company on this account.</Text>
+              <Text className="text-xs text-oxblood">No company in this workspace.</Text>
             ) : null}
 
             <Pressable

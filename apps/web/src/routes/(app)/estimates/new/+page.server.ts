@@ -28,7 +28,7 @@ export const load: PageServerLoad = async (event) => {
   const { companies } = await companiesRes.json();
   const { customers } = await customersRes.json();
   const company = companies[0];
-  if (!company) throw error(500, 'no company on this account');
+  if (!company) throw error(500, 'no company in this workspace');
 
   // Suggestion fetch is best-effort: the user can type their own number,
   // and the fail-re-render path uses values?.number ?? data.suggestedNumber.

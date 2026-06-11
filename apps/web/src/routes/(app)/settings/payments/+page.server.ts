@@ -13,7 +13,7 @@ export const load: PageServerLoad = async (event) => {
   // when the multi-company picker arrives we'll surface a row per company
   // here and onboard each independently.
   const company = companies[0];
-  if (!company) throw error(500, 'no company on this account');
+  if (!company) throw error(500, 'no company in this workspace');
 
   const statusRes = await client.api.companies[':id']['stripe-connect'].status.$get({
     param: { id: company.id },

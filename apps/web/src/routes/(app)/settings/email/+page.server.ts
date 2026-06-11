@@ -11,7 +11,7 @@ export const load: PageServerLoad = async (event) => {
   // MVP: one company per account is the common path (same first-company pick
   // as /settings/payments). A per-company picker arrives with multi-company.
   const company = companies[0];
-  if (!company) throw error(500, 'no company on this account');
+  if (!company) throw error(500, 'no company in this workspace');
 
   return { company };
 };

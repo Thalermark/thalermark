@@ -30,7 +30,7 @@ export const actions: Actions = {
     if (!companiesRes.ok) throw error(companiesRes.status, 'failed to load companies');
     const { companies } = await companiesRes.json();
     const first = companies[0];
-    if (!first) return fail(400, { values, formError: 'No company on this account.' });
+    if (!first) return fail(400, { values, formError: 'No company in this workspace.' });
 
     const parsed = itemCreateSchema.safeParse({ companyId: first.id, ...values });
     if (!parsed.success) {

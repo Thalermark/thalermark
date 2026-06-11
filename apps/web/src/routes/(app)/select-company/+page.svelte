@@ -5,14 +5,14 @@
   let { data }: PageProps = $props();
 </script>
 
-<span class="eyebrow">Account</span>
+<span class="eyebrow">Workspace</span>
 <h1 class="mt-3 font-serif text-3xl font-light leading-tight tracking-tight text-ink">
   {COPY.selectCompany.title}
 </h1>
 
 {#if data.memberships.length === 0}
   <div class="mt-8 rounded-sm border border-oxblood/30 bg-oxblood/5 p-5 text-sm text-ink">
-    <p class="font-medium text-oxblood">Your account isn't set up yet.</p>
+    <p class="font-medium text-oxblood">Your workspace isn't set up yet.</p>
     <p class="mt-2 text-ink/75">
       We couldn't find any companies linked to your sign-in. This usually means your sign-up didn't
       finish. Contact support or sign out and try again.

@@ -67,7 +67,7 @@
         onclick={close}
         class="block px-4 py-2 text-sm text-ink/80 transition-colors hover:bg-cream-warm hover:text-ink"
       >
-        {COPY.account}
+        {COPY.workspace}
       </a>
       <a
         href="/settings"
