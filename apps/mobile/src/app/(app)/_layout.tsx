@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Redirect, Tabs, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { resolveActiveAccount } from '../../lib/active-account';
 import { authClient } from '../../lib/auth-client';
 
@@ -9,7 +9,7 @@ import { authClient } from '../../lib/auth-client';
 //   'anon'   → no session, go sign in
 //   'select' → authed with several memberships, none chosen → pick one
 //   'ready'  → authed with an active account resolved → render the app
-type Gate = 'loading' | 'anon' | 'select' | 'ready';
+type Gate = 'loading' | 'anon' | 'select' | 'ready' | 'error';
 
 // The (app) group is the authed half of the mobile app. (auth) screens live
 // outside it. Gating happens here rather than in the root layout so the
@@ -29,36 +29,58 @@ type Gate = 'loading' | 'anon' | 'select' | 'ready';
 export default function AppLayout() {
   const [gate, setGate] = useState<Gate>('loading');
 
-  useFocusEffect(
-    useCallback(() => {
-      let active = true;
-      authClient
-        .getSession()
-        .then(async (res) => {
-          if (!active) return;
-          if (!res.data?.user) {
-            setGate('anon');
-            return;
-          }
-          const account = await resolveActiveAccount();
-          if (!active) return;
-          // 'none' (no memberships) routes to select-company too — it owns the
-          // "account isn't set up yet" copy.
-          setGate(account.status === 'ok' ? 'ready' : 'select');
-        })
-        .catch(() => {
-          if (active) setGate('anon');
-        });
-      return () => {
-        active = false;
-      };
-    }, []),
-  );
+  // Extracted so the error-state Retry button can re-run it. Mirrors web's
+  // hooks.server.ts: a 5xx/unreachable /api/me is a server fault ('error'),
+  // distinct from "no session" (anon) and "no memberships" (select).
+  const runGate = useCallback(() => {
+    let active = true;
+    authClient
+      .getSession()
+      .then(async (res) => {
+        if (!active) return;
+        if (!res.data?.user) {
+          setGate('anon');
+          return;
+        }
+        const account = await resolveActiveAccount();
+        if (!active) return;
+        setGate(
+          account.status === 'ok' ? 'ready' : account.status === 'error' ? 'error' : 'select',
+        );
+      })
+      .catch(() => {
+        if (active) setGate('anon');
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useFocusEffect(runGate);
 
   if (gate === 'loading') {
     return (
       <View className="flex-1 items-center justify-center bg-cream">
         <ActivityIndicator color="#0f1626" />
+      </View>
+    );
+  }
+
+  if (gate === 'error') {
+    return (
+      <View className="flex-1 items-center justify-center bg-cream px-6">
+        <Text className="text-center text-sm text-oxblood">
+          Something went wrong reaching the server.
+        </Text>
+        <Pressable
+          onPress={() => {
+            setGate('loading');
+            runGate();
+          }}
+          className="mt-5 rounded-sm bg-ink px-4 py-2.5 active:bg-gold-deep"
+        >
+          <Text className="text-sm font-medium text-cream">Try again</Text>
+        </Pressable>
       </View>
     );
   }
