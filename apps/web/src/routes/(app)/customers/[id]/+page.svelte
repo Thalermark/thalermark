@@ -1,9 +1,14 @@
 <script lang="ts">
   import AuditHistory from '$lib/components/AuditHistory.svelte';
+  import { may } from '$lib/perms';
   import type { PageProps } from './$types';
 
   let { data }: PageProps = $props();
   const c = $derived(data.customer);
+
+  // Role gate (UX only — the API is authoritative). Editing a customer is
+  // `customers:write`; the statement is a read and stays open to every role.
+  const canWrite = $derived(may(data.role, 'customers:write'));
 
   const addressLines = $derived(
     [
@@ -63,12 +68,14 @@
     >
       Statement
     </a>
-    <a
-      href="/customers/{c.id}/edit"
-      class="rounded-sm border border-ink/20 px-3 py-1 font-mono text-xs uppercase tracking-widest text-ink/70 hover:border-gold-deep hover:text-gold-deep"
-    >
-      Edit
-    </a>
+    {#if canWrite}
+      <a
+        href="/customers/{c.id}/edit"
+        class="rounded-sm border border-ink/20 px-3 py-1 font-mono text-xs uppercase tracking-widest text-ink/70 hover:border-gold-deep hover:text-gold-deep"
+      >
+        Edit
+      </a>
+    {/if}
   </div>
 </div>
 

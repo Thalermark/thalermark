@@ -1,5 +1,7 @@
 <script lang="ts">
   import { page } from '$app/state';
+  import type { Capability } from '@thalermark/validation';
+  import { may } from '$lib/perms';
 
   let { children } = $props();
 
@@ -8,14 +10,19 @@
   // so /settings/activity highlights "Activity" but /settings doesn't
   // highlight anything (the index page redirects to a default tab so the
   // empty state is unreachable in practice).
-  const TABS: { href: string; label: string }[] = [
+  //
+  // A `cap` hides the tab for roles that can't use it (UX only — the API and
+  // each tab's own actions stay authoritative). Tabs without a cap are plain
+  // reads (Activity feed, Items catalog, Team roster) open to every role.
+  const TABS: { href: string; label: string; cap?: Capability }[] = [
     { href: '/settings/activity', label: 'Activity' },
-    { href: '/settings/business', label: 'Business' },
+    { href: '/settings/business', label: 'Business', cap: 'settings:manage' },
     { href: '/settings/items', label: 'Items' },
     { href: '/settings/team', label: 'Team' },
-    { href: '/settings/payments', label: 'Payments' },
-    { href: '/settings/email', label: 'Email' },
+    { href: '/settings/payments', label: 'Payments', cap: 'settings:manage' },
+    { href: '/settings/email', label: 'Email', cap: 'settings:manage' },
   ];
+  const visibleTabs = $derived(TABS.filter((t) => !t.cap || may(page.data.role, t.cap)));
 
   const path = $derived(page.url.pathname);
   function isActive(href: string): boolean {
@@ -27,7 +34,7 @@
   <aside>
     <span class="eyebrow">Settings</span>
     <nav class="mt-4 flex flex-col gap-1">
-      {#each TABS as tab (tab.href)}
+      {#each visibleTabs as tab (tab.href)}
         {@const active = isActive(tab.href)}
         <a
           href={tab.href}

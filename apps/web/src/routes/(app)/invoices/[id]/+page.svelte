@@ -2,24 +2,32 @@
   import AuditHistory from '$lib/components/AuditHistory.svelte';
   import PaymentFields from '$lib/components/PaymentFields.svelte';
   import SplitButton from '$lib/components/SplitButton.svelte';
+  import { may } from '$lib/perms';
   import type { PageProps } from './$types';
 
   let { data, form }: PageProps = $props();
   const inv = $derived(data.invoice);
   const customer = $derived(data.customer);
 
+  // Role gate (UX only — the API is authoritative). All invoice writes and
+  // state actions are `sales:write`; the inline "add business address" shortcut
+  // edits the company, so it needs `settings:manage`. Each status gate below is
+  // ANDed with canWrite so a viewer/accountant sees no action buttons at all.
+  const canWrite = $derived(may(data.role, 'sales:write'));
+  const canManageSettings = $derived(may(data.role, 'settings:manage'));
+
   // Mirrors the API state machine: draft can be sent / paid / voided;
   // sent can be paid / voided; paid and voided are terminal. The buttons
   // disappear on terminal states so the UI doesn't tempt a 409 round-trip.
   // canSend covers both first-send (draft → sent + email) and resend
   // (sent → email only); the API handles the dispatch.
-  const canSend = $derived(inv.status === 'draft' || inv.status === 'sent');
-  const canMarkSent = $derived(inv.status === 'draft');
-  const canMarkPaid = $derived(inv.status === 'draft' || inv.status === 'sent');
-  const canVoid = $derived(inv.status === 'draft' || inv.status === 'sent');
+  const canSend = $derived(canWrite && (inv.status === 'draft' || inv.status === 'sent'));
+  const canMarkSent = $derived(canWrite && inv.status === 'draft');
+  const canMarkPaid = $derived(canWrite && (inv.status === 'draft' || inv.status === 'sent'));
+  const canVoid = $derived(canWrite && (inv.status === 'draft' || inv.status === 'sent'));
   // Edit gate matches the API's draft-only rule — once sent/paid/voided the
   // invoice belongs to the audit trail, not the editor.
-  const canEdit = $derived(inv.status === 'draft');
+  const canEdit = $derived(canWrite && inv.status === 'draft');
   const hasActions = $derived(canSend || canMarkSent || canMarkPaid || canVoid);
 
   // Public share URL is available once mark-sent mints the token. Built
@@ -63,7 +71,7 @@
   // Editing the recorded payment on an already-paid invoice — reuses the same
   // PaymentFields, pre-filled. Any date change is an append-only ledger
   // correction handled server-side.
-  const canEditPayment = $derived(inv.status === 'paid');
+  const canEditPayment = $derived(canWrite && inv.status === 'paid');
   let showEditPayment = $state(false);
 </script>
 
@@ -83,14 +91,16 @@
     {/if}
     <!-- Duplicate-as-template: available for any status (a paid/sent invoice is
          a common template). Posts to ?/duplicate → new draft's edit page. -->
-    <form method="post" action="?/duplicate">
-      <button
-        type="submit"
-        class="rounded-sm border border-ink/20 px-3 py-1 font-mono text-xs uppercase tracking-widest text-ink/70 hover:border-gold-deep hover:text-gold-deep"
-      >
-        Duplicate
-      </button>
-    </form>
+    {#if canWrite}
+      <form method="post" action="?/duplicate">
+        <button
+          type="submit"
+          class="rounded-sm border border-ink/20 px-3 py-1 font-mono text-xs uppercase tracking-widest text-ink/70 hover:border-gold-deep hover:text-gold-deep"
+        >
+          Duplicate
+        </button>
+      </form>
+    {/if}
     <span class="font-mono text-xs uppercase tracking-widest text-ink/60">{inv.status}</span>
   </div>
 </div>
@@ -107,7 +117,7 @@
   </div>
 {/if}
 
-{#if data.needsBusinessDetails && inv.status === 'draft' && data.businessCompanyId}
+{#if data.needsBusinessDetails && inv.status === 'draft' && data.businessCompanyId && canManageSettings}
   <details class="mt-6 rounded-sm border border-gold-deep/30 bg-gold-deep/5 px-4 py-3 text-sm text-ink">
     <summary class="cursor-pointer list-none font-medium">
       Your business address won't show on this invoice yet.

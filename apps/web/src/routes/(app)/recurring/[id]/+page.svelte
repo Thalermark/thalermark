@@ -1,5 +1,6 @@
 <script lang="ts">
   import AuditHistory from '$lib/components/AuditHistory.svelte';
+  import { may } from '$lib/perms';
   import { cadenceLabel } from '$lib/recurring';
   import type { PageProps } from './$types';
 
@@ -7,14 +8,18 @@
   const s = $derived(data.schedule);
   const customer = $derived(data.customer);
 
+  // Role gate (UX only — the API is authoritative). Recurring writes and state
+  // actions are `sales:write`; each status gate is ANDed with it.
+  const canWrite = $derived(may(data.role, 'sales:write'));
+
   // Mirrors the API state machine. pause: active → paused; resume: paused →
   // active; end: active|paused → ended (terminal). run-now + edit are gated to
   // non-terminal states; ended schedules are read-only.
-  const canPause = $derived(s.status === 'active');
-  const canResume = $derived(s.status === 'paused');
-  const canEnd = $derived(s.status === 'active' || s.status === 'paused');
-  const canRunNow = $derived(s.status === 'active');
-  const canEdit = $derived(s.status === 'active' || s.status === 'paused');
+  const canPause = $derived(canWrite && s.status === 'active');
+  const canResume = $derived(canWrite && s.status === 'paused');
+  const canEnd = $derived(canWrite && (s.status === 'active' || s.status === 'paused'));
+  const canRunNow = $derived(canWrite && s.status === 'active');
+  const canEdit = $derived(canWrite && (s.status === 'active' || s.status === 'paused'));
   const hasActions = $derived(canRunNow || canPause || canResume || canEnd);
 
   const endLabel = $derived(

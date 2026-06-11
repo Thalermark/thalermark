@@ -1,10 +1,16 @@
 <script lang="ts">
   import AuditHistory from '$lib/components/AuditHistory.svelte';
+  import { may } from '$lib/perms';
   import type { PageProps } from './$types';
 
   let { data, form }: PageProps = $props();
   const est = $derived(data.estimate);
   const customer = $derived(data.customer);
+
+  // Role gate (UX only — the API is authoritative). Every estimate write and
+  // state action is `sales:write`; each status gate below is ANDed with it so a
+  // viewer/accountant sees no action buttons.
+  const canWrite = $derived(may(data.role, 'sales:write'));
 
   // Mirrors the API state machine. mark-sent only fires from draft;
   // mark-accepted / mark-declined fire from draft or sent (the operator
@@ -14,15 +20,17 @@
   // email only) — API handles the dispatch. /mark-sent stays for the
   // delivered-out-of-band path so a paper handoff still flips status
   // without firing an email.
-  const canSend = $derived(est.status === 'draft' || est.status === 'sent');
-  const canMarkSent = $derived(est.status === 'draft');
-  const canMarkAccepted = $derived(est.status === 'draft' || est.status === 'sent');
-  const canMarkDeclined = $derived(est.status === 'draft' || est.status === 'sent');
-  const canEdit = $derived(est.status === 'draft');
+  const canSend = $derived(canWrite && (est.status === 'draft' || est.status === 'sent'));
+  const canMarkSent = $derived(canWrite && est.status === 'draft');
+  const canMarkAccepted = $derived(canWrite && (est.status === 'draft' || est.status === 'sent'));
+  const canMarkDeclined = $derived(canWrite && (est.status === 'draft' || est.status === 'sent'));
+  const canEdit = $derived(canWrite && est.status === 'draft');
   // Convert is the "estimate → invoice" link action (slice 8.7d). Gated to
   // accepted estimates with no existing converted invoice; once converted,
   // the button is replaced with a link to the new invoice further down.
-  const canConvert = $derived(est.status === 'accepted' && est.convertedInvoiceId == null);
+  const canConvert = $derived(
+    canWrite && est.status === 'accepted' && est.convertedInvoiceId == null,
+  );
   const hasActions = $derived(
     canSend || canMarkSent || canMarkAccepted || canMarkDeclined || canConvert,
   );
@@ -62,14 +70,16 @@
       </a>
     {/if}
     <!-- Duplicate-as-template: any status. Posts to ?/duplicate → new draft's edit page. -->
-    <form method="post" action="?/duplicate">
-      <button
-        type="submit"
-        class="rounded-sm border border-ink/20 px-3 py-1 font-mono text-xs uppercase tracking-widest text-ink/70 hover:border-gold-deep hover:text-gold-deep"
-      >
-        Duplicate
-      </button>
-    </form>
+    {#if canWrite}
+      <form method="post" action="?/duplicate">
+        <button
+          type="submit"
+          class="rounded-sm border border-ink/20 px-3 py-1 font-mono text-xs uppercase tracking-widest text-ink/70 hover:border-gold-deep hover:text-gold-deep"
+        >
+          Duplicate
+        </button>
+      </form>
+    {/if}
     <span class="font-mono text-xs uppercase tracking-widest text-ink/60">{est.status}</span>
   </div>
 </div>
