@@ -2,6 +2,7 @@
   import { cadenceLabel } from '$lib/recurring';
   import LoadMore from '$lib/components/LoadMore.svelte';
   import { fetchMore } from '$lib/load-more';
+  import { may } from '$lib/perms';
   import { untrack } from 'svelte';
   import type { PageProps } from './$types';
 
@@ -46,12 +47,14 @@
       Recurring invoices<span class="text-gold-deep">.</span>
     </h1>
   </div>
-  <a
-    href="/recurring/new"
-    class="rounded-sm bg-ink px-4 py-2 text-sm font-medium text-cream transition-colors hover:bg-gold-deep"
-  >
-    + New schedule
-  </a>
+  {#if may(data.role, 'sales:write')}
+    <a
+      href="/recurring/new"
+      class="rounded-sm bg-ink px-4 py-2 text-sm font-medium text-cream transition-colors hover:bg-gold-deep"
+    >
+      + New schedule
+    </a>
+  {/if}
 </div>
 
 {#if rows.length === 0}

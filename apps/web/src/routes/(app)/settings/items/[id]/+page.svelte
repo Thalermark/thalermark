@@ -1,10 +1,16 @@
 <script lang="ts">
   import AuditHistory from '$lib/components/AuditHistory.svelte';
+  import { may } from '$lib/perms';
   import type { PageProps } from './$types';
 
   let { data }: PageProps = $props();
   const item = $derived(data.item);
   const archived = $derived(item.archivedAt !== null);
+
+  // Role gate (UX only — the API is authoritative). The items catalog is part
+  // of `sales:write` (it feeds invoices/estimates), so the same roles that can
+  // invoice can edit and archive items.
+  const canWrite = $derived(may(data.role, 'sales:write'));
 
   const fmt = (s: string) =>
     Number(s).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
@@ -25,22 +31,24 @@
       </span>
     {/if}
   </h1>
-  <div class="flex items-center gap-2">
-    <a
-      href="/settings/items/{item.id}/edit"
-      class="rounded-sm border border-ink/20 px-3 py-1 font-mono text-xs uppercase tracking-widest text-ink/70 hover:border-gold-deep hover:text-gold-deep"
-    >
-      Edit
-    </a>
-    <form method="post" action={archived ? '?/restore' : '?/archive'}>
-      <button
-        type="submit"
+  {#if canWrite}
+    <div class="flex items-center gap-2">
+      <a
+        href="/settings/items/{item.id}/edit"
         class="rounded-sm border border-ink/20 px-3 py-1 font-mono text-xs uppercase tracking-widest text-ink/70 hover:border-gold-deep hover:text-gold-deep"
       >
-        {archived ? 'Restore' : 'Archive'}
-      </button>
-    </form>
-  </div>
+        Edit
+      </a>
+      <form method="post" action={archived ? '?/restore' : '?/archive'}>
+        <button
+          type="submit"
+          class="rounded-sm border border-ink/20 px-3 py-1 font-mono text-xs uppercase tracking-widest text-ink/70 hover:border-gold-deep hover:text-gold-deep"
+        >
+          {archived ? 'Restore' : 'Archive'}
+        </button>
+      </form>
+    </div>
+  {/if}
 </div>
 
 {#if archived}

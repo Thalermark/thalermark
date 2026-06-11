@@ -1,6 +1,7 @@
 <script lang="ts">
   import LoadMore from '$lib/components/LoadMore.svelte';
   import { fetchMore } from '$lib/load-more';
+  import { may } from '$lib/perms';
   import { untrack } from 'svelte';
   import type { PageProps } from './$types';
 
@@ -53,12 +54,14 @@
       All customers<span class="text-gold-deep">.</span>
     </h1>
   </div>
-  <a
-    href="/customers/new"
-    class="rounded-sm bg-ink px-4 py-2 text-sm font-medium text-cream transition-colors hover:bg-gold-deep"
-  >
-    + New customer
-  </a>
+  {#if may(data.role, 'customers:write')}
+    <a
+      href="/customers/new"
+      class="rounded-sm bg-ink px-4 py-2 text-sm font-medium text-cream transition-colors hover:bg-gold-deep"
+    >
+      + New customer
+    </a>
+  {/if}
 </div>
 
 <!-- Filters. Plain GET form so they live in the URL (shareable, back-button

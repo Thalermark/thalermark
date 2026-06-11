@@ -81,12 +81,17 @@ export const handle: Handle = async ({ event, resolve }) => {
         maxAge: 60 * 60 * 24 * 365,
       });
     }
-    if (only) event.locals.activeAccountId = only.accountId;
+    if (only) {
+      event.locals.activeAccountId = only.accountId;
+      event.locals.role = only.role;
+    }
     return resolve(event);
   }
 
-  if (cookieValue && memberships.some((m) => m.accountId === cookieValue)) {
-    event.locals.activeAccountId = cookieValue;
+  const active = memberships.find((m) => m.accountId === cookieValue);
+  if (cookieValue && active) {
+    event.locals.activeAccountId = active.accountId;
+    event.locals.role = active.role;
     return resolve(event);
   }
 
