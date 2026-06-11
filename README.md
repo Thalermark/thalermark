@@ -36,7 +36,7 @@ pnpm install
 pnpm dev
 ```
 
-The project is in early scaffolding — only the workspace plumbing is in place today. Phases 1–7 (database, telemetry, API, web/mobile shells, CI/CD) are tracked in [SCAFFOLDING.md](./SCAFFOLDING.md).
+The MVP is feature-complete on web and mobile (Phases 0–9 shipped); current work is production hardening ahead of launch. Phase history is tracked in [SCAFFOLDING.md](./SCAFFOLDING.md).
 
 ## Self-host
 
@@ -62,7 +62,7 @@ See **[DEPLOYMENT.md](./DEPLOYMENT.md)** for the full guide — the production s
 - [TECH-STACK.md](./TECH-STACK.md) — every locked technical decision and why
 - [TELEMETRY.md](./TELEMETRY.md) — what we collect, when, and how to opt out
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — self-hosting: configuration, storage/database options, TLS, backups, sizing
-- [SCAFFOLDING.md](./SCAFFOLDING.md) — phase plan from empty repo to first MVP feature
+- [SCAFFOLDING.md](./SCAFFOLDING.md) — phase plan + realized record (Phases 0–9)
 - [CONTRIBUTING.md](./CONTRIBUTING.md) — how to contribute, including the CLA
 
 ## License
