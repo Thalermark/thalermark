@@ -13,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { type AuditEvent, AuditHistory } from '../../../../components/AuditHistory';
 import { DateField } from '../../../../components/DateField';
 import { api } from '../../../../lib/api';
+import { useMay } from '../../../../lib/role';
 import { getServerUrl } from '../../../../lib/server-url';
 
 // Invoice detail + status actions (mirror of apps/web's /invoices/[id]):
@@ -145,13 +146,17 @@ export default function InvoiceDetail() {
     }, [load]),
   );
 
+  // Role gate (UX only — the API is authoritative). Every invoice write and
+  // state action is `sales:write`; each status gate is ANDed with it so a
+  // viewer/accountant sees no action buttons.
+  const canWrite = useMay('sales:write');
   const inv = detail.state === 'ready' ? detail.invoice : null;
   const status = inv?.status;
-  const canSend = status === 'draft' || status === 'sent';
-  const canMarkSent = status === 'draft';
-  const canMarkPaid = status === 'draft' || status === 'sent';
-  const canVoid = status === 'draft' || status === 'sent';
-  const canEdit = status === 'draft';
+  const canSend = canWrite && (status === 'draft' || status === 'sent');
+  const canMarkSent = canWrite && status === 'draft';
+  const canMarkPaid = canWrite && (status === 'draft' || status === 'sent');
+  const canVoid = canWrite && (status === 'draft' || status === 'sent');
+  const canEdit = canWrite && status === 'draft';
   const hasActions = canSend || canMarkSent || canMarkPaid || canVoid;
 
   // Run a transition, then reload. `onOk` records any success side effect
@@ -272,15 +277,17 @@ export default function InvoiceDetail() {
                     </Text>
                   </Pressable>
                 ) : null}
-                <Pressable
-                  onPress={onDuplicate}
-                  disabled={duplicating}
-                  className="rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep disabled:opacity-50"
-                >
-                  <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
-                    {duplicating ? '…' : 'Duplicate'}
-                  </Text>
-                </Pressable>
+                {canWrite ? (
+                  <Pressable
+                    onPress={onDuplicate}
+                    disabled={duplicating}
+                    className="rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep disabled:opacity-50"
+                  >
+                    <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
+                      {duplicating ? '…' : 'Duplicate'}
+                    </Text>
+                  </Pressable>
+                ) : null}
                 <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
                   {inv.status}
                 </Text>

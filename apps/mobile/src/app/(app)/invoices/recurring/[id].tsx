@@ -4,6 +4,7 @@ import { ActivityIndicator, Alert, Pressable, ScrollView, Text, View } from 'rea
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { type AuditEvent, AuditHistory } from '../../../../components/AuditHistory';
 import { api } from '../../../../lib/api';
+import { useMay } from '../../../../lib/role';
 
 function cadenceLabel(frequency: string, interval: number): string {
   const unit = frequency === 'weekly' ? 'week' : frequency === 'monthly' ? 'month' : 'year';
@@ -111,12 +112,15 @@ export default function RecurringDetail() {
     }, [load]),
   );
 
+  // Role gate (UX only — the API is authoritative). Recurring state actions are
+  // `sales:write`; each status gate is ANDed with it.
+  const canWrite = useMay('sales:write');
   const s = detail.state === 'ready' ? detail.schedule : null;
   const status = s?.status;
-  const canRunNow = status === 'active';
-  const canPause = status === 'active';
-  const canResume = status === 'paused';
-  const canEnd = status === 'active' || status === 'paused';
+  const canRunNow = canWrite && status === 'active';
+  const canPause = canWrite && status === 'active';
+  const canResume = canWrite && status === 'paused';
+  const canEnd = canWrite && (status === 'active' || status === 'paused');
   const hasActions = canRunNow || canPause || canResume || canEnd;
 
   const endLabel = s?.endDate

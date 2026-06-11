@@ -1,9 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
+import type { Role } from '@thalermark/validation';
 import { Redirect, Tabs, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { resolveActiveAccount } from '../../lib/active-account';
 import { authClient } from '../../lib/auth-client';
+import { RoleProvider } from '../../lib/role';
 
 // 'loading' until the session + active-account resolution settles, then:
 //   'anon'   → no session, go sign in
@@ -28,6 +30,8 @@ type Gate = 'loading' | 'anon' | 'select' | 'ready' | 'error';
 // case is folded into that screen's empty state.
 export default function AppLayout() {
   const [gate, setGate] = useState<Gate>('loading');
+  // The active membership's role, fed to RoleProvider for UX capability gating.
+  const [role, setRole] = useState<Role | undefined>(undefined);
 
   // Extracted so the error-state Retry button can re-run it. Mirrors web's
   // hooks.server.ts: a 5xx/unreachable /api/me is a server fault ('error'),
@@ -44,6 +48,7 @@ export default function AppLayout() {
         }
         const account = await resolveActiveAccount();
         if (!active) return;
+        setRole(account.status === 'ok' ? account.role : undefined);
         setGate(
           account.status === 'ok' ? 'ready' : account.status === 'error' ? 'error' : 'select',
         );
@@ -89,72 +94,74 @@ export default function AppLayout() {
   if (gate === 'select') return <Redirect href="/select-company" />;
 
   return (
-    <Tabs
-      screenOptions={{
-        headerShown: false,
-        tabBarActiveTintColor: '#0f1626',
-        tabBarInactiveTintColor: '#0f162680',
-        tabBarStyle: { backgroundColor: '#f4ede0', borderTopColor: '#0f162614' },
-      }}
-    >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: 'Home',
-          tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons name={focused ? 'home' : 'home-outline'} size={size} color={color} />
-          ),
+    <RoleProvider role={role}>
+      <Tabs
+        screenOptions={{
+          headerShown: false,
+          tabBarActiveTintColor: '#0f1626',
+          tabBarInactiveTintColor: '#0f162680',
+          tabBarStyle: { backgroundColor: '#f4ede0', borderTopColor: '#0f162614' },
         }}
-      />
-      <Tabs.Screen
-        name="invoices"
-        options={{
-          title: 'Invoices',
-          tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons name={focused ? 'receipt' : 'receipt-outline'} size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="expenses"
-        options={{
-          title: 'Expenses',
-          tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons name={focused ? 'wallet' : 'wallet-outline'} size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="customers"
-        options={{
-          title: 'Customers',
-          tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons name={focused ? 'people' : 'people-outline'} size={size} color={color} />
-          ),
-        }}
-      />
-      {/* The "More" hub holds everything that doesn't earn a top-level tab:
+      >
+        <Tabs.Screen
+          name="index"
+          options={{
+            title: 'Home',
+            tabBarIcon: ({ color, size, focused }) => (
+              <Ionicons name={focused ? 'home' : 'home-outline'} size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="invoices"
+          options={{
+            title: 'Invoices',
+            tabBarIcon: ({ color, size, focused }) => (
+              <Ionicons name={focused ? 'receipt' : 'receipt-outline'} size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="expenses"
+          options={{
+            title: 'Expenses',
+            tabBarIcon: ({ color, size, focused }) => (
+              <Ionicons name={focused ? 'wallet' : 'wallet-outline'} size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="customers"
+          options={{
+            title: 'Customers',
+            tabBarIcon: ({ color, size, focused }) => (
+              <Ionicons name={focused ? 'people' : 'people-outline'} size={size} color={color} />
+            ),
+          }}
+        />
+        {/* The "More" hub holds everything that doesn't earn a top-level tab:
           Estimates + Recurring (Sales), account admin, the items catalog +
           reports, the activity feed, and business/payments/email settings.
           M11f consolidated the bar down to these five tabs. */}
-      <Tabs.Screen
-        name="more"
-        options={{
-          title: 'More',
-          tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons
-              name={focused ? 'ellipsis-horizontal' : 'ellipsis-horizontal-outline'}
-              size={size}
-              color={color}
-            />
-          ),
-        }}
-      />
-      {/* Routable but hidden from the tab bar. Estimates lost its tab in the
+        <Tabs.Screen
+          name="more"
+          options={{
+            title: 'More',
+            tabBarIcon: ({ color, size, focused }) => (
+              <Ionicons
+                name={focused ? 'ellipsis-horizontal' : 'ellipsis-horizontal-outline'}
+                size={size}
+                color={color}
+              />
+            ),
+          }}
+        />
+        {/* Routable but hidden from the tab bar. Estimates lost its tab in the
           M11f consolidation — it's reached from the More hub's Sales section;
           select-company is reached via redirect only. */}
-      <Tabs.Screen name="estimates" options={{ href: null }} />
-      <Tabs.Screen name="select-company" options={{ href: null }} />
-    </Tabs>
+        <Tabs.Screen name="estimates" options={{ href: null }} />
+        <Tabs.Screen name="select-company" options={{ href: null }} />
+      </Tabs>
+    </RoleProvider>
   );
 }

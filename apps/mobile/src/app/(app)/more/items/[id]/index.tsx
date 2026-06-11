@@ -4,6 +4,7 @@ import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-nati
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { type AuditEvent, AuditHistory } from '../../../../../components/AuditHistory';
 import { api } from '../../../../../lib/api';
+import { useMay } from '../../../../../lib/role';
 
 // Mirror of apps/web's /settings/items/[id]. Edit + archive/restore + the
 // per-entity audit trail (M11e); sales history is kept either way (archive
@@ -79,6 +80,9 @@ export default function ItemDetail() {
     }, [load]),
   );
 
+  // Role gate (UX only — the API is authoritative). The catalog feeds
+  // invoicing, so edit/archive are `sales:write`.
+  const canWrite = useMay('sales:write');
   const item = detail.state === 'ready' ? detail.item : null;
   const archived = item?.archivedAt != null;
 
@@ -123,25 +127,27 @@ export default function ItemDetail() {
               </View>
             </View>
 
-            <View className="mt-4 flex-row gap-2">
-              <Pressable
-                onPress={() => router.push(`/more/items/${id}/edit`)}
-                className="rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep"
-              >
-                <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
-                  Edit
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={toggleArchive}
-                disabled={busy}
-                className="rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep disabled:opacity-50"
-              >
-                <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
-                  {archived ? 'Restore' : 'Archive'}
-                </Text>
-              </Pressable>
-            </View>
+            {canWrite ? (
+              <View className="mt-4 flex-row gap-2">
+                <Pressable
+                  onPress={() => router.push(`/more/items/${id}/edit`)}
+                  className="rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep"
+                >
+                  <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
+                    Edit
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={toggleArchive}
+                  disabled={busy}
+                  className="rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep disabled:opacity-50"
+                >
+                  <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
+                    {archived ? 'Restore' : 'Archive'}
+                  </Text>
+                </Pressable>
+              </View>
+            ) : null}
 
             {archived ? (
               <Text className="mt-6 rounded-sm border border-ink/15 bg-cream-warm px-4 py-3 text-sm text-ink/70">

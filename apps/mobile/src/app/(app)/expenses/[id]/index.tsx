@@ -14,6 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { type AuditEvent, AuditHistory } from '../../../../components/AuditHistory';
 import { api } from '../../../../lib/api';
+import { useMay } from '../../../../lib/role';
 import { getServerUrl } from '../../../../lib/server-url';
 import { uploadReceipt } from '../../../../lib/upload';
 
@@ -129,6 +130,9 @@ export default function ExpenseDetail() {
     }, [load]),
   );
 
+  // Role gate (UX only — the API is authoritative). Edit/duplicate/delete and
+  // every receipt action (upload/extract/remove) are `expenses:write`.
+  const canWrite = useMay('expenses:write');
   const e = detail.state === 'ready' ? detail.expense : null;
   const receipt = detail.state === 'ready' ? detail.receipt : null;
 
@@ -250,27 +254,29 @@ export default function ExpenseDetail() {
                 <Text className="font-serif text-3xl font-light text-ink">{e.merchant}</Text>
                 <Text className="mt-1 font-mono text-2xl tabular-nums text-ink">{e.amount}</Text>
               </View>
-              <View className="mt-1 flex-row gap-2">
-                <Pressable
-                  onPress={() => router.push(`/expenses/${id}/edit`)}
-                  className="rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep"
-                >
-                  <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
-                    Edit
-                  </Text>
-                </Pressable>
-                {/* Duplicate-as-template: prefill a fresh expense form from this
-                    one. A client-side prefill (not a server clone) so it never
-                    silently posts to the ledger — the user submits explicitly. */}
-                <Pressable
-                  onPress={() => router.push(`/expenses/new?duplicate=${id}`)}
-                  className="rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep"
-                >
-                  <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
-                    Duplicate
-                  </Text>
-                </Pressable>
-              </View>
+              {canWrite ? (
+                <View className="mt-1 flex-row gap-2">
+                  <Pressable
+                    onPress={() => router.push(`/expenses/${id}/edit`)}
+                    className="rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep"
+                  >
+                    <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
+                      Edit
+                    </Text>
+                  </Pressable>
+                  {/* Duplicate-as-template: prefill a fresh expense form from this
+                      one. A client-side prefill (not a server clone) so it never
+                      silently posts to the ledger — the user submits explicitly. */}
+                  <Pressable
+                    onPress={() => router.push(`/expenses/new?duplicate=${id}`)}
+                    className="rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep"
+                  >
+                    <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
+                      Duplicate
+                    </Text>
+                  </Pressable>
+                </View>
+              ) : null}
             </View>
 
             <View className="mt-8 space-y-3">
@@ -309,26 +315,28 @@ export default function ExpenseDetail() {
                     </Pressable>
                   )}
 
-                  <View className="mt-3 flex-row gap-2">
-                    <Pressable
-                      onPress={onExtract}
-                      disabled={acting}
-                      className="flex-1 rounded-sm bg-ink px-4 py-3 active:bg-gold-deep disabled:opacity-50"
-                    >
-                      <Text className="text-center text-sm font-medium text-cream">
-                        Auto-fill from receipt
-                      </Text>
-                    </Pressable>
-                    <Pressable
-                      onPress={onRemoveReceipt}
-                      disabled={acting}
-                      className="rounded-sm border border-oxblood/30 px-3 py-3 active:bg-oxblood/5 disabled:opacity-50"
-                    >
-                      <Text className="font-mono text-xs uppercase tracking-widest text-oxblood">
-                        Remove
-                      </Text>
-                    </Pressable>
-                  </View>
+                  {canWrite ? (
+                    <View className="mt-3 flex-row gap-2">
+                      <Pressable
+                        onPress={onExtract}
+                        disabled={acting}
+                        className="flex-1 rounded-sm bg-ink px-4 py-3 active:bg-gold-deep disabled:opacity-50"
+                      >
+                        <Text className="text-center text-sm font-medium text-cream">
+                          Auto-fill from receipt
+                        </Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={onRemoveReceipt}
+                        disabled={acting}
+                        className="rounded-sm border border-oxblood/30 px-3 py-3 active:bg-oxblood/5 disabled:opacity-50"
+                      >
+                        <Text className="font-mono text-xs uppercase tracking-widest text-oxblood">
+                          Remove
+                        </Text>
+                      </Pressable>
+                    </View>
+                  ) : null}
 
                   {extraction ? (
                     <View className="mt-3 rounded-sm border border-gold-deep/30 bg-gold-deep/5 p-4">
@@ -360,7 +368,7 @@ export default function ExpenseDetail() {
                     </View>
                   ) : null}
                 </View>
-              ) : (
+              ) : canWrite ? (
                 <View className="mt-3 flex-row gap-2">
                   <Pressable
                     onPress={() => pickAndUpload('camera')}
@@ -377,6 +385,8 @@ export default function ExpenseDetail() {
                     <Text className="text-center text-sm font-medium text-ink">Choose photo</Text>
                   </Pressable>
                 </View>
+              ) : (
+                <Text className="mt-3 text-sm text-ink/50">No receipt attached.</Text>
               )}
 
               {acting ? (

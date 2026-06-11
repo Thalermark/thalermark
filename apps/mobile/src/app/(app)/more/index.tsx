@@ -4,6 +4,7 @@ import { useCallback, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from '../../../lib/api';
+import { useMay } from '../../../lib/role';
 import { getActiveAccountId } from '../../../lib/secure-store';
 
 // The "More" hub — the home for screens that don't earn a top-level tab. M9
@@ -106,6 +107,9 @@ export default function MoreHub() {
   const router = useRouter();
   const [accountName, setAccountName] = useState<string | null>(null);
   const [multiAccount, setMultiAccount] = useState(false);
+  // Business / Payments / Email all edit company settings — hide the whole
+  // section for roles without settings:manage (the API 403s those writes).
+  const canManageSettings = useMay('settings:manage');
 
   // Resolve the active account name (header) + whether a switcher is worth
   // showing. /api/me is a bootstrap route — no x-account-id needed.
@@ -145,7 +149,13 @@ export default function MoreHub() {
           entries={CATALOG_ENTRIES}
           onOpen={(href) => router.push(href)}
         />
-        <Section label="Settings" entries={SETTINGS_ENTRIES} onOpen={(href) => router.push(href)} />
+        {canManageSettings ? (
+          <Section
+            label="Settings"
+            entries={SETTINGS_ENTRIES}
+            onOpen={(href) => router.push(href)}
+          />
+        ) : null}
       </ScrollView>
     </SafeAreaView>
   );

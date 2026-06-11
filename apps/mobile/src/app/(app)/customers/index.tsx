@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from '../../../lib/api';
+import { useMay } from '../../../lib/role';
 import { pageQuery, usePaginatedList } from '../../../lib/use-paginated-list';
 
 // Mirror of apps/web's /customers list. Account-scoped via x-account-id (the
@@ -15,6 +16,7 @@ type CustomerRow = { id: string; name: string; email: string | null };
 
 export default function CustomersList() {
   const router = useRouter();
+  const canCreate = useMay('customers:write');
 
   const [q, setQ] = useState('');
   const [appliedQ, setAppliedQ] = useState('');
@@ -56,12 +58,14 @@ export default function CustomersList() {
           </Text>
           <Text className="mt-2 font-serif text-3xl font-light text-ink">All customers</Text>
         </View>
-        <Pressable
-          onPress={() => router.push('/customers/new')}
-          className="rounded-sm bg-ink px-4 py-2 active:bg-gold-deep"
-        >
-          <Text className="text-sm font-medium text-cream">+ New</Text>
-        </Pressable>
+        {canCreate ? (
+          <Pressable
+            onPress={() => router.push('/customers/new')}
+            className="rounded-sm bg-ink px-4 py-2 active:bg-gold-deep"
+          >
+            <Text className="text-sm font-medium text-cream">+ New</Text>
+          </Pressable>
+        ) : null}
       </View>
 
       <View className="mt-4 flex-row items-center gap-2 px-6">
