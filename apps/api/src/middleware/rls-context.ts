@@ -37,7 +37,13 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const BOOTSTRAP_PATH_PATTERNS: RegExp[] = [
   /^\/api\/me$/,
   /^\/api\/me\/memberships$/,
+  // The session user's pending invitations + accept/decline. All three run
+  // before the user is a member of the inviting account, so no x-account-id /
+  // tenant tx — the handler reads/writes via bootstrapDb, gated by the session
+  // email matching the invitation.
+  /^\/api\/me\/invitations$/,
   /^\/api\/invitations\/[^/]+\/accept$/,
+  /^\/api\/invitations\/[^/]+\/decline$/,
   /^\/api\/locations\/autocomplete$/,
 ];
 

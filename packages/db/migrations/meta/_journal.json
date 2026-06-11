@@ -288,6 +288,13 @@
       "when": 1781025001947,
       "tag": "0040_bent_killmonger",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1781136029981,
+      "tag": "0041_member_roles_and_invite_decline",
+      "breakpoints": true
     }
   ]
 }

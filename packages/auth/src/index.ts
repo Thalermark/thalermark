@@ -106,7 +106,12 @@ export function createAuth(db: Database, options: CreateAuthOptions) {
               const companyId = uuidv7();
               await tx.insert(accounts).values({ id: accountId, name: accountName });
               await tx.insert(companies).values({ id: companyId, accountId, name: accountName });
-              await tx.insert(memberships).values({ id: uuidv7(), userId: user.id, accountId });
+              // The creator of a personal account is its owner (protected: can't
+              // be removed or leave). Invited members above join as the default
+              // 'member' role.
+              await tx
+                .insert(memberships)
+                .values({ id: uuidv7(), userId: user.id, accountId, role: 'owner' });
               await seedChartOfAccounts(tx, { accountId, companyId });
             });
           },

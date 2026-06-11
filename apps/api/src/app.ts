@@ -58,6 +58,7 @@ import {
   desc,
   eq,
   getTableColumns,
+  gt,
   gte,
   ilike,
   inArray,
@@ -756,11 +757,56 @@ export function createApp(deps: AppDeps) {
           .where(eq(authUser.id, userId));
         if (!user) return c.json({ error: 'unauthorized' }, 401);
         const rows = await bootstrapDb
-          .select({ accountId: memberships.accountId, name: accounts.name })
+          .select({
+            accountId: memberships.accountId,
+            name: accounts.name,
+            role: memberships.role,
+          })
           .from(memberships)
           .innerJoin(accounts, eq(memberships.accountId, accounts.id))
           .where(eq(memberships.userId, userId));
         return c.json({ user, memberships: rows });
+      })
+      .get('/api/me/invitations', async (c) => {
+        // Pending invitations addressed to the session user's email. Bootstrap
+        // path: the user is not yet a member of the inviting account, so this
+        // reads via bootstrapDb (RLS would hide the rows without an account
+        // context). Drives the "you have pending invitations" notice + the
+        // accept/decline banners on the Workspace screen. Email is the trust
+        // anchor (Better Auth lowercases it). Excludes accepted/declined/expired.
+        const userId = c.get('userId');
+        const [user] = await bootstrapDb
+          .select({ email: authUser.email })
+          .from(authUser)
+          .where(eq(authUser.id, userId));
+        if (!user) return c.json({ error: 'unauthorized' }, 401);
+        const rows = await bootstrapDb
+          .select({
+            token: invitations.token,
+            accountName: accounts.name,
+            inviterName: authUser.name,
+            expiresAt: invitations.expiresAt,
+          })
+          .from(invitations)
+          .innerJoin(accounts, eq(accounts.id, invitations.accountId))
+          .innerJoin(authUser, eq(authUser.id, invitations.invitedByUserId))
+          .where(
+            and(
+              sql`lower(${invitations.email}) = lower(${user.email})`,
+              isNull(invitations.acceptedAt),
+              isNull(invitations.declinedAt),
+              gt(invitations.expiresAt, new Date()),
+            ),
+          )
+          .orderBy(desc(invitations.createdAt));
+        return c.json({
+          invitations: rows.map((r) => ({
+            token: r.token,
+            accountName: r.accountName,
+            inviterName: r.inviterName,
+            expiresAt: r.expiresAt.toISOString(),
+          })),
+        });
       })
       // Address type-ahead for the mobile customer form. The web client hits its
       // own same-origin SvelteKit proxy (/locations/autocomplete); mobile talks
@@ -849,7 +895,13 @@ export function createApp(deps: AppDeps) {
         const [invite] = await bootstrapDb
           .select()
           .from(invitations)
-          .where(and(eq(invitations.token, token), isNull(invitations.acceptedAt)));
+          .where(
+            and(
+              eq(invitations.token, token),
+              isNull(invitations.acceptedAt),
+              isNull(invitations.declinedAt),
+            ),
+          );
         if (!invite) return c.json({ error: 'invite_not_found' }, 404);
         if (invite.expiresAt.getTime() < Date.now())
           return c.json({ error: 'invite_expired' }, 410);
@@ -870,6 +922,40 @@ export function createApp(deps: AppDeps) {
         });
 
         return c.json({ accountId: invite.accountId });
+      })
+      .post('/api/invitations/:token/decline', async (c) => {
+        // Bootstrap sibling of /accept: the invitee declines. Same gate (session
+        // + email match) and same bootstrapDb path (the user is not a member of
+        // the inviting account). Stamps declined_at so the inviter sees the
+        // outcome on the team page; idempotent (a second decline returns ok).
+        const userId = c.get('userId');
+        const [user] = await bootstrapDb
+          .select({ id: authUser.id, email: authUser.email })
+          .from(authUser)
+          .where(eq(authUser.id, userId));
+        if (!user) return c.json({ error: 'unauthorized' }, 401);
+
+        const token = c.req.param('token');
+        const [invite] = await bootstrapDb
+          .select()
+          .from(invitations)
+          .where(eq(invitations.token, token));
+        if (!invite) return c.json({ error: 'invite_not_found' }, 404);
+        if (invite.email.toLowerCase() !== user.email.toLowerCase()) {
+          return c.json({ error: 'invite_email_mismatch' }, 403);
+        }
+        // Already consumed the other way — surface it rather than silently
+        // overwriting an acceptance with a decline.
+        if (invite.acceptedAt) return c.json({ error: 'invite_already_accepted' }, 409);
+
+        if (!invite.declinedAt) {
+          const now = new Date();
+          await bootstrapDb
+            .update(invitations)
+            .set({ declinedAt: now, updatedAt: now })
+            .where(eq(invitations.id, invite.id));
+        }
+        return c.json({ ok: true });
       })
       .get('/api/invitations/:token', async (c) => {
         // Public invite preview (token-gated, no session — the invitee may not
@@ -914,6 +1000,7 @@ export function createApp(deps: AppDeps) {
             userId: memberships.userId,
             name: authUser.name,
             email: authUser.email,
+            role: memberships.role,
             joinedAt: memberships.createdAt,
           })
           .from(memberships)
@@ -930,6 +1017,7 @@ export function createApp(deps: AppDeps) {
             email: invitations.email,
             expiresAt: invitations.expiresAt,
             createdAt: invitations.createdAt,
+            declinedAt: invitations.declinedAt,
           })
           .from(invitations)
           .where(and(eq(invitations.accountId, accountId), isNull(invitations.acceptedAt)))
@@ -940,6 +1028,7 @@ export function createApp(deps: AppDeps) {
             userId: m.userId,
             name: m.name,
             email: m.email,
+            role: m.role,
             joinedAt: m.joinedAt.toISOString(),
             isYou: m.userId === currentUserId,
           })),
@@ -949,8 +1038,48 @@ export function createApp(deps: AppDeps) {
             expiresAt: p.expiresAt.toISOString(),
             createdAt: p.createdAt.toISOString(),
             expired: p.expiresAt.getTime() < Date.now(),
+            declined: p.declinedAt !== null,
           })),
         });
+      })
+      .delete('/api/team/:userId', async (c) => {
+        // Remove a member from the current workspace, or leave it (when :userId
+        // is the caller). Revokes access only — the auth_user and the workspace
+        // data survive; the removed user hits account_revoked on their next
+        // tenant request via the rls-context membership probe. The owner is
+        // protected: cannot be removed and cannot leave — which also prevents
+        // orphaning the workspace (the owner always remains). Everyone else can
+        // be removed / can leave; MVP has no roles beyond this, so any member
+        // may remove any non-owner member. RLS permits the DELETE because the
+        // membership row is account-scoped (memberships_account_scope policy).
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+        const audit = c.get('audit');
+        const currentUserId = c.get('userId');
+        const targetUserId = c.req.param('userId');
+        if (!UUID_RE.test(targetUserId)) return c.json({ error: 'member_not_found' }, 404);
+
+        const [target] = await tx
+          .select({ role: memberships.role })
+          .from(memberships)
+          .where(and(eq(memberships.accountId, accountId), eq(memberships.userId, targetUserId)))
+          .limit(1);
+        if (!target) return c.json({ error: 'member_not_found' }, 404);
+        if (target.role === 'owner') return c.json({ error: 'cannot_remove_owner' }, 403);
+
+        await tx
+          .delete(memberships)
+          .where(and(eq(memberships.accountId, accountId), eq(memberships.userId, targetUserId)));
+
+        await audit({
+          entityType: 'membership',
+          entityId: targetUserId,
+          action: targetUserId === currentUserId ? 'leave' : 'remove',
+          before: { userId: targetUserId, role: target.role },
+          after: null,
+        });
+
+        return c.json({ ok: true });
       })
       .get('/api/companies', async (c) => {
         const tx = c.get('tx');
