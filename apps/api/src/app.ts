@@ -34,6 +34,7 @@ import type { AddressAutocompleteProvider, AddressSuggestion } from '@thalermark
 import { type StorageProvider, readLocalObject, verifyFileToken } from '@thalermark/storage';
 import { emit } from '@thalermark/telemetry';
 import {
+  can,
   companyUpdateSchema,
   customerCreateSchema,
   customerUpdateSchema,
@@ -43,6 +44,7 @@ import {
   expenseCategorizeSchema,
   expenseCreateSchema,
   expenseUpdateSchema,
+  inviteRoleSchema,
   invoiceCreateSchema,
   invoiceMarkPaidSchema,
   invoiceSendSchema,
@@ -93,6 +95,7 @@ import { generateOnce } from './lib/recurring.js';
 import { formatSender } from './lib/sender.js';
 import { sendStatementEmail } from './lib/statement-email.js';
 import { type StripeBundle, decimalDollarsToCents } from './lib/stripe.js';
+import { requireCapability } from './middleware/authz.js';
 import { type RlsVariables, rlsContext } from './middleware/rls-context.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -828,10 +831,19 @@ export function createApp(deps: AppDeps) {
           return c.json({ suggestions: empty, degraded: true });
         }
       })
-      .post('/api/invitations', async (c) => {
-        const body = (await c.req.json().catch(() => null)) as { email?: unknown } | null;
+      .post('/api/invitations', requireCapability('team:manage'), async (c) => {
+        const body = (await c.req.json().catch(() => null)) as {
+          email?: unknown;
+          role?: unknown;
+        } | null;
         const email = typeof body?.email === 'string' ? body.email.trim().toLowerCase() : '';
         if (!EMAIL_RE.test(email)) return c.json({ error: 'invalid_email' }, 400);
+        // Default to member when the client omits a role (the prior behaviour);
+        // an explicit role must be one of the four invitable ones (owner is
+        // transfer-only, so inviteRoleSchema rejects it).
+        const roleResult = inviteRoleSchema.safeParse(body?.role ?? 'member');
+        if (!roleResult.success) return c.json({ error: 'invalid_role' }, 400);
+        const role = roleResult.data;
 
         const tx = c.get('tx');
         const accountId = c.get('accountId');
@@ -844,6 +856,7 @@ export function createApp(deps: AppDeps) {
           id,
           accountId,
           email,
+          role,
           token,
           invitedByUserId: inviterId,
           expiresAt,
@@ -913,7 +926,12 @@ export function createApp(deps: AppDeps) {
         await bootstrapDb.transaction(async (tx) => {
           await tx
             .insert(memberships)
-            .values({ id: uuidv7(), userId: user.id, accountId: invite.accountId })
+            .values({
+              id: uuidv7(),
+              userId: user.id,
+              accountId: invite.accountId,
+              role: invite.role,
+            })
             .onConflictDoNothing({ target: [memberships.userId, memberships.accountId] });
           await tx
             .update(invitations)
@@ -1048,16 +1066,22 @@ export function createApp(deps: AppDeps) {
         // data survive; the removed user hits account_revoked on their next
         // tenant request via the rls-context membership probe. The owner is
         // protected: cannot be removed and cannot leave — which also prevents
-        // orphaning the workspace (the owner always remains). Everyone else can
-        // be removed / can leave; MVP has no roles beyond this, so any member
-        // may remove any non-owner member. RLS permits the DELETE because the
-        // membership row is account-scoped (memberships_account_scope policy).
+        // orphaning the workspace (the owner always remains). RLS permits the
+        // DELETE because the membership row is account-scoped.
+        //
+        // No route-level requireCapability gate: this endpoint does double duty.
+        // Removing SOMEONE ELSE needs team:manage; LEAVING (self-removal) is
+        // self-service for any role. So the capability check below is conditional
+        // on target !== caller.
         const tx = c.get('tx');
         const accountId = c.get('accountId');
         const audit = c.get('audit');
         const currentUserId = c.get('userId');
         const targetUserId = c.req.param('userId');
         if (!UUID_RE.test(targetUserId)) return c.json({ error: 'member_not_found' }, 404);
+        if (targetUserId !== currentUserId && !can(c.get('role'), 'team:manage')) {
+          return c.json({ error: 'forbidden', capability: 'team:manage' }, 403);
+        }
 
         const [target] = await tx
           .select({ role: memberships.role })
@@ -1081,6 +1105,98 @@ export function createApp(deps: AppDeps) {
 
         return c.json({ ok: true });
       })
+      // Change a member's role within the workspace. team:manage gated; the
+      // owner's role is fixed (reassigning ownership is the transfer flow), and
+      // inviteRoleSchema excludes 'owner' so nobody is promoted to owner here.
+      .patch(
+        '/api/team/:userId/role',
+        requireCapability('team:manage'),
+        validator('json', (value, c) => {
+          const parsed = inviteRoleSchema.safeParse((value as { role?: unknown } | null)?.role);
+          if (!parsed.success) return c.json({ error: 'invalid_role' }, 400);
+          return { role: parsed.data };
+        }),
+        async (c) => {
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+          const audit = c.get('audit');
+          const targetUserId = c.req.param('userId');
+          const { role } = c.req.valid('json');
+          if (!UUID_RE.test(targetUserId)) return c.json({ error: 'member_not_found' }, 404);
+
+          const [target] = await tx
+            .select({ role: memberships.role })
+            .from(memberships)
+            .where(and(eq(memberships.accountId, accountId), eq(memberships.userId, targetUserId)))
+            .limit(1);
+          if (!target) return c.json({ error: 'member_not_found' }, 404);
+          if (target.role === 'owner') return c.json({ error: 'cannot_change_owner' }, 403);
+
+          if (target.role !== role) {
+            await tx
+              .update(memberships)
+              .set({ role, updatedAt: new Date() })
+              .where(
+                and(eq(memberships.accountId, accountId), eq(memberships.userId, targetUserId)),
+              );
+            await audit({
+              entityType: 'membership',
+              entityId: targetUserId,
+              action: 'update',
+              before: { userId: targetUserId, role: target.role },
+              after: { userId: targetUserId, role },
+            });
+          }
+
+          return c.json({ ok: true, role });
+        },
+      )
+      // Transfer workspace ownership to another member. workspace:manage gated,
+      // which only the owner holds — so the caller is the current owner. Demote
+      // the owner to admin BEFORE promoting the target so the one-owner-per-
+      // account partial unique index never sees two owners mid-transaction.
+      .post(
+        '/api/team/:userId/transfer-ownership',
+        requireCapability('workspace:manage'),
+        async (c) => {
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+          const audit = c.get('audit');
+          const currentUserId = c.get('userId');
+          const targetUserId = c.req.param('userId');
+          if (!UUID_RE.test(targetUserId)) return c.json({ error: 'member_not_found' }, 404);
+          if (targetUserId === currentUserId) return c.json({ error: 'already_owner' }, 400);
+
+          const [target] = await tx
+            .select({ role: memberships.role })
+            .from(memberships)
+            .where(and(eq(memberships.accountId, accountId), eq(memberships.userId, targetUserId)))
+            .limit(1);
+          if (!target) return c.json({ error: 'member_not_found' }, 404);
+
+          const now = new Date();
+          await tx
+            .update(memberships)
+            .set({ role: 'admin', updatedAt: now })
+            .where(
+              and(eq(memberships.accountId, accountId), eq(memberships.userId, currentUserId)),
+            );
+          await tx
+            .update(memberships)
+            .set({ role: 'owner', updatedAt: now })
+            .where(and(eq(memberships.accountId, accountId), eq(memberships.userId, targetUserId)));
+
+          await audit({
+            entityType: 'membership',
+            entityId: targetUserId,
+            action: 'transfer-ownership',
+            before: { ownerUserId: currentUserId, previousTargetRole: target.role },
+            after: { ownerUserId: targetUserId, demotedToAdmin: currentUserId },
+          });
+
+          return c.json({ ok: true });
+        },
+      )
       .get('/api/companies', async (c) => {
         const tx = c.get('tx');
         const accountId = c.get('accountId');
@@ -1117,6 +1233,7 @@ export function createApp(deps: AppDeps) {
       // as the customer/invoice PATCHes).
       .patch(
         '/api/companies/:id',
+        requireCapability('settings:manage'),
         validator('json', (value, c) => {
           const parsed = companyUpdateSchema.safeParse(value);
           if (!parsed.success) {
@@ -1206,7 +1323,7 @@ export function createApp(deps: AppDeps) {
       // Same upload/serve/delete shape as the expense receipt: multipart in,
       // a time-limited signed URL out, object write/delete as the LAST await so
       // a storage failure rolls the column change back. Raster-only, ≤2MB.
-      .post('/api/companies/:id/logo', async (c) => {
+      .post('/api/companies/:id/logo', requireCapability('settings:manage'), async (c) => {
         const id = c.req.param('id');
         if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
         if (!deps.storage) return c.json({ error: 'storage_not_configured' }, 503);
@@ -1283,7 +1400,7 @@ export function createApp(deps: AppDeps) {
       })
       // Remove the logo: null the column + audit, then drop the object as the
       // LAST await so a storage failure rolls the nulling back. Idempotent.
-      .delete('/api/companies/:id/logo', async (c) => {
+      .delete('/api/companies/:id/logo', requireCapability('settings:manage'), async (c) => {
         const id = c.req.param('id');
         if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
         if (!deps.storage) return c.json({ error: 'storage_not_configured' }, 503);
@@ -1325,65 +1442,69 @@ export function createApp(deps: AppDeps) {
       // payment-intent minter at /api/public/invoices/:token/payment-intent
       // routes the charge to this connected account via the stripeAccount
       // request option (direct charge).
-      .post('/api/companies/:id/stripe-connect/onboard', async (c) => {
-        const id = c.req.param('id');
-        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
-        if (!deps.stripe) return c.json({ error: 'stripe_not_configured' }, 503);
-        if (!deps.publicAppUrl) return c.json({ error: 'public_url_not_configured' }, 503);
+      .post(
+        '/api/companies/:id/stripe-connect/onboard',
+        requireCapability('settings:manage'),
+        async (c) => {
+          const id = c.req.param('id');
+          if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+          if (!deps.stripe) return c.json({ error: 'stripe_not_configured' }, 503);
+          if (!deps.publicAppUrl) return c.json({ error: 'public_url_not_configured' }, 503);
 
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
 
-        const [company] = await tx
-          .select()
-          .from(companies)
-          .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
-          .limit(1);
-        if (!company) return c.json({ error: 'company_not_found' }, 404);
+          const [company] = await tx
+            .select()
+            .from(companies)
+            .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
+            .limit(1);
+          if (!company) return c.json({ error: 'company_not_found' }, 404);
 
-        let connectAccountId = company.stripeConnectAccountId;
-        if (!connectAccountId) {
-          // Idempotency key on the Stripe call guards against double-click
-          // racing two concurrent POSTs through both branches before either
-          // UPDATE wins. Stripe returns the same account id on retry rather
-          // than creating a second one.
-          const created = await deps.stripe.client.accounts.create(
-            {
-              type: 'express',
-              country: 'US',
-              capabilities: {
-                card_payments: { requested: true },
-                transfers: { requested: true },
+          let connectAccountId = company.stripeConnectAccountId;
+          if (!connectAccountId) {
+            // Idempotency key on the Stripe call guards against double-click
+            // racing two concurrent POSTs through both branches before either
+            // UPDATE wins. Stripe returns the same account id on retry rather
+            // than creating a second one.
+            const created = await deps.stripe.client.accounts.create(
+              {
+                type: 'express',
+                country: 'US',
+                capabilities: {
+                  card_payments: { requested: true },
+                  transfers: { requested: true },
+                },
+                business_profile: { name: company.name },
               },
-              business_profile: { name: company.name },
-            },
-            { idempotencyKey: `company-${id}-create-account` },
-          );
-          connectAccountId = created.id;
-          const now = new Date();
-          await tx
-            .update(companies)
-            .set({ stripeConnectAccountId: connectAccountId, updatedAt: now })
-            .where(and(eq(companies.id, id), eq(companies.accountId, accountId)));
-          await c.var.audit({
-            entityType: 'company',
-            entityId: id,
-            action: 'stripe-connect-create',
-            before: { stripeConnectAccountId: null },
-            after: { stripeConnectAccountId: connectAccountId },
-            companyId: id,
+              { idempotencyKey: `company-${id}-create-account` },
+            );
+            connectAccountId = created.id;
+            const now = new Date();
+            await tx
+              .update(companies)
+              .set({ stripeConnectAccountId: connectAccountId, updatedAt: now })
+              .where(and(eq(companies.id, id), eq(companies.accountId, accountId)));
+            await c.var.audit({
+              entityType: 'company',
+              entityId: id,
+              action: 'stripe-connect-create',
+              before: { stripeConnectAccountId: null },
+              after: { stripeConnectAccountId: connectAccountId },
+              companyId: id,
+            });
+          }
+
+          const link = await deps.stripe.client.accountLinks.create({
+            account: connectAccountId,
+            refresh_url: `${deps.publicAppUrl}/settings/payments?stripe=refresh`,
+            return_url: `${deps.publicAppUrl}/settings/payments?stripe=return`,
+            type: 'account_onboarding',
           });
-        }
 
-        const link = await deps.stripe.client.accountLinks.create({
-          account: connectAccountId,
-          refresh_url: `${deps.publicAppUrl}/settings/payments?stripe=refresh`,
-          return_url: `${deps.publicAppUrl}/settings/payments?stripe=return`,
-          type: 'account_onboarding',
-        });
-
-        return c.json({ url: link.url, accountId: connectAccountId });
-      })
+          return c.json({ url: link.url, accountId: connectAccountId });
+        },
+      )
       // Current state of the Connect onboarding for this company. The web
       // /settings/payments page polls this on the ?stripe=return landing so
       // it can resolve "submitted, waiting on Stripe verification" vs
@@ -1424,7 +1545,7 @@ export function createApp(deps: AppDeps) {
       // typed shape on the wire matches what an accountant expects: each
       // entry with its lines nested. Trial balance is computed alongside in
       // a single pass to keep the contract one round-trip.
-      .get('/api/companies/:id/ledger/export', async (c) => {
+      .get('/api/companies/:id/ledger/export', requireCapability('reports:export'), async (c) => {
         const id = c.req.param('id');
         if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
 
@@ -2572,7 +2693,7 @@ export function createApp(deps: AppDeps) {
           return c.json({ accounts });
         },
       )
-      .post('/api/customers', async (c) => {
+      .post('/api/customers', requireCapability('customers:write'), async (c) => {
         const body = await c.req.json().catch(() => null);
         const parsed = customerCreateSchema.safeParse(body);
         if (!parsed.success) {
@@ -2724,6 +2845,7 @@ export function createApp(deps: AppDeps) {
       // has no public link, so the email carries the ledger itself.
       .post(
         '/api/customers/:id/statement/send',
+        requireCapability('customers:write'),
         validator('json', (value, c) => {
           const v = (value ?? {}) as { to?: unknown };
           if (v.to !== undefined && typeof v.to !== 'string') {
@@ -2785,6 +2907,7 @@ export function createApp(deps: AppDeps) {
       // shape, and the validator returns the 400 itself.
       .patch(
         '/api/customers/:id',
+        requireCapability('customers:write'),
         validator('json', (value, c) => {
           const parsed = customerUpdateSchema.safeParse(value);
           if (!parsed.success) {
@@ -2847,7 +2970,7 @@ export function createApp(deps: AppDeps) {
       // Mirrors customers: full CRUD within the tenant, but items archive
       // rather than hard-delete (archive/restore transitions below) so the
       // top-products report never loses history.
-      .post('/api/items', async (c) => {
+      .post('/api/items', requireCapability('sales:write'), async (c) => {
         const body = await c.req.json().catch(() => null);
         const parsed = itemCreateSchema.safeParse(body);
         if (!parsed.success) {
@@ -2934,6 +3057,7 @@ export function createApp(deps: AppDeps) {
       })
       .patch(
         '/api/items/:id',
+        requireCapability('sales:write'),
         validator('json', (value, c) => {
           const parsed = itemUpdateSchema.safeParse(value);
           if (!parsed.success) {
@@ -2987,9 +3111,13 @@ export function createApp(deps: AppDeps) {
           return c.json(after);
         },
       )
-      .post('/api/items/:id/archive', (c) => setItemArchived(c, c.req.param('id'), true))
-      .post('/api/items/:id/restore', (c) => setItemArchived(c, c.req.param('id'), false))
-      .post('/api/invoices', async (c) => {
+      .post('/api/items/:id/archive', requireCapability('sales:write'), (c) =>
+        setItemArchived(c, c.req.param('id'), true),
+      )
+      .post('/api/items/:id/restore', requireCapability('sales:write'), (c) =>
+        setItemArchived(c, c.req.param('id'), false),
+      )
+      .post('/api/invoices', requireCapability('sales:write'), async (c) => {
         const body = await c.req.json().catch(() => null);
         const parsed = invoiceCreateSchema.safeParse(body);
         if (!parsed.success) {
@@ -3064,7 +3192,7 @@ export function createApp(deps: AppDeps) {
       // ledger posting until mark-sent). Unlike estimate→invoice convert this is
       // intentionally repeatable — no idempotency link. Any source status is a
       // valid template (draft/sent/paid/voided).
-      .post('/api/invoices/:id/duplicate', async (c) => {
+      .post('/api/invoices/:id/duplicate', requireCapability('sales:write'), async (c) => {
         const id = c.req.param('id');
         if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
         const tx = c.get('tx');
@@ -3262,6 +3390,7 @@ export function createApp(deps: AppDeps) {
       })
       .patch(
         '/api/invoices/:id',
+        requireCapability('sales:write'),
         validator('json', (value, c) => {
           const parsed = invoiceUpdateSchema.safeParse(value);
           if (!parsed.success) {
@@ -3385,7 +3514,7 @@ export function createApp(deps: AppDeps) {
           return c.json({ ...updated, lineItems: newLineRows });
         },
       )
-      .post('/api/invoices/:id/mark-sent', (c) =>
+      .post('/api/invoices/:id/mark-sent', requireCapability('sales:write'), (c) =>
         transitionInvoice(c, c.req.param('id'), 'mark-sent', INVOICE_TRANSITIONS['mark-sent']),
       )
       // mark-paid carries a JSON body recording how the money arrived. The
@@ -3393,6 +3522,7 @@ export function createApp(deps: AppDeps) {
       // typed Input (per the path-param POST-with-body footgun).
       .post(
         '/api/invoices/:id/mark-paid',
+        requireCapability('sales:write'),
         validator('json', (value, c) => {
           const parsed = invoiceMarkPaidSchema.safeParse(value);
           if (!parsed.success) {
@@ -3416,7 +3546,7 @@ export function createApp(deps: AppDeps) {
           );
         },
       )
-      .post('/api/invoices/:id/void', (c) =>
+      .post('/api/invoices/:id/void', requireCapability('sales:write'), (c) =>
         transitionInvoice(c, c.req.param('id'), 'void', INVOICE_TRANSITIONS.void),
       )
       // Edit the recorded payment on an already-paid invoice. Method/reference
@@ -3427,6 +3557,7 @@ export function createApp(deps: AppDeps) {
       // reporting period. Only valid while status === 'paid'.
       .post(
         '/api/invoices/:id/edit-payment',
+        requireCapability('sales:write'),
         validator('json', (value, c) => {
           const parsed = invoiceMarkPaidSchema.safeParse(value);
           if (!parsed.success) {
@@ -3506,7 +3637,7 @@ export function createApp(deps: AppDeps) {
       // generation yet. Mirrors the invoice routes (customer↔company
       // invariant, full-replacement line items, draft-style PATCH) minus the
       // (company_id, number) uniqueness — schedules have no number.
-      .post('/api/recurring-invoices', async (c) => {
+      .post('/api/recurring-invoices', requireCapability('sales:write'), async (c) => {
         const body = await c.req.json().catch(() => null);
         const parsed = recurringInvoiceCreateSchema.safeParse(body);
         if (!parsed.success) {
@@ -3633,6 +3764,7 @@ export function createApp(deps: AppDeps) {
       })
       .patch(
         '/api/recurring-invoices/:id',
+        requireCapability('sales:write'),
         validator('json', (value, c) => {
           const parsed = recurringInvoiceUpdateSchema.safeParse(value);
           if (!parsed.success) {
@@ -3745,13 +3877,13 @@ export function createApp(deps: AppDeps) {
           return c.json({ ...updated, lineItems: newLineRows });
         },
       )
-      .post('/api/recurring-invoices/:id/pause', (c) =>
+      .post('/api/recurring-invoices/:id/pause', requireCapability('sales:write'), (c) =>
         transitionRecurringInvoice(c, c.req.param('id'), 'pause'),
       )
-      .post('/api/recurring-invoices/:id/resume', (c) =>
+      .post('/api/recurring-invoices/:id/resume', requireCapability('sales:write'), (c) =>
         transitionRecurringInvoice(c, c.req.param('id'), 'resume'),
       )
-      .post('/api/recurring-invoices/:id/end', (c) =>
+      .post('/api/recurring-invoices/:id/end', requireCapability('sales:write'), (c) =>
         transitionRecurringInvoice(c, c.req.param('id'), 'end'),
       )
       // Generate the next occurrence right now (manual trigger). Same engine
@@ -3759,7 +3891,7 @@ export function createApp(deps: AppDeps) {
       // to the requesting user rather than the system user. Doubles as the test
       // path (no waiting for cron) and a "send the next one now" UX action.
       // Only an active schedule can run — paused/ended return 409.
-      .post('/api/recurring-invoices/:id/run-now', async (c) => {
+      .post('/api/recurring-invoices/:id/run-now', requireCapability('sales:write'), async (c) => {
         const id = c.req.param('id');
         if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
         const tx = c.get('tx');
@@ -3789,7 +3921,7 @@ export function createApp(deps: AppDeps) {
       // customer↔company invariant, (company_id, number) uniqueness pre-
       // check, draft-only PATCH). Public route + email send + accept/decline
       // land in slice 8.7e; convert-to-invoice in 8.7d.
-      .post('/api/estimates', async (c) => {
+      .post('/api/estimates', requireCapability('sales:write'), async (c) => {
         const body = await c.req.json().catch(() => null);
         const parsed = estimateCreateSchema.safeParse(body);
         if (!parsed.success) {
@@ -3857,7 +3989,7 @@ export function createApp(deps: AppDeps) {
       // number, today issue date + Net-30 expiry; status, send/accept/decline
       // stamps, public token, and the converted-invoice link are all reset
       // (clean draft). Repeatable — no idempotency link.
-      .post('/api/estimates/:id/duplicate', async (c) => {
+      .post('/api/estimates/:id/duplicate', requireCapability('sales:write'), async (c) => {
         const id = c.req.param('id');
         if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
         const tx = c.get('tx');
@@ -4056,6 +4188,7 @@ export function createApp(deps: AppDeps) {
       })
       .patch(
         '/api/estimates/:id',
+        requireCapability('sales:write'),
         validator('json', (value, c) => {
           const parsed = estimateUpdateSchema.safeParse(value);
           if (!parsed.success) {
@@ -4163,10 +4296,10 @@ export function createApp(deps: AppDeps) {
           return c.json({ ...updated, lineItems: newLineRows });
         },
       )
-      .post('/api/estimates/:id/mark-sent', (c) =>
+      .post('/api/estimates/:id/mark-sent', requireCapability('sales:write'), (c) =>
         transitionEstimate(c, c.req.param('id'), 'mark-sent', ESTIMATE_TRANSITIONS['mark-sent']),
       )
-      .post('/api/estimates/:id/mark-accepted', (c) =>
+      .post('/api/estimates/:id/mark-accepted', requireCapability('sales:write'), (c) =>
         transitionEstimate(
           c,
           c.req.param('id'),
@@ -4174,7 +4307,7 @@ export function createApp(deps: AppDeps) {
           ESTIMATE_TRANSITIONS['mark-accepted'],
         ),
       )
-      .post('/api/estimates/:id/mark-declined', (c) =>
+      .post('/api/estimates/:id/mark-declined', requireCapability('sales:write'), (c) =>
         transitionEstimate(
           c,
           c.req.param('id'),
@@ -4193,7 +4326,7 @@ export function createApp(deps: AppDeps) {
       // (companyId, number) is pre-checked inside the tx for the same
       // reason the invoice POST pre-checks — a constraint throw would
       // poison the tenant tx and roll back the audit rows.
-      .post('/api/estimates/:id/convert', async (c) => {
+      .post('/api/estimates/:id/convert', requireCapability('sales:write'), async (c) => {
         const id = c.req.param('id');
         if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
         const tx = c.get('tx');
@@ -4338,7 +4471,7 @@ export function createApp(deps: AppDeps) {
       // reversal only. category_account_id must be an 'expense' COA row,
       // payment_account_id an 'asset' row (the FK columns alone admit any
       // account, so the API type-checks before posting).
-      .post('/api/expenses', async (c) => {
+      .post('/api/expenses', requireCapability('expenses:write'), async (c) => {
         const body = await c.req.json().catch(() => null);
         const parsed = expenseCreateSchema.safeParse(body);
         if (!parsed.success) {
@@ -4426,7 +4559,7 @@ export function createApp(deps: AppDeps) {
       // the company's expense COA. The user reviews + saves — the AI never
       // writes the ledger. Opt-in like /extract: 503 when no LLM is configured.
       // A literal path, so it never collides with the /api/expenses/:id routes.
-      .post('/api/expenses/categorize', async (c) => {
+      .post('/api/expenses/categorize', requireCapability('expenses:write'), async (c) => {
         const body = await c.req.json().catch(() => null);
         const parsed = expenseCategorizeSchema.safeParse(body);
         if (!parsed.success) {
@@ -4556,6 +4689,7 @@ export function createApp(deps: AppDeps) {
       })
       .patch(
         '/api/expenses/:id',
+        requireCapability('expenses:write'),
         validator('json', (value, c) => {
           const parsed = expenseUpdateSchema.safeParse(value);
           if (!parsed.success) {
@@ -4680,7 +4814,7 @@ export function createApp(deps: AppDeps) {
           return c.json(updated);
         },
       )
-      .delete('/api/expenses/:id', async (c) => {
+      .delete('/api/expenses/:id', requireCapability('expenses:write'), async (c) => {
         const id = c.req.param('id');
         if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
         const tx = c.get('tx');
@@ -4741,7 +4875,7 @@ export function createApp(deps: AppDeps) {
       // orphaned object, no dangling key. The tx is briefly held during the
       // upload, acceptable for occasional receipt-sized blobs. Audit rows
       // carry the storage key, never the bytes.
-      .post('/api/expenses/:id/receipt', async (c) => {
+      .post('/api/expenses/:id/receipt', requireCapability('expenses:write'), async (c) => {
         const id = c.req.param('id');
         if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
         if (!deps.storage) return c.json({ error: 'storage_not_configured' }, 503);
@@ -4828,7 +4962,7 @@ export function createApp(deps: AppDeps) {
       // the LAST await so a storage failure rolls the nulling back (the key
       // keeps pointing at a still-present object — consistent). deleteObject
       // is idempotent.
-      .delete('/api/expenses/:id/receipt', async (c) => {
+      .delete('/api/expenses/:id/receipt', requireCapability('expenses:write'), async (c) => {
         const id = c.req.param('id');
         if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
         if (!deps.storage) return c.json({ error: 'storage_not_configured' }, 503);
@@ -4874,7 +5008,7 @@ export function createApp(deps: AppDeps) {
       // the tenant tx; on failure we still commit extraction_status='failed'
       // (the 8.5b email-path shape) so the throw doesn't roll back the status —
       // the UI needs to see that it failed and let the user retry.
-      .post('/api/expenses/:id/extract', async (c) => {
+      .post('/api/expenses/:id/extract', requireCapability('expenses:write'), async (c) => {
         const id = c.req.param('id');
         if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
         if (!deps.extractor) return c.json({ error: 'ai_not_configured' }, 503);
@@ -5006,6 +5140,7 @@ export function createApp(deps: AppDeps) {
       // retries the send from the UI).
       .post(
         '/api/invoices/:id/send',
+        requireCapability('sales:write'),
         // validator middleware needed for the same reason PATCH endpoints
         // use it (slice 8.4f): path-param routes type Input as `{ param }`
         // and TS rejects `{ param, json }` from hc<AppType>() without the
@@ -5138,6 +5273,7 @@ export function createApp(deps: AppDeps) {
       // the unauthed /e/<token> page that accept/decline POST against.
       .post(
         '/api/estimates/:id/send',
+        requireCapability('sales:write'),
         validator('json', (value, c) => {
           const parsed = estimateSendSchema.safeParse(value ?? {});
           if (!parsed.success) {

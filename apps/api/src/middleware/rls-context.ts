@@ -1,5 +1,6 @@
 import { type Database, type Transaction, memberships, withAccountContext } from '@thalermark/db';
 import { scheduleTelemetryFlush } from '@thalermark/telemetry';
+import type { Role } from '@thalermark/validation';
 import { and, eq } from 'drizzle-orm';
 import type { MiddlewareHandler } from 'hono';
 import type { ApiAuth } from '../lib/auth.js';
@@ -21,6 +22,11 @@ export type RlsVariables = {
   tx: Transaction;
   accountId: string;
   userId: string;
+  // The caller's role in the active account, loaded by the membership probe
+  // below. Drives the requireCapability gate (see middleware/authz.ts). Only
+  // set on tenant routes; bootstrap/public paths return before the probe and
+  // never read it.
+  role: Role;
   audit: AuditWriter;
 };
 
@@ -104,11 +110,15 @@ export function rlsContext({
     }
 
     const found = await probeDb
-      .select({ id: memberships.id })
+      .select({ id: memberships.id, role: memberships.role })
       .from(memberships)
       .where(and(eq(memberships.userId, session.user.id), eq(memberships.accountId, accountId)))
       .limit(1);
-    if (found.length === 0) return c.json({ error: 'account_revoked' }, 403);
+    const membership = found[0];
+    if (!membership) return c.json({ error: 'account_revoked' }, 403);
+    // role is text in the DB but the CHECK constraint guarantees it's one of the
+    // five Role values; cast rather than re-validate on every request.
+    c.set('role', membership.role as Role);
 
     let didWrite = false;
     try {
