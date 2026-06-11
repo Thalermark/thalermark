@@ -59,11 +59,19 @@ export const load: PageServerLoad = async (event) => {
   // it's correct across web + mobile and can't be dismissed into oblivion.
   const needsBusinessDetails = !company.businessAddress;
 
+  // Pending workspace invitations addressed to this user (bootstrap route, no
+  // company scope) → a dashboard notice linking to the Workspace screen where
+  // they can accept/decline. Best-effort: a non-OK degrades to no notice.
+  let pendingInvites = 0;
+  const invitesRes = await client.api.me.invitations.$get();
+  if (invitesRes.ok) pendingInvites = (await invitesRes.json()).invitations.length;
+
   return {
     dashboard,
     period,
     companyName: company.name,
     needsBusinessDetails,
+    pendingInvites,
     nudges,
     anomalies,
   };

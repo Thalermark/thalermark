@@ -1,6 +1,8 @@
 import { apiBaseUrl, serverApiClient, serverApiHeaders } from '$lib/api.server';
-import { error, fail } from '@sveltejs/kit';
+import { error, fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
+
+const ACTIVE_COOKIE = 'active_account_id';
 
 export const load: PageServerLoad = async (event) => {
   const client = serverApiClient(event);
@@ -15,6 +17,11 @@ const INVITE_ERRORS: Record<string, string> = {
   invalid_email: "That doesn't look like a valid email address.",
   mailer_not_configured: 'Email is not configured on this server, so the invite could not be sent.',
   mailer_send_failed: "The invite was saved but the email couldn't be sent. Try again.",
+};
+
+const MEMBER_ERRORS: Record<string, string> = {
+  cannot_remove_owner: "The workspace owner can't be removed.",
+  member_not_found: 'That person is no longer a member.',
 };
 
 export const actions: Actions = {
@@ -41,5 +48,47 @@ export const actions: Actions = {
       });
     }
     return { invited: email };
+  },
+
+  // Remove another member from the active workspace. The API enforces the owner
+  // guard (cannot_remove_owner); the removed user loses access on their next
+  // request. Raw fetch + serverApiHeaders (carries cookie + x-account-id),
+  // matching the invite action — DELETE /api/team/:userId has no typed body.
+  remove: async (event) => {
+    const userId = String((await event.request.formData()).get('userId') ?? '');
+    if (!userId) return fail(400, { memberError: 'Missing member.' });
+
+    const res = await fetch(`${apiBaseUrl()}/api/team/${userId}`, {
+      method: 'DELETE',
+      headers: serverApiHeaders(event),
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      return fail(res.status, {
+        memberError: MEMBER_ERRORS[body?.error ?? ''] ?? 'Could not remove that member.',
+      });
+    }
+    return { removed: true };
+  },
+
+  // Leave the active workspace (self-removal; blocked for the owner). On
+  // success we're no longer a member, so drop the active cookie and bounce —
+  // hooks.server.ts re-resolves to a remaining workspace or the picker.
+  leave: async (event) => {
+    const userId = event.locals.session?.user.id;
+    if (!userId) return fail(401, { memberError: 'You are not signed in.' });
+
+    const res = await fetch(`${apiBaseUrl()}/api/team/${userId}`, {
+      method: 'DELETE',
+      headers: serverApiHeaders(event),
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      return fail(res.status, {
+        memberError: MEMBER_ERRORS[body?.error ?? ''] ?? 'Could not leave the workspace.',
+      });
+    }
+    event.cookies.delete(ACTIVE_COOKIE, { path: '/' });
+    throw redirect(303, '/');
   },
 };
