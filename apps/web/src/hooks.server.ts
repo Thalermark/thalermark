@@ -1,6 +1,6 @@
 import { env as privateEnv } from '$env/dynamic/private';
 import { env as publicEnv } from '$env/dynamic/public';
-import { type Handle, redirect } from '@sveltejs/kit';
+import { type Handle, error, redirect } from '@sveltejs/kit';
 import type { Session } from './app.d.ts';
 
 // SSR fetches need an absolute URL. Behind Caddy the browser uses relative
@@ -25,13 +25,23 @@ function isPublicPrefix(path: string): boolean {
 
 async function loadSession(cookieHeader: string | null): Promise<Session | null> {
   if (!cookieHeader) return null;
+  // Distinguish "no session" from "server fault". A 401 means the cookie is
+  // missing/expired → genuinely unauthenticated, return null and let the gate
+  // route to /sign-in. Any other failure (api unreachable, or a 5xx — e.g. the
+  // DB is a migration behind so /api/me errors) is a SERVER problem: surface it
+  // instead of masquerading as logged-out, which otherwise bounces a validly
+  // signed-in user into an endless /sign-in loop with no error shown.
+  let res: Response;
   try {
-    const res = await fetch(`${apiUrl}/api/me`, { headers: { cookie: cookieHeader } });
-    if (!res.ok) return null;
-    return (await res.json()) as Session;
+    res = await fetch(`${apiUrl}/api/me`, { headers: { cookie: cookieHeader } });
   } catch {
-    return null;
+    throw error(503, 'Cannot reach the server right now. Please try again shortly.');
   }
+  if (res.status === 401) return null;
+  if (!res.ok) {
+    throw error(503, 'Something went wrong loading your session. Please try again shortly.');
+  }
+  return (await res.json()) as Session;
 }
 
 export const handle: Handle = async ({ event, resolve }) => {
