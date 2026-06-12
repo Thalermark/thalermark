@@ -22,6 +22,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { DateField } from '../../../../components/DateField';
 import { ItemPickerField } from '../../../../components/ItemPickerField';
+import { pickActiveCompany } from '../../../../lib/active-company';
 import { api } from '../../../../lib/api';
 import { type DupeCandidate, findEmailDupe, findNameDupes } from '../../../../lib/customer-dupes';
 
@@ -95,7 +96,8 @@ export default function NewRecurring() {
         }
         if (compRes.ok) {
           const { companies } = await compRes.json();
-          if (companies[0]) setCompanyId(companies[0].id);
+          const company = await pickActiveCompany(companies);
+          if (company) setCompanyId(company.id);
         }
         if (active) setBootstrapped(true);
       })().catch(() => {

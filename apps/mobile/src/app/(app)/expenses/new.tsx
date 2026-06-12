@@ -15,6 +15,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { DateField } from '../../../components/DateField';
 import { SuggestButton, SuggestNotice } from '../../../components/SuggestCategory';
+import { pickActiveCompany } from '../../../lib/active-company';
 import { api } from '../../../lib/api';
 import { type SuggestResult, suggestCategory } from '../../../lib/categorize';
 
@@ -74,7 +75,7 @@ export default function NewExpense() {
         const compRes = await api.api.companies.$get();
         if (!active || !compRes.ok) return;
         const { companies } = await compRes.json();
-        const company = companies[0];
+        const company = await pickActiveCompany(companies);
         if (!company) return;
         setCompanyId(company.id);
         const [catRes, payRes] = await Promise.all([

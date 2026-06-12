@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AddressField, type AddressSuggestion } from '../../../components/AddressField';
+import { pickActiveCompany } from '../../../lib/active-company';
 import { api } from '../../../lib/api';
 import { type DupeCandidate, findEmailDupe, findNameDupes } from '../../../lib/customer-dupes';
 
@@ -77,7 +78,8 @@ export default function NewCustomer() {
           if (!active) return;
           if (companiesRes.ok) {
             const { companies } = await companiesRes.json();
-            setCompanyId(companies[0]?.id ?? null);
+            const company = await pickActiveCompany(companies);
+            setCompanyId(company?.id ?? null);
           }
           if (customersRes.ok) {
             const { customers: rows } = await customersRes.json();

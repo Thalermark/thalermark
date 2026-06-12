@@ -1,9 +1,10 @@
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { pickActiveCompany } from './active-company';
 import { api } from './api';
 
 // Shared scaffolding for the report screens: resolve the active company once
-// (single-company MVP auto-picks the first), then run the report fetcher and
+// (the active-company pick, healing to the first), then run the report fetcher and
 // expose loading / error / data. `fetcher` returns the parsed report or null on
 // a non-OK response; `deps` are the inputs (from/to or asOf) that should trigger
 // a refetch. The fetcher is read through a ref so a fresh closure each render
@@ -26,7 +27,8 @@ export function useReport<T>(
         .then(async (res) => {
           if (!active || !res.ok) return;
           const { companies } = await res.json();
-          setCompanyId(companies[0]?.id ?? null);
+          const company = await pickActiveCompany(companies);
+          setCompanyId(company?.id ?? null);
         })
         .catch(() => {});
       return () => {
