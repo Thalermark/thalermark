@@ -14,6 +14,9 @@
   let password = $state('');
   let error = $state<string | null>(null);
   let submitting = $state(false);
+  let awaitingVerification = $state(false);
+  let resending = $state(false);
+  let resent = $state(false);
 
   // Invite preview. When arriving via an invite link, the email is fixed to the
   // invited address — the sign-up hook joins the inviting account by matching it
@@ -58,16 +61,34 @@
     event.preventDefault();
     error = null;
     submitting = true;
-    const result = await authClient.signUp.email({ email, password, name });
+    const result = await authClient.signUp.email({
+      email,
+      password,
+      name,
+      callbackURL: `${window.location.origin}/`,
+    });
     submitting = false;
     if (result.error) {
       error = result.error.message ?? 'Sign-up failed';
       return;
     }
-    // Hard nav so hooks.server.ts re-runs on a fresh request (new session +
-    // membership routing). An invited signup was already joined to the inviting
-    // account by the hook; a fresh signup got its own seeded company.
-    window.location.assign('/');
+    // Invited signups are auto-verified (the invite already proves email
+    // ownership) → they get a session immediately, so hard-nav into the app.
+    // Everyone else must verify their email before they can sign in → show the
+    // check-your-inbox state.
+    if (inviteToken) {
+      window.location.assign('/');
+    } else {
+      awaitingVerification = true;
+    }
+  }
+
+  async function onResend() {
+    resending = true;
+    resent = false;
+    await authClient.sendVerificationEmail({ email, callbackURL: `${window.location.origin}/` });
+    resending = false;
+    resent = true;
   }
 </script>
 
@@ -89,6 +110,28 @@
   </p>
 {/if}
 
+{#if awaitingVerification}
+  <div class="mt-8 rounded-sm border border-gold-deep/30 bg-gold-deep/5 px-5 py-4">
+    <p class="font-serif text-lg text-ink">Check your inbox.</p>
+    <p class="mt-2 text-sm text-ink/75">
+      We sent a verification link to <span class="font-medium text-ink">{email}</span>. Click it to
+      finish setting up your account — you'll be signed in automatically.
+    </p>
+    <div class="mt-4 flex items-center gap-4">
+      <button
+        type="button"
+        onclick={onResend}
+        disabled={resending}
+        class="rounded-sm border border-ink/25 px-4 py-2 text-sm font-medium text-ink transition-colors hover:border-ink disabled:opacity-50"
+      >
+        {resending ? 'Sending…' : 'Resend email'}
+      </button>
+      {#if resent}
+        <span class="font-mono text-xs uppercase tracking-widest text-sage">Sent</span>
+      {/if}
+    </div>
+  </div>
+{:else}
 <form onsubmit={onSubmit} class="mt-8 space-y-5">
   <label class="block">
     <span class="block font-mono text-xs uppercase tracking-widest text-ink/60">Name</span>
@@ -145,3 +188,4 @@
     >Sign in</a
   >
 </p>
+{/if}

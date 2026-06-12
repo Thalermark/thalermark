@@ -37,6 +37,12 @@ export type Env = {
   facebookClientSecret?: string;
   twitterClientId?: string;
   twitterClientSecret?: string;
+  // Force email verification on/off. Unset (the default) = on only when a real
+  // mailer is configured (resendApiKey) — so a self-host install without email
+  // isn't locked out, while SaaS gets it automatically. Set REQUIRE_EMAIL_
+  // VERIFICATION=true to force it (e.g. dev testing with the console mailer, or
+  // a self-host using SMTP). Tri-state: undefined means "use the default".
+  requireEmailVerification?: boolean;
   trustedOrigins: string[];
   publicAppUrl: string;
   // Email transport. When resendApiKey is set, server.ts wires the Resend
@@ -97,6 +103,10 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     facebookClientSecret: source.FACEBOOK_CLIENT_SECRET || undefined,
     twitterClientId: source.TWITTER_CLIENT_ID || undefined,
     twitterClientSecret: source.TWITTER_CLIENT_SECRET || undefined,
+    requireEmailVerification:
+      source.REQUIRE_EMAIL_VERIFICATION === undefined
+        ? undefined
+        : parseBool(source.REQUIRE_EMAIL_VERIFICATION),
     trustedOrigins: parseOrigins(source.TRUSTED_ORIGINS),
     publicAppUrl: source.PUBLIC_APP_URL ?? '',
     resendApiKey: source.RESEND_API_KEY || undefined,
