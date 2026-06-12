@@ -1,3 +1,4 @@
+import { pickActiveCompany } from '$lib/active-company';
 import { serverApiClient } from '$lib/api.server';
 import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
@@ -8,12 +9,12 @@ type Period = (typeof PERIODS)[number];
 export const load: PageServerLoad = async (event) => {
   const client = serverApiClient(event);
 
-  // Single-company assumption, same as the lists/forms: the active company is
-  // companies[0] until a multi-company switcher lands.
+  // The active company within this workspace (cookie-backed switcher); falls
+  // back to the first company for single-company accounts.
   const companiesRes = await client.api.companies.$get();
   if (!companiesRes.ok) throw error(companiesRes.status, 'failed to load companies');
   const { companies } = await companiesRes.json();
-  const company = companies[0];
+  const company = pickActiveCompany(event.cookies, companies);
   if (!company) throw error(500, 'no company in this workspace');
 
   const requested = event.url.searchParams.get('period');

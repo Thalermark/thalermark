@@ -1,3 +1,4 @@
+import { ACTIVE_COMPANY_COOKIE, pickActiveCompany, setActiveCompany } from '$lib/active-company';
 import { serverApiClient } from '$lib/api.server';
 import { redirect } from '@sveltejs/kit';
 import type { LayoutServerLoad } from './$types';
@@ -27,5 +28,19 @@ export const load: LayoutServerLoad = async (event) => {
   if (companies.some((c) => c.businessType === null)) {
     throw redirect(303, '/welcome');
   }
-  return {};
+  // Feed the nav company switcher (UserMenu). The first-run gate already
+  // fetched the list, so surfacing it + the active pick costs nothing extra.
+  const active = pickActiveCompany(event.cookies, companies);
+  // Heal the cookie to the resolved active company whenever it's missing or
+  // stale (e.g. a company id left from another workspace). Keeps the raw cookie
+  // trustworthy for the load-more / search +server proxies that read it
+  // directly. Takes effect from the next request — page loads here use the
+  // validated activeCompanyId below (via parent()), so first render is correct.
+  if (active && event.cookies.get(ACTIVE_COMPANY_COOKIE) !== active.id) {
+    setActiveCompany(event.cookies, active.id);
+  }
+  return {
+    companies: companies.map((c) => ({ id: c.id, name: c.name })),
+    activeCompanyId: active?.id ?? null,
+  };
 };

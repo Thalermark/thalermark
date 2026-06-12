@@ -1,3 +1,4 @@
+import { pickActiveCompany } from '$lib/active-company';
 import { serverApiClient } from '$lib/api.server';
 import { error, fail, redirect } from '@sveltejs/kit';
 import { expenseCreateSchema } from '@thalermark/validation';
@@ -20,7 +21,7 @@ export const load: PageServerLoad = async (event) => {
   const companiesRes = await client.api.companies.$get();
   if (!companiesRes.ok) throw error(companiesRes.status, 'failed to load companies');
   const { companies } = await companiesRes.json();
-  const company = companies[0];
+  const company = pickActiveCompany(event.cookies, companies);
   if (!company) throw error(500, 'no company in this workspace');
 
   const [expenseRes, assetRes] = await Promise.all([
@@ -146,7 +147,8 @@ export const actions: Actions = {
 
     const companiesRes = await client.api.companies.$get();
     if (!companiesRes.ok) throw error(companiesRes.status, 'failed to load companies');
-    const companyId = (await companiesRes.json()).companies[0]?.id;
+    const { companies } = await companiesRes.json();
+    const companyId = pickActiveCompany(event.cookies, companies)?.id;
     if (!companyId) return fail(400, { values, formError: 'No company in this workspace.' });
 
     const res = await client.api.expenses.categorize.$post({
@@ -183,7 +185,7 @@ export const actions: Actions = {
     const companiesRes = await client.api.companies.$get();
     if (!companiesRes.ok) throw error(companiesRes.status, 'failed to load companies');
     const { companies } = await companiesRes.json();
-    const companyId = companies[0]?.id;
+    const companyId = pickActiveCompany(event.cookies, companies)?.id;
     if (!companyId) return fail(400, { values, formError: 'No company in this workspace.' });
 
     const parsed = expenseCreateSchema.safeParse({

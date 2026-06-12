@@ -10,7 +10,10 @@ import type { Actions, PageServerLoad } from './$types';
 export const load: PageServerLoad = async (event) => {
   const showArchived = event.url.searchParams.get('archived') === '1';
   const client = serverApiClient(event);
+  // Scope to the active company (the nav switcher's pick) from the (app) layout.
+  const { activeCompanyId } = await event.parent();
   const query: Record<string, string> = { limit: String(PAGE_SIZE) };
+  if (activeCompanyId) query.companyId = activeCompanyId;
   if (showArchived) query.includeArchived = 'true';
   const res = await client.api.items.$get({ query });
   if (!res.ok) throw error(res.status, 'failed to load items');

@@ -12,7 +12,11 @@ export const load: PageServerLoad = async (event) => {
     q: sp.get('q') ?? '',
     openInvoices: sp.get('openInvoices') === 'true',
   };
+  // Scope to the active company within the workspace (the nav switcher's pick),
+  // resolved by the (app) layout load. Without it the list spans all companies.
+  const { activeCompanyId } = await event.parent();
   const query: Record<string, string> = { limit: String(PAGE_SIZE) };
+  if (activeCompanyId) query.companyId = activeCompanyId;
   if (filters.q) query.q = filters.q;
   if (filters.openInvoices) query.openInvoices = 'true';
   const res = await client.api.customers.$get({ query });

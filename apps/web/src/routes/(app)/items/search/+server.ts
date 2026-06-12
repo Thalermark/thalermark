@@ -1,3 +1,4 @@
+import { cookieCompanyId } from '$lib/active-company';
 import { serverApiClient } from '$lib/api.server';
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
@@ -15,7 +16,12 @@ export const GET: RequestHandler = async (event) => {
   if (!q) return json({ items: [] });
 
   const client = serverApiClient(event);
-  const res = await client.api.items.$get({ query: { q } });
+  // Scope the picker to the active company so it never offers another company's
+  // catalog. The cookie is kept healed by the (app) layout load.
+  const companyId = cookieCompanyId(event.cookies);
+  const query: Record<string, string> = { q };
+  if (companyId) query.companyId = companyId;
+  const res = await client.api.items.$get({ query });
   if (!res.ok) return json({ items: [] });
   const { items } = await res.json();
 

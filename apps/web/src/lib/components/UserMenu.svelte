@@ -3,12 +3,24 @@
   import { COPY } from '@thalermark/brand';
   import AvatarBubble from './AvatarBubble.svelte';
 
+  type Company = { id: string; name: string };
   type Props = {
     name: string;
     email: string;
+    companies?: Company[];
+    activeCompanyId?: string | null;
+    canManageCompanies?: boolean;
+    currentPath?: string;
   };
 
-  let { name, email }: Props = $props();
+  let {
+    name,
+    email,
+    companies = [],
+    activeCompanyId = null,
+    canManageCompanies = false,
+    currentPath = '/',
+  }: Props = $props();
   let open = $state(false);
   let root: HTMLDivElement | undefined = $state();
 
@@ -61,6 +73,43 @@
         {/if}
       </div>
       <div class="my-1 border-t border-ink/10"></div>
+      {#if companies.length > 0}
+        <p class="px-4 pb-1 pt-2 font-mono text-[10px] uppercase tracking-widest text-ink/40">
+          Company
+        </p>
+        {#each companies as c (c.id)}
+          {#if c.id === activeCompanyId}
+            <div class="flex items-center gap-2 px-4 py-2 text-sm text-ink">
+              <span class="text-gold-deep">✓</span>
+              <span class="truncate">{c.name}</span>
+            </div>
+          {:else}
+            <form method="POST" action="/companies/switch">
+              <input type="hidden" name="companyId" value={c.id} />
+              <input type="hidden" name="returnTo" value={currentPath} />
+              <button
+                type="submit"
+                role="menuitem"
+                class="flex w-full items-center gap-2 px-4 py-2 text-left text-sm text-ink/80 transition-colors hover:bg-cream-warm hover:text-ink"
+              >
+                <span class="w-3"></span>
+                <span class="truncate">{c.name}</span>
+              </button>
+            </form>
+          {/if}
+        {/each}
+        {#if canManageCompanies}
+          <a
+            href="/companies/new"
+            role="menuitem"
+            onclick={close}
+            class="block px-4 py-2 text-sm text-gold-deep transition-colors hover:bg-cream-warm"
+          >
+            + Add company
+          </a>
+        {/if}
+        <div class="my-1 border-t border-ink/10"></div>
+      {/if}
       <a
         href="/select-company"
         role="menuitem"

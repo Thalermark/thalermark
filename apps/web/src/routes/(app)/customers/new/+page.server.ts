@@ -1,3 +1,4 @@
+import { pickActiveCompany } from '$lib/active-company';
 import { serverApiClient } from '$lib/api.server';
 import { findEmailDupe } from '$lib/customer-dupes';
 import { error, fail, redirect } from '@sveltejs/kit';
@@ -9,7 +10,12 @@ import type { Actions, PageServerLoad } from './$types';
 // race where a dupe was created in another tab between load and submit.
 export const load: PageServerLoad = async (event) => {
   const client = serverApiClient(event);
-  const res = await client.api.customers.$get();
+  // Dupe hints are per-company (customers belong to a company), so scope the
+  // list to the active company (the nav switcher's pick).
+  const { activeCompanyId } = await event.parent();
+  const query: Record<string, string> = {};
+  if (activeCompanyId) query.companyId = activeCompanyId;
+  const res = await client.api.customers.$get({ query });
   if (!res.ok) throw error(res.status, 'failed to load customers');
   const { customers } = await res.json();
   return {
@@ -54,7 +60,7 @@ export const actions: Actions = {
     const companiesRes = await client.api.companies.$get();
     if (!companiesRes.ok) throw error(companiesRes.status, 'failed to load companies');
     const { companies } = await companiesRes.json();
-    const first = companies[0];
+    const first = pickActiveCompany(event.cookies, companies);
     if (!first) return fail(400, { values, formError: 'No company in this workspace.' });
 
     const parsed = customerCreateSchema.safeParse({ companyId: first.id, ...values });
@@ -71,7 +77,7 @@ export const actions: Actions = {
     // close the race where another tab created the dupe between load() and
     // this POST. Name fuzzy match stays advisory and is handled client-side
     // only.
-    const listRes = await client.api.customers.$get();
+    const listRes = await client.api.customers.$get({ query: { companyId: first.id } });
     if (listRes.ok) {
       const { customers: list } = await listRes.json();
       const emailDupe = findEmailDupe(parsed.data.email, list);

@@ -1,3 +1,4 @@
+import { pickActiveCompany } from '$lib/active-company';
 import { serverApiClient } from '$lib/api.server';
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
@@ -8,11 +9,10 @@ export const load: PageServerLoad = async (event) => {
   if (!companiesRes.ok) throw error(companiesRes.status, 'failed to load companies');
   const { companies } = await companiesRes.json();
 
-  // MVP: one company per account is the common path; the same first-company
-  // pick lives in /invoices/new. The Connect onboarding is per-company —
-  // when the multi-company picker arrives we'll surface a row per company
-  // here and onboard each independently.
-  const company = companies[0];
+  // The active company within this workspace (cookie-backed switcher), same
+  // pick as /invoices/new; falls back to the first for single-company accounts.
+  // Connect onboarding is per-company, so it follows the active company here.
+  const company = pickActiveCompany(event.cookies, companies);
   if (!company) throw error(500, 'no company in this workspace');
 
   const statusRes = await client.api.companies[':id']['stripe-connect'].status.$get({

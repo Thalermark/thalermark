@@ -1,3 +1,4 @@
+import { pickActiveCompany } from '$lib/active-company';
 import { serverApiClient } from '$lib/api.server';
 import { error } from '@sveltejs/kit';
 
@@ -45,7 +46,7 @@ async function reportContext(event: Parameters<typeof serverApiClient>[0]) {
   const companiesRes = await client.api.companies.$get();
   if (!companiesRes.ok) throw error(companiesRes.status, 'failed to load companies');
   const { companies } = await companiesRes.json();
-  const company = companies[0];
+  const company = pickActiveCompany(event.cookies, companies);
   if (!company) throw error(500, 'no company in this workspace');
 
   const presets = periodPresets();
@@ -163,7 +164,7 @@ async function reportContextAsOf(event: Parameters<typeof serverApiClient>[0]) {
   const companiesRes = await client.api.companies.$get();
   if (!companiesRes.ok) throw error(companiesRes.status, 'failed to load companies');
   const { companies } = await companiesRes.json();
-  const company = companies[0];
+  const company = pickActiveCompany(event.cookies, companies);
   if (!company) throw error(500, 'no company in this workspace');
   const asOf = event.url.searchParams.get('asOf') || ymd(new Date());
   return { client, companyId: company.id, asOf };
