@@ -70,6 +70,9 @@ const PUBLIC_PATH_PATTERNS: RegExp[] = [
   /^\/api\/public\//,
   /^\/api\/webhooks\//,
   /^\/api\/files\//,
+  // The sign-in page (no session yet) reads which social-login buttons to show.
+  // No secrets — just the configured provider ids.
+  /^\/api\/social-providers$/,
   // GET /api/invitations/:token — the invite preview. No session: the invitee
   // may not have signed up yet (the sign-up form reads it to prefill the
   // email). Token in the URL is the credential. Does NOT match the

@@ -16,10 +16,23 @@ import { bearer } from 'better-auth/plugins';
 import { and, eq, gt, isNull, sql } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
 
+// clientId/clientSecret pair for an OAuth provider. Google, Facebook, and X
+// (Better Auth provider key `twitter`) all share this shape.
+export type SocialProviderCreds = { clientId: string; clientSecret: string };
+
 export type CreateAuthOptions = {
   secret: string;
   baseURL: string;
   trustedOrigins?: string[];
+  // Optional social sign-in. Each provider is wired only when its creds are
+  // passed, so a self-host install with none runs unchanged (email/password
+  // only). Adding another provider later is the same three lines below. Each
+  // provider's OAuth callback lands at `${baseURL}/api/auth/callback/<provider>`
+  // (`google` / `facebook` / `twitter`) — that exact URL must be registered as
+  // an authorized redirect URI on the provider's OAuth app.
+  google?: SocialProviderCreds;
+  facebook?: SocialProviderCreds;
+  twitter?: SocialProviderCreds; // X
 };
 
 // Wires Better Auth to our auth_* Drizzle tables. Email/password ON; the
@@ -55,6 +68,43 @@ export function createAuth(db: Database, options: CreateAuthOptions) {
     }),
     emailAndPassword: {
       enabled: true,
+    },
+    // Social sign-in is opt-in per provider: each key is present only when its
+    // creds were passed. A new social user flows through the same
+    // user.create.after hook below (tenant provisioning or invite-by-email join)
+    // as an email/password signup — the provider supplies a verified name +
+    // email, so nothing about provisioning changes. (Facebook/X apps must be
+    // configured to return the user's email for the join-by-email to work.)
+    socialProviders: {
+      ...(options.google ? { google: options.google } : {}),
+      ...(options.facebook ? { facebook: options.facebook } : {}),
+      ...(options.twitter ? { twitter: options.twitter } : {}),
+    },
+    account: {
+      // Make "Continue with Google" attach to an existing same-email account
+      // (created via email/password, or an invite) instead of erroring with
+      // `account_not_linked`. Two BA guards must both pass:
+      //   • trustedProviders — we trust these providers' verified email, so the
+      //     provider side of the match is allowed.
+      //   • requireLocalEmailVerified — BA defaults this to TRUE and refuses to
+      //     link to an unverified LOCAL account. Our email/password signups
+      //     aren't email-verified yet, so without setting it false, linking
+      //     still throws for every existing account. We set it false.
+      // Linking attaches to the existing user row (no new user → the
+      // provisioning hook doesn't re-fire); emails must match (allowDifferentEmails
+      // stays at its safe default, false).
+      //
+      // ⚠️ requireLocalEmailVerified=false is the explicit acceptance of the
+      // pre-account-hijack risk (a squatted unverified email could be linked on
+      // first social login). The fix is email verification on signup — once
+      // signups are verified, REMOVE this line (BA's safe default returns and
+      // linking still works, because the local account is then verified). See
+      // the project_social_auth memory follow-up.
+      accountLinking: {
+        enabled: true,
+        trustedProviders: ['google', 'facebook', 'twitter'],
+        requireLocalEmailVerified: false,
+      },
     },
     // Mobile uses Authorization: Bearer <session-token> instead of cookies.
     // The bearer plugin is a no-op for cookie clients (web): its `before` hook

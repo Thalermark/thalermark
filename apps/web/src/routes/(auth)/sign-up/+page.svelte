@@ -3,6 +3,7 @@
   import { env } from '$env/dynamic/public';
   import { page } from '$app/state';
   import { authClient } from '$lib/auth-client';
+  import SocialSignIn from '$lib/components/SocialSignIn.svelte';
   import { COPY } from '@thalermark/brand';
 
   const apiUrl = env.PUBLIC_API_URL ?? 'http://localhost:3000';
@@ -131,6 +132,10 @@
     {invite ? 'Join workspace' : COPY.signUp.submit}
   </button>
 </form>
+
+<!-- Hidden during an invite flow: invites are email-anchored, so a mismatched
+     social account would create a stray account instead of joining. -->
+<SocialSignIn providers={inviteToken ? [] : (page.data.socialProviders ?? [])} callbackPath="/" />
 
 <p class="mt-8 text-center text-sm text-ink/70">
   Already have an account?
