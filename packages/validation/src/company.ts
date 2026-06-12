@@ -70,3 +70,17 @@ export const companyUpdateSchema = z
   });
 
 export type CompanyUpdateInput = z.infer<typeof companyUpdateSchema>;
+
+// Input for POST /api/companies — adding another business to an existing
+// workspace (the first company is seeded at signup). Both fields required, so
+// the new company starts fully named + typed and never trips the first-run
+// gate. Optional identity/payment fields are intentionally NOT here: keep
+// creation a two-field decision, then the operator fills the rest from settings
+// (or the create flow can PATCH them after). Sole-prop COA is seeded server-side
+// regardless of type, same as signup (per the locked ledger decision).
+export const companyCreateSchema = z.object({
+  name: z.string().trim().min(1).max(200),
+  businessType: businessTypeSchema,
+});
+
+export type CompanyCreateInput = z.infer<typeof companyCreateSchema>;
