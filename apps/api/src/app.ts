@@ -29,12 +29,14 @@ import {
   memberships,
   recurringInvoiceLineItems,
   recurringInvoices,
+  seedChartOfAccounts,
 } from '@thalermark/db';
 import type { AddressAutocompleteProvider, AddressSuggestion } from '@thalermark/location';
 import { type StorageProvider, readLocalObject, verifyFileToken } from '@thalermark/storage';
 import { emit } from '@thalermark/telemetry';
 import {
   can,
+  companyCreateSchema,
   companyUpdateSchema,
   customerCreateSchema,
   customerUpdateSchema,
@@ -1225,6 +1227,59 @@ export function createApp(deps: AppDeps) {
           .orderBy(asc(companies.createdAt));
         return c.json({ companies: rows });
       })
+      // POST company — add another business to the workspace. The first company
+      // is seeded at signup; this is the multi-company create path. Gated by
+      // settings:manage (owner + admin) — same reach as editing a company's
+      // profile. Name + type are required so the new company never trips the
+      // first-run gate; the sole-prop COA is seeded in the same tx so the ledger
+      // can post immediately.
+      .post(
+        '/api/companies',
+        requireCapability('settings:manage'),
+        validator('json', (value, c) => {
+          const parsed = companyCreateSchema.safeParse(value);
+          if (!parsed.success) {
+            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+          }
+          return parsed.data;
+        }),
+        async (c) => {
+          const { name, businessType } = c.req.valid('json');
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+
+          const id = uuidv7();
+          const [created] = await tx
+            .insert(companies)
+            .values({ id, accountId, name, businessType })
+            .returning();
+          if (!created) return c.json({ error: 'create_failed' }, 500);
+          await seedChartOfAccounts(tx, { accountId, companyId: id });
+
+          await c.var.audit({
+            entityType: 'company',
+            entityId: id,
+            action: 'create',
+            after: { name, businessType },
+            companyId: id,
+          });
+
+          // Same projection as GET /api/companies rows, so the web can switch to
+          // the new company and slot it into the list without a refetch.
+          return c.json(
+            {
+              id: created.id,
+              name: created.name,
+              businessType: created.businessType,
+              businessAddress: created.businessAddress,
+              businessPhone: created.businessPhone,
+              replyToEmail: created.replyToEmail,
+              ...paymentMethodsView(created),
+            },
+            201,
+          );
+        },
+      )
       // PATCH company — slice L3. Sparse semantics: only the keys present in
       // the body get written. Used by the post-signup business-type wizard
       // (sends { businessType, name? }) and any future rename surface from
