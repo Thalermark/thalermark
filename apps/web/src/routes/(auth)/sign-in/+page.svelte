@@ -8,6 +8,9 @@
   let password = $state('');
   let error = $state<string | null>(null);
   let submitting = $state(false);
+  let needsVerification = $state(false);
+  let resending = $state(false);
+  let resent = $state(false);
 
   const inviteToken = $derived(page.url.searchParams.get('invite'));
   const postAuthPath = $derived(
@@ -19,15 +22,35 @@
     event.preventDefault();
     error = null;
     submitting = true;
+    needsVerification = false;
     const result = await authClient.signIn.email({ email, password });
     submitting = false;
     if (result.error) {
-      error = result.error.message ?? 'Sign-in failed';
+      const msg = result.error.message ?? 'Sign-in failed';
+      // Unverified email/password account → offer to resend the link instead of
+      // a dead-end error. BA returns EMAIL_NOT_VERIFIED; match the message too
+      // in case the code shape shifts.
+      if (result.error.code === 'EMAIL_NOT_VERIFIED' || /verif/i.test(msg)) {
+        needsVerification = true;
+        return;
+      }
+      error = msg;
       return;
     }
     // Hard nav: forces hooks.server.ts to re-run membership routing on a
     // fresh request. goto() + invalidateAll() leaves stale layout data.
     window.location.assign(postAuthPath);
+  }
+
+  async function onResend() {
+    resending = true;
+    resent = false;
+    await authClient.sendVerificationEmail({
+      email,
+      callbackURL: `${window.location.origin}${postAuthPath}`,
+    });
+    resending = false;
+    resent = true;
   }
 </script>
 
@@ -57,6 +80,27 @@
   </label>
   {#if error}
     <p class="font-mono text-xs uppercase tracking-widest text-oxblood">{error}</p>
+  {/if}
+  {#if needsVerification}
+    <div class="rounded-sm border border-gold-deep/30 bg-gold-deep/5 px-4 py-3 text-sm text-ink/80">
+      <p>
+        Verify your email to sign in — we sent a link to
+        <span class="font-medium text-ink">{email}</span>.
+      </p>
+      <div class="mt-3 flex items-center gap-4">
+        <button
+          type="button"
+          onclick={onResend}
+          disabled={resending}
+          class="rounded-sm border border-ink/25 px-3 py-1.5 text-sm font-medium text-ink transition-colors hover:border-ink disabled:opacity-50"
+        >
+          {resending ? 'Sending…' : 'Resend verification'}
+        </button>
+        {#if resent}
+          <span class="font-mono text-xs uppercase tracking-widest text-sage">Sent</span>
+        {/if}
+      </div>
+    </div>
   {/if}
   <button
     type="submit"

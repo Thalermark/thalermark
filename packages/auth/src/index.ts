@@ -12,9 +12,16 @@ import {
 } from '@thalermark/db';
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
+import { APIError } from 'better-auth/api';
 import { bearer } from 'better-auth/plugins';
+import disposableDomains from 'disposable-email-domains';
 import { and, eq, gt, isNull, sql } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
+
+// Disposable / temporary-email domains (10-minute-mail etc.) blocked at signup
+// for abuse prevention. Built once from the bundled `disposable-email-domains`
+// list (a vendored array — no external service, self-host-safe).
+const DISPOSABLE_DOMAINS = new Set(disposableDomains.map((d) => d.toLowerCase()));
 
 // clientId/clientSecret pair for an OAuth provider. Google, Facebook, and X
 // (Better Auth provider key `twitter`) all share this shape.
@@ -33,6 +40,17 @@ export type CreateAuthOptions = {
   google?: SocialProviderCreds;
   facebook?: SocialProviderCreds;
   twitter?: SocialProviderCreds; // X
+  // Require email/password users to verify their address before they can sign
+  // in. Off by default (and in tests, so the suite's sign-up→use-session flow
+  // keeps working); the api turns it on outside the test env. Social signups
+  // are provider-verified, so they're never gated.
+  requireEmailVerification?: boolean;
+  // Sends the verification email. Injected by the api (mailer-agnostic here);
+  // a no-op when absent. Called by Better Auth with the one-time verify URL.
+  sendVerificationEmail?: (data: {
+    user: { email: string; name?: string | null };
+    url: string;
+  }) => Promise<void>;
 };
 
 // Wires Better Auth to our auth_* Drizzle tables. Email/password ON; the
@@ -68,6 +86,17 @@ export function createAuth(db: Database, options: CreateAuthOptions) {
     }),
     emailAndPassword: {
       enabled: true,
+      requireEmailVerification: options.requireEmailVerification ?? false,
+    },
+    emailVerification: {
+      // Send the verification link automatically on signup (only meaningful when
+      // verification is required). autoSignInAfterVerification creates the
+      // session when they click the link, so they land straight in the app.
+      sendOnSignUp: options.requireEmailVerification ?? false,
+      autoSignInAfterVerification: true,
+      sendVerificationEmail: async ({ user, url }) => {
+        await options.sendVerificationEmail?.({ user, url });
+      },
     },
     // Social sign-in is opt-in per provider: each key is present only when its
     // creds were passed. A new social user flows through the same
@@ -81,29 +110,17 @@ export function createAuth(db: Database, options: CreateAuthOptions) {
       ...(options.twitter ? { twitter: options.twitter } : {}),
     },
     account: {
-      // Make "Continue with Google" attach to an existing same-email account
-      // (created via email/password, or an invite) instead of erroring with
-      // `account_not_linked`. Two BA guards must both pass:
-      //   • trustedProviders — we trust these providers' verified email, so the
-      //     provider side of the match is allowed.
-      //   • requireLocalEmailVerified — BA defaults this to TRUE and refuses to
-      //     link to an unverified LOCAL account. Our email/password signups
-      //     aren't email-verified yet, so without setting it false, linking
-      //     still throws for every existing account. We set it false.
-      // Linking attaches to the existing user row (no new user → the
-      // provisioning hook doesn't re-fire); emails must match (allowDifferentEmails
-      // stays at its safe default, false).
-      //
-      // ⚠️ requireLocalEmailVerified=false is the explicit acceptance of the
-      // pre-account-hijack risk (a squatted unverified email could be linked on
-      // first social login). The fix is email verification on signup — once
-      // signups are verified, REMOVE this line (BA's safe default returns and
-      // linking still works, because the local account is then verified). See
-      // the project_social_auth memory follow-up.
+      // "Continue with Google" attaches to an existing same-email account
+      // instead of erroring `account_not_linked`. trustedProviders clears the
+      // provider side; the local side relies on BA's default
+      // requireLocalEmailVerified (true) — now safe to keep, because
+      // requireEmailVerification above means existing local accounts are
+      // verified, so the link goes through. Linking attaches to the existing
+      // user row (no new user → the provisioning hook doesn't re-fire); emails
+      // must match (allowDifferentEmails stays false).
       accountLinking: {
         enabled: true,
         trustedProviders: ['google', 'facebook', 'twitter'],
-        requireLocalEmailVerified: false,
       },
     },
     // Mobile uses Authorization: Bearer <session-token> instead of cookies.
@@ -115,6 +132,37 @@ export function createAuth(db: Database, options: CreateAuthOptions) {
     databaseHooks: {
       user: {
         create: {
+          before: async (user) => {
+            // Block disposable / temporary email at signup (abuse prevention).
+            // Applies to every user creation; a real provider email is never on
+            // the list. Throw an APIError so the client gets a clean message.
+            const domain = user.email.split('@')[1]?.toLowerCase();
+            if (domain && DISPOSABLE_DOMAINS.has(domain)) {
+              throw new APIError('UNPROCESSABLE_ENTITY', {
+                message: 'Please use a non-disposable email address.',
+              });
+            }
+            // Auto-verify invited signups: receiving the invite link already
+            // proves the person controls that email, so we don't gate them
+            // behind a second verification email. (The membership join itself
+            // stays in the after-hook.) Read via the same bootstrap `db` the
+            // after-hook uses — no tenant context needed for this lookup.
+            const invited = await db
+              .select({ id: invitations.id })
+              .from(invitations)
+              .where(
+                and(
+                  sql`lower(${invitations.email}) = lower(${user.email})`,
+                  isNull(invitations.acceptedAt),
+                  gt(invitations.expiresAt, new Date()),
+                ),
+              )
+              .limit(1);
+            if (invited.length > 0) {
+              return { data: { ...user, emailVerified: true } };
+            }
+            return undefined;
+          },
           after: async (user) => {
             await db.transaction(async (tx) => {
               // Invited signup: join the inviting account(s), no personal

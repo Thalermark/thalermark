@@ -73,18 +73,20 @@ const dbHandle = createApiDatabase(env.appDatabaseUrl);
 // visibility on `app.current_account_id`, which isn't set yet). Tenant
 // routes still use dbHandle (thalermark_app) so RLS fires as designed.
 const bootstrapDbHandle = createApiDatabase(env.databaseUrl);
-const auth = createApiAuth(bootstrapDbHandle.db, env);
 
 // Resend when an API key is configured; console driver otherwise. The console
 // driver is the dev / self-host fallback so operators can grab the message
 // from stdout without provisioning SMTP. SMTP via nodemailer lands when a
-// real self-host operator needs it.
+// real self-host operator needs it. Built before auth so it can power Better
+// Auth's verification-email sender.
 const mailer: Mailer = env.resendApiKey
   ? createResendMailer({ apiKey: env.resendApiKey, from: env.emailFrom })
   : createConsoleMailer({ from: env.emailFrom });
 if (!env.resendApiKey) {
   log.info('email transport: console (RESEND_API_KEY unset)');
 }
+
+const auth = createApiAuth(bootstrapDbHandle.db, env, mailer);
 
 // Stripe is opt-in: bundle is null when any of the three env vars is unset,
 // in which case the public invoice view hides Pay and the webhook 503s. Lets
