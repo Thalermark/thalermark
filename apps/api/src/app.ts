@@ -669,6 +669,11 @@ export type AppDeps = {
   scheduleFlush?: (db: Database, accountId: string) => void;
   trustedOrigins?: string[];
   publicAppUrl?: string;
+  // Configured social-login provider ids ('google' | 'facebook' | 'twitter'),
+  // surfaced by GET /api/social-providers so the web sign-in page renders only
+  // the buttons that will work. Empty/omitted = email/password only. Built in
+  // server.ts from env via enabledSocialProviders().
+  socialProviders?: string[];
   // Email transport for the invoice-send + invitation endpoints. Optional so
   // integration tests that don't exercise either can omit it; routes that
   // need it fail fast with 500 when called without a mailer wired in.
@@ -749,6 +754,10 @@ export function createApp(deps: AppDeps) {
           scheduleFlush: deps.scheduleFlush,
         }),
       )
+      // Public (pre-auth): which social-login buttons the sign-in page should
+      // render. Listed in rls-context's PUBLIC_PATH_PATTERNS so it skips the
+      // tenant context. No secrets — just the configured provider ids.
+      .get('/api/social-providers', (c) => c.json({ providers: deps.socialProviders ?? [] }))
       .get('/api/me', async (c) => {
         const userId = c.get('userId');
         const [user] = await bootstrapDb

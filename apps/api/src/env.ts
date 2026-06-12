@@ -27,6 +27,16 @@ export type Env = {
   migrateOnBoot: boolean;
   betterAuthSecret: string;
   betterAuthUrl: string;
+  // Social sign-in credentials (Google / Facebook / X). For each provider, both
+  // halves must be set for it to be wired (createApiAuth checks); leave blank
+  // for email/password-only installs. Optional on the type so test/embedder Env
+  // literals needn't list them.
+  googleClientId?: string;
+  googleClientSecret?: string;
+  facebookClientId?: string;
+  facebookClientSecret?: string;
+  twitterClientId?: string;
+  twitterClientSecret?: string;
   trustedOrigins: string[];
   publicAppUrl: string;
   // Email transport. When resendApiKey is set, server.ts wires the Resend
@@ -81,6 +91,12 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     migrateOnBoot: parseBool(source.MIGRATE_ON_BOOT),
     betterAuthSecret,
     betterAuthUrl,
+    googleClientId: source.GOOGLE_CLIENT_ID || undefined,
+    googleClientSecret: source.GOOGLE_CLIENT_SECRET || undefined,
+    facebookClientId: source.FACEBOOK_CLIENT_ID || undefined,
+    facebookClientSecret: source.FACEBOOK_CLIENT_SECRET || undefined,
+    twitterClientId: source.TWITTER_CLIENT_ID || undefined,
+    twitterClientSecret: source.TWITTER_CLIENT_SECRET || undefined,
     trustedOrigins: parseOrigins(source.TRUSTED_ORIGINS),
     publicAppUrl: source.PUBLIC_APP_URL ?? '',
     resendApiKey: source.RESEND_API_KEY || undefined,

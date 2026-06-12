@@ -1,6 +1,7 @@
 <script lang="ts">
   import { page } from '$app/state';
   import { authClient } from '$lib/auth-client';
+  import SocialSignIn from '$lib/components/SocialSignIn.svelte';
   import { COPY } from '@thalermark/brand';
 
   let email = $state('');
@@ -65,6 +66,13 @@
     {COPY.signIn.submit}
   </button>
 </form>
+
+<!-- Hidden during an invite flow: invites are email-anchored, so a mismatched
+     social account would create a stray account instead of joining. -->
+<SocialSignIn
+  providers={inviteToken ? [] : (page.data.socialProviders ?? [])}
+  callbackPath={postAuthPath}
+/>
 
 <p class="mt-8 text-center text-sm text-ink/70">
   No account?

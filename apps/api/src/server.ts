@@ -19,7 +19,7 @@ import { type StorageProvider, createStorageProvider } from '@thalermark/storage
 import { PgBoss } from 'pg-boss';
 import { createApp } from './app.js';
 import { loadEnv } from './env.js';
-import { createApiAuth } from './lib/auth.js';
+import { createApiAuth, enabledSocialProviders } from './lib/auth.js';
 import { createApiDatabase } from './lib/db.js';
 import { initErrorTracking } from './lib/error-tracking.js';
 import { type Mailer, createConsoleMailer, createResendMailer } from './lib/mailer.js';
@@ -171,6 +171,7 @@ const app = createApp({
   bootstrapDb: bootstrapDbHandle.db,
   trustedOrigins: env.trustedOrigins,
   publicAppUrl: env.publicAppUrl,
+  socialProviders: enabledSocialProviders(env),
   mailer,
   emailFrom: env.emailFrom,
   stripe,

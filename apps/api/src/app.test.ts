@@ -32,6 +32,57 @@ describe('health route', () => {
   });
 });
 
+describe('GET /api/social-providers (public)', () => {
+  it('returns the configured provider ids without auth', async () => {
+    const app = createApp({ auth: stubAuth, db: stubDb, socialProviders: ['google', 'facebook'] });
+    const res = await app.request('/api/social-providers');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ providers: ['google', 'facebook'] });
+  });
+
+  it('defaults to an empty list when none are configured', async () => {
+    const app = createApp({ auth: stubAuth, db: stubDb });
+    const res = await app.request('/api/social-providers');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ providers: [] });
+  });
+});
+
+describe('enabledSocialProviders', () => {
+  const baseEnv = {
+    NODE_ENV: 'test',
+    DATABASE_URL: 'postgres://test/test',
+    APP_DATABASE_URL: 'postgres://thalermark_app:pw@test/test',
+    BETTER_AUTH_SECRET: 'test-secret',
+    BETTER_AUTH_URL: 'http://localhost:3000',
+  };
+
+  it('is empty with no creds', async () => {
+    const { loadEnv } = await import('./env.js');
+    const { enabledSocialProviders } = await import('./lib/auth.js');
+    expect(enabledSocialProviders(loadEnv(baseEnv))).toEqual([]);
+  });
+
+  it('ignores a provider with only one half set', async () => {
+    const { loadEnv } = await import('./env.js');
+    const { enabledSocialProviders } = await import('./lib/auth.js');
+    expect(enabledSocialProviders(loadEnv({ ...baseEnv, GOOGLE_CLIENT_ID: 'x' }))).toEqual([]);
+  });
+
+  it('lists providers whose id + secret are both set', async () => {
+    const { loadEnv } = await import('./env.js');
+    const { enabledSocialProviders } = await import('./lib/auth.js');
+    const env = loadEnv({
+      ...baseEnv,
+      GOOGLE_CLIENT_ID: 'gid',
+      GOOGLE_CLIENT_SECRET: 'gsec',
+      TWITTER_CLIENT_ID: 'tid',
+      TWITTER_CLIENT_SECRET: 'tsec',
+    });
+    expect(enabledSocialProviders(env).sort()).toEqual(['google', 'twitter']);
+  });
+});
+
 describe('env loader', () => {
   const baseEnv = {
     NODE_ENV: 'test',
