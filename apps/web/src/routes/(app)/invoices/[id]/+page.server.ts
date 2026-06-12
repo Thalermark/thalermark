@@ -1,3 +1,4 @@
+import { pickActiveCompany } from '$lib/active-company';
 import { serverApiClient } from '$lib/api.server';
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
@@ -21,7 +22,10 @@ export const load: PageServerLoad = async (event) => {
   // companies fetch just drops the prompt rather than blocking the page.
   const companiesRes = await client.api.companies.$get();
   const companies = companiesRes.ok ? (await companiesRes.json()).companies : [];
-  const company = companies.find((c) => c.id === invoice.companyId) ?? companies[0] ?? null;
+  const company =
+    companies.find((c) => c.id === invoice.companyId) ??
+    pickActiveCompany(event.cookies, companies) ??
+    null;
   const needsBusinessDetails = !!company && !company.businessAddress;
   const businessCompanyId = company?.id ?? null;
 

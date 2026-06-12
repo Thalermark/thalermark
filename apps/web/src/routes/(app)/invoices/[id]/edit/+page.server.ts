@@ -18,9 +18,13 @@ const LINE_FIELD_SOURCE_ITEM_ID = 'li_sourceItemId';
 
 export const load: PageServerLoad = async (event) => {
   const client = serverApiClient(event);
+  // Scope the customer dropdown to the active company (the nav switcher's pick).
+  const { activeCompanyId } = await event.parent();
+  const custQuery: Record<string, string> = {};
+  if (activeCompanyId) custQuery.companyId = activeCompanyId;
   const [invoiceRes, customersRes] = await Promise.all([
     client.api.invoices[':id'].$get({ param: { id: event.params.id } }),
-    client.api.customers.$get(),
+    client.api.customers.$get({ query: custQuery }),
   ]);
   if (invoiceRes.status === 404) throw error(404, 'invoice not found');
   if (!invoiceRes.ok) throw error(invoiceRes.status, 'failed to load invoice');

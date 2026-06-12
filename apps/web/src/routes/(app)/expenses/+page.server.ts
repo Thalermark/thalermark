@@ -1,3 +1,4 @@
+import { pickActiveCompany } from '$lib/active-company';
 import { serverApiClient } from '$lib/api.server';
 import { PAGE_SIZE } from '$lib/load-more';
 import { error } from '@sveltejs/kit';
@@ -7,13 +8,13 @@ import { mapExpenseRows } from './expense-rows';
 export const load: PageServerLoad = async (event) => {
   const client = serverApiClient(event);
 
-  // Single-company assumption, same as the invoice/estimate forms: the active
-  // company is companies[0]. A company switcher lands when multi-company UI
-  // does; until then every list/filter is scoped to this one.
+  // The active company within this workspace (cookie-backed switcher), same as
+  // the invoice/estimate forms; every list/filter is scoped to it. Falls back
+  // to the first company for single-company accounts.
   const companiesRes = await client.api.companies.$get();
   if (!companiesRes.ok) throw error(companiesRes.status, 'failed to load companies');
   const { companies } = await companiesRes.json();
-  const company = companies[0];
+  const company = pickActiveCompany(event.cookies, companies);
   if (!company) throw error(500, 'no company in this workspace');
 
   const params = event.url.searchParams;

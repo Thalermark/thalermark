@@ -16,13 +16,20 @@ export const load: PageServerLoad = async (event) => {
     to: sp.get('to') ?? '',
     customerId: sp.get('customerId') ?? '',
   };
+  // Scope both the list and the customer-filter dropdown to the active company
+  // (the nav switcher's pick), resolved by the (app) layout load. Without it the
+  // list — and the dropdown — span every company in the workspace.
+  const { activeCompanyId } = await event.parent();
   const query: Record<string, string> = { limit: String(PAGE_SIZE) };
+  if (activeCompanyId) query.companyId = activeCompanyId;
   for (const [k, v] of Object.entries(filters)) {
     if (v) query[k] = v;
   }
+  const custQuery: Record<string, string> = { limit: '500' };
+  if (activeCompanyId) custQuery.companyId = activeCompanyId;
   const [res, custRes] = await Promise.all([
     client.api.estimates.$get({ query }),
-    client.api.customers.$get({ query: { limit: '500' } }),
+    client.api.customers.$get({ query: custQuery }),
   ]);
   if (!res.ok) throw error(res.status, 'failed to load estimates');
   const { estimates, nextCursor } = await res.json();

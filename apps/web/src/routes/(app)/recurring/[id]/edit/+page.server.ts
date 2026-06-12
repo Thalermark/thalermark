@@ -17,9 +17,13 @@ const LINE_FIELD_SOURCE_ITEM_ID = 'li_sourceItemId';
 
 export const load: PageServerLoad = async (event) => {
   const client = serverApiClient(event);
+  // Scope the customer dropdown to the active company (the nav switcher's pick).
+  const { activeCompanyId } = await event.parent();
+  const custQuery: Record<string, string> = {};
+  if (activeCompanyId) custQuery.companyId = activeCompanyId;
   const [scheduleRes, customersRes] = await Promise.all([
     client.api['recurring-invoices'][':id'].$get({ param: { id: event.params.id } }),
-    client.api.customers.$get(),
+    client.api.customers.$get({ query: custQuery }),
   ]);
   if (scheduleRes.status === 404) throw error(404, 'recurring schedule not found');
   if (!scheduleRes.ok) throw error(scheduleRes.status, 'failed to load recurring schedule');

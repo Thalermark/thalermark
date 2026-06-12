@@ -1,3 +1,4 @@
+import { pickActiveCompany } from '$lib/active-company';
 import { serverApiClient } from '$lib/api.server';
 import { error, fail } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
@@ -8,9 +9,9 @@ export const load: PageServerLoad = async (event) => {
   if (!companiesRes.ok) throw error(companiesRes.status, 'failed to load companies');
   const { companies } = await companiesRes.json();
 
-  // MVP: one company per account is the common path (same first-company pick
-  // as /settings/payments). A per-company picker arrives with multi-company.
-  const company = companies[0];
+  // The active company within this workspace (cookie-backed switcher), same
+  // pick as /settings/payments; falls back to the first for single-company.
+  const company = pickActiveCompany(event.cookies, companies);
   if (!company) throw error(500, 'no company in this workspace');
 
   return { company };

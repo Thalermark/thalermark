@@ -1,3 +1,4 @@
+import { pickActiveCompany } from '$lib/active-company';
 import { serverApiClient } from '$lib/api.server';
 import { findEmailDupe } from '$lib/customer-dupes';
 import { error, fail, redirect } from '@sveltejs/kit';
@@ -29,15 +30,19 @@ const LINE_FIELD_SOURCE_ITEM_ID = 'li_sourceItemId';
 
 export const load: PageServerLoad = async (event) => {
   const client = serverApiClient(event);
+  // Scope the customer dropdown to the active company (the nav switcher's pick).
+  const { activeCompanyId } = await event.parent();
+  const custQuery: Record<string, string> = {};
+  if (activeCompanyId) custQuery.companyId = activeCompanyId;
   const [companiesRes, customersRes] = await Promise.all([
     client.api.companies.$get(),
-    client.api.customers.$get(),
+    client.api.customers.$get({ query: custQuery }),
   ]);
   if (!companiesRes.ok) throw error(companiesRes.status, 'failed to load companies');
   if (!customersRes.ok) throw error(customersRes.status, 'failed to load customers');
   const { companies } = await companiesRes.json();
   const { customers } = await customersRes.json();
-  const company = companies[0];
+  const company = pickActiveCompany(event.cookies, companies);
   if (!company) throw error(500, 'no company in this workspace');
 
   // Suggestion fetch is best-effort: a transient failure shouldn't block the
@@ -144,7 +149,7 @@ export const actions: Actions = {
       // server-side to close the race where another tab created the dupe
       // between load() and this POST. Name fuzzy match stays advisory and
       // is handled client-side only (live hint, no submit block).
-      const listRes = await client.api.customers.$get();
+      const listRes = await client.api.customers.$get({ query: { companyId } });
       if (listRes.ok) {
         const { customers: list } = await listRes.json();
         const emailDupe = findEmailDupe(parsedCust.data.email, list);
@@ -253,5 +258,5 @@ async function loadCompanyId(event: Parameters<Actions['default']>[0]) {
   const res = await client.api.companies.$get();
   if (!res.ok) return null;
   const { companies } = await res.json();
-  return companies[0]?.id;
+  return pickActiveCompany(event.cookies, companies)?.id;
 }

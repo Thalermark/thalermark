@@ -1,3 +1,4 @@
+import { pickActiveCompany } from '$lib/active-company';
 import { apiBaseUrl, serverApiClient, serverApiHeaders } from '$lib/api.server';
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
@@ -8,8 +9,9 @@ export const load: PageServerLoad = async (event) => {
   if (!companiesRes.ok) throw error(companiesRes.status, 'failed to load companies');
   const { companies } = await companiesRes.json();
 
-  // MVP single-company path, same first-company pick as the other settings tabs.
-  const company = companies[0];
+  // The active company within this workspace (cookie-backed switcher), same
+  // pick as the other settings tabs; falls back to the first for single-company.
+  const company = pickActiveCompany(event.cookies, companies);
   if (!company) throw error(500, 'no company in this workspace');
 
   // Signed URL for the logo preview (same best-effort pattern as the expense

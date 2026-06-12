@@ -1,3 +1,4 @@
+import { cookieCompanyId } from '$lib/active-company';
 import { serverApiClient } from '$lib/api.server';
 import { PAGE_SIZE } from '$lib/load-more';
 import { json } from '@sveltejs/kit';
@@ -12,6 +13,8 @@ export const GET: RequestHandler = async (event) => {
   const sp = event.url.searchParams;
   const client = serverApiClient(event);
   const query: Record<string, string> = { limit: String(PAGE_SIZE) };
+  const companyId = cookieCompanyId(event.cookies);
+  if (companyId) query.companyId = companyId;
   const cursor = sp.get('cursor');
   if (cursor) query.cursor = cursor;
   for (const k of FILTER_KEYS) {

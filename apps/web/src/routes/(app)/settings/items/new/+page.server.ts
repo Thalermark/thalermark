@@ -1,3 +1,4 @@
+import { pickActiveCompany } from '$lib/active-company';
 import { serverApiClient } from '$lib/api.server';
 import { error, fail, redirect } from '@sveltejs/kit';
 import { itemCreateSchema } from '@thalermark/validation';
@@ -29,7 +30,7 @@ export const actions: Actions = {
     const companiesRes = await client.api.companies.$get();
     if (!companiesRes.ok) throw error(companiesRes.status, 'failed to load companies');
     const { companies } = await companiesRes.json();
-    const first = companies[0];
+    const first = pickActiveCompany(event.cookies, companies);
     if (!first) return fail(400, { values, formError: 'No company in this workspace.' });
 
     const parsed = itemCreateSchema.safeParse({ companyId: first.id, ...values });
