@@ -1,0 +1,10 @@
+# GitGuardian config — https://docs.gitguardian.com/ggshield-docs/configuration
+#
+# `.env.example` holds intentional, non-secret LOCAL-DEV DEFAULTS (documented inline in
+# that file). It must keep working credentials so `cp .env.example .env && docker compose
+# up` works out of the box — so we exclude it from secret scanning rather than blank the
+# values. Real secrets never live here; every password is a change-for-prod placeholder.
+version: 2
+secret:
+  ignored-paths:
+    - ".env.example"

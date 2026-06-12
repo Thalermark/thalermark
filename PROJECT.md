@@ -177,7 +177,7 @@ Precedent: Cal.com, Mattermost, Plane all run this exact model.
 ## Roadmap Beyond MVP
 
 ### v1.1 (post-MVP near-term)
-- **Granular roles** — admin / member / view-only. Per-company permissions (user has access to some companies but not others). Member removal, ownership transfer.
+- **Per-company permissions** — a user has access to some companies but not others. *(The 5-role workspace capability model, member removal, and ownership transfer already shipped; per-company scoping is the remaining piece.)*
 - **Customer opt-in saved card** — Stripe Customer + Payment Method. "Save card for next invoice" checkbox on the public invoice view. Subsequent invoices pre-fill the saved card; customer taps once. Not auto-charge — customer still acts.
 - **AI tax readiness** — structured quarterly tracker with set-aside calculations, dates, IRS Schedule C alignment. Beyond a simple insight; a real product surface.
 - **Natural language queries** — "how much did I make last month?" Open-ended chat surface; deferred from MVP because it's the riskiest AI feature to ship well.
