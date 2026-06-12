@@ -11,20 +11,47 @@ export default function SignIn() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // An unverified email/password account can't sign in (the server requires
+  // verification). Offer a resend rather than a dead-end error.
+  const [needsVerification, setNeedsVerification] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [resent, setResent] = useState(false);
 
   async function onSubmit() {
     setError(null);
+    setNeedsVerification(false);
     setSubmitting(true);
     const result = await authClient.signIn.email({ email, password });
     setSubmitting(false);
     if (result.error) {
-      setError(result.error.message ?? 'Sign-in failed');
+      const msg = result.error.message ?? 'Sign-in failed';
+      // BA returns EMAIL_NOT_VERIFIED for an unverified account; match the
+      // message too in case the code shape shifts.
+      if (result.error.code === 'EMAIL_NOT_VERIFIED' || /verif/i.test(msg)) {
+        setNeedsVerification(true);
+        return;
+      }
+      setError(msg);
       return;
     }
     if (invite) {
       router.replace({ pathname: '/accept-invite', params: { token: invite } });
     } else {
       router.replace('/');
+    }
+  }
+
+  // Re-send the verification link. No callbackURL: the link verifies server-side,
+  // then the user signs in again here (a bearer client can't adopt the cookie
+  // session autoSignInAfterVerification would create).
+  async function onResend() {
+    setResending(true);
+    setResent(false);
+    try {
+      await authClient.sendVerificationEmail({ email });
+      setResent(true);
+    } finally {
+      setResending(false);
     }
   }
 
@@ -65,6 +92,30 @@ export default function SignIn() {
             <Text className="font-mono text-xs uppercase tracking-widest text-oxblood">
               {error}
             </Text>
+          ) : null}
+          {needsVerification ? (
+            <View className="rounded-sm border border-gold-deep/30 bg-gold-deep/5 px-4 py-3">
+              <Text className="text-sm text-ink/80">
+                Verify your email to sign in — we sent a link to{' '}
+                <Text className="font-medium text-ink">{email}</Text>.
+              </Text>
+              <View className="mt-3 flex-row items-center gap-4">
+                <Pressable
+                  onPress={onResend}
+                  disabled={resending}
+                  className="rounded-sm border border-ink/25 px-3 py-1.5 active:bg-ink/5 disabled:opacity-50"
+                >
+                  <Text className="text-sm font-medium text-ink">
+                    {resending ? 'Sending…' : 'Resend verification'}
+                  </Text>
+                </Pressable>
+                {resent ? (
+                  <Text className="font-mono text-xs uppercase tracking-widest text-sage">
+                    Sent
+                  </Text>
+                ) : null}
+              </View>
+            </View>
           ) : null}
           <Pressable
             onPress={onSubmit}
