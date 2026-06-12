@@ -4,14 +4,17 @@ import { Redirect, Tabs, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { resolveActiveAccount } from '../../lib/active-account';
+import { pickActiveCompany } from '../../lib/active-company';
+import { api } from '../../lib/api';
 import { authClient } from '../../lib/auth-client';
 import { RoleProvider } from '../../lib/role';
 
 // 'loading' until the session + active-account resolution settles, then:
-//   'anon'   → no session, go sign in
-//   'select' → authed with several memberships, none chosen → pick one
-//   'ready'  → authed with an active account resolved → render the app
-type Gate = 'loading' | 'anon' | 'select' | 'ready' | 'error';
+//   'anon'    → no session, go sign in
+//   'select'  → authed with several memberships, none chosen → pick one
+//   'onboard' → active company has no business type yet → run the welcome wizard
+//   'ready'   → authed with an active account resolved → render the app
+type Gate = 'loading' | 'anon' | 'select' | 'ready' | 'error' | 'onboard';
 
 // The (app) group is the authed half of the mobile app. (auth) screens live
 // outside it. Gating happens here rather than in the root layout so the
@@ -48,10 +51,29 @@ export default function AppLayout() {
         }
         const account = await resolveActiveAccount();
         if (!active) return;
-        setRole(account.status === 'ok' ? account.role : undefined);
-        setGate(
-          account.status === 'ok' ? 'ready' : account.status === 'error' ? 'error' : 'select',
-        );
+        if (account.status !== 'ok') {
+          setRole(undefined);
+          setGate(account.status === 'error' ? 'error' : 'select');
+          return;
+        }
+        setRole(account.role);
+        // First-run onboarding: a fresh signup's company has no business type yet
+        // — the trigger for web's /welcome gate (apps/web's (app)/+layout.server.ts).
+        // Send the user through the welcome wizard before the app proper, so the
+        // entity type is captured. A failed companies fetch never traps them — we
+        // fall through to the app.
+        const compRes = await api.api.companies.$get();
+        if (!active) return;
+        if (compRes.ok) {
+          const { companies } = await compRes.json();
+          const picked = await pickActiveCompany(companies);
+          const row = companies.find((c) => c.id === picked?.id);
+          if (row && row.businessType === null) {
+            setGate('onboard');
+            return;
+          }
+        }
+        setGate('ready');
       })
       .catch(() => {
         if (active) setGate('anon');
@@ -92,6 +114,7 @@ export default function AppLayout() {
 
   if (gate === 'anon') return <Redirect href="/sign-in" />;
   if (gate === 'select') return <Redirect href="/select-company" />;
+  if (gate === 'onboard') return <Redirect href="/welcome" />;
 
   return (
     <RoleProvider role={role}>
