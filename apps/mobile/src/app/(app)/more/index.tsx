@@ -19,6 +19,7 @@ type Entry = {
     | '/estimates'
     | '/invoices/recurring'
     | '/more/team'
+    | '/more/companies'
     | '/more/switch-account'
     | '/more/activity'
     | '/more/items'
@@ -51,6 +52,13 @@ const ACCOUNT_ENTRY: Entry = {
   icon: 'people-outline',
   title: 'Team',
   subtitle: 'See who has access and invite teammates by email.',
+};
+
+const COMPANIES_ENTRY: Entry = {
+  href: '/more/companies',
+  icon: 'briefcase-outline',
+  title: 'Companies',
+  subtitle: 'Switch between the companies in this workspace, or add another.',
 };
 
 const SWITCH_ENTRY: Entry = {
@@ -107,22 +115,25 @@ export default function MoreHub() {
   const router = useRouter();
   const [accountName, setAccountName] = useState<string | null>(null);
   const [multiAccount, setMultiAccount] = useState(false);
+  const [companyCount, setCompanyCount] = useState(0);
   // Business / Payments / Email all edit company settings — hide the whole
   // section for roles without settings:manage (the API 403s those writes).
   const canManageSettings = useMay('settings:manage');
 
-  // Resolve the active account name (header) + whether a switcher is worth
-  // showing. /api/me is a bootstrap route — no x-account-id needed.
+  // Resolve the active account name (header) + whether the account/company
+  // switchers are worth showing. /api/me is a bootstrap route (no x-account-id);
+  // /api/companies is tenant-scoped (stamped from the active account).
   useFocusEffect(
     useCallback(() => {
       let active = true;
-      Promise.all([api.api.me.$get(), getActiveAccountId()])
-        .then(async ([res, activeId]) => {
-          if (!active || !res.ok) return;
-          const { memberships } = await res.json();
+      Promise.all([api.api.me.$get(), api.api.companies.$get(), getActiveAccountId()])
+        .then(async ([meRes, compRes, activeId]) => {
+          if (!active || !meRes.ok) return;
+          const { memberships } = await meRes.json();
           setMultiAccount(memberships.length > 1);
           const current = memberships.find((m) => m.accountId === activeId) ?? memberships[0];
           setAccountName(current?.name ?? null);
+          if (compRes.ok) setCompanyCount((await compRes.json()).companies.length);
         })
         .catch(() => {});
       return () => {
@@ -131,10 +142,13 @@ export default function MoreHub() {
     }, []),
   );
 
-  // Switch account only when there's somewhere to switch to; Activity always.
-  const accountEntries = multiAccount
-    ? [ACCOUNT_ENTRY, SWITCH_ENTRY, ACTIVITY_ENTRY]
-    : [ACCOUNT_ENTRY, ACTIVITY_ENTRY];
+  // Companies entry when there's a choice to make (more than one) or the role
+  // can add one; Switch account only with somewhere to switch to; Activity
+  // always. Team always.
+  const accountEntries: Entry[] = [ACCOUNT_ENTRY];
+  if (companyCount > 1 || canManageSettings) accountEntries.push(COMPANIES_ENTRY);
+  if (multiAccount) accountEntries.push(SWITCH_ENTRY);
+  accountEntries.push(ACTIVITY_ENTRY);
 
   return (
     <SafeAreaView className="flex-1 bg-cream" edges={['top']}>

@@ -1,5 +1,11 @@
 import { createAuthClient } from 'better-auth/client';
-import { clearActiveAccountId, clearAuthToken, getAuthToken, setAuthToken } from './secure-store';
+import {
+  clearActiveAccountId,
+  clearActiveCompanyId,
+  clearAuthToken,
+  getAuthToken,
+  setAuthToken,
+} from './secure-store';
 import { getServerUrl } from './server-url';
 
 // Mobile auth flow: BA's bearer plugin (server) echoes the session token in
@@ -64,5 +70,6 @@ export async function signOut(): Promise<void> {
   } finally {
     await clearAuthToken();
     await clearActiveAccountId();
+    await clearActiveCompanyId();
   }
 }

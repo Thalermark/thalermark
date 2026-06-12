@@ -22,6 +22,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { DateField } from '../../../components/DateField';
 import { ItemPickerField } from '../../../components/ItemPickerField';
+import { pickActiveCompany } from '../../../lib/active-company';
 import { api } from '../../../lib/api';
 import { type DupeCandidate, findEmailDupe, findNameDupes } from '../../../lib/customer-dupes';
 
@@ -98,7 +99,7 @@ export default function NewInvoice() {
         }
         if (compRes.ok) {
           const { companies } = await compRes.json();
-          const company = companies[0];
+          const company = await pickActiveCompany(companies);
           if (company) {
             setCompanyId(company.id);
             const numRes = await api.api.invoices['next-number'].$get({

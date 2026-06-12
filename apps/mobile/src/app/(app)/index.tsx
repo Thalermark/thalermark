@@ -2,6 +2,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { pickActiveCompany } from '../../lib/active-company';
 import { api } from '../../lib/api';
 import { signOut } from '../../lib/auth-client';
 
@@ -58,7 +59,7 @@ export default function Home() {
         .then(async (res) => {
           if (!active || !res.ok) return;
           const { companies } = await res.json();
-          const c = companies[0];
+          const c = await pickActiveCompany(companies);
           if (c) {
             setCompanyId(c.id);
             setCompanyName(c.name);
