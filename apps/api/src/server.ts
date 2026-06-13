@@ -210,7 +210,11 @@ const SWEEP_QUEUE = 'recurring-invoice-sweep';
 let boss: PgBoss | null = null;
 try {
   boss = new PgBoss({ connectionString: env.databaseUrl });
-  boss.on('error', (err: unknown) => log.error('pg-boss error: {msg}', { msg: String(err) }));
+  boss.on('error', (err: unknown) =>
+    log.error('pg-boss error: {msg}', {
+      msg: err instanceof Error ? err.message : JSON.stringify(err),
+    }),
+  );
   await boss.start();
   await boss.createQueue(SWEEP_QUEUE);
   await boss.work(SWEEP_QUEUE, async () => {
