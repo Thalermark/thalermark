@@ -99,11 +99,11 @@
   callbackPath={postAuthPath}
 />
 
-<p class="mt-8 text-center text-sm text-ink/70">
+<p class="mt-8 text-center text-sm text-fg/70">
   No account?
   <a
     href={signUpHref}
-    class="border-b border-gold-deep text-gold-deep transition-colors hover:border-ink hover:text-ink"
+    class="link"
     >Sign up</a
   >
 </p>

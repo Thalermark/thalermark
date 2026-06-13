@@ -5,18 +5,18 @@
 </script>
 
 <form method="GET" class="mt-6 flex items-end gap-2">
-  <label class="flex flex-col gap-1 text-xs uppercase tracking-widest text-ink/50">
+  <label class="flex flex-col gap-1 text-xs uppercase tracking-widest text-fg/50">
     As of
     <input
       type="date"
       name="asOf"
       value={asOf}
-      class="rounded-sm border border-ink/15 bg-cream px-2 py-1.5 text-sm normal-case tracking-normal text-ink"
+      class="rounded-sm border border-fg/15 bg-surface px-2 py-1.5 text-sm normal-case tracking-normal text-fg"
     />
   </label>
   <button
     type="submit"
-    class="rounded-sm bg-ink px-4 py-2 text-sm font-medium text-cream transition-colors hover:bg-gold-deep"
+    class="btn"
   >
     Apply
   </button>

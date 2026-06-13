@@ -50,28 +50,28 @@
 
   const toneClass = (tone: string) =>
     tone === 'warning'
-      ? 'border-oxblood/30 bg-oxblood/5'
+      ? 'border-danger/30 bg-danger/5'
       : tone === 'good'
-        ? 'border-gold-deep/30 bg-gold-deep/5'
-        : 'border-ink/15 bg-cream-warm';
+        ? 'border-accent/30 bg-accent/5'
+        : 'border-fg/15 bg-surface-2';
 </script>
 
-<a href="/customers" class="eyebrow text-ink/60 hover:text-ink">← Customers</a>
+<a href="/customers" class="eyebrow text-fg/60 hover:text-fg">← Customers</a>
 <div class="mt-3 flex items-baseline justify-between gap-6">
-  <h1 class="font-serif text-4xl font-light leading-none tracking-tight text-ink">
-    {c.name}<span class="text-gold-deep">.</span>
+  <h1 class="font-serif text-4xl font-light leading-none tracking-tight text-fg">
+    {c.name}<span class="text-accent">.</span>
   </h1>
   <div class="flex items-center gap-2">
     <a
       href="/customers/{c.id}/statement"
-      class="rounded-sm border border-ink/20 px-3 py-1 font-mono text-xs uppercase tracking-widest text-ink/70 hover:border-gold-deep hover:text-gold-deep"
+      class="rounded-sm border border-fg/20 px-3 py-1 font-mono text-xs uppercase tracking-widest text-fg/70 hover:border-accent hover:text-accent"
     >
       Statement
     </a>
     {#if canWrite}
       <a
         href="/customers/{c.id}/edit"
-        class="rounded-sm border border-ink/20 px-3 py-1 font-mono text-xs uppercase tracking-widest text-ink/70 hover:border-gold-deep hover:text-gold-deep"
+        class="rounded-sm border border-fg/20 px-3 py-1 font-mono text-xs uppercase tracking-widest text-fg/70 hover:border-accent hover:text-accent"
       >
         Edit
       </a>
@@ -82,20 +82,20 @@
 <dl class="mt-8 grid grid-cols-1 gap-x-12 gap-y-6 sm:grid-cols-2">
   {#if c.email}
     <div>
-      <dt class="font-mono text-xs uppercase tracking-widest text-ink/50">Email</dt>
-      <dd class="mt-1 text-ink">{c.email}</dd>
+      <dt class="label">Email</dt>
+      <dd class="mt-1 text-fg">{c.email}</dd>
     </div>
   {/if}
   {#if c.phone}
     <div>
-      <dt class="font-mono text-xs uppercase tracking-widest text-ink/50">Phone</dt>
-      <dd class="mt-1 text-ink">{c.phone}</dd>
+      <dt class="label">Phone</dt>
+      <dd class="mt-1 text-fg">{c.phone}</dd>
     </div>
   {/if}
   {#if addressLines.length > 0}
     <div class="sm:col-span-2">
-      <dt class="font-mono text-xs uppercase tracking-widest text-ink/50">Address</dt>
-      <dd class="mt-1 text-ink">
+      <dt class="label">Address</dt>
+      <dd class="mt-1 text-fg">
         {#each addressLines as line, i (i)}
           <div>{line}</div>
         {/each}
@@ -104,21 +104,21 @@
   {/if}
   {#if c.notes}
     <div class="sm:col-span-2">
-      <dt class="font-mono text-xs uppercase tracking-widest text-ink/50">Notes</dt>
-      <dd class="mt-1 whitespace-pre-wrap text-ink/80">{c.notes}</dd>
+      <dt class="label">Notes</dt>
+      <dd class="mt-1 whitespace-pre-wrap text-fg/80">{c.notes}</dd>
     </div>
   {/if}
 </dl>
 
 {#if reliability}
   <section class="mt-8">
-    <h2 class="font-mono text-xs uppercase tracking-widest text-ink/50">Payment reliability</h2>
-    <p class="mt-3 rounded-sm border px-4 py-3 text-sm text-ink/80 {toneClass(reliability.tone)}">
+    <h2 class="label">Payment reliability</h2>
+    <p class="mt-3 rounded-sm border px-4 py-3 text-sm text-fg/80 {toneClass(reliability.tone)}">
       {reliability.headline}
     </p>
     {#if r && r.paidCount >= 2 && r.overdueCount > 0}
       <p
-        class="mt-2 rounded-sm border border-oxblood/30 bg-oxblood/5 px-4 py-3 text-sm text-ink/80"
+        class="mt-2 rounded-sm border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-fg/80"
       >
         {r.overdueCount} invoice{r.overdueCount === 1 ? '' : 's'} overdue now ({fmt(r.overdueTotal)})
       </p>

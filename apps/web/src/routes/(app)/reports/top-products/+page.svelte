@@ -32,26 +32,26 @@
 
 <div class="flex flex-wrap items-baseline justify-between gap-6">
   <div>
-    <a href="/reports" class="eyebrow text-ink/60 hover:text-ink">← Reports</a>
-    <h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-ink">
-      Top products<span class="text-gold-deep">.</span>
+    <a href="/reports" class="eyebrow text-fg/60 hover:text-fg">← Reports</a>
+    <h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-fg">
+      Top products<span class="text-accent">.</span>
     </h1>
   </div>
   <div class="flex items-center gap-3">
-    <div class="flex items-center gap-1 rounded-sm border border-ink/15 bg-cream-warm p-1 font-mono text-xs uppercase tracking-widest">
+    <div class="flex items-center gap-1 rounded-sm border border-fg/15 bg-surface-2 p-1 font-mono text-xs uppercase tracking-widest">
       <a
         href="/reports/top-products"
         class="rounded-sm px-3 py-1 transition-colors {data.basis === 'paid'
-          ? 'bg-ink text-cream'
-          : 'text-ink/60 hover:text-ink'}"
+          ? 'bg-inverse text-on-inverse'
+          : 'text-fg/60 hover:text-fg'}"
       >
         Paid
       </a>
       <a
         href="/reports/top-products?basis=sent"
         class="rounded-sm px-3 py-1 transition-colors {data.basis === 'sent'
-          ? 'bg-ink text-cream'
-          : 'text-ink/60 hover:text-ink'}"
+          ? 'bg-inverse text-on-inverse'
+          : 'text-fg/60 hover:text-fg'}"
       >
         Sent
       </a>
@@ -64,45 +64,45 @@
   </div>
 </div>
 
-<p class="mt-3 text-sm text-ink/60">
+<p class="mt-3 text-sm text-fg/60">
   {basisNote} The top 25 by revenue, plus an “Uncatalogued / other” row for hand-typed lines. A
   sales lens, not a tax figure.
 </p>
 
 {#if data.products.length === 0}
-  <p class="mt-8 text-ink/70">No sales yet on this basis.</p>
+  <p class="mt-8 text-fg/70">No sales yet on this basis.</p>
 {:else}
-  <div class="mt-8 overflow-hidden rounded-sm border border-ink/10 bg-cream-warm">
+  <div class="mt-8 overflow-hidden rounded-sm border border-fg/10 bg-surface-2">
     <table class="w-full text-left text-sm">
-      <thead class="bg-cream">
-        <tr class="font-mono text-xs uppercase tracking-widest text-ink/50">
+      <thead class="bg-surface">
+        <tr class="label">
           <th class="px-5 py-3">Product</th>
           <th class="w-24 px-5 py-3 text-right">Lines</th>
           <th class="w-36 px-5 py-3 text-right">Revenue</th>
         </tr>
       </thead>
-      <tbody class="divide-y divide-ink/10">
+      <tbody class="divide-y divide-fg/10">
         {#each data.products as p (p.sourceItemId ?? 'uncatalogued')}
           <tr>
             <td class="px-5 py-3">
               {#if p.name}
-                <a href="/settings/items/{p.sourceItemId}" class="text-ink hover:text-gold-deep">
+                <a href="/settings/items/{p.sourceItemId}" class="text-fg hover:text-accent">
                   {p.name}
                 </a>
               {:else}
-                <span class="text-ink/50 italic">Uncatalogued / other</span>
+                <span class="text-fg/50 italic">Uncatalogued / other</span>
               {/if}
             </td>
-            <td class="px-5 py-3 text-right font-mono tabular-nums text-ink/70">{p.lineCount}</td>
-            <td class="px-5 py-3 text-right font-mono tabular-nums text-ink">{fmt(p.revenue)}</td>
+            <td class="px-5 py-3 text-right font-mono tabular-nums text-fg/70">{p.lineCount}</td>
+            <td class="px-5 py-3 text-right font-mono tabular-nums text-fg">{fmt(p.revenue)}</td>
           </tr>
         {/each}
       </tbody>
-      <tfoot class="border-t border-ink/10 bg-cream">
+      <tfoot class="border-t border-fg/10 bg-surface">
         <tr class="font-mono text-xs uppercase tracking-widest">
-          <td class="px-5 py-3 text-ink/70">Total</td>
+          <td class="px-5 py-3 text-fg/70">Total</td>
           <td></td>
-          <td class="px-5 py-3 text-right text-base tabular-nums text-ink">{total}</td>
+          <td class="px-5 py-3 text-right text-base tabular-nums text-fg">{total}</td>
         </tr>
       </tfoot>
     </table>

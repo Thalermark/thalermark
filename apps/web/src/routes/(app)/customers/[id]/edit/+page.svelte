@@ -45,21 +45,21 @@
   let country = $state<string>(untrack(() => v('country')));
 </script>
 
-<a href="/customers/{data.customer.id}" class="eyebrow text-ink/60 hover:text-ink">← {data.customer.name}</a>
-<h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-ink">
-  Edit customer<span class="text-gold-deep">.</span>
+<a href="/customers/{data.customer.id}" class="eyebrow text-fg/60 hover:text-fg">← {data.customer.name}</a>
+<h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-fg">
+  Edit customer<span class="text-accent">.</span>
 </h1>
 
 {#if form?.formError}
-  <div class="mt-6 rounded-sm border border-oxblood/30 bg-oxblood/5 px-4 py-3 text-sm text-oxblood">
+  <div class="mt-6 rounded-sm border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
     {form.formError}
   </div>
 {/if}
 
 <form method="post" class="mt-8 space-y-6">
   <div>
-    <label for="name" class="font-mono text-xs uppercase tracking-widest text-ink/50">
-      Name<span class="text-gold-deep">*</span>
+    <label for="name" class="label">
+      Name<span class="text-accent">*</span>
     </label>
     <input
       id="name"
@@ -68,46 +68,46 @@
       required
       maxlength="200"
       value={v('name')}
-      class="mt-1 w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
+      class="field mt-1"
     />
     {#if err('name')}
-      <p class="mt-1 text-xs text-oxblood">{err('name')}</p>
+      <p class="mt-1 text-xs text-danger">{err('name')}</p>
     {/if}
   </div>
 
   <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
     <div>
-      <label for="email" class="font-mono text-xs uppercase tracking-widest text-ink/50">Email</label>
+      <label for="email" class="label">Email</label>
       <input
         id="email"
         name="email"
         type="email"
         maxlength="320"
         value={v('email')}
-        class="mt-1 w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
+        class="field mt-1"
       />
       {#if err('email')}
-        <p class="mt-1 text-xs text-oxblood">{err('email')}</p>
+        <p class="mt-1 text-xs text-danger">{err('email')}</p>
       {/if}
     </div>
     <div>
-      <label for="phone" class="font-mono text-xs uppercase tracking-widest text-ink/50">Phone</label>
+      <label for="phone" class="label">Phone</label>
       <input
         id="phone"
         name="phone"
         type="tel"
         maxlength="50"
         value={v('phone')}
-        class="mt-1 w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
+        class="field mt-1"
       />
       {#if err('phone')}
-        <p class="mt-1 text-xs text-oxblood">{err('phone')}</p>
+        <p class="mt-1 text-xs text-danger">{err('phone')}</p>
       {/if}
     </div>
   </div>
 
   <fieldset class="space-y-4">
-    <legend class="font-mono text-xs uppercase tracking-widest text-ink/50">Address</legend>
+    <legend class="label">Address</legend>
     <AddressLookup
       bind:addressLine1
       bind:city
@@ -121,7 +121,7 @@
       maxlength="200"
       placeholder="Suite, unit, etc."
       bind:value={addressLine2}
-      class="w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
+      class="field"
     />
     <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
       <input
@@ -130,7 +130,7 @@
         maxlength="100"
         placeholder="City"
         bind:value={city}
-        class="rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
+        class="rounded-sm border border-fg/15 bg-surface-2 px-3 py-2 text-fg focus:border-accent focus:outline-none"
       />
       <input
         name="region"
@@ -138,7 +138,7 @@
         maxlength="100"
         placeholder="State / Region"
         bind:value={region}
-        class="rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
+        class="rounded-sm border border-fg/15 bg-surface-2 px-3 py-2 text-fg focus:border-accent focus:outline-none"
       />
       <input
         name="postalCode"
@@ -146,7 +146,7 @@
         maxlength="20"
         placeholder="Postal code"
         bind:value={postalCode}
-        class="rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
+        class="rounded-sm border border-fg/15 bg-surface-2 px-3 py-2 text-fg focus:border-accent focus:outline-none"
       />
     </div>
     <input
@@ -155,18 +155,18 @@
       maxlength="2"
       placeholder="Country (ISO, e.g. US)"
       bind:value={country}
-      class="w-32 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 uppercase text-ink focus:border-gold-deep focus:outline-none"
+      class="w-32 rounded-sm border border-fg/15 bg-surface-2 px-3 py-2 uppercase text-fg focus:border-accent focus:outline-none"
     />
   </fieldset>
 
   <div>
-    <label for="notes" class="font-mono text-xs uppercase tracking-widest text-ink/50">Notes</label>
+    <label for="notes" class="label">Notes</label>
     <textarea
       id="notes"
       name="notes"
       rows="4"
       maxlength="5000"
-      class="mt-1 w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
+      class="field mt-1"
       >{v('notes')}</textarea
     >
   </div>
@@ -174,10 +174,10 @@
   <div class="flex items-center gap-4">
     <button
       type="submit"
-      class="rounded-sm bg-ink px-5 py-2 text-sm font-medium text-cream transition-colors hover:bg-gold-deep"
+      class="btn"
     >
       Save changes
     </button>
-    <a href="/customers/{data.customer.id}" class="text-sm text-ink/60 hover:text-ink">Cancel</a>
+    <a href="/customers/{data.customer.id}" class="text-sm text-fg/60 hover:text-fg">Cancel</a>
   </div>
 </form>

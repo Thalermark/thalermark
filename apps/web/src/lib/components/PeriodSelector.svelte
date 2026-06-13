@@ -16,13 +16,13 @@
 </script>
 
 <div class="mt-6 flex flex-wrap items-end justify-between gap-4">
-  <div class="flex flex-wrap gap-1 rounded-sm border border-ink/15 bg-cream-warm p-1 font-mono text-xs uppercase tracking-widest">
+  <div class="flex flex-wrap gap-1 rounded-sm border border-fg/15 bg-surface-2 p-1 font-mono text-xs uppercase tracking-widest">
     {#each presets as p (p.key)}
       <a
         href="?from={p.from}&to={p.to}"
         class="rounded-sm px-3 py-1 transition-colors {activeKey === p.key
-          ? 'bg-ink text-cream'
-          : 'text-ink/60 hover:text-ink'}"
+          ? 'bg-inverse text-on-inverse'
+          : 'text-fg/60 hover:text-fg'}"
       >
         {p.label}
       </a>
@@ -30,27 +30,27 @@
   </div>
 
   <form method="GET" class="flex items-end gap-2">
-    <label class="flex flex-col gap-1 text-xs uppercase tracking-widest text-ink/50">
+    <label class="flex flex-col gap-1 text-xs uppercase tracking-widest text-fg/50">
       From
       <input
         type="date"
         name="from"
         value={from}
-        class="rounded-sm border border-ink/15 bg-cream px-2 py-1.5 text-sm normal-case tracking-normal text-ink"
+        class="rounded-sm border border-fg/15 bg-surface px-2 py-1.5 text-sm normal-case tracking-normal text-fg"
       />
     </label>
-    <label class="flex flex-col gap-1 text-xs uppercase tracking-widest text-ink/50">
+    <label class="flex flex-col gap-1 text-xs uppercase tracking-widest text-fg/50">
       To
       <input
         type="date"
         name="to"
         value={to}
-        class="rounded-sm border border-ink/15 bg-cream px-2 py-1.5 text-sm normal-case tracking-normal text-ink"
+        class="rounded-sm border border-fg/15 bg-surface px-2 py-1.5 text-sm normal-case tracking-normal text-fg"
       />
     </label>
     <button
       type="submit"
-      class="rounded-sm bg-ink px-4 py-2 text-sm font-medium text-cream transition-colors hover:bg-gold-deep"
+      class="btn"
     >
       Apply
     </button>

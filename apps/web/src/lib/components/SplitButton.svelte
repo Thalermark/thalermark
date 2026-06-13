@@ -10,7 +10,7 @@
   let {
     primary,
     menu,
-    caretClass = 'border border-ink/20 bg-cream-warm text-ink hover:border-gold-deep hover:text-gold-deep',
+    caretClass = 'border border-fg/20 bg-surface-2 text-fg hover:border-accent hover:text-accent',
     label = 'More options',
   }: {
     primary: Snippet;
@@ -62,7 +62,7 @@
   {#if open}
     <div
       role="menu"
-      class="absolute right-0 top-full z-10 mt-1 min-w-52 rounded-sm border border-ink/10 bg-cream py-1 shadow-lg"
+      class="absolute right-0 top-full z-10 mt-1 min-w-52 rounded-sm border border-fg/10 bg-surface py-1 shadow-lg"
     >
       {@render menu(close)}
     </div>

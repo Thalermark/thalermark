@@ -15,21 +15,21 @@
   }
 </script>
 
-<a href="/settings/items" class="eyebrow text-ink/60 hover:text-ink">← Items</a>
-<h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-ink">
-  New item<span class="text-gold-deep">.</span>
+<a href="/settings/items" class="eyebrow text-fg/60 hover:text-fg">← Items</a>
+<h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-fg">
+  New item<span class="text-accent">.</span>
 </h1>
 
 {#if form?.formError}
-  <div class="mt-6 rounded-sm border border-oxblood/30 bg-oxblood/5 px-4 py-3 text-sm text-oxblood">
+  <div class="mt-6 rounded-sm border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
     {form.formError}
   </div>
 {/if}
 
 <form method="post" class="mt-8 space-y-6">
   <div>
-    <label for="name" class="font-mono text-xs uppercase tracking-widest text-ink/50">
-      Name<span class="text-gold-deep">*</span>
+    <label for="name" class="label">
+      Name<span class="text-accent">*</span>
     </label>
     <input
       id="name"
@@ -38,15 +38,15 @@
       required
       maxlength="200"
       value={v('name')}
-      class="mt-1 w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
+      class="field mt-1"
     />
     {#if err('name')}
-      <p class="mt-1 text-xs text-oxblood">{err('name')}</p>
+      <p class="mt-1 text-xs text-danger">{err('name')}</p>
     {/if}
   </div>
 
   <div>
-    <label for="description" class="font-mono text-xs uppercase tracking-widest text-ink/50">
+    <label for="description" class="label">
       Description
     </label>
     <textarea
@@ -54,15 +54,15 @@
       name="description"
       rows="3"
       maxlength="5000"
-      class="mt-1 w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
+      class="field mt-1"
       >{v('description')}</textarea
     >
-    <p class="mt-1 text-xs text-ink/50">Flows into the line item when this is picked.</p>
+    <p class="mt-1 text-xs text-fg/50">Flows into the line item when this is picked.</p>
   </div>
 
   <div class="grid grid-cols-1 gap-6 sm:grid-cols-3">
     <div>
-      <label for="unitPrice" class="font-mono text-xs uppercase tracking-widest text-ink/50">
+      <label for="unitPrice" class="label">
         Unit price
       </label>
       <input
@@ -72,14 +72,14 @@
         inputmode="decimal"
         placeholder="0.00"
         value={v('unitPrice')}
-        class="mt-1 w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
+        class="field mt-1"
       />
       {#if err('unitPrice')}
-        <p class="mt-1 text-xs text-oxblood">{err('unitPrice')}</p>
+        <p class="mt-1 text-xs text-danger">{err('unitPrice')}</p>
       {/if}
     </div>
     <div>
-      <label for="unitLabel" class="font-mono text-xs uppercase tracking-widest text-ink/50">
+      <label for="unitLabel" class="label">
         Unit
       </label>
       <input
@@ -89,14 +89,14 @@
         maxlength="50"
         placeholder="hour, sq ft, …"
         value={v('unitLabel')}
-        class="mt-1 w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
+        class="field mt-1"
       />
       {#if err('unitLabel')}
-        <p class="mt-1 text-xs text-oxblood">{err('unitLabel')}</p>
+        <p class="mt-1 text-xs text-danger">{err('unitLabel')}</p>
       {/if}
     </div>
     <div>
-      <label for="defaultQuantity" class="font-mono text-xs uppercase tracking-widest text-ink/50">
+      <label for="defaultQuantity" class="label">
         Default qty
       </label>
       <input
@@ -106,10 +106,10 @@
         inputmode="decimal"
         placeholder="1"
         value={v('defaultQuantity')}
-        class="mt-1 w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
+        class="field mt-1"
       />
       {#if err('defaultQuantity')}
-        <p class="mt-1 text-xs text-oxblood">{err('defaultQuantity')}</p>
+        <p class="mt-1 text-xs text-danger">{err('defaultQuantity')}</p>
       {/if}
     </div>
   </div>
@@ -117,10 +117,10 @@
   <div class="flex items-center gap-4">
     <button
       type="submit"
-      class="rounded-sm bg-ink px-5 py-2 text-sm font-medium text-cream transition-colors hover:bg-gold-deep"
+      class="btn"
     >
       Create item
     </button>
-    <a href="/settings/items" class="text-sm text-ink/60 hover:text-ink">Cancel</a>
+    <a href="/settings/items" class="text-sm text-fg/60 hover:text-fg">Cancel</a>
   </div>
 </form>

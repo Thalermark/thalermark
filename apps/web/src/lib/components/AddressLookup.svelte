@@ -148,7 +148,7 @@
 </script>
 
 <div class="relative">
-  <label for="addressLine1" class="font-mono text-xs uppercase tracking-widest text-ink/50">
+  <label for="addressLine1" class="label">
     Street
   </label>
   <input
@@ -170,25 +170,25 @@
     aria-controls="address-lookup-listbox"
     aria-activedescendant={activeIndex >= 0 ? `address-lookup-option-${activeIndex}` : undefined}
     aria-autocomplete="list"
-    class="mt-1 w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
+    class="field mt-1"
   />
   {#if loading}
-    <span class="absolute right-3 top-[2.1rem] text-xs text-ink/50">…</span>
+    <span class="absolute right-3 top-[2.1rem] text-xs text-fg/50">…</span>
   {/if}
   {#if open && suggestions.length > 0}
     <ul
       id="address-lookup-listbox"
       role="listbox"
-      class="absolute z-10 mt-1 max-h-72 w-full overflow-auto rounded-sm border border-ink/15 bg-cream-warm shadow-lg"
+      class="absolute z-10 mt-1 max-h-72 w-full overflow-auto rounded-sm border border-fg/15 bg-surface-2 shadow-lg"
     >
       {#each suggestions as s, i (i)}
         <li
           id="address-lookup-option-{i}"
           role="option"
           aria-selected={i === activeIndex}
-          class="cursor-pointer px-3 py-2 text-sm text-ink hover:bg-gold-deep/10"
-          class:bg-gold-deep={i === activeIndex}
-          class:text-cream={i === activeIndex}
+          class="cursor-pointer px-3 py-2 text-sm text-fg hover:bg-accent/10"
+          class:bg-accent={i === activeIndex}
+          class:text-on-inverse={i === activeIndex}
           onmousedown={(e) => {
             e.preventDefault();
             pick(s);
@@ -200,11 +200,11 @@
     </ul>
   {/if}
   {#if degraded}
-    <p class="mt-1 text-xs text-oxblood/70">
+    <p class="mt-1 text-xs text-danger/70">
       Address lookup is temporarily unavailable; type the address by hand.
     </p>
   {/if}
-  <p class="mt-1 text-xs text-ink/40">
+  <p class="mt-1 text-xs text-fg/40">
     Type the address (include the city or ZIP) and pick a suggestion — the fields below fill in.
   </p>
 </div>

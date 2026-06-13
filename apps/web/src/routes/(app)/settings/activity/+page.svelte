@@ -39,10 +39,10 @@
   }
 </script>
 
-<h1 class="font-serif text-4xl font-light leading-none tracking-tight text-ink">
-  Activity<span class="text-gold-deep">.</span>
+<h1 class="font-serif text-4xl font-light leading-none tracking-tight text-fg">
+  Activity<span class="text-accent">.</span>
 </h1>
-<p class="mt-3 text-sm text-ink/60">Recent changes across your workspace. Newest first.</p>
+<p class="mt-3 text-sm text-fg/60">Recent changes across your workspace. Newest first.</p>
 
 <AuditHistory {events} showEntity />
 <LoadMore hasMore={cursor !== null} {loading} error={loadError} onclick={more} />

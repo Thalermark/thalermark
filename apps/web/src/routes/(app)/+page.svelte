@@ -22,10 +22,10 @@
   // Border accent per nudge tone (gold = good, oxblood = warning, ink = info).
   const toneClass = (tone: string) =>
     tone === 'warning'
-      ? 'border-oxblood/30 bg-oxblood/5'
+      ? 'border-danger/30 bg-danger/5'
       : tone === 'good'
-        ? 'border-gold-deep/30 bg-gold-deep/5'
-        : 'border-ink/15 bg-cream-warm';
+        ? 'border-accent/30 bg-accent/5'
+        : 'border-fg/15 bg-surface-2';
 
   // Anomaly flagging (deterministic): unusual spending vs the company's own
   // history. Shown only when something actually flags.
@@ -33,9 +33,9 @@
   const showAnomalies = $derived(a.overall !== null || a.categories.length > 0);
 </script>
 
-<span class="eyebrow text-ink/60">{data.companyName}</span>
-<h1 class="mt-2 font-serif text-4xl font-light leading-none tracking-tight text-ink">
-  Where you stand<span class="text-gold-deep">.</span>
+<span class="eyebrow text-fg/60">{data.companyName}</span>
+<h1 class="mt-2 font-serif text-4xl font-light leading-none tracking-tight text-fg">
+  Where you stand<span class="text-accent">.</span>
 </h1>
 
 <div class="mt-6 flex flex-wrap gap-2">
@@ -44,8 +44,8 @@
       href="/?period={p.key}"
       class="rounded-sm border px-3 py-1 font-mono text-xs uppercase tracking-widest transition-colors {data.period ===
       p.key
-        ? 'border-gold-deep text-gold-deep'
-        : 'border-ink/15 text-ink/60 hover:border-ink/40 hover:text-ink'}"
+        ? 'border-accent text-accent'
+        : 'border-fg/15 text-fg/60 hover:border-fg/40 hover:text-fg'}"
     >
       {p.label}
     </a>
@@ -55,57 +55,57 @@
 {#if data.pendingInvites > 0}
   <a
     href="/select-company"
-    class="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-sm border border-gold-deep/30 bg-gold-deep/5 px-4 py-3 text-sm text-ink transition-colors hover:bg-gold-deep/10"
+    class="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-sm border border-accent/30 bg-accent/5 px-4 py-3 text-sm text-fg transition-colors hover:bg-accent/10"
   >
     <span>
       You have {data.pendingInvites} pending workspace {data.pendingInvites === 1
         ? 'invitation'
         : 'invitations'}.
     </span>
-    <span class="font-mono text-xs uppercase tracking-widest text-gold-deep">Review →</span>
+    <span class="font-mono text-xs uppercase tracking-widest text-accent">Review →</span>
   </a>
 {/if}
 
 {#if data.needsBusinessDetails}
   <a
     href="/settings/business"
-    class="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-sm border border-gold-deep/30 bg-gold-deep/5 px-4 py-3 text-sm text-ink transition-colors hover:bg-gold-deep/10"
+    class="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-sm border border-accent/30 bg-accent/5 px-4 py-3 text-sm text-fg transition-colors hover:bg-accent/10"
   >
     <span>Add your business address so it shows on the invoices your customers see.</span>
-    <span class="font-mono text-xs uppercase tracking-widest text-gold-deep">Add details →</span>
+    <span class="font-mono text-xs uppercase tracking-widest text-accent">Add details →</span>
   </a>
 {/if}
 
 <dl class="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-3">
-  <div class="rounded-sm border border-ink/10 bg-cream-warm p-6">
-    <dt class="font-mono text-xs uppercase tracking-widest text-ink/50">Money in</dt>
-    <dd class="mt-2 font-serif text-3xl font-light tabular-nums text-ink">{fmt(d.moneyIn)}</dd>
-    <p class="mt-1 text-xs text-ink/40">{flowLabel}</p>
+  <div class="rounded-sm border border-fg/10 bg-surface-2 p-6">
+    <dt class="label">Money in</dt>
+    <dd class="mt-2 font-serif text-3xl font-light tabular-nums text-fg">{fmt(d.moneyIn)}</dd>
+    <p class="mt-1 text-xs text-fg/40">{flowLabel}</p>
   </div>
-  <div class="rounded-sm border border-ink/10 bg-cream-warm p-6">
-    <dt class="font-mono text-xs uppercase tracking-widest text-ink/50">Money out</dt>
-    <dd class="mt-2 font-serif text-3xl font-light tabular-nums text-ink">{fmt(d.moneyOut)}</dd>
-    <p class="mt-1 text-xs text-ink/40">{flowLabel}</p>
+  <div class="rounded-sm border border-fg/10 bg-surface-2 p-6">
+    <dt class="label">Money out</dt>
+    <dd class="mt-2 font-serif text-3xl font-light tabular-nums text-fg">{fmt(d.moneyOut)}</dd>
+    <p class="mt-1 text-xs text-fg/40">{flowLabel}</p>
   </div>
-  <div class="rounded-sm border border-ink/10 bg-cream-warm p-6">
-    <dt class="font-mono text-xs uppercase tracking-widest text-ink/50">Owed to you</dt>
-    <dd class="mt-2 font-serif text-3xl font-light tabular-nums text-ink">{fmt(d.owed)}</dd>
-    <p class="mt-1 text-xs text-ink/40">outstanding now</p>
+  <div class="rounded-sm border border-fg/10 bg-surface-2 p-6">
+    <dt class="label">Owed to you</dt>
+    <dd class="mt-2 font-serif text-3xl font-light tabular-nums text-fg">{fmt(d.owed)}</dd>
+    <p class="mt-1 text-xs text-fg/40">outstanding now</p>
   </div>
 </dl>
 
 {#if showAnomalies}
   <section class="mt-8">
-    <h2 class="font-mono text-xs uppercase tracking-widest text-ink/50">Unusual spending</h2>
+    <h2 class="label">Unusual spending</h2>
     <ul class="mt-3 space-y-3">
       {#if a.overall}
-        <li class="rounded-sm border border-oxblood/30 bg-oxblood/5 px-4 py-3 text-sm text-ink/80">
+        <li class="rounded-sm border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-fg/80">
           Spending is {a.overall.pctOver}% above your typical month — {fmt(a.overall.recent)} in the
           last 30 days vs about {fmt(a.overall.typical)}.
         </li>
       {/if}
       {#each a.categories as cat (cat.code)}
-        <li class="rounded-sm border border-oxblood/30 bg-oxblood/5 px-4 py-3 text-sm text-ink/80">
+        <li class="rounded-sm border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-fg/80">
           {cat.name}: {fmt(cat.recent)} vs about {fmt(cat.typical)} usual ({cat.pctOver}% up).
         </li>
       {/each}
@@ -114,19 +114,19 @@
 {/if}
 
 {#await data.nudges}
-  <div class="mt-8 flex items-center gap-2 text-sm text-ink/50">
+  <div class="mt-8 flex items-center gap-2 text-sm text-fg/50">
     <span
-      class="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-gold-deep border-t-transparent"
+      class="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-accent border-t-transparent"
     ></span>
     Reading your cash flow…
   </div>
 {:then result}
   {#if result.nudges.length > 0}
     <section class="mt-8">
-      <h2 class="font-mono text-xs uppercase tracking-widest text-ink/50">What to watch</h2>
+      <h2 class="label">What to watch</h2>
       <ul class="mt-3 space-y-3">
         {#each result.nudges as nudge (nudge.text)}
-          <li class="rounded-sm border px-4 py-3 text-sm text-ink/80 {toneClass(nudge.tone)}">
+          <li class="rounded-sm border px-4 py-3 text-sm text-fg/80 {toneClass(nudge.tone)}">
             {nudge.text}
           </li>
         {/each}

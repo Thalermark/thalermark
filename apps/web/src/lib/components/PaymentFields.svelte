@@ -26,8 +26,8 @@
   const dateValue = $derived(date ?? today);
 </script>
 
-<p class="font-mono text-xs uppercase tracking-widest text-ink/50">How was it paid?</p>
-<div class="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm text-ink">
+<p class="label">How was it paid?</p>
+<div class="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm text-fg">
   {#each CHOICES as choice (choice.value)}
     <label class="flex items-center gap-2">
       <input
@@ -35,41 +35,41 @@
         name="method"
         value={choice.value}
         bind:group={selected}
-        class="text-gold-deep focus:ring-gold-deep"
+        class="text-accent focus:ring-accent"
       />
       {choice.label}
     </label>
   {/each}
 </div>
 {#if selected === 'check'}
-  <label class="mt-4 grid max-w-xs gap-1 text-sm text-ink">
+  <label class="mt-4 grid max-w-xs gap-1 text-sm text-fg">
     Check number
     <input
       name="reference"
       value={reference ?? ''}
       placeholder="e.g. 1024"
-      class="rounded-sm border border-ink/20 bg-cream px-3 py-2 focus:border-gold-deep focus:outline-none"
+      class="rounded-sm border border-fg/20 bg-surface px-3 py-2 focus:border-accent focus:outline-none"
     />
   </label>
 {:else if selected === 'other'}
-  <label class="mt-4 grid max-w-sm gap-1 text-sm text-ink">
+  <label class="mt-4 grid max-w-sm gap-1 text-sm text-fg">
     Note
     <textarea
       name="reference"
       rows="2"
       placeholder="How was it paid?"
-      class="rounded-sm border border-ink/20 bg-cream px-3 py-2 focus:border-gold-deep focus:outline-none"
+      class="rounded-sm border border-fg/20 bg-surface px-3 py-2 focus:border-accent focus:outline-none"
       >{reference ?? ''}</textarea
     >
   </label>
 {/if}
-<label class="mt-4 grid max-w-xs gap-1 text-sm text-ink">
+<label class="mt-4 grid max-w-xs gap-1 text-sm text-fg">
   Payment date
   <input
     type="date"
     name="paidOn"
     value={dateValue}
     max={today}
-    class="rounded-sm border border-ink/20 bg-cream px-3 py-2 focus:border-gold-deep focus:outline-none"
+    class="rounded-sm border border-fg/20 bg-surface px-3 py-2 focus:border-accent focus:outline-none"
   />
 </label>
