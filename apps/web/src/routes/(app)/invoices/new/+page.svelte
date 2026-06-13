@@ -135,13 +135,13 @@
   }
 </script>
 
-<a href="/invoices" class="eyebrow text-ink/60 hover:text-ink">← Invoices</a>
-<h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-ink">
-  New invoice<span class="text-gold-deep">.</span>
+<a href="/invoices" class="eyebrow text-fg/60 hover:text-fg">← Invoices</a>
+<h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-fg">
+  New invoice<span class="text-accent">.</span>
 </h1>
 
 {#if form?.formError}
-  <div class="mt-6 rounded-sm border border-oxblood/30 bg-oxblood/5 px-4 py-3 text-sm text-oxblood">
+  <div class="mt-6 rounded-sm border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
     {form.formError}
   </div>
 {/if}
@@ -149,15 +149,15 @@
 <form method="post" class="mt-8 space-y-8">
   <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
     <div>
-      <label for="customerId" class="font-mono text-xs uppercase tracking-widest text-ink/50">
-        Customer<span class="text-gold-deep">*</span>
+      <label for="customerId" class="label">
+        Customer<span class="text-accent">*</span>
       </label>
       <select
         id="customerId"
         name="customerId"
         required
         bind:value={customerId}
-        class="mt-1 w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
+        class="field mt-1"
       >
         <option value={NEW_CUSTOMER_SENTINEL}>+ Add new customer</option>
         {#if customersWithExtra.length > 0}
@@ -168,13 +168,13 @@
         {/if}
       </select>
       {#if err('customerId')}
-        <p class="mt-1 text-xs text-oxblood">{err('customerId')}</p>
+        <p class="mt-1 text-xs text-danger">{err('customerId')}</p>
       {/if}
       {#if inlineMode}
-        <div class="mt-3 space-y-3 rounded-sm border border-ink/10 bg-cream-warm/60 p-4">
+        <div class="mt-3 space-y-3 rounded-sm border border-fg/10 bg-surface-2/60 p-4">
           <div>
-            <label for="newCustomerName" class="font-mono text-xs uppercase tracking-widest text-ink/50">
-              Name<span class="text-gold-deep">*</span>
+            <label for="newCustomerName" class="label">
+              Name<span class="text-accent">*</span>
             </label>
             <input
               id="newCustomerName"
@@ -183,24 +183,24 @@
               maxlength="200"
               required={inlineMode}
               bind:value={inlineNewName}
-              class="mt-1 w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
+              class="field mt-1"
             />
             {#if custErr('name')}
-              <p class="mt-1 text-xs text-oxblood">{custErr('name')}</p>
+              <p class="mt-1 text-xs text-danger">{custErr('name')}</p>
             {/if}
             {#if liveNameDupes.length > 0}
-              <div class="mt-2 rounded-sm border border-ink/10 bg-cream p-2 text-xs">
-                <p class="text-ink/60">
+              <div class="mt-2 rounded-sm border border-fg/10 bg-surface p-2 text-xs">
+                <p class="text-fg/60">
                   Looks like {liveNameDupes.length === 1 ? 'an existing customer' : 'existing customers'}:
                 </p>
                 <ul class="mt-1 space-y-1">
                   {#each liveNameDupes as dupe (dupe.id)}
                     <li class="flex items-center justify-between gap-2">
-                      <span class="text-ink">{dupe.name}{#if dupe.email}<span class="text-ink/50"> · {dupe.email}</span>{/if}</span>
+                      <span class="text-fg">{dupe.name}{#if dupe.email}<span class="text-fg/50"> · {dupe.email}</span>{/if}</span>
                       <button
                         type="button"
                         onclick={() => useExisting(dupe.id)}
-                        class="rounded-sm border border-ink/15 bg-cream-warm px-2 py-1 text-xs uppercase tracking-wider text-ink/70 hover:border-gold-deep hover:text-gold-deep"
+                        class="rounded-sm border border-fg/15 bg-surface-2 px-2 py-1 text-xs uppercase tracking-wider text-fg/70 hover:border-accent hover:text-accent"
                       >
                         Use
                       </button>
@@ -211,7 +211,7 @@
             {/if}
           </div>
           <div>
-            <label for="newCustomerEmail" class="font-mono text-xs uppercase tracking-widest text-ink/50">
+            <label for="newCustomerEmail" class="label">
               Email
             </label>
             <input
@@ -220,55 +220,55 @@
               type="email"
               maxlength="320"
               bind:value={inlineNewEmail}
-              class="mt-1 w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
+              class="field mt-1"
             />
             {#if custErr('email') && custErr('email') !== 'email_dupe'}
-              <p class="mt-1 text-xs text-oxblood">{custErr('email')}</p>
+              <p class="mt-1 text-xs text-danger">{custErr('email')}</p>
             {/if}
-            <p class="mt-1 text-xs text-ink/50">
+            <p class="mt-1 text-xs text-fg/50">
               Optional, but needed to send the invoice by email.
             </p>
           </div>
           {#if form?.dupeCustomer}
-            <div class="rounded-sm border border-oxblood/30 bg-oxblood/5 p-3 text-sm">
-              <p class="text-ink">
+            <div class="rounded-sm border border-danger/30 bg-danger/5 p-3 text-sm">
+              <p class="text-fg">
                 <span class="font-medium">{form.dupeCustomer.name}</span> already uses this email.
               </p>
               <div class="mt-2 flex flex-wrap items-center gap-3">
                 <button
                   type="button"
                   onclick={() => useExisting(form!.dupeCustomer!.id)}
-                  class="rounded-sm bg-ink px-3 py-1 text-xs uppercase tracking-wider text-cream hover:bg-gold-deep"
+                  class="rounded-sm bg-inverse px-3 py-1 text-xs uppercase tracking-wider text-on-inverse hover:bg-accent"
                 >
                   Use {form.dupeCustomer.name}
                 </button>
-                <span class="text-xs text-ink/50">or change the email above to create a different customer.</span>
+                <span class="text-xs text-fg/50">or change the email above to create a different customer.</span>
               </div>
             </div>
           {:else if liveEmailDupe}
-            <div class="rounded-sm border border-gold-deep/30 bg-gold-deep/5 p-3 text-sm">
-              <p class="text-ink">
+            <div class="rounded-sm border border-accent/30 bg-accent/5 p-3 text-sm">
+              <p class="text-fg">
                 <span class="font-medium">{liveEmailDupe.name}</span> already uses this email.
               </p>
               <button
                 type="button"
                 onclick={() => useExisting(liveEmailDupe.id)}
-                class="mt-2 rounded-sm border border-ink/20 bg-cream-warm px-3 py-1 text-xs uppercase tracking-wider text-ink/70 hover:border-gold-deep hover:text-gold-deep"
+                class="mt-2 rounded-sm border border-fg/20 bg-surface-2 px-3 py-1 text-xs uppercase tracking-wider text-fg/70 hover:border-accent hover:text-accent"
               >
                 Use {liveEmailDupe.name}
               </button>
             </div>
           {/if}
           {#if custErr('_')}
-            <p class="text-xs text-oxblood">{custErr('_')}</p>
+            <p class="text-xs text-danger">{custErr('_')}</p>
           {/if}
         </div>
       {/if}
     </div>
 
     <div>
-      <label for="number" class="font-mono text-xs uppercase tracking-widest text-ink/50">
-        Number<span class="text-gold-deep">*</span>
+      <label for="number" class="label">
+        Number<span class="text-accent">*</span>
       </label>
       <input
         id="number"
@@ -277,16 +277,16 @@
         required
         maxlength="50"
         value={values?.number ?? data.suggestedNumber}
-        class="mt-1 w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
+        class="field mt-1"
       />
       {#if err('number')}
-        <p class="mt-1 text-xs text-oxblood">{err('number')}</p>
+        <p class="mt-1 text-xs text-danger">{err('number')}</p>
       {/if}
     </div>
 
     <div>
-      <label for="issueDate" class="font-mono text-xs uppercase tracking-widest text-ink/50">
-        Issued<span class="text-gold-deep">*</span>
+      <label for="issueDate" class="label">
+        Issued<span class="text-accent">*</span>
       </label>
       <input
         id="issueDate"
@@ -294,16 +294,16 @@
         type="date"
         required
         value={values?.issueDate ?? todayIso()}
-        class="mt-1 w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
+        class="field mt-1"
       />
       {#if err('issueDate')}
-        <p class="mt-1 text-xs text-oxblood">{err('issueDate')}</p>
+        <p class="mt-1 text-xs text-danger">{err('issueDate')}</p>
       {/if}
     </div>
 
     <div>
-      <label for="dueDate" class="font-mono text-xs uppercase tracking-widest text-ink/50">
-        Due<span class="text-gold-deep">*</span>
+      <label for="dueDate" class="label">
+        Due<span class="text-accent">*</span>
       </label>
       <input
         id="dueDate"
@@ -311,23 +311,23 @@
         type="date"
         required
         value={values?.dueDate ?? plusDaysIso(30)}
-        class="mt-1 w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
+        class="field mt-1"
       />
       {#if err('dueDate')}
-        <p class="mt-1 text-xs text-oxblood">{err('dueDate')}</p>
+        <p class="mt-1 text-xs text-danger">{err('dueDate')}</p>
       {/if}
     </div>
   </div>
 
   <fieldset class="space-y-3">
-    <legend class="font-mono text-xs uppercase tracking-widest text-ink/50">Line items</legend>
+    <legend class="label">Line items</legend>
     {#if err('lineItems')}
-      <p class="text-xs text-oxblood">{err('lineItems')}</p>
+      <p class="text-xs text-danger">{err('lineItems')}</p>
     {/if}
-    <div class="overflow-hidden rounded-sm border border-ink/10 bg-cream-warm">
+    <div class="overflow-hidden rounded-sm border border-fg/10 bg-surface-2">
       <table class="w-full text-left text-sm">
-        <thead class="bg-cream">
-          <tr class="font-mono text-xs uppercase tracking-widest text-ink/50">
+        <thead class="bg-surface">
+          <tr class="label">
             <th class="px-3 py-2">Description</th>
             <th class="w-28 px-3 py-2 text-right">Qty</th>
             <th class="w-32 px-3 py-2 text-right">Unit price</th>
@@ -335,7 +335,7 @@
             <th class="w-10 px-3 py-2"></th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-ink/10">
+        <tbody class="divide-y divide-fg/10">
           {#each rows as row, i (i)}
             <tr>
               <td class="px-3 py-2">
@@ -353,7 +353,7 @@
                   inputmode="decimal"
                   required
                   bind:value={row.quantity}
-                  class="w-full rounded-sm border border-ink/15 bg-cream px-2 py-1 text-right font-mono tabular-nums text-ink focus:border-gold-deep focus:outline-none"
+                  class="w-full rounded-sm border border-fg/15 bg-surface px-2 py-1 text-right font-mono tabular-nums text-fg focus:border-accent focus:outline-none"
                 />
               </td>
               <td class="px-3 py-2">
@@ -363,10 +363,10 @@
                   inputmode="decimal"
                   required
                   bind:value={row.unitPrice}
-                  class="w-full rounded-sm border border-ink/15 bg-cream px-2 py-1 text-right font-mono tabular-nums text-ink focus:border-gold-deep focus:outline-none"
+                  class="w-full rounded-sm border border-fg/15 bg-surface px-2 py-1 text-right font-mono tabular-nums text-fg focus:border-accent focus:outline-none"
                 />
               </td>
-              <td class="px-3 py-2 text-right font-mono tabular-nums text-ink">
+              <td class="px-3 py-2 text-right font-mono tabular-nums text-fg">
                 {computedRows[i]?.amount ?? '0.00'}
               </td>
               <td class="px-3 py-2 text-right">
@@ -375,7 +375,7 @@
                   onclick={() => removeRow(i)}
                   disabled={rows.length <= 1}
                   aria-label="Remove row"
-                  class="text-ink/50 transition-colors hover:text-oxblood disabled:cursor-not-allowed disabled:opacity-30"
+                  class="text-fg/50 transition-colors hover:text-danger disabled:cursor-not-allowed disabled:opacity-30"
                 >
                   ×
                 </button>
@@ -388,7 +388,7 @@
     <button
       type="button"
       onclick={addRow}
-      class="text-sm font-medium text-gold-deep hover:text-ink"
+      class="text-sm font-medium text-accent hover:text-fg"
     >
       + Add row
     </button>
@@ -396,44 +396,44 @@
 
   <div class="grid grid-cols-1 gap-6 sm:grid-cols-2 sm:items-end">
     <div>
-      <label for="tax" class="font-mono text-xs uppercase tracking-widest text-ink/50">Tax</label>
+      <label for="tax" class="label">Tax</label>
       <input
         id="tax"
         name="tax"
         type="text"
         inputmode="decimal"
         bind:value={tax}
-        class="mt-1 w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-right font-mono tabular-nums text-ink focus:border-gold-deep focus:outline-none"
+        class="field mt-1 text-right font-mono tabular-nums"
       />
       {#if err('tax')}
-        <p class="mt-1 text-xs text-oxblood">{err('tax')}</p>
+        <p class="mt-1 text-xs text-danger">{err('tax')}</p>
       {/if}
     </div>
-    <dl class="rounded-sm border border-ink/10 bg-cream-warm p-4 text-sm">
+    <dl class="rounded-sm border border-fg/10 bg-surface-2 p-4 text-sm">
       <div class="flex justify-between">
-        <dt class="font-mono text-xs uppercase tracking-widest text-ink/50">Subtotal</dt>
-        <dd class="font-mono tabular-nums text-ink">{subtotal}</dd>
+        <dt class="label">Subtotal</dt>
+        <dd class="font-mono tabular-nums text-fg">{subtotal}</dd>
       </div>
       <div class="mt-2 flex justify-between">
-        <dt class="font-mono text-xs uppercase tracking-widest text-ink/50">Tax</dt>
-        <dd class="font-mono tabular-nums text-ink">{tax || '0.00'}</dd>
+        <dt class="label">Tax</dt>
+        <dd class="font-mono tabular-nums text-fg">{tax || '0.00'}</dd>
       </div>
-      <div class="mt-3 flex justify-between border-t border-ink/10 pt-3">
-        <dt class="font-mono text-xs uppercase tracking-widest text-ink/70">Total</dt>
-        <dd class="font-mono tabular-nums text-lg text-ink">{total}</dd>
+      <div class="mt-3 flex justify-between border-t border-fg/10 pt-3">
+        <dt class="font-mono text-xs uppercase tracking-widest text-fg/70">Total</dt>
+        <dd class="font-mono tabular-nums text-lg text-fg">{total}</dd>
       </div>
     </dl>
   </div>
 
   <div>
-    <label for="notes" class="font-mono text-xs uppercase tracking-widest text-ink/50">Notes</label
+    <label for="notes" class="label">Notes</label
     >
     <textarea
       id="notes"
       name="notes"
       rows="4"
       maxlength="5000"
-      class="mt-1 w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
+      class="field mt-1"
       >{values?.notes ?? ''}</textarea
     >
   </div>
@@ -441,10 +441,10 @@
   <div class="flex items-center gap-4">
     <button
       type="submit"
-      class="rounded-sm bg-ink px-5 py-2 text-sm font-medium text-cream transition-colors hover:bg-gold-deep"
+      class="btn"
     >
       Create invoice
     </button>
-    <a href="/invoices" class="text-sm text-ink/60 hover:text-ink">Cancel</a>
+    <a href="/invoices" class="text-sm text-fg/60 hover:text-fg">Cancel</a>
   </div>
 </form>
