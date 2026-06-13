@@ -3,11 +3,33 @@
 @tailwind utilities;
 
 @layer base {
+  /* Semantic role tokens. Stored as space-separated RGB channels so Tailwind's
+     opacity modifiers keep working — the config exposes each as
+     `rgb(var(--token) / <alpha-value>)`, so `text-fg/50`, `border-fg/15`, etc.
+     all resolve. Channels mirror the brand palette in
+     packages/brand/src/colors.ts (keep in sync). A future dark theme remaps
+     these same tokens under a selector (e.g. `.dark`) with navy surfaces — no
+     markup changes required, because the app references roles, not literals. */
+  :root {
+    --surface: 244 237 224; /* cream */
+    --surface-2: 235 224 204; /* cream-warm — raised cards, boxed inputs */
+    --fg: 15 22 38; /* ink — primary text + borders (via opacity) */
+    --inverse: 15 22 38; /* ink — inverse/button fill */
+    --on-inverse: 244 237 224; /* cream — text on an inverse fill */
+    --accent: 154 125 63; /* gold-deep — links, focus rings, button hover */
+    --danger: 139 58 46; /* oxblood */
+    --success: 92 123 63; /* sage */
+    --warning: 184 115 51; /* copper */
+    --info: 61 90 108; /* slate */
+  }
+
   html {
     scroll-behavior: smooth;
   }
 
   body {
+    background-color: rgb(var(--surface));
+    color: rgb(var(--fg));
     line-height: 1.6;
     overflow-x: hidden;
     -webkit-font-smoothing: antialiased;
@@ -29,13 +51,13 @@
 
 @layer components {
   .eyebrow {
-    @apply inline-block font-mono uppercase text-gold-deep;
+    @apply inline-block font-mono uppercase text-accent;
     font-size: 0.7rem;
     letter-spacing: 0.2em;
   }
   .eyebrow::before {
     content: "— ";
-    color: #c8a663;
+    color: rgb(var(--accent));
   }
 
   /* Struck-mark wordmark — horizontal strike with end-dot terminals
@@ -84,6 +106,55 @@
   }
   .wordmark-large .word {
     font-size: clamp(3rem, 8vw, 6rem);
+  }
+
+  /* --- Brand primitives ---------------------------------------------------
+     Each class codifies the dominant inline recipe already in use across the
+     app, rebased onto semantic tokens. Compose with layout utilities, e.g.
+     `class="btn w-full mt-6"`; utilities win over the @apply'd defaults, so
+     `class="btn py-3"` still overrides the button's padding. */
+
+  /* Primary action: ink fill → gold-deep on hover (landing nav `.cta`). */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-sm bg-inverse px-4 py-2
+      text-sm font-medium text-on-inverse transition-colors
+      hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  /* Secondary action: outline that warms to gold on hover. */
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-sm border border-fg/20 px-4 py-2
+      text-sm font-medium text-fg transition-colors
+      hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  /* Compact size modifier (padding only — pair with .btn or .btn-ghost). */
+  .btn-sm {
+    @apply px-3 py-1.5;
+  }
+
+  /* Boxed input — the app-form default (warm fill, gold focus border). */
+  .field {
+    @apply w-full rounded-sm border border-fg/15 bg-surface-2 px-3 py-2 text-fg
+      outline-none focus:border-accent;
+  }
+  /* Underline input — the auth/landing email-form aesthetic. */
+  .field-line {
+    @apply w-full border-b border-fg/30 bg-transparent py-2 text-fg
+      outline-none focus:border-fg;
+  }
+
+  /* Mono eyebrow used for form labels and table headers alike. */
+  .label {
+    @apply font-mono text-xs uppercase tracking-widest text-fg/50;
+  }
+
+  /* Gold-tinted callout/notice box. */
+  .callout {
+    @apply rounded-sm border border-accent/30 bg-accent/5 px-4 py-3 text-sm text-fg/80;
+  }
+
+  /* Inline accent link — gold underline that darkens to fg on hover. */
+  .link {
+    @apply border-b border-accent text-accent transition-colors hover:border-fg hover:text-fg;
   }
 }
 

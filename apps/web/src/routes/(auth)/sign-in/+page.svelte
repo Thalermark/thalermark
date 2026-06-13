@@ -55,58 +55,39 @@
 </script>
 
 <span class="eyebrow">Welcome back</span>
-<h1 class="mt-3 font-serif text-3xl font-light leading-tight tracking-tight text-ink">
+<h1 class="mt-3 font-serif text-3xl font-light leading-tight tracking-tight text-fg">
   {COPY.signIn.title}
 </h1>
 
 <form onsubmit={onSubmit} class="mt-8 space-y-5">
   <label class="block">
-    <span class="block font-mono text-xs uppercase tracking-widest text-ink/60">Email</span>
-    <input
-      type="email"
-      required
-      bind:value={email}
-      class="mt-2 w-full border-b border-ink/30 bg-transparent py-2 text-ink outline-none focus:border-ink"
-    />
+    <span class="label block">Email</span>
+    <input type="email" required bind:value={email} class="field-line mt-2" />
   </label>
   <label class="block">
-    <span class="block font-mono text-xs uppercase tracking-widest text-ink/60">Password</span>
-    <input
-      type="password"
-      required
-      bind:value={password}
-      class="mt-2 w-full border-b border-ink/30 bg-transparent py-2 text-ink outline-none focus:border-ink"
-    />
+    <span class="label block">Password</span>
+    <input type="password" required bind:value={password} class="field-line mt-2" />
   </label>
   {#if error}
-    <p class="font-mono text-xs uppercase tracking-widest text-oxblood">{error}</p>
+    <p class="label text-danger">{error}</p>
   {/if}
   {#if needsVerification}
-    <div class="rounded-sm border border-gold-deep/30 bg-gold-deep/5 px-4 py-3 text-sm text-ink/80">
+    <div class="callout">
       <p>
         Verify your email to sign in — we sent a link to
-        <span class="font-medium text-ink">{email}</span>.
+        <span class="font-medium text-fg">{email}</span>.
       </p>
       <div class="mt-3 flex items-center gap-4">
-        <button
-          type="button"
-          onclick={onResend}
-          disabled={resending}
-          class="rounded-sm border border-ink/25 px-3 py-1.5 text-sm font-medium text-ink transition-colors hover:border-ink disabled:opacity-50"
-        >
+        <button type="button" onclick={onResend} disabled={resending} class="btn-ghost btn-sm">
           {resending ? 'Sending…' : 'Resend verification'}
         </button>
         {#if resent}
-          <span class="font-mono text-xs uppercase tracking-widest text-sage">Sent</span>
+          <span class="label text-success">Sent</span>
         {/if}
       </div>
     </div>
   {/if}
-  <button
-    type="submit"
-    disabled={submitting}
-    class="w-full rounded-sm bg-ink px-3 py-3 text-sm font-medium text-cream transition-colors hover:bg-gold-deep disabled:opacity-50"
-  >
+  <button type="submit" disabled={submitting} class="btn w-full py-3">
     {COPY.signIn.submit}
   </button>
 </form>
