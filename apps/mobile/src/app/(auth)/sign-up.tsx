@@ -3,6 +3,7 @@ import { Link, router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { SocialSignIn } from '../../components/SocialSignIn';
 import { authClient } from '../../lib/auth-client';
 import { getAuthToken } from '../../lib/secure-store';
 
@@ -156,6 +157,8 @@ export default function SignUp() {
                 )}
               </Pressable>
             </View>
+
+            {invite ? null : <SocialSignIn />}
 
             <View className="mt-8 flex-row justify-center">
               <Text className="text-sm text-ink/70">Already have an account? </Text>

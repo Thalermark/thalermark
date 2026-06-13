@@ -1,4 +1,6 @@
+import { expoClient } from '@better-auth/expo/client';
 import { createAuthClient } from 'better-auth/client';
+import * as SecureStore from 'expo-secure-store';
 import {
   clearActiveAccountId,
   clearActiveCompanyId,
@@ -25,6 +27,18 @@ const APP_ORIGIN = 'thalermark://';
 function buildAuthClient(baseURL: string) {
   return createAuthClient({
     baseURL,
+    // The expo plugin powers OAuth social sign-in: it opens the provider flow in
+    // a system browser, deep-links back via the app scheme, and stores the
+    // session cookie in SecureStore. It needs a *synchronous* storage, which
+    // expo-secure-store's getItem/setItem provide. Email/password still rides the
+    // bearer path below; social is bridged into the same bearer token (see
+    // signInWithProvider), so api.ts is unchanged.
+    plugins: [
+      expoClient({
+        scheme: 'thalermark',
+        storage: { getItem: SecureStore.getItem, setItem: SecureStore.setItem },
+      }),
+    ],
     fetchOptions: {
       headers: { Origin: APP_ORIGIN },
       auth: {
@@ -72,4 +86,36 @@ export async function signOut(): Promise<void> {
     await clearActiveAccountId();
     await clearActiveCompanyId();
   }
+}
+
+// Social provider ids the api may report as configured (GET /api/social-providers).
+export type SocialProvider = 'google' | 'facebook' | 'twitter';
+
+// Native social sign-in. The expo plugin opens the provider's OAuth in a system
+// browser, deep-links back to the app scheme, and stores the session cookie in
+// SecureStore. The rest of the app speaks bearer (api.ts), so we then lift the
+// session token out of that cookie — its value IS the bearer token (better-auth's
+// bearer plugin emits exactly the session-cookie value) — and persist it where
+// api.ts reads it. Email/password and api.ts are untouched. New social users flow
+// through the same signup provisioning hook as email/password (account + company
+// seeded), so they land in the onboarding wizard just like a fresh email signup.
+export async function signInWithProvider(
+  provider: SocialProvider,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const result = await authClient.signIn.social({ provider, callbackURL: '/' });
+  if (result.error) {
+    return { ok: false, error: result.error.message ?? 'Sign-in failed' };
+  }
+  const token = sessionTokenFromCookie(authClient.getCookie());
+  if (!token) return { ok: false, error: 'Could not establish a session.' };
+  await setAuthToken(token);
+  return { ok: true };
+}
+
+// Pull the session-token value out of the cookie header the expo plugin stores
+// (e.g. "better-auth.session_token=<value>; ..."). Default better-auth cookie
+// name; the __Secure- prefix appears behind TLS.
+function sessionTokenFromCookie(cookie: string): string | null {
+  const match = cookie.match(/(?:^|;\s*)(?:__Secure-)?better-auth\.session_token=([^;]+)/);
+  return match?.[1] ?? null;
 }
