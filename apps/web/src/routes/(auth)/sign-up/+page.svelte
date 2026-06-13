@@ -93,85 +93,63 @@
 </script>
 
 <span class="eyebrow">{invite ? 'Accept invitation' : 'Get early access'}</span>
-<h1 class="mt-3 font-serif text-3xl font-light leading-tight tracking-tight text-ink">
+<h1 class="mt-3 font-serif text-3xl font-light leading-tight tracking-tight text-fg">
   {COPY.signUp.title}
 </h1>
 
 {#if invite}
-  <p class="mt-4 rounded-sm border border-gold-deep/30 bg-gold-deep/5 px-4 py-3 text-sm text-ink/80">
+  <p class="callout mt-4">
     {#if invite.inviterName}<span class="font-medium">{invite.inviterName}</span> invited you to join
     {:else}You've been invited to join{/if}
     <span class="font-medium">{invite.accountName}</span>. Set a password below to join their
     workspace.
   </p>
 {:else if inviteStale}
-  <p class="mt-4 rounded-sm border border-oxblood/30 bg-oxblood/5 px-4 py-3 text-sm text-oxblood">
+  <p class="mt-4 rounded-sm border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
     That invitation link is no longer valid. You can still create your own account below.
   </p>
 {/if}
 
 {#if awaitingVerification}
-  <div class="mt-8 rounded-sm border border-gold-deep/30 bg-gold-deep/5 px-5 py-4">
-    <p class="font-serif text-lg text-ink">Check your inbox.</p>
-    <p class="mt-2 text-sm text-ink/75">
-      We sent a verification link to <span class="font-medium text-ink">{email}</span>. Click it to
+  <div class="callout mt-8 px-5 py-4">
+    <p class="font-serif text-lg text-fg">Check your inbox.</p>
+    <p class="mt-2 text-sm text-fg/75">
+      We sent a verification link to <span class="font-medium text-fg">{email}</span>. Click it to
       finish setting up your account — you'll be signed in automatically.
     </p>
     <div class="mt-4 flex items-center gap-4">
-      <button
-        type="button"
-        onclick={onResend}
-        disabled={resending}
-        class="rounded-sm border border-ink/25 px-4 py-2 text-sm font-medium text-ink transition-colors hover:border-ink disabled:opacity-50"
-      >
+      <button type="button" onclick={onResend} disabled={resending} class="btn-ghost">
         {resending ? 'Sending…' : 'Resend email'}
       </button>
       {#if resent}
-        <span class="font-mono text-xs uppercase tracking-widest text-sage">Sent</span>
+        <span class="label text-success">Sent</span>
       {/if}
     </div>
   </div>
 {:else}
 <form onsubmit={onSubmit} class="mt-8 space-y-5">
   <label class="block">
-    <span class="block font-mono text-xs uppercase tracking-widest text-ink/60">Name</span>
-    <input
-      type="text"
-      required
-      bind:value={name}
-      class="mt-2 w-full border-b border-ink/30 bg-transparent py-2 text-ink outline-none focus:border-ink"
-    />
+    <span class="label block">Name</span>
+    <input type="text" required bind:value={name} class="field-line mt-2" />
   </label>
   <label class="block">
-    <span class="block font-mono text-xs uppercase tracking-widest text-ink/60">Email</span>
+    <span class="label block">Email</span>
     <input
       type="email"
       required
       readonly={!!invite}
       bind:value={email}
-      class="mt-2 w-full border-b border-ink/30 bg-transparent py-2 text-ink outline-none focus:border-ink {invite
-        ? 'cursor-not-allowed text-ink/60'
-        : ''}"
+      class="field-line mt-2 {invite ? 'cursor-not-allowed text-fg/60' : ''}"
     />
   </label>
   <label class="block">
-    <span class="block font-mono text-xs uppercase tracking-widest text-ink/60">Password</span>
-    <input
-      type="password"
-      required
-      minlength={8}
-      bind:value={password}
-      class="mt-2 w-full border-b border-ink/30 bg-transparent py-2 text-ink outline-none focus:border-ink"
-    />
+    <span class="label block">Password</span>
+    <input type="password" required minlength={8} bind:value={password} class="field-line mt-2" />
   </label>
   {#if error}
-    <p class="font-mono text-xs uppercase tracking-widest text-oxblood">{error}</p>
+    <p class="label text-danger">{error}</p>
   {/if}
-  <button
-    type="submit"
-    disabled={submitting}
-    class="w-full rounded-sm bg-ink px-3 py-3 text-sm font-medium text-cream transition-colors hover:bg-gold-deep disabled:opacity-50"
-  >
+  <button type="submit" disabled={submitting} class="btn w-full py-3">
     {invite ? 'Join workspace' : COPY.signUp.submit}
   </button>
 </form>
@@ -180,12 +158,8 @@
      social account would create a stray account instead of joining. -->
 <SocialSignIn providers={inviteToken ? [] : (page.data.socialProviders ?? [])} callbackPath="/" />
 
-<p class="mt-8 text-center text-sm text-ink/70">
+<p class="mt-8 text-center text-sm text-fg/70">
   Already have an account?
-  <a
-    href={signInHref}
-    class="border-b border-gold-deep text-gold-deep transition-colors hover:border-ink hover:text-ink"
-    >Sign in</a
-  >
+  <a href={signInHref} class="link">Sign in</a>
 </p>
 {/if}

@@ -42,10 +42,10 @@
 </script>
 
 <span class="eyebrow">Welcome</span>
-<h1 class="mt-3 font-serif text-3xl font-light leading-tight tracking-tight text-ink">
-  Let's set up your business<span class="text-gold-deep">.</span>
+<h1 class="mt-3 font-serif text-3xl font-light leading-tight tracking-tight text-fg">
+  Let's set up your business<span class="text-accent">.</span>
 </h1>
-<p class="mt-4 text-ink/70">
+<p class="mt-4 text-fg/70">
   Just a couple of quick things, then you can send your first invoice. You can change any of this
   later in Settings.
 </p>
@@ -65,82 +65,74 @@
   <input type="hidden" name="companyId" value={data.company.id} />
 
   <label class="block">
-    <span class="font-mono text-xs uppercase tracking-widest text-ink/60">Business name</span>
+    <span class="label">Business name</span>
     <input
       type="text"
       name="name"
       bind:value={name}
       required
       placeholder="e.g. Sunrise Landscaping"
-      class="mt-2 w-full border-b border-ink/30 bg-transparent py-2 text-ink outline-none focus:border-ink"
+      class="field-line mt-2"
     />
-    <span class="mt-1 block font-mono text-xs text-ink/50">This is what your customers see.</span>
+    <span class="mt-1 block font-mono text-xs text-fg/50">This is what your customers see.</span>
     {#if fieldErrors.name}
-      <p class="mt-2 font-mono text-xs uppercase tracking-widest text-oxblood">{fieldErrors.name}</p>
+      <p class="label mt-2 text-danger">{fieldErrors.name}</p>
     {/if}
   </label>
 
   <fieldset>
-    <legend class="block font-mono text-xs uppercase tracking-widest text-ink/60">
-      How's your business set up?
-    </legend>
+    <legend class="label block">How's your business set up?</legend>
     <div class="mt-4 space-y-3">
       {#each BUSINESS_TYPES as bt (bt)}
-        <label class="flex cursor-pointer items-center gap-3 text-sm text-ink">
+        <label class="flex cursor-pointer items-center gap-3 text-sm text-fg">
           <input
             type="radio"
             name="businessType"
             value={bt}
             bind:group={businessType}
             required
-            class="h-4 w-4 border-ink/30 text-gold-deep focus:ring-gold-deep"
+            class="h-4 w-4 border-fg/30 text-accent focus:ring-accent"
           />
           <span>{BUSINESS_TYPE_LABELS[bt]}</span>
         </label>
       {/each}
     </div>
     {#if fieldErrors.businessType}
-      <p class="mt-2 font-mono text-xs uppercase tracking-widest text-oxblood">
+      <p class="label mt-2 text-danger">
         {fieldErrors.businessType}
       </p>
     {/if}
   </fieldset>
 
-  <div class="space-y-6 border-t border-ink/10 pt-6">
-    <p class="font-mono text-xs uppercase tracking-widest text-ink/40">
+  <div class="space-y-6 border-t border-fg/10 pt-6">
+    <p class="label text-fg/40">
       Optional — shown on your invoices
     </p>
     <label class="block">
-      <span class="font-mono text-xs uppercase tracking-widest text-ink/60">Business address</span>
+      <span class="label">Business address</span>
       <textarea
         name="businessAddress"
         bind:value={businessAddress}
         rows="2"
         placeholder="123 Main St&#10;Springfield, IL 62704"
-        class="mt-2 w-full rounded-sm border border-ink/20 bg-cream px-3 py-2 text-sm text-ink outline-none focus:border-gold-deep"
+        class="field mt-2 text-sm"
       ></textarea>
     </label>
     <label class="block">
-      <span class="font-mono text-xs uppercase tracking-widest text-ink/60">Phone</span>
+      <span class="label">Phone</span>
       <input
         type="tel"
         name="businessPhone"
         bind:value={businessPhone}
         placeholder="(555) 123-4567"
-        class="mt-2 w-full rounded-sm border border-ink/20 bg-cream px-3 py-2 text-sm text-ink outline-none focus:border-gold-deep"
+        class="field mt-2 text-sm"
       />
     </label>
   </div>
 
   {#if formError}
-    <p class="font-mono text-xs uppercase tracking-widest text-oxblood">{formError}</p>
+    <p class="label text-danger">{formError}</p>
   {/if}
 
-  <button
-    type="submit"
-    disabled={submitting}
-    class="w-full rounded-sm bg-ink px-3 py-3 text-sm font-medium text-cream transition-colors hover:bg-gold-deep disabled:opacity-50"
-  >
-    Continue
-  </button>
+  <button type="submit" disabled={submitting} class="btn w-full py-3"> Continue </button>
 </form>

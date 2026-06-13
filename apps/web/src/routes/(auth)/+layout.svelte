@@ -5,7 +5,7 @@
 <div class="flex min-h-screen flex-col">
   <nav class="px-6 py-8">
     <div class="mx-auto max-w-5xl">
-      <a href="/" class="wordmark wordmark-small text-ink" aria-label="Thalermark home">
+      <a href="/" class="wordmark wordmark-small text-fg" aria-label="Thalermark home">
         <span class="strike"></span>
         <span class="word">thalermark</span>
       </a>
