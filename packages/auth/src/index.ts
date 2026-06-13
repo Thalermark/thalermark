@@ -1,3 +1,4 @@
+import { expo } from '@better-auth/expo';
 import type { Database } from '@thalermark/db';
 import {
   accounts,
@@ -128,7 +129,13 @@ export function createAuth(db: Database, options: CreateAuthOptions) {
     // only converts a bearer header into a session cookie if one is present.
     // On responses it sets `set-auth-token` whenever a session cookie is being
     // set, so mobile clients can grab the token and persist it themselves.
-    plugins: [bearer()],
+    //
+    // The expo plugin lets the native app complete OAuth social sign-in: it
+    // trusts the app scheme as an origin and rewrites the social callback to a
+    // deep link so the system-browser flow can return to the app (web is
+    // unaffected — it keeps using http callbacks). Pairs with `expoClient` on
+    // apps/mobile.
+    plugins: [bearer(), expo()],
     databaseHooks: {
       user: {
         create: {

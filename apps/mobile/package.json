@@ -14,6 +14,7 @@
     "clean": "rm -rf .turbo .expo dist *.tsbuildinfo"
   },
   "dependencies": {
+    "@better-auth/expo": "1.6.13",
     "@expo/log-box": "~56.0.12",
     "@expo/metro-runtime": "~56.0.13",
     "@expo/vector-icons": "^15.0.2",
@@ -27,10 +28,12 @@
     "expo-font": "~56.0.5",
     "expo-image-picker": "~56.0.16",
     "expo-linking": "~56.0.13",
+    "expo-network": "~56.0.5",
     "expo-router": "~56.2.8",
     "expo-secure-store": "~56.0.4",
     "expo-splash-screen": "~56.0.10",
     "expo-status-bar": "~56.0.4",
+    "expo-web-browser": "~56.0.5",
     "hono": "4.12.23",
     "nativewind": "4.2.4",
     "react": "19.2.3",
