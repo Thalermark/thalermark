@@ -46,38 +46,38 @@
   };
 </script>
 
-<a href="/expenses/{e.id}" class="eyebrow text-ink/60 hover:text-ink">← {e.merchant}</a>
-<h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-ink">
-  Edit expense<span class="text-gold-deep">.</span>
+<a href="/expenses/{e.id}" class="eyebrow text-fg/60 hover:text-fg">← {e.merchant}</a>
+<h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-fg">
+  Edit expense<span class="text-accent">.</span>
 </h1>
 
 {#if data.prefilled}
-  <div class="mt-6 rounded-sm border border-gold-deep/30 bg-gold-deep/5 px-4 py-3 text-sm text-ink/80">
+  <div class="mt-6 rounded-sm border border-accent/30 bg-accent/5 px-4 py-3 text-sm text-fg/80">
     Pre-filled from your receipt — review the details and save.
   </div>
 {/if}
 
 {#if form?.formError}
-  <div class="mt-6 rounded-sm border border-oxblood/30 bg-oxblood/5 px-4 py-3 text-sm text-oxblood">
+  <div class="mt-6 rounded-sm border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
     {form.formError}
   </div>
 {/if}
 
 {#if suggesting}
-  <div class="mt-6 flex items-center gap-2 rounded-sm border border-gold-deep/30 bg-gold-deep/5 px-4 py-3 text-sm text-ink/80">
-    <span class="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-gold-deep border-t-transparent"></span>
+  <div class="mt-6 flex items-center gap-2 rounded-sm border border-accent/30 bg-accent/5 px-4 py-3 text-sm text-fg/80">
+    <span class="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-accent border-t-transparent"></span>
     Finding the best category…
   </div>
 {:else if form?.suggested}
-  <div class="mt-6 rounded-sm border border-gold-deep/30 bg-gold-deep/5 px-4 py-3 text-sm text-ink/80">
+  <div class="mt-6 rounded-sm border border-accent/30 bg-accent/5 px-4 py-3 text-sm text-fg/80">
     Suggested a category from what you typed — review it and save.
   </div>
 {:else if form?.suggestNotice}
-  <div class="mt-6 rounded-sm border border-ink/15 bg-cream-warm px-4 py-3 text-sm text-ink/70">
+  <div class="mt-6 rounded-sm border border-fg/15 bg-surface-2 px-4 py-3 text-sm text-fg/70">
     {form.suggestNotice}
   </div>
 {:else if form?.suggestError}
-  <div class="mt-6 rounded-sm border border-oxblood/30 bg-oxblood/5 px-4 py-3 text-sm text-oxblood">
+  <div class="mt-6 rounded-sm border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
     {form.suggestError}
   </div>
 {/if}
@@ -85,8 +85,8 @@
 <form method="post" action="?/save" class="mt-8 space-y-6" use:enhance={onsubmit}>
   <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
     <div>
-      <label for="merchant" class="font-mono text-xs uppercase tracking-widest text-ink/50">
-        Merchant<span class="text-gold-deep">*</span>
+      <label for="merchant" class="label">
+        Merchant<span class="text-accent">*</span>
       </label>
       <input
         id="merchant"
@@ -95,15 +95,15 @@
         required
         maxlength="200"
         value={v('merchant')}
-        class="mt-1 w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
+        class="field mt-1"
       />
       {#if err('merchant')}
-        <p class="mt-1 text-xs text-oxblood">{err('merchant')}</p>
+        <p class="mt-1 text-xs text-danger">{err('merchant')}</p>
       {/if}
     </div>
     <div>
-      <label for="amount" class="font-mono text-xs uppercase tracking-widest text-ink/50">
-        Amount<span class="text-gold-deep">*</span>
+      <label for="amount" class="label">
+        Amount<span class="text-accent">*</span>
       </label>
       <input
         id="amount"
@@ -113,18 +113,18 @@
         required
         placeholder="0.00"
         value={v('amount')}
-        class="mt-1 w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 font-mono tabular-nums text-ink focus:border-gold-deep focus:outline-none"
+        class="mt-1 w-full rounded-sm border border-fg/15 bg-surface-2 px-3 py-2 font-mono tabular-nums text-fg focus:border-accent focus:outline-none"
       />
       {#if err('amount')}
-        <p class="mt-1 text-xs text-oxblood">{err('amount')}</p>
+        <p class="mt-1 text-xs text-danger">{err('amount')}</p>
       {/if}
     </div>
   </div>
 
   <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
     <div>
-      <label for="expenseDate" class="font-mono text-xs uppercase tracking-widest text-ink/50">
-        Date<span class="text-gold-deep">*</span>
+      <label for="expenseDate" class="label">
+        Date<span class="text-accent">*</span>
       </label>
       <input
         id="expenseDate"
@@ -132,16 +132,16 @@
         type="date"
         required
         value={v('expenseDate')}
-        class="mt-1 w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
+        class="field mt-1"
       />
       {#if err('expenseDate')}
-        <p class="mt-1 text-xs text-oxblood">{err('expenseDate')}</p>
+        <p class="mt-1 text-xs text-danger">{err('expenseDate')}</p>
       {/if}
     </div>
     <div>
       <div class="flex items-baseline justify-between">
-        <label for="categoryAccountId" class="font-mono text-xs uppercase tracking-widest text-ink/50">
-          Category<span class="text-gold-deep">*</span>
+        <label for="categoryAccountId" class="label">
+          Category<span class="text-accent">*</span>
         </label>
         <!-- formnovalidate: suggest with just a merchant typed, without tripping
              the other required fields. Submits to the ?/suggest action. -->
@@ -150,10 +150,10 @@
           formaction="?/suggest"
           formnovalidate
           disabled={suggesting}
-          class="flex items-center gap-1.5 font-mono text-xs uppercase tracking-widest text-gold-deep hover:text-ink disabled:opacity-60"
+          class="flex items-center gap-1.5 font-mono text-xs uppercase tracking-widest text-accent hover:text-fg disabled:opacity-60"
         >
           {#if suggesting}
-            <span class="inline-block h-3 w-3 animate-spin rounded-full border border-gold-deep border-t-transparent"></span>
+            <span class="inline-block h-3 w-3 animate-spin rounded-full border border-accent border-t-transparent"></span>
             Suggesting…
           {:else}
             ✨ Suggest
@@ -164,7 +164,7 @@
         id="categoryAccountId"
         name="categoryAccountId"
         required
-        class="mt-1 w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
+        class="field mt-1"
       >
         <option value="" disabled selected={categoryValue === ''}>Select a category…</option>
         {#each data.categories as cat (cat.id)}
@@ -172,27 +172,27 @@
         {/each}
       </select>
       {#if err('categoryAccountId')}
-        <p class="mt-1 text-xs text-oxblood">{err('categoryAccountId')}</p>
+        <p class="mt-1 text-xs text-danger">{err('categoryAccountId')}</p>
       {/if}
     </div>
   </div>
 
   {#if data.paymentPickerVisible}
     <div class="sm:w-1/2 sm:pr-3">
-      <label for="paymentAccountId" class="font-mono text-xs uppercase tracking-widest text-ink/50">
+      <label for="paymentAccountId" class="label">
         Paid from
       </label>
       <select
         id="paymentAccountId"
         name="paymentAccountId"
-        class="mt-1 w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
+        class="field mt-1"
       >
         {#each data.paymentAccounts as acc (acc.id)}
           <option value={acc.id} selected={paymentValue === acc.id}>{acc.label}</option>
         {/each}
       </select>
       {#if err('paymentAccountId')}
-        <p class="mt-1 text-xs text-oxblood">{err('paymentAccountId')}</p>
+        <p class="mt-1 text-xs text-danger">{err('paymentAccountId')}</p>
       {/if}
     </div>
   {:else}
@@ -200,13 +200,13 @@
   {/if}
 
   <div>
-    <label for="memo" class="font-mono text-xs uppercase tracking-widest text-ink/50">Memo</label>
+    <label for="memo" class="label">Memo</label>
     <textarea
       id="memo"
       name="memo"
       rows="3"
       maxlength="5000"
-      class="mt-1 w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
+      class="field mt-1"
       >{v('memo')}</textarea
     >
   </div>
@@ -214,10 +214,10 @@
   <div class="flex items-center gap-4">
     <button
       type="submit"
-      class="rounded-sm bg-ink px-5 py-2 text-sm font-medium text-cream transition-colors hover:bg-gold-deep"
+      class="btn"
     >
       Save changes
     </button>
-    <a href="/expenses/{e.id}" class="text-sm text-ink/60 hover:text-ink">Cancel</a>
+    <a href="/expenses/{e.id}" class="text-sm text-fg/60 hover:text-fg">Cancel</a>
   </div>
 </form>

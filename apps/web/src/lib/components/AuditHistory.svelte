@@ -158,21 +158,21 @@
   }
 </script>
 
-<section class="mt-12 border-t border-ink/10 pt-8">
-  <h2 class="font-mono text-xs uppercase tracking-widest text-ink/50">History</h2>
+<section class="mt-12 border-t border-fg/10 pt-8">
+  <h2 class="label">History</h2>
   {#if events.length === 0}
-    <p class="mt-3 text-sm text-ink/50">No history yet.</p>
+    <p class="mt-3 text-sm text-fg/50">No history yet.</p>
   {:else}
     <ol class="mt-4 space-y-3">
       {#each events as ev (ev.id)}
         {@const lines = diffLines(ev.before, ev.after)}
-        <li class="rounded-sm border border-ink/10 bg-cream-warm px-4 py-3">
+        <li class="rounded-sm border border-fg/10 bg-surface-2 px-4 py-3">
           <div class="flex flex-wrap items-baseline justify-between gap-x-4">
-            <p class="text-sm text-ink">
+            <p class="text-sm text-fg">
               {#if showEntity && ev.entityType && ev.entityId}
                 <a
                   href="{ENTITY_PATHS[ev.entityType] ?? '/'}/{ev.entityId}"
-                  class="font-medium text-ink hover:text-gold-deep"
+                  class="font-medium text-fg hover:text-accent"
                 >
                   {ENTITY_LABELS[ev.entityType] ?? ev.entityType}
                   {ev.entityLabel ?? ''}
@@ -183,7 +183,7 @@
               {actionLabel(ev.action)}
             </p>
             <p
-              class="font-mono text-xs uppercase tracking-widest text-ink/40"
+              class="font-mono text-xs uppercase tracking-widest text-fg/40"
               title={formatAbsolute(ev.createdAt)}
             >
               {formatRelative(ev.createdAt)}
@@ -192,11 +192,11 @@
           {#if lines.length > 0}
             <details class="mt-1.5">
               <summary
-                class="cursor-pointer list-none font-mono text-xs uppercase tracking-widest text-ink/40 hover:text-gold-deep"
+                class="cursor-pointer list-none font-mono text-xs uppercase tracking-widest text-fg/40 hover:text-accent"
               >
                 {lines.length} change{lines.length === 1 ? '' : 's'}
               </summary>
-              <ul class="mt-1.5 space-y-0.5 font-mono text-xs text-ink/55">
+              <ul class="mt-1.5 space-y-0.5 font-mono text-xs text-fg/55">
                 {#each lines as line, i (i)}
                   <li>{line}</li>
                 {/each}

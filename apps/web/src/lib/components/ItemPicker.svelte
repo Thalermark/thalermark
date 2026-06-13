@@ -187,7 +187,7 @@
     aria-expanded={open}
     aria-controls={listboxId}
     aria-autocomplete="list"
-    class="w-full rounded-sm border border-ink/15 bg-cream px-2 py-1 text-ink focus:border-gold-deep focus:outline-none"
+    class="w-full rounded-sm border border-fg/15 bg-surface px-2 py-1 text-fg focus:border-accent focus:outline-none"
   />
   <input type="hidden" name="li_sourceItemId" value={sourceItemId ?? ''} />
   {#if open && suggestions.length > 0}
@@ -195,15 +195,15 @@
       id={listboxId}
       role="listbox"
       style={menuStyle}
-      class="fixed z-50 max-h-60 overflow-auto rounded-sm border border-ink/15 bg-cream-warm shadow-lg"
+      class="fixed z-50 max-h-60 overflow-auto rounded-sm border border-fg/15 bg-surface-2 shadow-lg"
     >
       {#each suggestions as s, i (s.id)}
         <li
           role="option"
           aria-selected={i === activeIndex}
-          class="flex cursor-pointer items-center justify-between gap-3 px-3 py-2 text-sm text-ink hover:bg-gold-deep/10"
-          class:bg-gold-deep={i === activeIndex}
-          class:text-cream={i === activeIndex}
+          class="flex cursor-pointer items-center justify-between gap-3 px-3 py-2 text-sm text-fg hover:bg-accent/10"
+          class:bg-accent={i === activeIndex}
+          class:text-on-inverse={i === activeIndex}
           onmousedown={(e) => {
             e.preventDefault();
             pick(s);

@@ -26,10 +26,10 @@
 
 <div class="mx-auto max-w-xl">
   <span class="eyebrow">New company</span>
-  <h1 class="mt-3 font-serif text-3xl font-light leading-tight tracking-tight text-ink">
-    Add a company<span class="text-gold-deep">.</span>
+  <h1 class="mt-3 font-serif text-3xl font-light leading-tight tracking-tight text-fg">
+    Add a company<span class="text-accent">.</span>
   </h1>
-  <p class="mt-4 text-ink/70">
+  <p class="mt-4 text-fg/70">
     Run a second business out of this workspace — its books, invoices, and customers stay separate.
     You can switch between companies anytime from the menu.
   </p>
@@ -47,60 +47,60 @@
     class="mt-8 space-y-8"
   >
     <label class="block">
-      <span class="font-mono text-xs uppercase tracking-widest text-ink/60">Business name</span>
+      <span class="font-mono text-xs uppercase tracking-widest text-fg/60">Business name</span>
       <input
         type="text"
         name="name"
         bind:value={name}
         required
         placeholder="e.g. Northside Handyman"
-        class="mt-2 w-full border-b border-ink/30 bg-transparent py-2 text-ink outline-none focus:border-ink"
+        class="mt-2 w-full border-b border-fg/30 bg-transparent py-2 text-fg outline-none focus:border-fg"
       />
       {#if fieldErrors.name}
-        <p class="mt-2 font-mono text-xs uppercase tracking-widest text-oxblood">
+        <p class="mt-2 font-mono text-xs uppercase tracking-widest text-danger">
           {fieldErrors.name}
         </p>
       {/if}
     </label>
 
     <fieldset>
-      <legend class="block font-mono text-xs uppercase tracking-widest text-ink/60">
+      <legend class="block font-mono text-xs uppercase tracking-widest text-fg/60">
         How's it set up?
       </legend>
       <div class="mt-4 space-y-3">
         {#each BUSINESS_TYPES as bt (bt)}
-          <label class="flex cursor-pointer items-center gap-3 text-sm text-ink">
+          <label class="flex cursor-pointer items-center gap-3 text-sm text-fg">
             <input
               type="radio"
               name="businessType"
               value={bt}
               bind:group={businessType}
               required
-              class="h-4 w-4 border-ink/30 text-gold-deep focus:ring-gold-deep"
+              class="h-4 w-4 border-fg/30 text-accent focus:ring-accent"
             />
             <span>{BUSINESS_TYPE_LABELS[bt]}</span>
           </label>
         {/each}
       </div>
       {#if fieldErrors.businessType}
-        <p class="mt-2 font-mono text-xs uppercase tracking-widest text-oxblood">
+        <p class="mt-2 font-mono text-xs uppercase tracking-widest text-danger">
           {fieldErrors.businessType}
         </p>
       {/if}
     </fieldset>
 
     {#if formError}
-      <p class="font-mono text-xs uppercase tracking-widest text-oxblood">{formError}</p>
+      <p class="font-mono text-xs uppercase tracking-widest text-danger">{formError}</p>
     {/if}
 
     <div class="flex items-center justify-between gap-4">
-      <a href="/" class="font-mono text-xs uppercase tracking-widest text-ink/50 hover:text-ink">
+      <a href="/" class="label hover:text-fg">
         Cancel
       </a>
       <button
         type="submit"
         disabled={submitting}
-        class="rounded-sm bg-ink px-6 py-3 text-sm font-medium text-cream transition-colors hover:bg-gold-deep disabled:opacity-50"
+        class="btn px-6 py-3"
       >
         Create company
       </button>

@@ -21,12 +21,12 @@
       type="button"
       {onclick}
       disabled={loading}
-      class="rounded-sm border border-ink/15 px-4 py-2 font-mono text-xs uppercase tracking-widest text-ink/60 transition-colors hover:border-gold-deep hover:text-gold-deep disabled:cursor-not-allowed disabled:opacity-50"
+      class="rounded-sm border border-fg/15 px-4 py-2 font-mono text-xs uppercase tracking-widest text-fg/60 transition-colors hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
     >
       {loading ? 'Loading…' : 'Load more'}
     </button>
     {#if error}
-      <p class="text-sm text-red-700">Couldn’t load more. Try again.</p>
+      <p class="text-sm text-danger">Couldn’t load more. Try again.</p>
     {/if}
   </div>
 {/if}

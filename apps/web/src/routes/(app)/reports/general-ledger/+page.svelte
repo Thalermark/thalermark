@@ -45,9 +45,9 @@
 
 <div class="flex flex-wrap items-baseline justify-between gap-6">
   <div>
-    <a href="/reports" class="eyebrow text-ink/60 hover:text-ink">← Reports</a>
-    <h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-ink">
-      General ledger<span class="text-gold-deep">.</span>
+    <a href="/reports" class="eyebrow text-fg/60 hover:text-fg">← Reports</a>
+    <h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-fg">
+      General ledger<span class="text-accent">.</span>
     </h1>
   </div>
   <ExportCsvButton
@@ -60,19 +60,19 @@
 
 <PeriodSelector {presets} {activeKey} {from} {to} />
 
-<p class="mt-4 text-sm text-ink/60">
+<p class="mt-4 text-sm text-fg/60">
   {from} → {to}. Every journal entry behind your invoices, payments, and expenses, summarised here
   as a trial balance. The CSV export contains the full detail — one row per journal line — for your
   accountant or tax software.
 </p>
 
 {#if report.entries.length === 0}
-  <p class="mt-8 text-ink/70">No journal activity in this period.</p>
+  <p class="mt-8 text-fg/70">No journal activity in this period.</p>
 {:else}
-  <div class="mt-8 overflow-hidden rounded-sm border border-ink/10 bg-cream-warm">
+  <div class="mt-8 overflow-hidden rounded-sm border border-fg/10 bg-surface-2">
     <table class="w-full text-left text-sm">
-      <thead class="bg-cream">
-        <tr class="font-mono text-xs uppercase tracking-widest text-ink/50">
+      <thead class="bg-surface">
+        <tr class="label">
           <th class="px-5 py-3">Code</th>
           <th class="px-5 py-3">Account</th>
           <th class="px-5 py-3 text-right">Debit</th>
@@ -80,22 +80,22 @@
           <th class="px-5 py-3 text-right">Net</th>
         </tr>
       </thead>
-      <tbody class="divide-y divide-ink/10">
+      <tbody class="divide-y divide-fg/10">
         {#each report.trialBalance as t (t.code)}
           <tr>
-            <td class="px-5 py-3 font-mono tabular-nums text-ink/60">{t.code}</td>
-            <td class="px-5 py-3 text-ink/80">{t.accountName}</td>
-            <td class="px-5 py-3 text-right font-mono tabular-nums text-ink">{fmt(t.debit)}</td>
-            <td class="px-5 py-3 text-right font-mono tabular-nums text-ink">{fmt(t.credit)}</td>
-            <td class="px-5 py-3 text-right font-mono tabular-nums text-ink">{fmt(t.net)}</td>
+            <td class="px-5 py-3 font-mono tabular-nums text-fg/60">{t.code}</td>
+            <td class="px-5 py-3 text-fg/80">{t.accountName}</td>
+            <td class="px-5 py-3 text-right font-mono tabular-nums text-fg">{fmt(t.debit)}</td>
+            <td class="px-5 py-3 text-right font-mono tabular-nums text-fg">{fmt(t.credit)}</td>
+            <td class="px-5 py-3 text-right font-mono tabular-nums text-fg">{fmt(t.net)}</td>
           </tr>
         {/each}
       </tbody>
-      <tfoot class="border-t border-ink/10 bg-cream">
+      <tfoot class="border-t border-fg/10 bg-surface">
         <tr class="font-mono text-xs uppercase tracking-widest">
-          <td class="px-5 py-3 text-ink/70" colspan="2">Total</td>
-          <td class="px-5 py-3 text-right text-base tabular-nums text-ink">{fmt(totalDebit)}</td>
-          <td class="px-5 py-3 text-right text-base tabular-nums text-ink">{fmt(totalCredit)}</td>
+          <td class="px-5 py-3 text-fg/70" colspan="2">Total</td>
+          <td class="px-5 py-3 text-right text-base tabular-nums text-fg">{fmt(totalDebit)}</td>
+          <td class="px-5 py-3 text-right text-base tabular-nums text-fg">{fmt(totalCredit)}</td>
           <td></td>
         </tr>
       </tfoot>

@@ -57,8 +57,8 @@
 
 <div>
   <span class="eyebrow">Reports</span>
-  <h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-ink">
-    Reports<span class="text-gold-deep">.</span>
+  <h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-fg">
+    Reports<span class="text-accent">.</span>
   </h1>
 </div>
 
@@ -66,10 +66,10 @@
   {#each reports as r (r.href)}
     <a
       href={r.href}
-      class="group rounded-sm border border-ink/10 bg-cream-warm p-5 transition-colors hover:border-gold-deep/40 hover:bg-cream"
+      class="group rounded-sm border border-fg/10 bg-surface-2 p-5 transition-colors hover:border-accent/40 hover:bg-surface"
     >
-      <h2 class="font-serif text-xl text-ink group-hover:text-gold-deep">{r.title}</h2>
-      <p class="mt-2 text-sm text-ink/60">{r.blurb}</p>
+      <h2 class="font-serif text-xl text-fg group-hover:text-accent">{r.title}</h2>
+      <p class="mt-2 text-sm text-fg/60">{r.blurb}</p>
     </a>
   {/each}
 
@@ -78,10 +78,10 @@
   {#if may(data.role, 'reports:export')}
     <a
       href="/reports/general-ledger"
-      class="group rounded-sm border border-ink/10 bg-cream-warm p-5 transition-colors hover:border-gold-deep/40 hover:bg-cream"
+      class="group rounded-sm border border-fg/10 bg-surface-2 p-5 transition-colors hover:border-accent/40 hover:bg-surface"
     >
-      <h2 class="font-serif text-xl text-ink group-hover:text-gold-deep">General ledger</h2>
-      <p class="mt-2 text-sm text-ink/60">
+      <h2 class="font-serif text-xl text-fg group-hover:text-accent">General ledger</h2>
+      <p class="mt-2 text-sm text-fg/60">
         Every journal entry behind your books — the full double-entry detail, ready for your
         accountant or tax software.
       </p>

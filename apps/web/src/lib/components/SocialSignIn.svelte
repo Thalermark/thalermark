@@ -74,9 +74,9 @@
 
 {#if shown.length > 0}
   <div class="my-6 flex items-center gap-4">
-    <span class="h-px flex-1 bg-ink/15"></span>
-    <span class="font-mono text-xs uppercase tracking-widest text-ink/40">or</span>
-    <span class="h-px flex-1 bg-ink/15"></span>
+    <span class="h-px flex-1 bg-fg/15"></span>
+    <span class="font-mono text-xs uppercase tracking-widest text-fg/40">or</span>
+    <span class="h-px flex-1 bg-fg/15"></span>
   </div>
   <div class="space-y-3">
     {#each shown as provider (provider)}
@@ -84,7 +84,7 @@
         type="button"
         onclick={() => signIn(provider)}
         disabled={submitting}
-        class="flex w-full items-center justify-center gap-3 rounded-sm border border-ink/25 bg-cream px-3 py-3 text-sm font-medium text-ink transition-colors hover:border-ink disabled:opacity-50"
+        class="flex w-full items-center justify-center gap-3 rounded-sm border border-fg/25 bg-surface px-3 py-3 text-sm font-medium text-fg transition-colors hover:border-fg disabled:opacity-50"
       >
         {@render icon(provider)}
         {LABELS[provider]}

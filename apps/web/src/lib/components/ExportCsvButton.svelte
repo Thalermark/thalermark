@@ -19,7 +19,7 @@
   type="button"
   {disabled}
   onclick={() => downloadCsv(filename, rows)}
-  class="inline-flex items-center gap-2 rounded-sm border border-ink/15 bg-cream-warm px-4 py-2 text-sm font-medium text-ink transition-colors hover:border-gold-deep/40 hover:text-gold-deep disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-ink/15 disabled:hover:text-ink"
+  class="inline-flex items-center gap-2 rounded-sm border border-fg/15 bg-surface-2 px-4 py-2 text-sm font-medium text-fg transition-colors hover:border-accent/40 hover:text-accent disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-fg/15 disabled:hover:text-fg"
 >
   <svg
     class="h-4 w-4"
