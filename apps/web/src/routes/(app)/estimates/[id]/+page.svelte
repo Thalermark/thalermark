@@ -1,5 +1,6 @@
 <script lang="ts">
   import AuditHistory from '$lib/components/AuditHistory.svelte';
+  import SplitButton from '$lib/components/SplitButton.svelte';
   import { may } from '$lib/perms';
   import type { PageProps } from './$types';
 
@@ -114,23 +115,32 @@
             class="rounded-sm border border-fg/20 bg-surface-2 px-3 py-2 text-sm text-fg placeholder:text-fg/40 focus:border-accent focus:outline-none"
           />
         {/if}
-        <button
-          type="submit"
-          class="btn"
+        <SplitButton
+          label="Send options"
+          caretClass="border-l border-surface/20 bg-inverse text-on-inverse hover:bg-accent"
         >
-          {sendLabel}
-        </button>
-        {#if !showOverride}
-          <button
-            type="button"
-            onclick={() => {
-              showOverride = true;
-            }}
-            class="text-xs uppercase tracking-widest text-fg/50 hover:text-accent"
-          >
-            Send to another address
-          </button>
-        {/if}
+          {#snippet primary()}
+            <button
+              type="submit"
+              class="rounded-l-sm bg-inverse px-4 py-2 text-sm font-medium text-on-inverse transition-colors hover:bg-accent"
+            >
+              {sendLabel}
+            </button>
+          {/snippet}
+          {#snippet menu(close)}
+            <button
+              type="button"
+              role="menuitem"
+              onclick={() => {
+                showOverride = true;
+                close();
+              }}
+              class="block w-full px-4 py-2 text-left text-sm text-fg/80 transition-colors hover:bg-surface-2 hover:text-fg"
+            >
+              Send to a different email…
+            </button>
+          {/snippet}
+        </SplitButton>
       </form>
     {/if}
     {#if canMarkAccepted}
