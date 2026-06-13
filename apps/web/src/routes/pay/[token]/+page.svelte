@@ -73,28 +73,28 @@
 </script>
 
 <div class="mx-auto max-w-lg px-6 py-12 sm:py-20">
-  <header class="border-b border-ink/10 pb-8">
-    <p class="font-mono text-xs uppercase tracking-widest text-ink/50">
+  <header class="border-b border-fg/10 pb-8">
+    <p class="label">
       {inv.companyName ?? 'Payment'}
     </p>
-    <h1 class="mt-2 font-serif text-4xl font-light leading-none tracking-tight text-ink">
-      Pay {inv.total} {inv.currency}<span class="text-gold-deep">.</span>
+    <h1 class="mt-2 font-serif text-4xl font-light leading-none tracking-tight text-fg">
+      Pay {inv.total} {inv.currency}<span class="text-accent">.</span>
     </h1>
-    <p class="mt-2 text-sm text-ink/60">Invoice {inv.number}</p>
+    <p class="mt-2 text-sm text-fg/60">Invoice {inv.number}</p>
   </header>
 
   <form class="mt-10" onsubmit={handleSubmit}>
     <div bind:this={mountEl}></div>
     {#if !ready && !payError}
-      <p class="mt-3 text-sm text-ink/60">Loading payment form…</p>
+      <p class="mt-3 text-sm text-fg/60">Loading payment form…</p>
     {/if}
     {#if payError}
-      <p class="mt-4 text-sm text-oxblood">{payError}</p>
+      <p class="mt-4 text-sm text-danger">{payError}</p>
     {/if}
     <button
       type="submit"
       disabled={!ready || submitting}
-      class="mt-6 w-full rounded-sm bg-ink px-6 py-3 text-sm font-medium uppercase tracking-widest text-cream transition-colors hover:bg-gold-deep disabled:cursor-not-allowed disabled:opacity-50"
+      class="mt-6 w-full rounded-sm bg-inverse px-6 py-3 text-sm font-medium uppercase tracking-widest text-on-inverse transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
     >
       {submitting ? 'Processing…' : `Pay ${inv.total} ${inv.currency}`}
     </button>
@@ -103,14 +103,14 @@
   <div class="mt-8 text-center">
     <a
       href="/i/{data.token}"
-      class="font-mono text-xs uppercase tracking-widest text-ink/40 transition-colors hover:text-ink/70"
+      class="font-mono text-xs uppercase tracking-widest text-fg/40 transition-colors hover:text-fg/70"
     >
       ← Back to invoice
     </a>
   </div>
 
   <footer
-    class="mt-12 border-t border-ink/10 pt-6 text-center font-mono text-xs uppercase tracking-widest text-ink/40"
+    class="mt-12 border-t border-fg/10 pt-6 text-center font-mono text-xs uppercase tracking-widest text-fg/40"
   >
     Secured by Stripe · Sent via Thalermark
   </footer>
