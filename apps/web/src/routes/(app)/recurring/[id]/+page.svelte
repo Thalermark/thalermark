@@ -31,34 +31,34 @@
   );
 </script>
 
-<a href="/recurring" class="eyebrow text-ink/60 hover:text-ink">← Recurring</a>
+<a href="/recurring" class="eyebrow text-fg/60 hover:text-fg">← Recurring</a>
 <div class="mt-3 flex items-baseline justify-between gap-6">
-  <h1 class="font-serif text-4xl font-light leading-none tracking-tight text-ink">
-    Recurring schedule<span class="text-gold-deep">.</span>
+  <h1 class="font-serif text-4xl font-light leading-none tracking-tight text-fg">
+    Recurring schedule<span class="text-accent">.</span>
   </h1>
   <div class="flex items-center gap-3">
     {#if canEdit}
       <a
         href="/recurring/{s.id}/edit"
-        class="rounded-sm border border-ink/20 px-3 py-1 font-mono text-xs uppercase tracking-widest text-ink/70 hover:border-gold-deep hover:text-gold-deep"
+        class="rounded-sm border border-fg/20 px-3 py-1 font-mono text-xs uppercase tracking-widest text-fg/70 hover:border-accent hover:text-accent"
       >
         Edit
       </a>
     {/if}
-    <span class="font-mono text-xs uppercase tracking-widest text-ink/60">{s.status}</span>
+    <span class="font-mono text-xs uppercase tracking-widest text-fg/60">{s.status}</span>
   </div>
 </div>
 
 {#if form?.transitionError}
-  <div class="mt-6 rounded-sm border border-oxblood/30 bg-oxblood/5 px-4 py-3 text-sm text-oxblood">
+  <div class="mt-6 rounded-sm border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
     {form.transitionError}
   </div>
 {/if}
 
 {#if data.ranInvoiceId}
-  <div class="mt-6 rounded-sm border border-gold-deep/30 bg-gold-deep/5 px-4 py-3 text-sm text-ink">
+  <div class="mt-6 rounded-sm border border-accent/30 bg-accent/5 px-4 py-3 text-sm text-fg">
     Invoice generated.
-    <a href="/invoices/{data.ranInvoiceId}" class="font-medium text-gold-deep hover:underline">
+    <a href="/invoices/{data.ranInvoiceId}" class="font-medium text-accent hover:underline">
       View it →
     </a>
   </div>
@@ -70,7 +70,7 @@
       <form method="post" action="?/runNow">
         <button
           type="submit"
-          class="rounded-sm bg-ink px-4 py-2 text-sm font-medium text-cream transition-colors hover:bg-gold-deep"
+          class="btn"
         >
           Generate next now
         </button>
@@ -80,7 +80,7 @@
       <form method="post" action="?/pause">
         <button
           type="submit"
-          class="rounded-sm border border-ink/20 bg-cream-warm px-4 py-2 text-sm font-medium text-ink transition-colors hover:border-gold-deep hover:text-gold-deep"
+          class="btn-ghost bg-surface-2"
         >
           Pause
         </button>
@@ -90,7 +90,7 @@
       <form method="post" action="?/resume">
         <button
           type="submit"
-          class="rounded-sm border border-ink/20 bg-cream-warm px-4 py-2 text-sm font-medium text-ink transition-colors hover:border-gold-deep hover:text-gold-deep"
+          class="btn-ghost bg-surface-2"
         >
           Resume
         </button>
@@ -100,7 +100,7 @@
       <form method="post" action="?/end">
         <button
           type="submit"
-          class="rounded-sm border border-oxblood/30 px-4 py-2 text-sm font-medium text-oxblood transition-colors hover:bg-oxblood/5"
+          class="rounded-sm border border-danger/30 px-4 py-2 text-sm font-medium text-danger transition-colors hover:bg-danger/5"
         >
           End
         </button>
@@ -111,75 +111,75 @@
 
 <dl class="mt-8 grid grid-cols-1 gap-x-12 gap-y-6 sm:grid-cols-3">
   <div>
-    <dt class="font-mono text-xs uppercase tracking-widest text-ink/50">Customer</dt>
-    <dd class="mt-1 text-ink">
+    <dt class="label">Customer</dt>
+    <dd class="mt-1 text-fg">
       {#if customer}
-        <a href="/customers/{customer.id}" class="hover:text-gold-deep">{customer.name}</a>
+        <a href="/customers/{customer.id}" class="hover:text-accent">{customer.name}</a>
       {:else}
         —
       {/if}
     </dd>
   </div>
   <div>
-    <dt class="font-mono text-xs uppercase tracking-widest text-ink/50">Cadence</dt>
-    <dd class="mt-1 text-ink">{cadenceLabel(s.frequency, s.intervalCount)}</dd>
+    <dt class="label">Cadence</dt>
+    <dd class="mt-1 text-fg">{cadenceLabel(s.frequency, s.intervalCount)}</dd>
   </div>
   <div>
-    <dt class="font-mono text-xs uppercase tracking-widest text-ink/50">Next invoice</dt>
-    <dd class="mt-1 font-mono tabular-nums text-ink">{s.status === 'ended' ? '—' : s.nextRunDate}</dd>
+    <dt class="label">Next invoice</dt>
+    <dd class="mt-1 font-mono tabular-nums text-fg">{s.status === 'ended' ? '—' : s.nextRunDate}</dd>
   </div>
   <div>
-    <dt class="font-mono text-xs uppercase tracking-widest text-ink/50">Started</dt>
-    <dd class="mt-1 font-mono tabular-nums text-ink">{s.startDate}</dd>
+    <dt class="label">Started</dt>
+    <dd class="mt-1 font-mono tabular-nums text-fg">{s.startDate}</dd>
   </div>
   <div>
-    <dt class="font-mono text-xs uppercase tracking-widest text-ink/50">Invoices sent</dt>
-    <dd class="mt-1 font-mono tabular-nums text-ink">{s.occurrenceCount}</dd>
+    <dt class="label">Invoices sent</dt>
+    <dd class="mt-1 font-mono tabular-nums text-fg">{s.occurrenceCount}</dd>
   </div>
   <div>
-    <dt class="font-mono text-xs uppercase tracking-widest text-ink/50">Ends</dt>
-    <dd class="mt-1 text-ink">{endLabel}</dd>
+    <dt class="label">Ends</dt>
+    <dd class="mt-1 text-fg">{endLabel}</dd>
   </div>
 </dl>
 
-<div class="mt-10 overflow-hidden rounded-sm border border-ink/10 bg-cream-warm">
+<div class="mt-10 overflow-hidden rounded-sm border border-fg/10 bg-surface-2">
   <table class="w-full text-left text-sm">
-    <thead class="bg-cream">
-      <tr class="font-mono text-xs uppercase tracking-widest text-ink/50">
+    <thead class="bg-surface">
+      <tr class="label">
         <th class="px-5 py-3">Description</th>
         <th class="px-5 py-3 text-right">Qty</th>
         <th class="px-5 py-3 text-right">Unit price</th>
         <th class="px-5 py-3 text-right">Amount</th>
       </tr>
     </thead>
-    <tbody class="divide-y divide-ink/10">
+    <tbody class="divide-y divide-fg/10">
       {#each s.lineItems as li (li.id)}
         <tr>
-          <td class="px-5 py-4 text-ink">{li.description}</td>
-          <td class="px-5 py-4 text-right font-mono tabular-nums text-ink/80">{li.quantity}</td>
-          <td class="px-5 py-4 text-right font-mono tabular-nums text-ink/80">{li.unitPrice}</td>
-          <td class="px-5 py-4 text-right font-mono tabular-nums text-ink">{li.amount}</td>
+          <td class="px-5 py-4 text-fg">{li.description}</td>
+          <td class="px-5 py-4 text-right font-mono tabular-nums text-fg/80">{li.quantity}</td>
+          <td class="px-5 py-4 text-right font-mono tabular-nums text-fg/80">{li.unitPrice}</td>
+          <td class="px-5 py-4 text-right font-mono tabular-nums text-fg">{li.amount}</td>
         </tr>
       {/each}
     </tbody>
-    <tfoot class="bg-cream">
+    <tfoot class="bg-surface">
       <tr>
-        <td colspan="3" class="px-5 py-3 text-right font-mono text-xs uppercase tracking-widest text-ink/50">
+        <td colspan="3" class="px-5 py-3 text-right label">
           Subtotal
         </td>
-        <td class="px-5 py-3 text-right font-mono tabular-nums text-ink">{s.subtotal}</td>
+        <td class="px-5 py-3 text-right font-mono tabular-nums text-fg">{s.subtotal}</td>
       </tr>
       <tr>
-        <td colspan="3" class="px-5 py-3 text-right font-mono text-xs uppercase tracking-widest text-ink/50">
+        <td colspan="3" class="px-5 py-3 text-right label">
           Tax
         </td>
-        <td class="px-5 py-3 text-right font-mono tabular-nums text-ink">{s.tax}</td>
+        <td class="px-5 py-3 text-right font-mono tabular-nums text-fg">{s.tax}</td>
       </tr>
       <tr>
-        <td colspan="3" class="px-5 py-3 text-right font-mono text-xs uppercase tracking-widest text-ink/50">
+        <td colspan="3" class="px-5 py-3 text-right label">
           Total per invoice ({s.currency})
         </td>
-        <td class="px-5 py-3 text-right font-mono tabular-nums text-lg text-ink">{s.total}</td>
+        <td class="px-5 py-3 text-right font-mono tabular-nums text-lg text-fg">{s.total}</td>
       </tr>
     </tfoot>
   </table>
@@ -187,41 +187,41 @@
 
 {#if s.notes}
   <div class="mt-8">
-    <h2 class="font-mono text-xs uppercase tracking-widest text-ink/50">Notes</h2>
-    <p class="mt-2 whitespace-pre-wrap text-ink/80">{s.notes}</p>
+    <h2 class="label">Notes</h2>
+    <p class="mt-2 whitespace-pre-wrap text-fg/80">{s.notes}</p>
   </div>
 {/if}
 
 <div class="mt-10">
-  <h2 class="font-mono text-xs uppercase tracking-widest text-ink/50">Generated invoices</h2>
+  <h2 class="label">Generated invoices</h2>
   {#if s.generatedInvoices.length === 0}
-    <p class="mt-2 text-sm text-ink/60">None yet.</p>
+    <p class="mt-2 text-sm text-fg/60">None yet.</p>
   {:else}
-    <div class="mt-3 overflow-hidden rounded-sm border border-ink/10 bg-cream-warm">
+    <div class="mt-3 overflow-hidden rounded-sm border border-fg/10 bg-surface-2">
       <table class="w-full text-left text-sm">
-        <thead class="bg-cream">
-          <tr class="font-mono text-xs uppercase tracking-widest text-ink/50">
+        <thead class="bg-surface">
+          <tr class="label">
             <th class="px-5 py-3">Number</th>
             <th class="px-5 py-3">Issued</th>
             <th class="px-5 py-3">Status</th>
             <th class="px-5 py-3 text-right">Total</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-ink/10">
+        <tbody class="divide-y divide-fg/10">
           {#each s.generatedInvoices as inv (inv.id)}
-            <tr class="hover:bg-cream">
+            <tr class="hover:bg-surface">
               <td class="px-5 py-4">
-                <a href="/invoices/{inv.id}" class="font-serif text-ink hover:text-gold-deep">
+                <a href="/invoices/{inv.id}" class="font-serif text-fg hover:text-accent">
                   {inv.number}
                 </a>
               </td>
-              <td class="px-5 py-4 font-mono tabular-nums text-ink/80">{inv.issueDate}</td>
+              <td class="px-5 py-4 font-mono tabular-nums text-fg/80">{inv.issueDate}</td>
               <td class="px-5 py-4">
-                <span class="font-mono text-xs uppercase tracking-widest text-ink/60">
+                <span class="font-mono text-xs uppercase tracking-widest text-fg/60">
                   {inv.status}
                 </span>
               </td>
-              <td class="px-5 py-4 text-right font-mono tabular-nums text-ink">{inv.total}</td>
+              <td class="px-5 py-4 text-right font-mono tabular-nums text-fg">{inv.total}</td>
             </tr>
           {/each}
         </tbody>

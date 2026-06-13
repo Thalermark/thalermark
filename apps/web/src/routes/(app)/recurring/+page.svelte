@@ -43,14 +43,14 @@
 <div class="flex items-baseline justify-between gap-6">
   <div>
     <span class="eyebrow">Recurring</span>
-    <h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-ink">
-      Recurring invoices<span class="text-gold-deep">.</span>
+    <h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-fg">
+      Recurring invoices<span class="text-accent">.</span>
     </h1>
   </div>
   {#if may(data.role, 'sales:write')}
     <a
       href="/recurring/new"
-      class="rounded-sm bg-ink px-4 py-2 text-sm font-medium text-cream transition-colors hover:bg-gold-deep"
+      class="btn"
     >
       + New schedule
     </a>
@@ -58,14 +58,14 @@
 </div>
 
 {#if rows.length === 0}
-  <p class="mt-8 text-ink/70">
+  <p class="mt-8 text-fg/70">
     No recurring schedules yet. Set one up to auto-generate and email invoices on a cadence.
   </p>
 {:else}
-  <div class="mt-8 overflow-hidden rounded-sm border border-ink/10 bg-cream-warm">
+  <div class="mt-8 overflow-hidden rounded-sm border border-fg/10 bg-surface-2">
     <table class="w-full text-left text-sm">
-      <thead class="bg-cream">
-        <tr class="font-mono text-xs uppercase tracking-widest text-ink/50">
+      <thead class="bg-surface">
+        <tr class="label">
           <th class="px-5 py-3">Customer</th>
           <th class="px-5 py-3">Cadence</th>
           <th class="px-5 py-3">Next run</th>
@@ -73,24 +73,24 @@
           <th class="px-5 py-3 text-right">Total</th>
         </tr>
       </thead>
-      <tbody class="divide-y divide-ink/10">
+      <tbody class="divide-y divide-fg/10">
         {#each rows as s (s.id)}
-          <tr class="hover:bg-cream">
+          <tr class="hover:bg-surface">
             <td class="px-5 py-4">
-              <a href="/recurring/{s.id}" class="font-serif text-ink hover:text-gold-deep">
+              <a href="/recurring/{s.id}" class="font-serif text-fg hover:text-accent">
                 {s.customerName ?? '—'}
               </a>
             </td>
-            <td class="px-5 py-4 text-ink/80">{cadenceLabel(s.frequency, s.intervalCount)}</td>
-            <td class="px-5 py-4 font-mono tabular-nums text-ink/80">
+            <td class="px-5 py-4 text-fg/80">{cadenceLabel(s.frequency, s.intervalCount)}</td>
+            <td class="px-5 py-4 font-mono tabular-nums text-fg/80">
               {s.status === 'ended' ? '—' : s.nextRunDate}
             </td>
             <td class="px-5 py-4">
-              <span class="font-mono text-xs uppercase tracking-widest text-ink/60">
+              <span class="font-mono text-xs uppercase tracking-widest text-fg/60">
                 {s.status}
               </span>
             </td>
-            <td class="px-5 py-4 text-right font-mono tabular-nums text-ink">
+            <td class="px-5 py-4 text-right font-mono tabular-nums text-fg">
               {s.currency} {s.total}
             </td>
           </tr>

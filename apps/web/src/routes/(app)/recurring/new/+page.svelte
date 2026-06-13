@@ -63,34 +63,34 @@
   }
 </script>
 
-<a href="/recurring" class="eyebrow text-ink/60 hover:text-ink">← Recurring</a>
-<h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-ink">
-  New schedule<span class="text-gold-deep">.</span>
+<a href="/recurring" class="eyebrow text-fg/60 hover:text-fg">← Recurring</a>
+<h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-fg">
+  New schedule<span class="text-accent">.</span>
 </h1>
 
 {#if form?.formError}
-  <div class="mt-6 rounded-sm border border-oxblood/30 bg-oxblood/5 px-4 py-3 text-sm text-oxblood">
+  <div class="mt-6 rounded-sm border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
     {form.formError}
   </div>
 {/if}
 
 {#if data.customers.length === 0}
-  <p class="mt-8 text-ink/70">
+  <p class="mt-8 text-fg/70">
     You need at least one customer before creating a recurring schedule.
-    <a href="/customers/new" class="text-gold-deep hover:underline">Add a customer →</a>
+    <a href="/customers/new" class="text-accent hover:underline">Add a customer →</a>
   </p>
 {:else}
   <form method="post" class="mt-8 space-y-8">
     <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
       <div>
-        <label for="customerId" class="font-mono text-xs uppercase tracking-widest text-ink/50">
-          Customer<span class="text-gold-deep">*</span>
+        <label for="customerId" class="label">
+          Customer<span class="text-accent">*</span>
         </label>
         <select
           id="customerId"
           name="customerId"
           required
-          class="mt-1 w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
+          class="field mt-1"
         >
           <option value="" disabled selected={!values?.customerId}>Select a customer…</option>
           {#each data.customers as c (c.id)}
@@ -98,13 +98,13 @@
           {/each}
         </select>
         {#if err('customerId')}
-          <p class="mt-1 text-xs text-oxblood">{err('customerId')}</p>
+          <p class="mt-1 text-xs text-danger">{err('customerId')}</p>
         {/if}
       </div>
 
       <div>
-        <label for="startDate" class="font-mono text-xs uppercase tracking-widest text-ink/50">
-          First invoice on<span class="text-gold-deep">*</span>
+        <label for="startDate" class="label">
+          First invoice on<span class="text-accent">*</span>
         </label>
         <input
           id="startDate"
@@ -112,22 +112,22 @@
           type="date"
           required
           value={values?.startDate ?? todayIso()}
-          class="mt-1 w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
+          class="field mt-1"
         />
         {#if err('startDate')}
-          <p class="mt-1 text-xs text-oxblood">{err('startDate')}</p>
+          <p class="mt-1 text-xs text-danger">{err('startDate')}</p>
         {/if}
       </div>
 
       <div>
-        <label for="frequency" class="font-mono text-xs uppercase tracking-widest text-ink/50">
-          Frequency<span class="text-gold-deep">*</span>
+        <label for="frequency" class="label">
+          Frequency<span class="text-accent">*</span>
         </label>
         <select
           id="frequency"
           name="frequency"
           required
-          class="mt-1 w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
+          class="field mt-1"
         >
           {#each ['weekly', 'monthly', 'yearly'] as f (f)}
             <option value={f} selected={(values?.frequency ?? 'monthly') === f}>
@@ -136,13 +136,13 @@
           {/each}
         </select>
         {#if err('frequency')}
-          <p class="mt-1 text-xs text-oxblood">{err('frequency')}</p>
+          <p class="mt-1 text-xs text-danger">{err('frequency')}</p>
         {/if}
       </div>
 
       <div>
-        <label for="intervalCount" class="font-mono text-xs uppercase tracking-widest text-ink/50">
-          Repeat every<span class="text-gold-deep">*</span>
+        <label for="intervalCount" class="label">
+          Repeat every<span class="text-accent">*</span>
         </label>
         <input
           id="intervalCount"
@@ -151,16 +151,16 @@
           min="1"
           required
           value={values?.intervalCount ?? '1'}
-          class="mt-1 w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
+          class="field mt-1"
         />
-        <p class="mt-1 text-xs text-ink/50">e.g. 2 = every other period.</p>
+        <p class="mt-1 text-xs text-fg/50">e.g. 2 = every other period.</p>
         {#if err('intervalCount')}
-          <p class="mt-1 text-xs text-oxblood">{err('intervalCount')}</p>
+          <p class="mt-1 text-xs text-danger">{err('intervalCount')}</p>
         {/if}
       </div>
 
       <div>
-        <label for="netTermsDays" class="font-mono text-xs uppercase tracking-widest text-ink/50">
+        <label for="netTermsDays" class="label">
           Payment terms (days)
         </label>
         <input
@@ -169,16 +169,16 @@
           type="number"
           min="0"
           value={values?.netTermsDays ?? '30'}
-          class="mt-1 w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
+          class="field mt-1"
         />
-        <p class="mt-1 text-xs text-ink/50">Due date = issue date + this many days.</p>
+        <p class="mt-1 text-xs text-fg/50">Due date = issue date + this many days.</p>
         {#if err('netTermsDays')}
-          <p class="mt-1 text-xs text-oxblood">{err('netTermsDays')}</p>
+          <p class="mt-1 text-xs text-danger">{err('netTermsDays')}</p>
         {/if}
       </div>
 
       <div>
-        <label for="endDate" class="font-mono text-xs uppercase tracking-widest text-ink/50">
+        <label for="endDate" class="label">
           End date
         </label>
         <input
@@ -186,15 +186,15 @@
           name="endDate"
           type="date"
           value={values?.endDate ?? ''}
-          class="mt-1 w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
+          class="field mt-1"
         />
         {#if err('endDate')}
-          <p class="mt-1 text-xs text-oxblood">{err('endDate')}</p>
+          <p class="mt-1 text-xs text-danger">{err('endDate')}</p>
         {/if}
       </div>
 
       <div>
-        <label for="maxOccurrences" class="font-mono text-xs uppercase tracking-widest text-ink/50">
+        <label for="maxOccurrences" class="label">
           Stop after N invoices
         </label>
         <input
@@ -203,26 +203,26 @@
           type="number"
           min="1"
           value={values?.maxOccurrences ?? ''}
-          class="mt-1 w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
+          class="field mt-1"
         />
         {#if err('maxOccurrences')}
-          <p class="mt-1 text-xs text-oxblood">{err('maxOccurrences')}</p>
+          <p class="mt-1 text-xs text-danger">{err('maxOccurrences')}</p>
         {/if}
       </div>
     </div>
-    <p class="text-xs text-ink/50">
+    <p class="text-xs text-fg/50">
       End date and stop-after are both optional — leave blank to run until you pause or end it.
     </p>
 
     <fieldset class="space-y-3">
-      <legend class="font-mono text-xs uppercase tracking-widest text-ink/50">Line items</legend>
+      <legend class="label">Line items</legend>
       {#if err('lineItems')}
-        <p class="text-xs text-oxblood">{err('lineItems')}</p>
+        <p class="text-xs text-danger">{err('lineItems')}</p>
       {/if}
-      <div class="overflow-hidden rounded-sm border border-ink/10 bg-cream-warm">
+      <div class="overflow-hidden rounded-sm border border-fg/10 bg-surface-2">
         <table class="w-full text-left text-sm">
-          <thead class="bg-cream">
-            <tr class="font-mono text-xs uppercase tracking-widest text-ink/50">
+          <thead class="bg-surface">
+            <tr class="label">
               <th class="px-3 py-2">Description</th>
               <th class="w-28 px-3 py-2 text-right">Qty</th>
               <th class="w-32 px-3 py-2 text-right">Unit price</th>
@@ -230,7 +230,7 @@
               <th class="w-10 px-3 py-2"></th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-ink/10">
+          <tbody class="divide-y divide-fg/10">
             {#each rows as row, i (i)}
               <tr>
                 <td class="px-3 py-2">
@@ -248,7 +248,7 @@
                     inputmode="decimal"
                     required
                     bind:value={row.quantity}
-                    class="w-full rounded-sm border border-ink/15 bg-cream px-2 py-1 text-right font-mono tabular-nums text-ink focus:border-gold-deep focus:outline-none"
+                    class="w-full rounded-sm border border-fg/15 bg-surface px-2 py-1 text-right font-mono tabular-nums text-fg focus:border-accent focus:outline-none"
                   />
                 </td>
                 <td class="px-3 py-2">
@@ -258,10 +258,10 @@
                     inputmode="decimal"
                     required
                     bind:value={row.unitPrice}
-                    class="w-full rounded-sm border border-ink/15 bg-cream px-2 py-1 text-right font-mono tabular-nums text-ink focus:border-gold-deep focus:outline-none"
+                    class="w-full rounded-sm border border-fg/15 bg-surface px-2 py-1 text-right font-mono tabular-nums text-fg focus:border-accent focus:outline-none"
                   />
                 </td>
-                <td class="px-3 py-2 text-right font-mono tabular-nums text-ink">
+                <td class="px-3 py-2 text-right font-mono tabular-nums text-fg">
                   {computedRows[i]?.amount ?? '0.00'}
                 </td>
                 <td class="px-3 py-2 text-right">
@@ -270,7 +270,7 @@
                     onclick={() => removeRow(i)}
                     disabled={rows.length <= 1}
                     aria-label="Remove row"
-                    class="text-ink/50 transition-colors hover:text-oxblood disabled:cursor-not-allowed disabled:opacity-30"
+                    class="text-fg/50 transition-colors hover:text-danger disabled:cursor-not-allowed disabled:opacity-30"
                   >
                     ×
                   </button>
@@ -280,50 +280,50 @@
           </tbody>
         </table>
       </div>
-      <button type="button" onclick={addRow} class="text-sm font-medium text-gold-deep hover:text-ink">
+      <button type="button" onclick={addRow} class="text-sm font-medium text-accent hover:text-fg">
         + Add row
       </button>
     </fieldset>
 
     <div class="grid grid-cols-1 gap-6 sm:grid-cols-2 sm:items-end">
       <div>
-        <label for="tax" class="font-mono text-xs uppercase tracking-widest text-ink/50">Tax</label>
+        <label for="tax" class="label">Tax</label>
         <input
           id="tax"
           name="tax"
           type="text"
           inputmode="decimal"
           bind:value={tax}
-          class="mt-1 w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-right font-mono tabular-nums text-ink focus:border-gold-deep focus:outline-none"
+          class="field mt-1 text-right font-mono tabular-nums"
         />
         {#if err('tax')}
-          <p class="mt-1 text-xs text-oxblood">{err('tax')}</p>
+          <p class="mt-1 text-xs text-danger">{err('tax')}</p>
         {/if}
       </div>
-      <dl class="rounded-sm border border-ink/10 bg-cream-warm p-4 text-sm">
+      <dl class="rounded-sm border border-fg/10 bg-surface-2 p-4 text-sm">
         <div class="flex justify-between">
-          <dt class="font-mono text-xs uppercase tracking-widest text-ink/50">Subtotal</dt>
-          <dd class="font-mono tabular-nums text-ink">{subtotal}</dd>
+          <dt class="label">Subtotal</dt>
+          <dd class="font-mono tabular-nums text-fg">{subtotal}</dd>
         </div>
         <div class="mt-2 flex justify-between">
-          <dt class="font-mono text-xs uppercase tracking-widest text-ink/50">Tax</dt>
-          <dd class="font-mono tabular-nums text-ink">{tax || '0.00'}</dd>
+          <dt class="label">Tax</dt>
+          <dd class="font-mono tabular-nums text-fg">{tax || '0.00'}</dd>
         </div>
-        <div class="mt-3 flex justify-between border-t border-ink/10 pt-3">
-          <dt class="font-mono text-xs uppercase tracking-widest text-ink/70">Total per invoice</dt>
-          <dd class="font-mono tabular-nums text-lg text-ink">{total}</dd>
+        <div class="mt-3 flex justify-between border-t border-fg/10 pt-3">
+          <dt class="font-mono text-xs uppercase tracking-widest text-fg/70">Total per invoice</dt>
+          <dd class="font-mono tabular-nums text-lg text-fg">{total}</dd>
         </div>
       </dl>
     </div>
 
     <div>
-      <label for="notes" class="font-mono text-xs uppercase tracking-widest text-ink/50">Notes</label>
+      <label for="notes" class="label">Notes</label>
       <textarea
         id="notes"
         name="notes"
         rows="4"
         maxlength="5000"
-        class="mt-1 w-full rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink focus:border-gold-deep focus:outline-none"
+        class="field mt-1"
         >{values?.notes ?? ''}</textarea
       >
     </div>
@@ -331,11 +331,11 @@
     <div class="flex items-center gap-4">
       <button
         type="submit"
-        class="rounded-sm bg-ink px-5 py-2 text-sm font-medium text-cream transition-colors hover:bg-gold-deep"
+        class="btn"
       >
         Create schedule
       </button>
-      <a href="/recurring" class="text-sm text-ink/60 hover:text-ink">Cancel</a>
+      <a href="/recurring" class="text-sm text-fg/60 hover:text-fg">Cancel</a>
     </div>
   </form>
 {/if}
