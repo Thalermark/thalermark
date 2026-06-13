@@ -34,7 +34,7 @@
 </script>
 
 <div class="mx-auto max-w-3xl px-6 py-12 sm:py-20">
-  <header class="flex flex-wrap items-start justify-between gap-6 border-b border-ink/10 pb-8">
+  <header class="flex flex-wrap items-start justify-between gap-6 border-b border-fg/10 pb-8">
     <div>
       {#if inv.companyLogoUrl}
         <img
@@ -43,13 +43,13 @@
           class="mb-3 max-h-16 max-w-[12rem] object-contain"
         />
       {/if}
-      <p class="eyebrow text-ink/50">{inv.companyName ?? 'Invoice'}</p>
-      <h1 class="mt-2 font-serif text-4xl font-light leading-none tracking-tight text-ink">
-        Invoice {inv.number}<span class="text-gold-deep">.</span>
+      <p class="eyebrow text-fg/50">{inv.companyName ?? 'Invoice'}</p>
+      <h1 class="mt-2 font-serif text-4xl font-light leading-none tracking-tight text-fg">
+        Invoice {inv.number}<span class="text-accent">.</span>
       </h1>
     </div>
     <span
-      class="rounded-sm border border-ink/15 px-3 py-1 font-mono text-xs uppercase tracking-widest text-ink/70"
+      class="rounded-sm border border-fg/15 px-3 py-1 font-mono text-xs uppercase tracking-widest text-fg/70"
     >
       {inv.status}
     </span>
@@ -57,22 +57,22 @@
 
   {#if inv.status === 'paid'}
     <div
-      class="mt-6 rounded-sm border border-emerald-700/30 bg-emerald-50 px-4 py-3 text-sm text-emerald-900"
+      class="mt-6 rounded-sm border border-success/30 bg-success/5 px-4 py-3 text-sm text-success"
     >
       Paid{#if inv.paidAt} on {inv.paidAt.slice(0, 10)}{/if}. Thank you.
     </div>
   {:else if inv.status === 'voided'}
-    <div class="mt-6 rounded-sm border border-ink/20 bg-cream-warm px-4 py-3 text-sm text-ink/70">
+    <div class="mt-6 rounded-sm border border-fg/20 bg-surface-2 px-4 py-3 text-sm text-fg/70">
       This invoice has been voided.
     </div>
   {:else if showProcessingBanner}
     <div
-      class="mt-6 rounded-sm border border-gold-deep/30 bg-gold-deep/5 px-4 py-3 text-sm text-ink"
+      class="mt-6 rounded-sm border border-accent/30 bg-accent/5 px-4 py-3 text-sm text-fg"
     >
       Payment received — finalizing. Refresh in a moment if this banner doesn't update.
     </div>
   {:else if inv.connectPending && inv.status === 'sent'}
-    <div class="mt-6 rounded-sm border border-ink/15 bg-cream-warm px-4 py-3 text-sm text-ink/80">
+    <div class="mt-6 rounded-sm border border-fg/15 bg-surface-2 px-4 py-3 text-sm text-fg/80">
       {inv.companyName ?? 'This business'} is finishing setting up online payments. Online pay will appear here once that's complete — usually a few minutes. You can still reach out to them directly in the meantime.
     </div>
   {/if}
@@ -80,79 +80,79 @@
   <dl class="mt-8 grid grid-cols-1 gap-x-12 gap-y-6 sm:grid-cols-3">
     {#if inv.companyName && (inv.companyAddress || inv.companyPhone)}
       <div>
-        <dt class="font-mono text-xs uppercase tracking-widest text-ink/50">From</dt>
-        <dd class="mt-1 text-ink">{inv.companyName}</dd>
+        <dt class="label">From</dt>
+        <dd class="mt-1 text-fg">{inv.companyName}</dd>
         {#if inv.companyAddress}
-          <dd class="mt-1 whitespace-pre-line text-sm text-ink/70">{inv.companyAddress}</dd>
+          <dd class="mt-1 whitespace-pre-line text-sm text-fg/70">{inv.companyAddress}</dd>
         {/if}
         {#if inv.companyPhone}
-          <dd class="mt-1 text-sm text-ink/70">{inv.companyPhone}</dd>
+          <dd class="mt-1 text-sm text-fg/70">{inv.companyPhone}</dd>
         {/if}
       </div>
     {/if}
     {#if inv.customerName}
       <div>
-        <dt class="font-mono text-xs uppercase tracking-widest text-ink/50">Bill to</dt>
-        <dd class="mt-1 text-ink">{inv.customerName}</dd>
+        <dt class="label">Bill to</dt>
+        <dd class="mt-1 text-fg">{inv.customerName}</dd>
       </div>
     {/if}
     <div>
-      <dt class="font-mono text-xs uppercase tracking-widest text-ink/50">Issued</dt>
-      <dd class="mt-1 text-ink">{inv.issueDate}</dd>
+      <dt class="label">Issued</dt>
+      <dd class="mt-1 text-fg">{inv.issueDate}</dd>
     </div>
     <div>
-      <dt class="font-mono text-xs uppercase tracking-widest text-ink/50">Due</dt>
-      <dd class="mt-1 text-ink">{inv.dueDate}</dd>
+      <dt class="label">Due</dt>
+      <dd class="mt-1 text-fg">{inv.dueDate}</dd>
     </div>
   </dl>
 
-  <div class="mt-10 overflow-hidden rounded-sm border border-ink/10 bg-cream-warm">
+  <div class="mt-10 overflow-hidden rounded-sm border border-fg/10 bg-surface-2">
     <table class="w-full text-left text-sm">
-      <thead class="bg-cream">
-        <tr class="font-mono text-xs uppercase tracking-widest text-ink/50">
+      <thead class="bg-surface">
+        <tr class="label">
           <th class="px-5 py-3">Description</th>
           <th class="px-5 py-3 text-right">Qty</th>
           <th class="px-5 py-3 text-right">Unit price</th>
           <th class="px-5 py-3 text-right">Amount</th>
         </tr>
       </thead>
-      <tbody class="divide-y divide-ink/10">
+      <tbody class="divide-y divide-fg/10">
         {#each inv.lineItems as li (li.id)}
           <tr>
-            <td class="px-5 py-4 text-ink">{li.description}</td>
-            <td class="px-5 py-4 text-right font-mono tabular-nums text-ink/80">{li.quantity}</td>
-            <td class="px-5 py-4 text-right font-mono tabular-nums text-ink/80">{li.unitPrice}</td>
-            <td class="px-5 py-4 text-right font-mono tabular-nums text-ink">{li.amount}</td>
+            <td class="px-5 py-4 text-fg">{li.description}</td>
+            <td class="px-5 py-4 text-right font-mono tabular-nums text-fg/80">{li.quantity}</td>
+            <td class="px-5 py-4 text-right font-mono tabular-nums text-fg/80">{li.unitPrice}</td>
+            <td class="px-5 py-4 text-right font-mono tabular-nums text-fg">{li.amount}</td>
           </tr>
         {/each}
       </tbody>
-      <tfoot class="bg-cream">
+      <tfoot class="bg-surface">
         <tr>
           <td
             colspan="3"
-            class="px-5 py-3 text-right font-mono text-xs uppercase tracking-widest text-ink/50"
+            class="px-5 py-3 text-right label"
           >
             Subtotal
           </td>
-          <td class="px-5 py-3 text-right font-mono tabular-nums text-ink">{inv.subtotal}</td>
+          <td class="px-5 py-3 text-right font-mono tabular-nums text-fg">{inv.subtotal}</td>
         </tr>
         <tr>
           <td
             colspan="3"
-            class="px-5 py-3 text-right font-mono text-xs uppercase tracking-widest text-ink/50"
+            class="px-5 py-3 text-right label"
           >
             Tax
           </td>
-          <td class="px-5 py-3 text-right font-mono tabular-nums text-ink">{inv.tax}</td>
+          <td class="px-5 py-3 text-right font-mono tabular-nums text-fg">{inv.tax}</td>
         </tr>
         <tr>
           <td
             colspan="3"
-            class="px-5 py-3 text-right font-mono text-xs uppercase tracking-widest text-ink/50"
+            class="px-5 py-3 text-right label"
           >
             Total ({inv.currency})
           </td>
-          <td class="px-5 py-3 text-right font-mono tabular-nums text-lg text-ink">{inv.total}</td>
+          <td class="px-5 py-3 text-right font-mono tabular-nums text-lg text-fg">{inv.total}</td>
         </tr>
       </tfoot>
     </table>
@@ -160,24 +160,24 @@
 
   {#if inv.notes}
     <div class="mt-8">
-      <h2 class="font-mono text-xs uppercase tracking-widest text-ink/50">Notes</h2>
-      <p class="mt-2 whitespace-pre-wrap text-ink/80">{inv.notes}</p>
+      <h2 class="label">Notes</h2>
+      <p class="mt-2 whitespace-pre-wrap text-fg/80">{inv.notes}</p>
     </div>
   {/if}
 
   {#if inv.payable || offlineMethods.length > 0}
-    <div class="mt-10 border-t border-ink/10 pt-8">
-      <h2 class="font-mono text-xs uppercase tracking-widest text-ink/50">Payment</h2>
+    <div class="mt-10 border-t border-fg/10 pt-8">
+      <h2 class="label">Payment</h2>
 
       {#if inv.payable}
         <div class="mt-4">
           <a
             href="/pay/{page.params.token}"
-            class="inline-block rounded-sm bg-ink px-6 py-3 text-sm font-medium uppercase tracking-widest text-cream transition-colors hover:bg-gold-deep"
+            class="inline-block rounded-sm bg-inverse px-6 py-3 text-sm font-medium uppercase tracking-widest text-on-inverse transition-colors hover:bg-accent"
           >
             Pay {inv.total} {inv.currency}
           </a>
-          <p class="mt-2 font-mono text-xs uppercase tracking-widest text-ink/40">
+          <p class="mt-2 font-mono text-xs uppercase tracking-widest text-fg/40">
             Secure card payment via Stripe
           </p>
         </div>
@@ -186,13 +186,13 @@
       {#if offlineMethods.length > 0}
         <div class="mt-6">
           {#if inv.payable}
-            <p class="mb-3 text-sm text-ink/60">Or pay directly:</p>
+            <p class="mb-3 text-sm text-fg/60">Or pay directly:</p>
           {/if}
           <dl class="grid gap-x-8 gap-y-3 sm:grid-cols-2">
             {#each offlineMethods as m (m.label)}
               <div>
-                <dt class="font-mono text-xs uppercase tracking-widest text-ink/50">{m.label}</dt>
-                <dd class="mt-1 whitespace-pre-line text-ink">{m.value}</dd>
+                <dt class="label">{m.label}</dt>
+                <dd class="mt-1 whitespace-pre-line text-fg">{m.value}</dd>
               </div>
             {/each}
           </dl>
@@ -202,7 +202,7 @@
   {/if}
 
   <footer
-    class="mt-12 border-t border-ink/10 pt-6 text-center font-mono text-xs uppercase tracking-widest text-ink/40"
+    class="mt-12 border-t border-fg/10 pt-6 text-center font-mono text-xs uppercase tracking-widest text-fg/40"
   >
     Sent via Thalermark
   </footer>
