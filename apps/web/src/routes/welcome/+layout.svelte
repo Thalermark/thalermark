@@ -13,11 +13,11 @@
 <div class="flex min-h-screen flex-col">
   <nav class="px-6 py-8">
     <div class="mx-auto flex max-w-xl items-center justify-between">
-      <span class="wordmark wordmark-small text-ink" aria-label="Thalermark">
+      <span class="wordmark wordmark-small text-fg" aria-label="Thalermark">
         <span class="strike"></span>
         <span class="word">thalermark</span>
       </span>
-      <span class="font-mono text-xs uppercase tracking-widest text-ink/50">
+      <span class="label">
         Step {current} of {STEPS.length}
       </span>
     </div>
@@ -28,8 +28,8 @@
       {#each STEPS as _, i (i)}
         <span
           class="h-1 flex-1 rounded-full transition-colors {i < current
-            ? 'bg-gold-deep'
-            : 'bg-ink/15'}"
+            ? 'bg-accent'
+            : 'bg-fg/15'}"
         ></span>
       {/each}
     </div>

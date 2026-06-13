@@ -15,20 +15,20 @@
   const canManageCompanies = $derived(may(page.data.role, 'settings:manage'));
 </script>
 
-<header class="border-b border-ink/10 bg-cream print:hidden">
+<header class="border-b border-fg/10 bg-surface print:hidden">
   <div class="mx-auto flex max-w-5xl items-center justify-between gap-6 px-6 py-6">
-    <a href="/" class="wordmark wordmark-small text-ink" aria-label="Thalermark home">
+    <a href="/" class="wordmark wordmark-small text-fg" aria-label="Thalermark home">
       <span class="strike"></span>
       <span class="word">thalermark</span>
     </a>
     {#if session}
-      <nav class="flex items-center gap-6 font-mono text-xs uppercase tracking-widest text-ink/60">
-        <a href="/invoices" class="hover:text-ink">Invoices</a>
-        <a href="/recurring" class="hover:text-ink">Recurring</a>
-        <a href="/estimates" class="hover:text-ink">Estimates</a>
-        <a href="/expenses" class="hover:text-ink">Expenses</a>
-        <a href="/customers" class="hover:text-ink">Customers</a>
-        <a href="/reports" class="hover:text-ink">Reports</a>
+      <nav class="flex items-center gap-6 font-mono text-xs uppercase tracking-widest text-fg/60">
+        <a href="/invoices" class="hover:text-fg">Invoices</a>
+        <a href="/recurring" class="hover:text-fg">Recurring</a>
+        <a href="/estimates" class="hover:text-fg">Estimates</a>
+        <a href="/expenses" class="hover:text-fg">Expenses</a>
+        <a href="/customers" class="hover:text-fg">Customers</a>
+        <a href="/reports" class="hover:text-fg">Reports</a>
       </nav>
       <UserMenu
         name={session.user.name}

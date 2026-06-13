@@ -57,30 +57,30 @@
     onclick={toggle}
     aria-haspopup="menu"
     aria-expanded={open}
-    class="flex items-center gap-2 rounded-full focus:outline-none focus:ring-2 focus:ring-gold/50"
+    class="flex items-center gap-2 rounded-full focus:outline-none focus:ring-2 focus:ring-accent/50"
   >
     <AvatarBubble {name} {email} />
   </button>
   {#if open}
     <div
       role="menu"
-      class="absolute right-0 z-10 mt-2 w-60 rounded-sm border border-ink/10 bg-cream py-1 shadow-lg"
+      class="absolute right-0 z-10 mt-2 w-60 rounded-sm border border-fg/10 bg-surface py-1 shadow-lg"
     >
       <div class="px-4 py-3">
-        <div class="truncate font-serif text-base text-ink">{name || email}</div>
+        <div class="truncate font-serif text-base text-fg">{name || email}</div>
         {#if name}
-          <div class="mt-0.5 truncate font-mono text-xs text-ink/60">{email}</div>
+          <div class="mt-0.5 truncate font-mono text-xs text-fg/60">{email}</div>
         {/if}
       </div>
-      <div class="my-1 border-t border-ink/10"></div>
+      <div class="my-1 border-t border-fg/10"></div>
       {#if companies.length > 0}
-        <p class="px-4 pb-1 pt-2 font-mono text-[10px] uppercase tracking-widest text-ink/40">
+        <p class="px-4 pb-1 pt-2 font-mono text-[10px] uppercase tracking-widest text-fg/40">
           Company
         </p>
         {#each companies as c (c.id)}
           {#if c.id === activeCompanyId}
-            <div class="flex items-center gap-2 px-4 py-2 text-sm text-ink">
-              <span class="text-gold-deep">✓</span>
+            <div class="flex items-center gap-2 px-4 py-2 text-sm text-fg">
+              <span class="text-accent">✓</span>
               <span class="truncate">{c.name}</span>
             </div>
           {:else}
@@ -90,7 +90,7 @@
               <button
                 type="submit"
                 role="menuitem"
-                class="flex w-full items-center gap-2 px-4 py-2 text-left text-sm text-ink/80 transition-colors hover:bg-cream-warm hover:text-ink"
+                class="flex w-full items-center gap-2 px-4 py-2 text-left text-sm text-fg/80 transition-colors hover:bg-surface-2 hover:text-fg"
               >
                 <span class="w-3"></span>
                 <span class="truncate">{c.name}</span>
@@ -103,18 +103,18 @@
             href="/companies/new"
             role="menuitem"
             onclick={close}
-            class="block px-4 py-2 text-sm text-gold-deep transition-colors hover:bg-cream-warm"
+            class="block px-4 py-2 text-sm text-accent transition-colors hover:bg-surface-2"
           >
             + Add company
           </a>
         {/if}
-        <div class="my-1 border-t border-ink/10"></div>
+        <div class="my-1 border-t border-fg/10"></div>
       {/if}
       <a
         href="/select-company"
         role="menuitem"
         onclick={close}
-        class="block px-4 py-2 text-sm text-ink/80 transition-colors hover:bg-cream-warm hover:text-ink"
+        class="block px-4 py-2 text-sm text-fg/80 transition-colors hover:bg-surface-2 hover:text-fg"
       >
         {COPY.workspace}
       </a>
@@ -122,7 +122,7 @@
         href="/settings"
         role="menuitem"
         onclick={close}
-        class="block px-4 py-2 text-sm text-ink/80 transition-colors hover:bg-cream-warm hover:text-ink"
+        class="block px-4 py-2 text-sm text-fg/80 transition-colors hover:bg-surface-2 hover:text-fg"
       >
         {COPY.settings}
       </a>
@@ -130,7 +130,7 @@
         type="button"
         role="menuitem"
         onclick={onSignOut}
-        class="block w-full px-4 py-2 text-left text-sm text-ink/80 transition-colors hover:bg-cream-warm hover:text-ink"
+        class="block w-full px-4 py-2 text-left text-sm text-fg/80 transition-colors hover:bg-surface-2 hover:text-fg"
       >
         {COPY.signOut}
       </button>
