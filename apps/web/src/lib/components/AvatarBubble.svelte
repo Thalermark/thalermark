@@ -1,6 +1,4 @@
 <script lang="ts">
-  import { initialBubbleColor } from '@thalermark/brand';
-
   type Props = {
     name: string;
     email: string;
@@ -11,7 +9,6 @@
 
   const seed = $derived((name || email || '').trim());
   const initials = $derived(deriveInitials(seed));
-  const bg = $derived(initialBubbleColor(seed.toLowerCase()));
 
   function deriveInitials(s: string): string {
     if (!s) return '?';
@@ -27,8 +24,7 @@
 
 <span
   aria-hidden="true"
-  class={`inline-flex items-center justify-center rounded-full font-medium text-white ${dimensions}`}
-  style={`background-color: ${bg}`}
+  class={`inline-flex items-center justify-center rounded-full bg-inverse font-medium text-on-inverse ${dimensions}`}
 >
   {initials}
 </span>
