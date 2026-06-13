@@ -1,5 +1,7 @@
 <script lang="ts">
+  import ExportCsvButton from '$lib/components/ExportCsvButton.svelte';
   import PeriodSelector from '$lib/components/PeriodSelector.svelte';
+  import type { CsvCell } from '$lib/csv';
   import type { PageProps } from './$types';
 
   let { data }: PageProps = $props();
@@ -16,13 +18,28 @@
       .map((e) => ({ ...e, share: total > 0 ? (Number(e.amount) / total) * 100 : 0 }))
       .sort((a, b) => Number(b.amount) - Number(a.amount)),
   );
+
+  const csvRows = $derived<CsvCell[][]>([
+    ['Code', 'Category', 'Tax line', 'Amount', 'Share %'],
+    ...rows.map(
+      (e) => [e.code, e.name, e.taxMapping ?? '', e.amount, e.share.toFixed(1)] as CsvCell[],
+    ),
+    ['', 'Total expenses', '', report.totalExpenses, ''],
+  ]);
 </script>
 
-<div>
-  <span class="eyebrow">Reports</span>
-  <h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-ink">
-    Expenses by category<span class="text-gold-deep">.</span>
-  </h1>
+<div class="flex flex-wrap items-baseline justify-between gap-6">
+  <div>
+    <a href="/reports" class="eyebrow text-ink/60 hover:text-ink">← Reports</a>
+    <h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-ink">
+      Expenses by category<span class="text-gold-deep">.</span>
+    </h1>
+  </div>
+  <ExportCsvButton
+    filename="expenses-by-category_{report.from}_{report.to}"
+    rows={csvRows}
+    disabled={rows.length === 0}
+  />
 </div>
 
 <PeriodSelector {presets} {activeKey} from={report.from} to={report.to} />

@@ -1,5 +1,7 @@
 <script lang="ts">
+  import ExportCsvButton from '$lib/components/ExportCsvButton.svelte';
   import PeriodSelector from '$lib/components/PeriodSelector.svelte';
+  import type { CsvCell } from '$lib/csv';
   import type { PageProps } from './$types';
 
   let { data }: PageProps = $props();
@@ -19,13 +21,25 @@
   ];
 
   const winPct = $derived(report.winRate === null ? null : Math.round(Number(report.winRate) * 100));
+
+  const csvRows = $derived<CsvCell[][]>([
+    ['Status', 'Count', 'Value'],
+    ...ROWS.map((r) => {
+      const s = byStatus.get(r.status);
+      return [r.label, s?.count ?? 0, s?.value ?? '0.00'] as CsvCell[];
+    }),
+    ['Win rate %', winPct ?? '', ''],
+  ]);
 </script>
 
-<div>
-  <span class="eyebrow">Reports</span>
-  <h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-ink">
-    Estimate win rate<span class="text-gold-deep">.</span>
-  </h1>
+<div class="flex flex-wrap items-baseline justify-between gap-6">
+  <div>
+    <a href="/reports" class="eyebrow text-ink/60 hover:text-ink">← Reports</a>
+    <h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-ink">
+      Estimate win rate<span class="text-gold-deep">.</span>
+    </h1>
+  </div>
+  <ExportCsvButton filename="estimate-win-rate_{report.from}_{report.to}" rows={csvRows} />
 </div>
 
 <PeriodSelector {presets} {activeKey} from={report.from} to={report.to} />

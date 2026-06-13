@@ -1,5 +1,5 @@
 import { pickActiveCompany } from '$lib/active-company';
-import { serverApiClient } from '$lib/api.server';
+import { apiBaseUrl, serverApiClient, serverApiHeaders } from '$lib/api.server';
 import { error } from '@sveltejs/kit';
 
 // Shared loaders for the report pages. They all read a from/to window (default
@@ -233,4 +233,57 @@ export async function loadSalesTax(event: Parameters<typeof serverApiClient>[0])
   if (!res.ok) throw error(res.status, 'failed to load report');
   const report = (await res.json()) as SalesTax;
   return { report, presets, activeKey: activePresetKey(presets, report.from, report.to) };
+}
+
+// General ledger — every journal entry over a window, joined with the chart of
+// accounts, plus a per-account trial-balance summary. The hidden double-entry
+// surfaced for the people who need it: this loader (and its page) only resolves
+// for roles with reports:export, since the export endpoint 403s everyone else.
+export type GeneralLedger = {
+  companyId: string;
+  companyName: string;
+  from: string | null;
+  to: string | null;
+  entries: {
+    id: string;
+    postedAt: string;
+    sourceEntityType: string;
+    sourceEntityId: string;
+    memo: string | null;
+    lines: {
+      code: string;
+      accountName: string;
+      accountType: string;
+      side: 'debit' | 'credit';
+      amount: string;
+    }[];
+  }[];
+  trialBalance: {
+    code: string;
+    accountName: string;
+    accountType: string;
+    debit: string;
+    credit: string;
+    net: string;
+  }[];
+};
+
+export async function loadGeneralLedger(event: Parameters<typeof serverApiClient>[0]) {
+  const { companyId, from, to, presets } = await reportContext(event);
+  // The ledger export reads its query params manually (no validator), so the
+  // typed hc client doesn't surface a `query` for it — go through the raw-fetch
+  // escape hatch (apiBaseUrl + serverApiHeaders) instead.
+  const qs = new URLSearchParams({ from, to }).toString();
+  const res = await event.fetch(`${apiBaseUrl()}/api/companies/${companyId}/ledger/export?${qs}`, {
+    headers: serverApiHeaders(event),
+  });
+  // A non-export role 403s here — let SvelteKit render the error rather than a
+  // blank ledger. The hub card is may()-gated so this is the direct-URL path.
+  if (!res.ok) throw error(res.status, 'failed to load the general ledger');
+  const report = (await res.json()) as GeneralLedger;
+  return {
+    report,
+    presets,
+    activeKey: activePresetKey(presets, report.from ?? '', report.to ?? ''),
+  };
 }

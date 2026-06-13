@@ -1,5 +1,7 @@
 <script lang="ts">
   import AsOfSelector from '$lib/components/AsOfSelector.svelte';
+  import ExportCsvButton from '$lib/components/ExportCsvButton.svelte';
+  import type { CsvCell } from '$lib/csv';
   import type { PageProps } from './$types';
 
   let { data }: PageProps = $props();
@@ -11,13 +13,30 @@
   // Overdue rows get progressively redder; current (not yet due) stays ink.
   const tone = (days: number) =>
     days <= 0 ? 'text-ink/70' : days <= 30 ? 'text-ink' : days <= 90 ? 'text-gold-deep' : 'text-oxblood';
+
+  // One row per open invoice — the detail an accountant chases against.
+  const csvRows = $derived<CsvCell[][]>([
+    ['Invoice', 'Customer', 'Due date', 'Days past due', 'Amount'],
+    ...report.invoices.map(
+      (inv) =>
+        [inv.number, inv.customerName ?? '', inv.dueDate, inv.daysPastDue, inv.amount] as CsvCell[],
+    ),
+    ['', '', '', 'Total', report.total],
+  ]);
 </script>
 
-<div>
-  <span class="eyebrow">Reports</span>
-  <h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-ink">
-    A/R aging<span class="text-gold-deep">.</span>
-  </h1>
+<div class="flex flex-wrap items-baseline justify-between gap-6">
+  <div>
+    <a href="/reports" class="eyebrow text-ink/60 hover:text-ink">← Reports</a>
+    <h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-ink">
+      A/R aging<span class="text-gold-deep">.</span>
+    </h1>
+  </div>
+  <ExportCsvButton
+    filename="ar-aging_{report.asOf}"
+    rows={csvRows}
+    disabled={report.invoices.length === 0}
+  />
 </div>
 
 <AsOfSelector asOf={report.asOf} />

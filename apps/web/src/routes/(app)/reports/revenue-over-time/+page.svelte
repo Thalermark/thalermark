@@ -1,5 +1,7 @@
 <script lang="ts">
+  import ExportCsvButton from '$lib/components/ExportCsvButton.svelte';
   import PeriodSelector from '$lib/components/PeriodSelector.svelte';
+  import type { CsvCell } from '$lib/csv';
   import type { PageProps } from './$types';
 
   let { data }: PageProps = $props();
@@ -17,13 +19,24 @@
   const max = $derived(Math.max(0, ...series.map((m) => Number(m.revenue))));
   const pct = (v: string) => (max > 0 ? (Number(v) / max) * 100 : 0);
   const hasRevenue = $derived(Number(report.total) > 0);
+
+  // The gap-filled month series (every month in range, zero-filled) — what the
+  // chart shows.
+  const csvRows = $derived<CsvCell[][]>([
+    ['Month', 'Revenue'],
+    ...series.map((m) => [m.month, m.revenue] as CsvCell[]),
+    ['Total', report.total],
+  ]);
 </script>
 
-<div>
-  <span class="eyebrow">Reports</span>
-  <h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-ink">
-    Revenue over time<span class="text-gold-deep">.</span>
-  </h1>
+<div class="flex flex-wrap items-baseline justify-between gap-6">
+  <div>
+    <a href="/reports" class="eyebrow text-ink/60 hover:text-ink">← Reports</a>
+    <h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-ink">
+      Revenue over time<span class="text-gold-deep">.</span>
+    </h1>
+  </div>
+  <ExportCsvButton filename="revenue-over-time_{report.from}_{report.to}" rows={csvRows} />
 </div>
 
 <PeriodSelector {presets} {activeKey} from={report.from} to={report.to} />
