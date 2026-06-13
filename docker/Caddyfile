@@ -16,6 +16,56 @@
 {$THALERMARK_DOMAIN:localhost} {
 	encode zstd gzip
 
+	# Security response headers — applied to every response (app + api + the
+	# unauthenticated public invoice/pay views). These are the headers that are
+	# safe to set unconditionally; the Content-Security-Policy is intentionally
+	# NOT set here (see the commented block below — it needs SvelteKit nonce
+	# integration, not a blunt proxy header, or it breaks hydration).
+	header {
+		# Force HTTPS for a year. includeSubDomains/preload are deliberately
+		# omitted: they commit every subdomain to HTTPS and (preload) are hard
+		# to undo. Add them once you've confirmed all subdomains are TLS-only.
+		Strict-Transport-Security "max-age=31536000"
+		# Stop browsers MIME-sniffing a response into something executable.
+		X-Content-Type-Options "nosniff"
+		# Nothing here is meant to be framed (Embedded Checkout was dropped for a
+		# branded /pay route), so deny framing outright — clickjacking defense.
+		X-Frame-Options "DENY"
+		# Don't leak full URLs (which carry public invoice/estimate tokens) in
+		# the Referer header on cross-origin navigations.
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# The web app uses none of these browser capabilities (receipt capture is
+		# the native app / a file picker, not getUserMedia; addresses autocomplete
+		# via text, not navigator.geolocation).
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+		# Don't advertise the server software/version.
+		-Server
+	}
+
+	# Cap request bodies so a flood of huge uploads can't exhaust api memory.
+	# The largest legitimate body is a receipt upload (RECEIPT_MAX_BYTES = 10MB
+	# in apps/api/src/app.ts); 12MB leaves room for multipart boundary overhead.
+	# The api still enforces its own per-asset limits (receipt 10MB, logo 2MB) —
+	# this is the outer guard that rejects (413) before anything is buffered.
+	request_body {
+		max_size 12MB
+	}
+
+	# Content-Security-Policy — NOT enabled by default. A correct CSP for this
+	# stack has to (a) allow Stripe.js + its iframes on the public pay view and
+	# (b) allow SvelteKit's hydration scripts, which are inline. The right way to
+	# get (b) is SvelteKit's own `csp` option in apps/web/svelte.config.js (it
+	# emits per-response nonces) rather than a static header here with
+	# 'unsafe-inline'. Starting point once that's wired:
+	#
+	#   header Content-Security-Policy "default-src 'self'; \
+	#     script-src 'self' https://js.stripe.com; \
+	#     style-src 'self' 'unsafe-inline'; \
+	#     img-src 'self' data:; font-src 'self' data:; \
+	#     connect-src 'self' https://api.stripe.com; \
+	#     frame-src https://js.stripe.com https://hooks.stripe.com; \
+	#     base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'"
+
 	handle /api/* {
 		reverse_proxy api:3000
 	}
