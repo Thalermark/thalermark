@@ -1,4 +1,6 @@
 <script lang="ts">
+  import ExportCsvButton from '$lib/components/ExportCsvButton.svelte';
+  import type { CsvCell } from '$lib/csv';
   import type { PageProps } from './$types';
 
   let { data }: PageProps = $props();
@@ -6,11 +8,11 @@
   const fmt = (s: string) =>
     Number(s).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 
+  const totalRaw = $derived(
+    data.products.reduce((sum, p) => sum + Number(p.revenue), 0).toFixed(2),
+  );
   const total = $derived(
-    data.products.reduce((sum, p) => sum + Number(p.revenue), 0).toLocaleString('en-US', {
-      style: 'currency',
-      currency: 'USD',
-    }),
+    Number(totalRaw).toLocaleString('en-US', { style: 'currency', currency: 'USD' }),
   );
 
   const basisNote = $derived(
@@ -18,32 +20,47 @@
       ? 'Pre-tax revenue from invoices that have been sent or paid.'
       : 'Pre-tax revenue from paid invoices only (cash basis).',
   );
+
+  const csvRows = $derived<CsvCell[][]>([
+    ['Product', 'Lines', 'Revenue'],
+    ...data.products.map(
+      (p) => [p.name ?? 'Uncatalogued / other', p.lineCount, p.revenue] as CsvCell[],
+    ),
+    ['Total', '', totalRaw],
+  ]);
 </script>
 
-<div class="flex items-baseline justify-between gap-6">
+<div class="flex flex-wrap items-baseline justify-between gap-6">
   <div>
-    <span class="eyebrow">Reports</span>
+    <a href="/reports" class="eyebrow text-ink/60 hover:text-ink">← Reports</a>
     <h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-ink">
       Top products<span class="text-gold-deep">.</span>
     </h1>
   </div>
-  <div class="flex items-center gap-1 rounded-sm border border-ink/15 bg-cream-warm p-1 font-mono text-xs uppercase tracking-widest">
-    <a
-      href="/reports/top-products"
-      class="rounded-sm px-3 py-1 transition-colors {data.basis === 'paid'
-        ? 'bg-ink text-cream'
-        : 'text-ink/60 hover:text-ink'}"
-    >
-      Paid
-    </a>
-    <a
-      href="/reports/top-products?basis=sent"
-      class="rounded-sm px-3 py-1 transition-colors {data.basis === 'sent'
-        ? 'bg-ink text-cream'
-        : 'text-ink/60 hover:text-ink'}"
-    >
-      Sent
-    </a>
+  <div class="flex items-center gap-3">
+    <div class="flex items-center gap-1 rounded-sm border border-ink/15 bg-cream-warm p-1 font-mono text-xs uppercase tracking-widest">
+      <a
+        href="/reports/top-products"
+        class="rounded-sm px-3 py-1 transition-colors {data.basis === 'paid'
+          ? 'bg-ink text-cream'
+          : 'text-ink/60 hover:text-ink'}"
+      >
+        Paid
+      </a>
+      <a
+        href="/reports/top-products?basis=sent"
+        class="rounded-sm px-3 py-1 transition-colors {data.basis === 'sent'
+          ? 'bg-ink text-cream'
+          : 'text-ink/60 hover:text-ink'}"
+      >
+        Sent
+      </a>
+    </div>
+    <ExportCsvButton
+      filename="top-products_{data.basis}"
+      rows={csvRows}
+      disabled={data.products.length === 0}
+    />
   </div>
 </div>
 

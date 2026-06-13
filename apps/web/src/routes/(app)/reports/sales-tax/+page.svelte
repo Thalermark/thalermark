@@ -1,5 +1,7 @@
 <script lang="ts">
+  import ExportCsvButton from '$lib/components/ExportCsvButton.svelte';
   import PeriodSelector from '$lib/components/PeriodSelector.svelte';
+  import type { CsvCell } from '$lib/csv';
   import type { PageProps } from './$types';
 
   let { data }: PageProps = $props();
@@ -7,13 +9,26 @@
 
   const fmt = (s: string) =>
     Number(s).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+
+  const csvRows = $derived<CsvCell[][]>([
+    ['Month', 'Collected'],
+    ...report.months.map((m) => [m.month, m.collected] as CsvCell[]),
+    ['Total', report.total],
+  ]);
 </script>
 
-<div>
-  <span class="eyebrow">Reports</span>
-  <h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-ink">
-    Sales tax collected<span class="text-gold-deep">.</span>
-  </h1>
+<div class="flex flex-wrap items-baseline justify-between gap-6">
+  <div>
+    <a href="/reports" class="eyebrow text-ink/60 hover:text-ink">← Reports</a>
+    <h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-ink">
+      Sales tax collected<span class="text-gold-deep">.</span>
+    </h1>
+  </div>
+  <ExportCsvButton
+    filename="sales-tax_{report.from}_{report.to}"
+    rows={csvRows}
+    disabled={report.months.length === 0}
+  />
 </div>
 
 <PeriodSelector {presets} {activeKey} from={report.from} to={report.to} />

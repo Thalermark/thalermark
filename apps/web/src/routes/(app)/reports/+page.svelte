@@ -1,6 +1,11 @@
 <script lang="ts">
+  import { may } from '$lib/perms';
+  import type { PageProps } from './$types';
+
   // Reports hub. Static index of the available reports — no data fetch; each
   // card links to a report that loads its own data.
+  let { data }: PageProps = $props();
+
   const reports = [
     {
       href: '/reports/profit-and-loss',
@@ -67,4 +72,19 @@
       <p class="mt-2 text-sm text-ink/60">{r.blurb}</p>
     </a>
   {/each}
+
+  <!-- The general ledger surfaces the hidden double-entry — only for roles that
+       can export it (owner / admin / accountant), the same gate the API enforces. -->
+  {#if may(data.role, 'reports:export')}
+    <a
+      href="/reports/general-ledger"
+      class="group rounded-sm border border-ink/10 bg-cream-warm p-5 transition-colors hover:border-gold-deep/40 hover:bg-cream"
+    >
+      <h2 class="font-serif text-xl text-ink group-hover:text-gold-deep">General ledger</h2>
+      <p class="mt-2 text-sm text-ink/60">
+        Every journal entry behind your books — the full double-entry detail, ready for your
+        accountant or tax software.
+      </p>
+    </a>
+  {/if}
 </div>

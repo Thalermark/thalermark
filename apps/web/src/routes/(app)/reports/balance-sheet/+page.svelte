@@ -1,5 +1,7 @@
 <script lang="ts">
   import AsOfSelector from '$lib/components/AsOfSelector.svelte';
+  import ExportCsvButton from '$lib/components/ExportCsvButton.svelte';
+  import type { CsvCell } from '$lib/csv';
   import type { PageProps } from './$types';
 
   let { data }: PageProps = $props();
@@ -7,13 +9,28 @@
 
   const fmt = (s: string) =>
     Number(s).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+
+  const csvRows = $derived<CsvCell[][]>([
+    ['Section', 'Code', 'Account', 'Amount'],
+    ...report.assets.map((a) => ['Assets', a.code, a.name, a.amount] as CsvCell[]),
+    ['Assets', '', 'Total assets', report.totalAssets],
+    ...report.liabilities.map((l) => ['Liabilities', l.code, l.name, l.amount] as CsvCell[]),
+    ['Liabilities', '', 'Total liabilities', report.totalLiabilities],
+    ...report.equity.map((e) => ['Equity', e.code, e.name, e.amount] as CsvCell[]),
+    ['Equity', '', 'Net income', report.netIncome],
+    ['Equity', '', 'Total equity', report.totalEquity],
+    ['', '', 'Total liabilities + equity', report.totalLiabilitiesAndEquity],
+  ]);
 </script>
 
-<div>
-  <span class="eyebrow">Reports</span>
-  <h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-ink">
-    Balance sheet<span class="text-gold-deep">.</span>
-  </h1>
+<div class="flex flex-wrap items-baseline justify-between gap-6">
+  <div>
+    <a href="/reports" class="eyebrow text-ink/60 hover:text-ink">← Reports</a>
+    <h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-ink">
+      Balance sheet<span class="text-gold-deep">.</span>
+    </h1>
+  </div>
+  <ExportCsvButton filename="balance-sheet_{report.asOf}" rows={csvRows} />
 </div>
 
 <AsOfSelector asOf={report.asOf} />
