@@ -75,16 +75,16 @@
   let showEditPayment = $state(false);
 </script>
 
-<a href="/invoices" class="eyebrow text-ink/60 hover:text-ink">← Invoices</a>
+<a href="/invoices" class="eyebrow text-fg/60 hover:text-fg">← Invoices</a>
 <div class="mt-3 flex items-baseline justify-between gap-6">
-  <h1 class="font-serif text-4xl font-light leading-none tracking-tight text-ink">
-    Invoice {inv.number}<span class="text-gold-deep">.</span>
+  <h1 class="font-serif text-4xl font-light leading-none tracking-tight text-fg">
+    Invoice {inv.number}<span class="text-accent">.</span>
   </h1>
   <div class="flex items-center gap-3">
     {#if canEdit}
       <a
         href="/invoices/{inv.id}/edit"
-        class="rounded-sm border border-ink/20 px-3 py-1 font-mono text-xs uppercase tracking-widest text-ink/70 hover:border-gold-deep hover:text-gold-deep"
+        class="rounded-sm border border-fg/20 px-3 py-1 font-mono text-xs uppercase tracking-widest text-fg/70 hover:border-accent hover:text-accent"
       >
         Edit
       </a>
@@ -95,61 +95,61 @@
       <form method="post" action="?/duplicate">
         <button
           type="submit"
-          class="rounded-sm border border-ink/20 px-3 py-1 font-mono text-xs uppercase tracking-widest text-ink/70 hover:border-gold-deep hover:text-gold-deep"
+          class="rounded-sm border border-fg/20 px-3 py-1 font-mono text-xs uppercase tracking-widest text-fg/70 hover:border-accent hover:text-accent"
         >
           Duplicate
         </button>
       </form>
     {/if}
-    <span class="font-mono text-xs uppercase tracking-widest text-ink/60">{inv.status}</span>
+    <span class="font-mono text-xs uppercase tracking-widest text-fg/60">{inv.status}</span>
   </div>
 </div>
 
 {#if form?.transitionError}
-  <div class="mt-6 rounded-sm border border-oxblood/30 bg-oxblood/5 px-4 py-3 text-sm text-oxblood">
+  <div class="mt-6 rounded-sm border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
     {form.transitionError}
   </div>
 {/if}
 
 {#if data.sentTo}
-  <div class="mt-6 rounded-sm border border-gold-deep/30 bg-gold-deep/5 px-4 py-3 text-sm text-ink">
+  <div class="mt-6 rounded-sm border border-accent/30 bg-accent/5 px-4 py-3 text-sm text-fg">
     Sent to <span class="font-medium">{data.sentTo}</span>.
   </div>
 {/if}
 
 {#if data.needsBusinessDetails && inv.status === 'draft' && data.businessCompanyId && canManageSettings}
-  <details class="mt-6 rounded-sm border border-gold-deep/30 bg-gold-deep/5 px-4 py-3 text-sm text-ink">
+  <details class="mt-6 rounded-sm border border-accent/30 bg-accent/5 px-4 py-3 text-sm text-fg">
     <summary class="cursor-pointer list-none font-medium">
       Your business address won't show on this invoice yet.
-      <span class="font-mono text-xs uppercase tracking-widest text-gold-deep">Add it →</span>
+      <span class="font-mono text-xs uppercase tracking-widest text-accent">Add it →</span>
     </summary>
     <form method="post" action="?/addBusinessDetails" class="mt-4 space-y-4">
       <input type="hidden" name="companyId" value={data.businessCompanyId} />
-      <p class="text-ink/70">
+      <p class="text-fg/70">
         Add it once and it appears on this invoice and every one after. You can skip and send
         without — set it later from Settings → Business.
       </p>
       <label class="block">
-        <span class="font-mono text-xs uppercase tracking-widest text-ink/50">Business address</span>
+        <span class="label">Business address</span>
         <textarea
           name="businessAddress"
           rows="3"
           placeholder="123 Main St&#10;Springfield, IL 62704"
-          class="mt-2 w-full max-w-md rounded-sm border border-ink/20 bg-cream px-3 py-2 text-sm text-ink focus:border-gold-deep focus:outline-none"
+          class="mt-2 w-full max-w-md rounded-sm border border-fg/20 bg-surface px-3 py-2 text-sm text-fg focus:border-accent focus:outline-none"
         ></textarea>
       </label>
       <label class="block">
-        <span class="font-mono text-xs uppercase tracking-widest text-ink/50">Phone (optional)</span>
+        <span class="label">Phone (optional)</span>
         <input
           type="tel"
           name="businessPhone"
           placeholder="(555) 123-4567"
-          class="mt-2 w-full max-w-md rounded-sm border border-ink/20 bg-cream px-3 py-2 text-sm text-ink focus:border-gold-deep focus:outline-none"
+          class="mt-2 w-full max-w-md rounded-sm border border-fg/20 bg-surface px-3 py-2 text-sm text-fg focus:border-accent focus:outline-none"
         />
       </label>
       <button
         type="submit"
-        class="rounded-sm bg-ink px-4 py-2 text-sm font-medium text-cream transition-colors hover:bg-gold-deep"
+        class="btn"
       >
         Save &amp; continue
       </button>
@@ -166,14 +166,14 @@
             type="email"
             name="to"
             placeholder={customer?.email ?? 'recipient@example.com'}
-            class="rounded-sm border border-ink/20 bg-cream-warm px-3 py-2 text-sm text-ink placeholder:text-ink/40 focus:border-gold-deep focus:outline-none"
+            class="rounded-sm border border-fg/20 bg-surface-2 px-3 py-2 text-sm text-fg placeholder:text-fg/40 focus:border-accent focus:outline-none"
           />
         {/if}
-        <SplitButton label="Send options" caretClass="border-l border-cream/20 bg-ink text-cream hover:bg-gold-deep">
+        <SplitButton label="Send options" caretClass="border-l border-surface/20 bg-inverse text-on-inverse hover:bg-accent">
           {#snippet primary()}
             <button
               type="submit"
-              class="rounded-l-sm bg-ink px-4 py-2 text-sm font-medium text-cream transition-colors hover:bg-gold-deep"
+              class="rounded-l-sm bg-inverse px-4 py-2 text-sm font-medium text-on-inverse transition-colors hover:bg-accent"
             >
               {sendLabel}
             </button>
@@ -186,7 +186,7 @@
                 showOverride = true;
                 close();
               }}
-              class="block w-full px-4 py-2 text-left text-sm text-ink/80 transition-colors hover:bg-cream-warm hover:text-ink"
+              class="block w-full px-4 py-2 text-left text-sm text-fg/80 transition-colors hover:bg-surface-2 hover:text-fg"
             >
               Send to a different email…
             </button>
@@ -195,20 +195,20 @@
       </form>
     {/if}
     {#if canMarkPaid}
-      <SplitButton label="Payment method" caretClass="border border-ink/20 bg-cream-warm text-ink hover:border-gold-deep hover:text-gold-deep">
+      <SplitButton label="Payment method" caretClass="border border-fg/20 bg-surface-2 text-fg hover:border-accent hover:text-accent">
         {#snippet primary()}
           <button
             type="button"
             onclick={() => {
               showPaidPanel = !showPaidPanel;
             }}
-            class="rounded-l-sm border border-r-0 border-ink/20 bg-cream-warm px-4 py-2 text-sm font-medium text-ink transition-colors hover:border-gold-deep hover:text-gold-deep"
+            class="rounded-l-sm border border-r-0 border-fg/20 bg-surface-2 px-4 py-2 text-sm font-medium text-fg transition-colors hover:border-accent hover:text-accent"
           >
             Mark paid
           </button>
         {/snippet}
         {#snippet menu()}
-          <p class="px-4 py-2 font-mono text-xs uppercase tracking-widest text-ink/40">
+          <p class="px-4 py-2 font-mono text-xs uppercase tracking-widest text-fg/40">
             Mark paid as…
           </p>
           <!-- Plain POST: the navigation itself dismisses the menu, so we must
@@ -220,7 +220,7 @@
               <button
                 type="submit"
                 role="menuitem"
-                class="block w-full px-4 py-2 text-left text-sm text-ink/80 transition-colors hover:bg-cream-warm hover:text-ink"
+                class="block w-full px-4 py-2 text-left text-sm text-fg/80 transition-colors hover:bg-surface-2 hover:text-fg"
               >
                 {choice.label}
               </button>
@@ -233,7 +233,7 @@
       <form method="post" action="?/void">
         <button
           type="submit"
-          class="rounded-sm border border-oxblood/30 px-4 py-2 text-sm font-medium text-oxblood transition-colors hover:bg-oxblood/5"
+          class="rounded-sm border border-danger/30 px-4 py-2 text-sm font-medium text-danger transition-colors hover:bg-danger/5"
         >
           Void
         </button>
@@ -244,7 +244,7 @@
     <form method="post" action="?/markSent" class="mt-2">
       <button
         type="submit"
-        class="text-xs uppercase tracking-widest text-ink/50 hover:text-gold-deep"
+        class="text-xs uppercase tracking-widest text-fg/50 hover:text-accent"
       >
         Mark sent without email
       </button>
@@ -255,13 +255,13 @@
     <form
       method="post"
       action="?/markPaid"
-      class="mt-4 max-w-md rounded-sm border border-ink/15 bg-cream-warm p-5"
+      class="mt-4 max-w-md rounded-sm border border-fg/15 bg-surface-2 p-5"
     >
       <PaymentFields />
       <div class="mt-5 flex items-center gap-3">
         <button
           type="submit"
-          class="rounded-sm bg-ink px-4 py-2 text-sm font-medium text-cream transition-colors hover:bg-gold-deep"
+          class="btn"
         >
           Confirm paid
         </button>
@@ -270,7 +270,7 @@
           onclick={() => {
             showPaidPanel = false;
           }}
-          class="text-xs uppercase tracking-widest text-ink/50 hover:text-gold-deep"
+          class="text-xs uppercase tracking-widest text-fg/50 hover:text-accent"
         >
           Cancel
         </button>
@@ -287,7 +287,7 @@
         onclick={() => {
           showEditPayment = true;
         }}
-        class="rounded-sm border border-ink/20 px-3 py-1 font-mono text-xs uppercase tracking-widest text-ink/70 hover:border-gold-deep hover:text-gold-deep"
+        class="rounded-sm border border-fg/20 px-3 py-1 font-mono text-xs uppercase tracking-widest text-fg/70 hover:border-accent hover:text-accent"
       >
         Edit payment
       </button>
@@ -295,7 +295,7 @@
       <form
         method="post"
         action="?/editPayment"
-        class="max-w-md rounded-sm border border-ink/15 bg-cream-warm p-5"
+        class="max-w-md rounded-sm border border-fg/15 bg-surface-2 p-5"
       >
         <PaymentFields
           method={inv.paymentMethod ?? 'cash'}
@@ -305,7 +305,7 @@
         <div class="mt-5 flex items-center gap-3">
           <button
             type="submit"
-            class="rounded-sm bg-ink px-4 py-2 text-sm font-medium text-cream transition-colors hover:bg-gold-deep"
+            class="btn"
           >
             Update payment
           </button>
@@ -314,7 +314,7 @@
             onclick={() => {
               showEditPayment = false;
             }}
-            class="text-xs uppercase tracking-widest text-ink/50 hover:text-gold-deep"
+            class="text-xs uppercase tracking-widest text-fg/50 hover:text-accent"
           >
             Cancel
           </button>
@@ -325,14 +325,14 @@
 {/if}
 
 {#if publicUrl}
-  <div class="mt-6 rounded-sm border border-ink/10 bg-cream-warm p-4">
-    <p class="font-mono text-xs uppercase tracking-widest text-ink/50">Share link</p>
+  <div class="mt-6 rounded-sm border border-fg/10 bg-surface-2 p-4">
+    <p class="label">Share link</p>
     <div class="mt-2 flex flex-wrap items-center gap-3 text-sm">
-      <a href={publicUrl} target="_blank" rel="noopener" class="break-all text-gold-deep hover:underline">
+      <a href={publicUrl} target="_blank" rel="noopener" class="break-all text-accent hover:underline">
         {publicUrl}
       </a>
     </div>
-    <p class="mt-2 text-xs text-ink/50">
+    <p class="mt-2 text-xs text-fg/50">
       Anyone with this link can view the invoice.
     </p>
   </div>
@@ -340,77 +340,77 @@
 
 <dl class="mt-8 grid grid-cols-1 gap-x-12 gap-y-6 sm:grid-cols-3">
   <div>
-    <dt class="font-mono text-xs uppercase tracking-widest text-ink/50">Customer</dt>
-    <dd class="mt-1 text-ink">
+    <dt class="label">Customer</dt>
+    <dd class="mt-1 text-fg">
       {#if customer}
-        <a href="/customers/{customer.id}" class="hover:text-gold-deep">{customer.name}</a>
+        <a href="/customers/{customer.id}" class="hover:text-accent">{customer.name}</a>
       {:else}
         —
       {/if}
     </dd>
   </div>
   <div>
-    <dt class="font-mono text-xs uppercase tracking-widest text-ink/50">Issued</dt>
-    <dd class="mt-1 text-ink">{inv.issueDate}</dd>
+    <dt class="label">Issued</dt>
+    <dd class="mt-1 text-fg">{inv.issueDate}</dd>
   </div>
   <div>
-    <dt class="font-mono text-xs uppercase tracking-widest text-ink/50">Due</dt>
-    <dd class="mt-1 text-ink">{inv.dueDate}</dd>
+    <dt class="label">Due</dt>
+    <dd class="mt-1 text-fg">{inv.dueDate}</dd>
   </div>
   {#if paidVia}
     <div>
-      <dt class="font-mono text-xs uppercase tracking-widest text-ink/50">Paid via</dt>
-      <dd class="mt-1 text-ink">
+      <dt class="label">Paid via</dt>
+      <dd class="mt-1 text-fg">
         {paidVia}{#if inv.paymentReference} · {inv.paymentReference}{/if}
       </dd>
     </div>
   {/if}
   {#if inv.status === 'paid' && inv.paidAt}
     <div>
-      <dt class="font-mono text-xs uppercase tracking-widest text-ink/50">Paid on</dt>
-      <dd class="mt-1 text-ink">{inv.paidAt.slice(0, 10)}</dd>
+      <dt class="label">Paid on</dt>
+      <dd class="mt-1 text-fg">{inv.paidAt.slice(0, 10)}</dd>
     </div>
   {/if}
 </dl>
 
-<div class="mt-10 overflow-hidden rounded-sm border border-ink/10 bg-cream-warm">
+<div class="mt-10 overflow-hidden rounded-sm border border-fg/10 bg-surface-2">
   <table class="w-full text-left text-sm">
-    <thead class="bg-cream">
-      <tr class="font-mono text-xs uppercase tracking-widest text-ink/50">
+    <thead class="bg-surface">
+      <tr class="label">
         <th class="px-5 py-3">Description</th>
         <th class="px-5 py-3 text-right">Qty</th>
         <th class="px-5 py-3 text-right">Unit price</th>
         <th class="px-5 py-3 text-right">Amount</th>
       </tr>
     </thead>
-    <tbody class="divide-y divide-ink/10">
+    <tbody class="divide-y divide-fg/10">
       {#each inv.lineItems as li (li.id)}
         <tr>
-          <td class="px-5 py-4 text-ink">{li.description}</td>
-          <td class="px-5 py-4 text-right font-mono tabular-nums text-ink/80">{li.quantity}</td>
-          <td class="px-5 py-4 text-right font-mono tabular-nums text-ink/80">{li.unitPrice}</td>
-          <td class="px-5 py-4 text-right font-mono tabular-nums text-ink">{li.amount}</td>
+          <td class="px-5 py-4 text-fg">{li.description}</td>
+          <td class="px-5 py-4 text-right font-mono tabular-nums text-fg/80">{li.quantity}</td>
+          <td class="px-5 py-4 text-right font-mono tabular-nums text-fg/80">{li.unitPrice}</td>
+          <td class="px-5 py-4 text-right font-mono tabular-nums text-fg">{li.amount}</td>
         </tr>
       {/each}
     </tbody>
-    <tfoot class="bg-cream">
+    <tfoot class="bg-surface">
       <tr>
-        <td colspan="3" class="px-5 py-3 text-right font-mono text-xs uppercase tracking-widest text-ink/50">
+        <td colspan="3" class="px-5 py-3 text-right label">
           Subtotal
         </td>
-        <td class="px-5 py-3 text-right font-mono tabular-nums text-ink">{inv.subtotal}</td>
+        <td class="px-5 py-3 text-right font-mono tabular-nums text-fg">{inv.subtotal}</td>
       </tr>
       <tr>
-        <td colspan="3" class="px-5 py-3 text-right font-mono text-xs uppercase tracking-widest text-ink/50">
+        <td colspan="3" class="px-5 py-3 text-right label">
           Tax
         </td>
-        <td class="px-5 py-3 text-right font-mono tabular-nums text-ink">{inv.tax}</td>
+        <td class="px-5 py-3 text-right font-mono tabular-nums text-fg">{inv.tax}</td>
       </tr>
       <tr>
-        <td colspan="3" class="px-5 py-3 text-right font-mono text-xs uppercase tracking-widest text-ink/50">
+        <td colspan="3" class="px-5 py-3 text-right label">
           Total ({inv.currency})
         </td>
-        <td class="px-5 py-3 text-right font-mono tabular-nums text-lg text-ink">{inv.total}</td>
+        <td class="px-5 py-3 text-right font-mono tabular-nums text-lg text-fg">{inv.total}</td>
       </tr>
     </tfoot>
   </table>
@@ -418,8 +418,8 @@
 
 {#if inv.notes}
   <div class="mt-8">
-    <h2 class="font-mono text-xs uppercase tracking-widest text-ink/50">Notes</h2>
-    <p class="mt-2 whitespace-pre-wrap text-ink/80">{inv.notes}</p>
+    <h2 class="label">Notes</h2>
+    <p class="mt-2 whitespace-pre-wrap text-fg/80">{inv.notes}</p>
   </div>
 {/if}
 
