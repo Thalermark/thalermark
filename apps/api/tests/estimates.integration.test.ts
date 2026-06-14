@@ -1156,6 +1156,99 @@ describe('Public estimate routes', () => {
     }
   });
 
+  it('from-block contact fields are gated per-estimate by the show flags', async () => {
+    const ctx = buildApp();
+    try {
+      const cookie = await signUp(ctx.app, 'est-flags@example.com');
+      const { accountId, companyId } = await userContext('est-flags@example.com');
+      const customerId = await createCustomer(
+        ctx,
+        cookie,
+        accountId,
+        companyId,
+        'Wile E. Coyote',
+        'r@example.test',
+      );
+
+      const patched = await ctx.app.request(`/api/companies/${companyId}`, {
+        method: 'PATCH',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          businessAddress: '9 Quote Rd\nReno, NV',
+          businessPhone: '+1 775 555 0100',
+          businessEmail: 'quotes@acme.test',
+        }),
+      });
+      expect(patched.status).toBe(200);
+
+      // Estimate shows address + email but hides phone (overriding defaults).
+      const create = await ctx.app.request('/api/estimates', {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          ...estimateBody(companyId, customerId),
+          showAddress: true,
+          showPhone: false,
+          showEmail: true,
+        }),
+      });
+      expect(create.status).toBe(201);
+      const { id: estimateId } = (await create.json()) as { id: string };
+
+      await ctx.app.request(`/api/estimates/${estimateId}/mark-sent`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      const [row] = await getTestDb().select().from(estimates).where(eq(estimates.id, estimateId));
+
+      const res = await ctx.app.request(`/api/public/estimates/${row?.publicToken}`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        companyAddress: string | null;
+        companyPhone: string | null;
+        companyEmail: string | null;
+      };
+      expect(body.companyAddress).toBe('9 Quote Rd\nReno, NV');
+      expect(body.companyPhone).toBeNull(); // hidden by showPhone=false
+      expect(body.companyEmail).toBe('quotes@acme.test');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('new estimates seed their show flags from the company estimate defaults when omitted', async () => {
+    const ctx = buildApp();
+    try {
+      const cookie = await signUp(ctx.app, 'est-seed@example.com');
+      const { accountId, companyId } = await userContext('est-seed@example.com');
+      const customerId = await createCustomer(ctx, cookie, accountId, companyId);
+
+      // Turn the phone default off for estimates only.
+      const patched = await ctx.app.request(`/api/companies/${companyId}`, {
+        method: 'PATCH',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify({ showPhoneOnEstimate: false }),
+      });
+      expect(patched.status).toBe(200);
+
+      // Create without sending any flags — the server seeds from the company.
+      const create = await ctx.app.request('/api/estimates', {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify(estimateBody(companyId, customerId)),
+      });
+      expect(create.status).toBe(201);
+      const { id } = (await create.json()) as { id: string };
+
+      const [row] = await getTestDb().select().from(estimates).where(eq(estimates.id, id));
+      expect(row?.showAddress).toBe(true);
+      expect(row?.showPhone).toBe(false); // inherited the estimate-side default
+      expect(row?.showEmail).toBe(true);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
   it('GET returns 404 for an unknown token', async () => {
     const ctx = buildApp();
     try {

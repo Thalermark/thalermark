@@ -51,6 +51,13 @@ export const companies = pgTable(
     showAddressOnInvoice: boolean('show_address_on_invoice').notNull().default(true),
     showPhoneOnInvoice: boolean('show_phone_on_invoice').notNull().default(true),
     showEmailOnInvoice: boolean('show_email_on_invoice').notNull().default(true),
+    // The estimate-side equivalents. Deliberately separate from the invoice
+    // flags above (a business may want contact on invoices but not estimates,
+    // or vice versa); each seeds the matching show_* flag on a new estimate.
+    // business_email above is shared — these gate whether it prints on estimates.
+    showAddressOnEstimate: boolean('show_address_on_estimate').notNull().default(true),
+    showPhoneOnEstimate: boolean('show_phone_on_estimate').notNull().default(true),
+    showEmailOnEstimate: boolean('show_email_on_estimate').notNull().default(true),
     // Object-storage key for the company logo shown on invoices/estimates.
     // Same storage abstraction as receipts (S3/R2/MinIO/local-FS); the bytes
     // never live in Postgres, only this key. Nullable — no logo by default, and

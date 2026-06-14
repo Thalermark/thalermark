@@ -72,6 +72,10 @@ export const companyUpdateSchema = z
     showAddressOnInvoice: z.boolean().optional(),
     showPhoneOnInvoice: z.boolean().optional(),
     showEmailOnInvoice: z.boolean().optional(),
+    // The estimate-side equivalents (separate document-type defaults).
+    showAddressOnEstimate: z.boolean().optional(),
+    showPhoneOnEstimate: z.boolean().optional(),
+    showEmailOnEstimate: z.boolean().optional(),
   })
   // Sparse: at least one field must be present (zod only surfaces keys that
   // were actually sent, so an empty body fails this).

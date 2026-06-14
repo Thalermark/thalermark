@@ -1245,6 +1245,9 @@ export function createApp(deps: AppDeps) {
             showAddressOnInvoice: companies.showAddressOnInvoice,
             showPhoneOnInvoice: companies.showPhoneOnInvoice,
             showEmailOnInvoice: companies.showEmailOnInvoice,
+            showAddressOnEstimate: companies.showAddressOnEstimate,
+            showPhoneOnEstimate: companies.showPhoneOnEstimate,
+            showEmailOnEstimate: companies.showEmailOnEstimate,
             paymentCashEnabled: companies.paymentCashEnabled,
             paymentCheckEnabled: companies.paymentCheckEnabled,
             paymentCheckPayableTo: companies.paymentCheckPayableTo,
@@ -1308,6 +1311,9 @@ export function createApp(deps: AppDeps) {
               showAddressOnInvoice: created.showAddressOnInvoice,
               showPhoneOnInvoice: created.showPhoneOnInvoice,
               showEmailOnInvoice: created.showEmailOnInvoice,
+              showAddressOnEstimate: created.showAddressOnEstimate,
+              showPhoneOnEstimate: created.showPhoneOnEstimate,
+              showEmailOnEstimate: created.showEmailOnEstimate,
               ...paymentMethodsView(created),
             },
             201,
@@ -1359,6 +1365,12 @@ export function createApp(deps: AppDeps) {
             patch.showPhoneOnInvoice = data.showPhoneOnInvoice;
           if (data.showEmailOnInvoice !== undefined)
             patch.showEmailOnInvoice = data.showEmailOnInvoice;
+          if (data.showAddressOnEstimate !== undefined)
+            patch.showAddressOnEstimate = data.showAddressOnEstimate;
+          if (data.showPhoneOnEstimate !== undefined)
+            patch.showPhoneOnEstimate = data.showPhoneOnEstimate;
+          if (data.showEmailOnEstimate !== undefined)
+            patch.showEmailOnEstimate = data.showEmailOnEstimate;
           // Validation coerces '' → null, so an explicit clear lands as null here.
           if (data.replyToEmail !== undefined) patch.replyToEmail = data.replyToEmail;
           // Offline payment instructions — same sparse + '' → null semantics.
@@ -1396,6 +1408,9 @@ export function createApp(deps: AppDeps) {
               showAddressOnInvoice: before.showAddressOnInvoice,
               showPhoneOnInvoice: before.showPhoneOnInvoice,
               showEmailOnInvoice: before.showEmailOnInvoice,
+              showAddressOnEstimate: before.showAddressOnEstimate,
+              showPhoneOnEstimate: before.showPhoneOnEstimate,
+              showEmailOnEstimate: before.showEmailOnEstimate,
               ...paymentMethodsView(before),
             },
             after: {
@@ -1408,6 +1423,9 @@ export function createApp(deps: AppDeps) {
               showAddressOnInvoice: after.showAddressOnInvoice,
               showPhoneOnInvoice: after.showPhoneOnInvoice,
               showEmailOnInvoice: after.showEmailOnInvoice,
+              showAddressOnEstimate: after.showAddressOnEstimate,
+              showPhoneOnEstimate: after.showPhoneOnEstimate,
+              showEmailOnEstimate: after.showEmailOnEstimate,
               ...paymentMethodsView(after),
             },
             companyId: id,
@@ -1424,6 +1442,9 @@ export function createApp(deps: AppDeps) {
             showAddressOnInvoice: after.showAddressOnInvoice,
             showPhoneOnInvoice: after.showPhoneOnInvoice,
             showEmailOnInvoice: after.showEmailOnInvoice,
+            showAddressOnEstimate: after.showAddressOnEstimate,
+            showPhoneOnEstimate: after.showPhoneOnEstimate,
+            showEmailOnEstimate: after.showEmailOnEstimate,
             ...paymentMethodsView(after),
           });
         },
@@ -4327,6 +4348,25 @@ export function createApp(deps: AppDeps) {
           .limit(1);
         if (taken) return c.json({ error: 'estimate_number_taken' }, 409);
 
+        // Seed the per-estimate from-block "show" flags from the company's
+        // estimate-side defaults when the client didn't send them. The form
+        // sends explicit values, which win via the ?? below.
+        const [companyDefaults] = await tx
+          .select({
+            showAddressOnEstimate: companies.showAddressOnEstimate,
+            showPhoneOnEstimate: companies.showPhoneOnEstimate,
+            showEmailOnEstimate: companies.showEmailOnEstimate,
+          })
+          .from(companies)
+          .where(and(eq(companies.id, companyId), eq(companies.accountId, accountId)))
+          .limit(1);
+        if (!companyDefaults) return c.json({ error: 'company_not_found' }, 404);
+        const showFlags = {
+          showAddress: header.showAddress ?? companyDefaults.showAddressOnEstimate,
+          showPhone: header.showPhone ?? companyDefaults.showPhoneOnEstimate,
+          showEmail: header.showEmail ?? companyDefaults.showEmailOnEstimate,
+        };
+
         const estimateId = uuidv7();
         await tx.insert(estimates).values({
           id: estimateId,
@@ -4334,6 +4374,7 @@ export function createApp(deps: AppDeps) {
           companyId,
           customerId,
           ...header,
+          ...showFlags,
         });
         const lineRows = lineItems.map((li) => ({
           id: uuidv7(),
@@ -4347,11 +4388,11 @@ export function createApp(deps: AppDeps) {
           entityType: 'estimate',
           entityId: estimateId,
           action: 'create',
-          after: { id: estimateId, ...parsed.data },
+          after: { id: estimateId, ...parsed.data, ...showFlags },
           companyId,
         });
 
-        return c.json({ id: estimateId, ...parsed.data }, 201);
+        return c.json({ id: estimateId, ...parsed.data, ...showFlags }, 201);
       })
       // Duplicate-as-template (mirrors the invoice route): clone any estimate
       // into a fresh draft. Copies customer + line items + amounts/notes; new
@@ -4420,6 +4461,11 @@ export function createApp(deps: AppDeps) {
           tax: source.tax,
           total: source.total,
           notes: source.notes,
+          // A duplicate is a template — carry the source's from-block display
+          // choices forward rather than re-seeding from company defaults.
+          showAddress: source.showAddress,
+          showPhone: source.showPhone,
+          showEmail: source.showEmail,
         });
         if (sourceLines.length > 0) {
           await tx.insert(estimateLineItems).values(
@@ -4647,6 +4693,11 @@ export function createApp(deps: AppDeps) {
               tax: header.tax ?? '0',
               total: header.total,
               notes: header.notes ?? null,
+              // From-block display flags — keep current values if the client
+              // didn't send them (the edit form always does).
+              showAddress: header.showAddress ?? current.showAddress,
+              showPhone: header.showPhone ?? current.showPhone,
+              showEmail: header.showEmail ?? current.showEmail,
               updatedAt: new Date(),
             })
             .where(and(eq(estimates.id, id), eq(estimates.accountId, accountId)))
@@ -6183,7 +6234,12 @@ export function createApp(deps: AppDeps) {
         if (!estimate) return c.json({ error: 'estimate_not_found' }, 404);
 
         const [company] = await bootstrapDb
-          .select({ name: companies.name })
+          .select({
+            name: companies.name,
+            businessAddress: companies.businessAddress,
+            businessPhone: companies.businessPhone,
+            businessEmail: companies.businessEmail,
+          })
           .from(companies)
           .where(eq(companies.id, estimate.companyId))
           .limit(1);
@@ -6219,6 +6275,11 @@ export function createApp(deps: AppDeps) {
           acceptedAt: estimate.acceptedAt,
           declinedAt: estimate.declinedAt,
           companyName: company?.name ?? null,
+          // From-block contact fields, gated per-estimate by the show flags (a
+          // false flag means the value never reaches the recipient's page).
+          companyAddress: estimate.showAddress ? (company?.businessAddress ?? null) : null,
+          companyPhone: estimate.showPhone ? (company?.businessPhone ?? null) : null,
+          companyEmail: estimate.showEmail ? (company?.businessEmail ?? null) : null,
           customerName: customer?.name ?? null,
           lineItems: lines,
           // Tells the public page whether to render Accept/Decline. Only
