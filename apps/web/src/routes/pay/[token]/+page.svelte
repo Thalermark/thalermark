@@ -32,19 +32,24 @@
     }
 
     // Theme the Element to the brand palette so the card form reads as
-    // Thalermark, not a generic Stripe widget. Fonts pulled from the same
-    // Google Fonts bundle the rest of the app uses.
+    // Thalermark, not a generic Stripe widget. The Element is an iframe and
+    // can't see our CSS vars, so the dark variant is passed explicitly, keyed
+    // off the theme the init script resolved (`.dark` on <html>). Fonts pulled
+    // from the same Google Fonts bundle the rest of the app uses.
+    const isDark = document.documentElement.classList.contains('dark');
     elements = stripe.elements({
       clientSecret: data.clientSecret,
       appearance: {
-        theme: 'stripe',
+        theme: isDark ? 'night' : 'stripe',
         variables: {
-          colorPrimary: COLORS.gold.deep,
-          colorText: COLORS.ink,
-          colorDanger: COLORS.accents.oxblood,
+          colorPrimary: isDark ? COLORS.gold.DEFAULT : COLORS.gold.deep,
+          colorText: isDark ? COLORS.cream.DEFAULT : COLORS.ink,
+          colorDanger: isDark ? '#cf7060' : COLORS.accents.oxblood, // lifted oxblood (matches --danger in .dark)
           fontFamily: 'Inter, system-ui, sans-serif',
           borderRadius: '2px',
           spacingUnit: '4px',
+          // Match the card surface to navy in dark; leave light to Stripe's default.
+          ...(isDark ? { colorBackground: COLORS.navy.DEFAULT } : {}),
         },
       },
       fonts: [{ cssSrc: GOOGLE_FONTS_HREF }],
