@@ -41,6 +41,9 @@ export const actions: Actions = {
     const showAddressOnInvoice = formData.get('showAddressOnInvoice') === 'on';
     const showPhoneOnInvoice = formData.get('showPhoneOnInvoice') === 'on';
     const showEmailOnInvoice = formData.get('showEmailOnInvoice') === 'on';
+    const showAddressOnEstimate = formData.get('showAddressOnEstimate') === 'on';
+    const showPhoneOnEstimate = formData.get('showPhoneOnEstimate') === 'on';
+    const showEmailOnEstimate = formData.get('showEmailOnEstimate') === 'on';
     if (!companyId) return fail(400, { error: 'missing_company_id' });
 
     const res = await client.api.companies[':id'].$patch({
@@ -52,6 +55,9 @@ export const actions: Actions = {
         showAddressOnInvoice,
         showPhoneOnInvoice,
         showEmailOnInvoice,
+        showAddressOnEstimate,
+        showPhoneOnEstimate,
+        showEmailOnEstimate,
       },
     });
     if (!res.ok) {
@@ -64,6 +70,9 @@ export const actions: Actions = {
         showAddressOnInvoice,
         showPhoneOnInvoice,
         showEmailOnInvoice,
+        showAddressOnEstimate,
+        showPhoneOnEstimate,
+        showEmailOnEstimate,
       });
     }
     return {
@@ -74,6 +83,9 @@ export const actions: Actions = {
       showAddressOnInvoice,
       showPhoneOnInvoice,
       showEmailOnInvoice,
+      showAddressOnEstimate,
+      showPhoneOnEstimate,
+      showEmailOnEstimate,
     };
   },
 

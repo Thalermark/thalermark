@@ -49,6 +49,13 @@ export const load: PageServerLoad = async (event) => {
   return {
     companyId: company.id,
     suggestedNumber,
+    // Company-level estimate "show" defaults — seed the from-block checkboxes on
+    // a fresh estimate. Separate from the invoice defaults (per-document-type).
+    showDefaults: {
+      showAddress: company.showAddressOnEstimate,
+      showPhone: company.showPhoneOnEstimate,
+      showEmail: company.showEmailOnEstimate,
+    },
     customers: customers
       .map((c) => ({ id: c.id, name: c.name }))
       .sort((a, b) => a.name.localeCompare(b.name)),
@@ -62,6 +69,9 @@ type FormValues = {
   expiresOn: string;
   notes: string;
   tax: string;
+  showAddress: boolean;
+  showPhone: boolean;
+  showEmail: boolean;
   lineItems: {
     description: string;
     quantity: string;
@@ -89,6 +99,11 @@ function readForm(data: FormData): FormValues {
     expiresOn: String(data.get('expiresOn') ?? '').trim(),
     notes: String(data.get('notes') ?? '').trim(),
     tax: String(data.get('tax') ?? '').trim(),
+    // Unchecked boxes don't submit, so absence = false. The form always renders
+    // all three, so each round-trips as an explicit boolean.
+    showAddress: data.get('showAddress') === 'on',
+    showPhone: data.get('showPhone') === 'on',
+    showEmail: data.get('showEmail') === 'on',
     lineItems,
   };
 }
@@ -125,6 +140,9 @@ export const actions: Actions = {
       tax,
       total,
       notes: values.notes === '' ? undefined : values.notes,
+      showAddress: values.showAddress,
+      showPhone: values.showPhone,
+      showEmail: values.showEmail,
       lineItems: computedLines,
     };
 

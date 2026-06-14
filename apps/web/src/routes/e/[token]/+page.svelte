@@ -35,6 +35,21 @@
   {/if}
 
   <dl class="mt-8 grid grid-cols-1 gap-x-12 gap-y-6 sm:grid-cols-3">
+    {#if est.companyName && (est.companyAddress || est.companyPhone || est.companyEmail)}
+      <div>
+        <dt class="label">From</dt>
+        <dd class="mt-1 text-fg">{est.companyName}</dd>
+        {#if est.companyAddress}
+          <dd class="mt-1 whitespace-pre-line text-sm text-fg/70">{est.companyAddress}</dd>
+        {/if}
+        {#if est.companyPhone}
+          <dd class="mt-1 text-sm text-fg/70">{est.companyPhone}</dd>
+        {/if}
+        {#if est.companyEmail}
+          <dd class="mt-1 text-sm text-fg/70">{est.companyEmail}</dd>
+        {/if}
+      </div>
+    {/if}
     {#if est.customerName}
       <div>
         <dt class="label">For</dt>

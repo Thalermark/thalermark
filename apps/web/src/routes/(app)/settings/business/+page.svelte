@@ -9,11 +9,25 @@
   const address = $derived(form?.businessAddress ?? data.company.businessAddress ?? '');
   const phone = $derived(form?.businessPhone ?? data.company.businessPhone ?? '');
   const email = $derived(form?.businessEmail ?? data.company.businessEmail ?? '');
-  const showAddress = $derived(
+  // Per-field show defaults, split by document type (invoice vs estimate).
+  const showAddressInvoice = $derived(
     form?.showAddressOnInvoice ?? data.company.showAddressOnInvoice ?? true,
   );
-  const showPhone = $derived(form?.showPhoneOnInvoice ?? data.company.showPhoneOnInvoice ?? true);
-  const showEmail = $derived(form?.showEmailOnInvoice ?? data.company.showEmailOnInvoice ?? true);
+  const showPhoneInvoice = $derived(
+    form?.showPhoneOnInvoice ?? data.company.showPhoneOnInvoice ?? true,
+  );
+  const showEmailInvoice = $derived(
+    form?.showEmailOnInvoice ?? data.company.showEmailOnInvoice ?? true,
+  );
+  const showAddressEstimate = $derived(
+    form?.showAddressOnEstimate ?? data.company.showAddressOnEstimate ?? true,
+  );
+  const showPhoneEstimate = $derived(
+    form?.showPhoneOnEstimate ?? data.company.showPhoneOnEstimate ?? true,
+  );
+  const showEmailEstimate = $derived(
+    form?.showEmailOnEstimate ?? data.company.showEmailOnEstimate ?? true,
+  );
 </script>
 
 <h1 class="font-serif text-4xl font-light leading-none tracking-tight text-fg">
@@ -28,9 +42,9 @@
   <form method="POST" action="?/save" class="px-6 py-6">
     <input type="hidden" name="companyId" value={data.company.id} />
     <p class="text-sm text-fg/70">
-      These show in the &ldquo;from&rdquo; block on the invoices your customers see, under your
-      business name. The checkboxes set the default for new invoices &mdash; you can still change
-      it on any individual invoice. Leave a field blank to omit it entirely.
+      These show in the &ldquo;from&rdquo; block on the invoices and estimates your customers see,
+      under your business name. The checkboxes set the default for new documents &mdash; you can
+      still change it on any individual invoice or estimate. Leave a field blank to omit it entirely.
     </p>
     <label class="mt-5 block">
       <span class="label">Business address</span>
@@ -42,15 +56,26 @@
         >{address}</textarea
       >
     </label>
-    <label class="mt-2 flex items-center gap-3 text-sm text-fg/70">
-      <input
-        type="checkbox"
-        name="showAddressOnInvoice"
-        checked={showAddress}
-        class="size-4 rounded-sm border-fg/30 text-accent focus:ring-accent"
-      />
-      Show on invoices
-    </label>
+    <div class="mt-2 flex flex-wrap gap-x-6 gap-y-2">
+      <label class="flex items-center gap-2 text-sm text-fg/70">
+        <input
+          type="checkbox"
+          name="showAddressOnInvoice"
+          checked={showAddressInvoice}
+          class="size-4 rounded-sm border-fg/30 text-accent focus:ring-accent"
+        />
+        Show on invoices
+      </label>
+      <label class="flex items-center gap-2 text-sm text-fg/70">
+        <input
+          type="checkbox"
+          name="showAddressOnEstimate"
+          checked={showAddressEstimate}
+          class="size-4 rounded-sm border-fg/30 text-accent focus:ring-accent"
+        />
+        Show on estimates
+      </label>
+    </div>
     <label class="mt-5 block">
       <span class="label">Phone</span>
       <input
@@ -61,15 +86,26 @@
         class="mt-2 w-full max-w-md rounded-sm border border-fg/20 bg-surface px-3 py-2 text-sm text-fg focus:border-accent focus:outline-none"
       />
     </label>
-    <label class="mt-2 flex items-center gap-3 text-sm text-fg/70">
-      <input
-        type="checkbox"
-        name="showPhoneOnInvoice"
-        checked={showPhone}
-        class="size-4 rounded-sm border-fg/30 text-accent focus:ring-accent"
-      />
-      Show on invoices
-    </label>
+    <div class="mt-2 flex flex-wrap gap-x-6 gap-y-2">
+      <label class="flex items-center gap-2 text-sm text-fg/70">
+        <input
+          type="checkbox"
+          name="showPhoneOnInvoice"
+          checked={showPhoneInvoice}
+          class="size-4 rounded-sm border-fg/30 text-accent focus:ring-accent"
+        />
+        Show on invoices
+      </label>
+      <label class="flex items-center gap-2 text-sm text-fg/70">
+        <input
+          type="checkbox"
+          name="showPhoneOnEstimate"
+          checked={showPhoneEstimate}
+          class="size-4 rounded-sm border-fg/30 text-accent focus:ring-accent"
+        />
+        Show on estimates
+      </label>
+    </div>
     <label class="mt-5 block">
       <span class="label">Email</span>
       <input
@@ -80,15 +116,26 @@
         class="mt-2 w-full max-w-md rounded-sm border border-fg/20 bg-surface px-3 py-2 text-sm text-fg focus:border-accent focus:outline-none"
       />
     </label>
-    <label class="mt-2 flex items-center gap-3 text-sm text-fg/70">
-      <input
-        type="checkbox"
-        name="showEmailOnInvoice"
-        checked={showEmail}
-        class="size-4 rounded-sm border-fg/30 text-accent focus:ring-accent"
-      />
-      Show on invoices
-    </label>
+    <div class="mt-2 flex flex-wrap gap-x-6 gap-y-2">
+      <label class="flex items-center gap-2 text-sm text-fg/70">
+        <input
+          type="checkbox"
+          name="showEmailOnInvoice"
+          checked={showEmailInvoice}
+          class="size-4 rounded-sm border-fg/30 text-accent focus:ring-accent"
+        />
+        Show on invoices
+      </label>
+      <label class="flex items-center gap-2 text-sm text-fg/70">
+        <input
+          type="checkbox"
+          name="showEmailOnEstimate"
+          checked={showEmailEstimate}
+          class="size-4 rounded-sm border-fg/30 text-accent focus:ring-accent"
+        />
+        Show on estimates
+      </label>
+    </div>
     <div class="mt-5 flex items-center gap-4">
       <button
         type="submit"
