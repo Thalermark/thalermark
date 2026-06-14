@@ -11,18 +11,27 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Checkbox } from '../../../components/Checkbox';
 import { api } from '../../../lib/api';
 import { getServerUrl } from '../../../lib/server-url';
 import { uploadLogo } from '../../../lib/upload';
 
 // Business identity settings — native mirror of apps/web's /settings/business.
-// Address + phone (shown on invoices/estimates) via company PATCH, plus the
-// logo: a signed-URL preview with image-picker upload/replace and remove.
+// Address / phone / email (shown on invoices + estimates) via company PATCH,
+// each with separate per-document-type "show on" defaults, plus the logo: a
+// signed-URL preview with image-picker upload/replace and remove.
 type Company = {
   id: string;
   name: string;
   businessAddress: string | null;
   businessPhone: string | null;
+  businessEmail: string | null;
+  showAddressOnInvoice: boolean;
+  showPhoneOnInvoice: boolean;
+  showEmailOnInvoice: boolean;
+  showAddressOnEstimate: boolean;
+  showPhoneOnEstimate: boolean;
+  showEmailOnEstimate: boolean;
 };
 type Logo = { url: string; contentType: string };
 type LoadState =
@@ -43,6 +52,14 @@ export default function BusinessSettings() {
   const [load, setLoad] = useState<LoadState>({ state: 'loading' });
   const [address, setAddress] = useState('');
   const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
+  // Per-field "show on" defaults, split by document type (invoice vs estimate).
+  const [showAddrInv, setShowAddrInv] = useState(true);
+  const [showPhoneInv, setShowPhoneInv] = useState(true);
+  const [showEmailInv, setShowEmailInv] = useState(true);
+  const [showAddrEst, setShowAddrEst] = useState(true);
+  const [showPhoneEst, setShowPhoneEst] = useState(true);
+  const [showEmailEst, setShowEmailEst] = useState(true);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<'idle' | 'saved' | 'error'>('idle');
   const [logoBusy, setLogoBusy] = useState(false);
@@ -72,11 +89,25 @@ export default function BusinessSettings() {
         name: company.name,
         businessAddress: company.businessAddress,
         businessPhone: company.businessPhone,
+        businessEmail: company.businessEmail,
+        showAddressOnInvoice: company.showAddressOnInvoice,
+        showPhoneOnInvoice: company.showPhoneOnInvoice,
+        showEmailOnInvoice: company.showEmailOnInvoice,
+        showAddressOnEstimate: company.showAddressOnEstimate,
+        showPhoneOnEstimate: company.showPhoneOnEstimate,
+        showEmailOnEstimate: company.showEmailOnEstimate,
       },
       logo,
     });
     setAddress(company.businessAddress ?? '');
     setPhone(company.businessPhone ?? '');
+    setEmail(company.businessEmail ?? '');
+    setShowAddrInv(company.showAddressOnInvoice);
+    setShowPhoneInv(company.showPhoneOnInvoice);
+    setShowEmailInv(company.showEmailOnInvoice);
+    setShowAddrEst(company.showAddressOnEstimate);
+    setShowPhoneEst(company.showPhoneOnEstimate);
+    setShowEmailEst(company.showEmailOnEstimate);
   }, []);
 
   useFocusEffect(
@@ -101,7 +132,17 @@ export default function BusinessSettings() {
     try {
       const res = await api.api.companies[':id'].$patch({
         param: { id: company.id },
-        json: { businessAddress: address.trim(), businessPhone: phone.trim() },
+        json: {
+          businessAddress: address.trim(),
+          businessPhone: phone.trim(),
+          businessEmail: email.trim(),
+          showAddressOnInvoice: showAddrInv,
+          showPhoneOnInvoice: showPhoneInv,
+          showEmailOnInvoice: showEmailInv,
+          showAddressOnEstimate: showAddrEst,
+          showPhoneOnEstimate: showPhoneEst,
+          showEmailOnEstimate: showEmailEst,
+        },
       });
       setStatus(res.ok ? 'saved' : 'error');
     } catch {
@@ -179,8 +220,10 @@ export default function BusinessSettings() {
               </Text>
               <Text className="mt-2 font-serif text-lg text-ink">{company.name}</Text>
               <Text className="mt-3 text-sm text-ink/70">
-                These appear on the invoices and estimates your customers see, under your business
-                name. Leave them blank to show just the name.
+                These show in the "from" block on the invoices and estimates your customers see,
+                under your business name. The checkboxes set the default for new documents — you can
+                still change it on any individual invoice or estimate. Leave a field blank to omit
+                it entirely.
               </Text>
 
               <Text className="mt-5 font-mono text-xs uppercase tracking-widest text-ink/50">
@@ -196,6 +239,24 @@ export default function BusinessSettings() {
                 multiline
                 className="mt-2 min-h-[72px] rounded-sm border border-ink/20 bg-cream px-3 py-2 text-ink"
               />
+              <View className="mt-2 flex-row flex-wrap gap-x-6 gap-y-2">
+                <Checkbox
+                  label="Show on invoices"
+                  value={showAddrInv}
+                  onToggle={() => {
+                    setShowAddrInv((v) => !v);
+                    setStatus('idle');
+                  }}
+                />
+                <Checkbox
+                  label="Show on estimates"
+                  value={showAddrEst}
+                  onToggle={() => {
+                    setShowAddrEst((v) => !v);
+                    setStatus('idle');
+                  }}
+                />
+              </View>
 
               <Text className="mt-5 font-mono text-xs uppercase tracking-widest text-ink/50">
                 Phone
@@ -210,6 +271,57 @@ export default function BusinessSettings() {
                 keyboardType="phone-pad"
                 className="mt-2 rounded-sm border border-ink/20 bg-cream px-3 py-2 text-ink"
               />
+              <View className="mt-2 flex-row flex-wrap gap-x-6 gap-y-2">
+                <Checkbox
+                  label="Show on invoices"
+                  value={showPhoneInv}
+                  onToggle={() => {
+                    setShowPhoneInv((v) => !v);
+                    setStatus('idle');
+                  }}
+                />
+                <Checkbox
+                  label="Show on estimates"
+                  value={showPhoneEst}
+                  onToggle={() => {
+                    setShowPhoneEst((v) => !v);
+                    setStatus('idle');
+                  }}
+                />
+              </View>
+
+              <Text className="mt-5 font-mono text-xs uppercase tracking-widest text-ink/50">
+                Email
+              </Text>
+              <TextInput
+                value={email}
+                onChangeText={(t) => {
+                  setEmail(t);
+                  setStatus('idle');
+                }}
+                placeholder="hello@yourbusiness.com"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                className="mt-2 rounded-sm border border-ink/20 bg-cream px-3 py-2 text-ink"
+              />
+              <View className="mt-2 flex-row flex-wrap gap-x-6 gap-y-2">
+                <Checkbox
+                  label="Show on invoices"
+                  value={showEmailInv}
+                  onToggle={() => {
+                    setShowEmailInv((v) => !v);
+                    setStatus('idle');
+                  }}
+                />
+                <Checkbox
+                  label="Show on estimates"
+                  value={showEmailEst}
+                  onToggle={() => {
+                    setShowEmailEst((v) => !v);
+                    setStatus('idle');
+                  }}
+                />
+              </View>
 
               <View className="mt-5 flex-row items-center gap-4">
                 <Pressable

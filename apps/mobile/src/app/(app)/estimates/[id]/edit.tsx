@@ -19,6 +19,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Checkbox } from '../../../../components/Checkbox';
 import { DateField } from '../../../../components/DateField';
 import { ItemPickerField } from '../../../../components/ItemPickerField';
 import { api } from '../../../../lib/api';
@@ -43,6 +44,9 @@ type Seed = {
   expiresOn: string;
   tax: string;
   notes: string;
+  showAddress: boolean;
+  showPhone: boolean;
+  showEmail: boolean;
   rows: Row[];
 };
 
@@ -89,6 +93,9 @@ export default function EditEstimate() {
           expiresOn: est.expiresOn ?? '',
           tax: est.tax ?? '',
           notes: est.notes ?? '',
+          showAddress: est.showAddress,
+          showPhone: est.showPhone,
+          showEmail: est.showEmail,
           rows: est.lineItems.map((li) => ({
             description: li.description,
             quantity: li.quantity,
@@ -159,6 +166,9 @@ export default function EditEstimate() {
       tax: taxVal,
       total: addMoney(sub, taxVal ?? '0'),
       notes: seed.notes.trim() === '' ? undefined : seed.notes.trim(),
+      showAddress: seed.showAddress,
+      showPhone: seed.showPhone,
+      showEmail: seed.showEmail,
       lineItems,
     };
 
@@ -292,6 +302,33 @@ export default function EditEstimate() {
                 onChangeText={(t) => set('notes', t)}
                 multiline
                 className="mt-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink"
+              />
+            </View>
+
+            <View>
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                Your details on this estimate
+              </Text>
+              <Text className="mt-1 text-xs text-ink/50">
+                Only details you've added in Business settings will show.
+              </Text>
+              <Checkbox
+                label="Show my address"
+                value={seed.showAddress}
+                onToggle={() => set('showAddress', !seed.showAddress)}
+                className="mt-3"
+              />
+              <Checkbox
+                label="Show my phone"
+                value={seed.showPhone}
+                onToggle={() => set('showPhone', !seed.showPhone)}
+                className="mt-3"
+              />
+              <Checkbox
+                label="Show my email"
+                value={seed.showEmail}
+                onToggle={() => set('showEmail', !seed.showEmail)}
+                className="mt-3"
               />
             </View>
 
