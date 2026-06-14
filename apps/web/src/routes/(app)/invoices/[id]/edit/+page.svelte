@@ -51,6 +51,13 @@
   const subtotal = $derived(sumMoney(computedRows.map((r) => r.amount)));
   const total = $derived(addMoney(subtotal, tax));
 
+  // From-block "show on this invoice" toggles. Seed from the prior submit on a
+  // fail re-render, else the invoice's stored flags. `??` respects a returned
+  // `false` (only null/undefined falls through).
+  const showAddress = $derived(form?.values?.showAddress ?? data.invoice.showAddress);
+  const showPhone = $derived(form?.values?.showPhone ?? data.invoice.showPhone);
+  const showEmail = $derived(form?.values?.showEmail ?? data.invoice.showEmail);
+
   const fieldErrors = $derived(form?.fieldErrors ?? {});
   function err(key: string): string | undefined {
     return (fieldErrors as Record<string, string>)[key];
@@ -277,6 +284,41 @@
       >{values?.notes ?? data.invoice.notes ?? ''}</textarea
     >
   </div>
+
+  <fieldset class="space-y-2">
+    <legend class="label">Your details on this invoice</legend>
+    <p class="text-xs text-fg/50">
+      Choose which of your business details appear under your name. Only details you've added in
+      <a href="/settings/business" class="link">Settings → Business</a> will show.
+    </p>
+    <label class="flex items-center gap-3 text-sm text-fg">
+      <input
+        type="checkbox"
+        name="showAddress"
+        checked={showAddress}
+        class="size-4 rounded-sm border-fg/30 text-accent focus:ring-accent"
+      />
+      Show my address
+    </label>
+    <label class="flex items-center gap-3 text-sm text-fg">
+      <input
+        type="checkbox"
+        name="showPhone"
+        checked={showPhone}
+        class="size-4 rounded-sm border-fg/30 text-accent focus:ring-accent"
+      />
+      Show my phone
+    </label>
+    <label class="flex items-center gap-3 text-sm text-fg">
+      <input
+        type="checkbox"
+        name="showEmail"
+        checked={showEmail}
+        class="size-4 rounded-sm border-fg/30 text-accent focus:ring-accent"
+      />
+      Show my email
+    </label>
+  </fieldset>
 
   <div class="flex items-center gap-4">
     <button

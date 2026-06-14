@@ -4,9 +4,16 @@
   let { data, form }: PageProps = $props();
 
   // Show the just-saved value back after an action, else the stored value from
-  // load. Empty string renders as a cleared field.
+  // load. Empty string renders as a cleared field. `??` respects a returned
+  // `false` flag (only null/undefined falls through to the stored default).
   const address = $derived(form?.businessAddress ?? data.company.businessAddress ?? '');
   const phone = $derived(form?.businessPhone ?? data.company.businessPhone ?? '');
+  const email = $derived(form?.businessEmail ?? data.company.businessEmail ?? '');
+  const showAddress = $derived(
+    form?.showAddressOnInvoice ?? data.company.showAddressOnInvoice ?? true,
+  );
+  const showPhone = $derived(form?.showPhoneOnInvoice ?? data.company.showPhoneOnInvoice ?? true);
+  const showEmail = $derived(form?.showEmailOnInvoice ?? data.company.showEmailOnInvoice ?? true);
 </script>
 
 <h1 class="font-serif text-4xl font-light leading-none tracking-tight text-fg">
@@ -21,8 +28,9 @@
   <form method="POST" action="?/save" class="px-6 py-6">
     <input type="hidden" name="companyId" value={data.company.id} />
     <p class="text-sm text-fg/70">
-      These appear on the invoices and estimates your customers see, under your business name.
-      Leave them blank to show just the name.
+      These show in the &ldquo;from&rdquo; block on the invoices your customers see, under your
+      business name. The checkboxes set the default for new invoices &mdash; you can still change
+      it on any individual invoice. Leave a field blank to omit it entirely.
     </p>
     <label class="mt-5 block">
       <span class="label">Business address</span>
@@ -34,6 +42,15 @@
         >{address}</textarea
       >
     </label>
+    <label class="mt-2 flex items-center gap-3 text-sm text-fg/70">
+      <input
+        type="checkbox"
+        name="showAddressOnInvoice"
+        checked={showAddress}
+        class="size-4 rounded-sm border-fg/30 text-accent focus:ring-accent"
+      />
+      Show on invoices
+    </label>
     <label class="mt-5 block">
       <span class="label">Phone</span>
       <input
@@ -43,6 +60,34 @@
         placeholder="(555) 123-4567"
         class="mt-2 w-full max-w-md rounded-sm border border-fg/20 bg-surface px-3 py-2 text-sm text-fg focus:border-accent focus:outline-none"
       />
+    </label>
+    <label class="mt-2 flex items-center gap-3 text-sm text-fg/70">
+      <input
+        type="checkbox"
+        name="showPhoneOnInvoice"
+        checked={showPhone}
+        class="size-4 rounded-sm border-fg/30 text-accent focus:ring-accent"
+      />
+      Show on invoices
+    </label>
+    <label class="mt-5 block">
+      <span class="label">Email</span>
+      <input
+        type="email"
+        name="businessEmail"
+        value={email}
+        placeholder="hello@yourbusiness.com"
+        class="mt-2 w-full max-w-md rounded-sm border border-fg/20 bg-surface px-3 py-2 text-sm text-fg focus:border-accent focus:outline-none"
+      />
+    </label>
+    <label class="mt-2 flex items-center gap-3 text-sm text-fg/70">
+      <input
+        type="checkbox"
+        name="showEmailOnInvoice"
+        checked={showEmail}
+        class="size-4 rounded-sm border-fg/30 text-accent focus:ring-accent"
+      />
+      Show on invoices
     </label>
     <div class="mt-5 flex items-center gap-4">
       <button

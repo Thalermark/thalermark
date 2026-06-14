@@ -24,20 +24,35 @@ export const load: PageServerLoad = async (event) => {
 };
 
 export const actions: Actions = {
-  // Saves the business address + phone shown on invoices. Empty inputs clear
-  // the columns (API coerces '' → null → the public invoice drops that line).
-  // Plain HTML form action, matching the rest of settings.
+  // Saves the business address / phone / email shown in the invoice "from"
+  // block, plus the per-field "show on invoices" defaults (each a checkbox →
+  // present only when checked). Empty text inputs clear the columns (API
+  // coerces '' → null → the public invoice drops that line). Plain HTML form
+  // action, matching the rest of settings.
   save: async (event) => {
     const client = serverApiClient(event);
     const formData = await event.request.formData();
     const companyId = String(formData.get('companyId') ?? '');
     const businessAddress = String(formData.get('businessAddress') ?? '').trim();
     const businessPhone = String(formData.get('businessPhone') ?? '').trim();
+    const businessEmail = String(formData.get('businessEmail') ?? '').trim();
+    // Unchecked boxes don't submit at all, so absence = false. The form always
+    // renders all three, so we always send an explicit boolean for each.
+    const showAddressOnInvoice = formData.get('showAddressOnInvoice') === 'on';
+    const showPhoneOnInvoice = formData.get('showPhoneOnInvoice') === 'on';
+    const showEmailOnInvoice = formData.get('showEmailOnInvoice') === 'on';
     if (!companyId) return fail(400, { error: 'missing_company_id' });
 
     const res = await client.api.companies[':id'].$patch({
       param: { id: companyId },
-      json: { businessAddress, businessPhone },
+      json: {
+        businessAddress,
+        businessPhone,
+        businessEmail,
+        showAddressOnInvoice,
+        showPhoneOnInvoice,
+        showEmailOnInvoice,
+      },
     });
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
@@ -45,9 +60,21 @@ export const actions: Actions = {
         error: body?.error ?? 'save_failed',
         businessAddress,
         businessPhone,
+        businessEmail,
+        showAddressOnInvoice,
+        showPhoneOnInvoice,
+        showEmailOnInvoice,
       });
     }
-    return { saved: true, businessAddress, businessPhone };
+    return {
+      saved: true,
+      businessAddress,
+      businessPhone,
+      businessEmail,
+      showAddressOnInvoice,
+      showPhoneOnInvoice,
+      showEmailOnInvoice,
+    };
   },
 
   // Forward the multipart logo to the api. Raw fetch (not the typed client),
