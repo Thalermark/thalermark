@@ -14,7 +14,15 @@ export const load: PageServerLoad = async (event) => {
   const company = pickActiveCompany(event.cookies, companies);
   if (!company) throw error(500, 'no company in this workspace');
 
-  return { company };
+  // The customizable email templates (effective copy + default/customized
+  // state). The editor lives at /settings/email/[type]; this page just lists
+  // them. A read — open to any role (the editor's writes stay gated).
+  const tplRes = await client.api.companies[':id']['email-templates'].$get({
+    param: { id: company.id },
+  });
+  const templates = tplRes.ok ? (await tplRes.json()).templates : [];
+
+  return { company, templates };
 };
 
 export const actions: Actions = {
