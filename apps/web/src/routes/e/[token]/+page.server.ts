@@ -67,6 +67,9 @@ type PublicEstimate = {
   acceptedAt: string | null;
   declinedAt: string | null;
   companyName: string | null;
+  companyAddress: string | null;
+  companyPhone: string | null;
+  companyEmail: string | null;
   customerName: string | null;
   lineItems: PublicEstimateLine[];
   canRespond: boolean;
