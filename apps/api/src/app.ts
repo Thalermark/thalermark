@@ -79,6 +79,7 @@ import { validator } from 'hono/validator';
 import { v7 as uuidv7 } from 'uuid';
 import type { ApiAuth } from './lib/auth.js';
 import { buildCustomerStatement } from './lib/customer-statement.js';
+import { emailFooterText, renderEmailHtml } from './lib/email-layout.js';
 import { escapeHtml } from './lib/html.js';
 import { sendInvoiceEmail } from './lib/invoice-email.js';
 import { suggestNextEstimateNumber, suggestNextInvoiceNumber } from './lib/invoice-number.js';
@@ -890,9 +891,18 @@ export function createApp(deps: AppDeps) {
           // discards an invitation the caller saw acknowledged.
           await deps.mailer.send({
             to: email,
-            subject: 'You have been invited to Thalermark',
-            text: `You have been invited to join a workspace on Thalermark.\n\nAccept the invitation: ${url}\n\nThe link expires in 7 days.\n`,
-            html: `<p>You have been invited to join a workspace on Thalermark.</p><p><a href="${escapeHtml(url)}">Accept invitation</a></p><p>The link expires in 7 days.</p>`,
+            subject: "You're invited to a workspace on Thalermark",
+            text: `You've been invited to join a workspace on Thalermark — AI-first accounting for freelancers and tradespeople.\n\nAccept the invitation: ${url}\n\nThis invitation expires in 7 days. If you weren't expecting it, you can ignore this email.\n\n${emailFooterText(false)}\n`,
+            html: renderEmailHtml({
+              brandName: 'Thalermark',
+              preheader: "You've been invited to join a workspace on Thalermark.",
+              heading: "You're invited",
+              bodyHtml:
+                '<p style="margin:0;">You\'ve been invited to join a workspace on <strong>Thalermark</strong> — AI-first accounting for freelancers and tradespeople.</p>',
+              cta: { label: 'Accept invitation', url },
+              footnote:
+                "This invitation expires in 7 days. If you weren't expecting it, you can ignore this email.",
+            }),
           });
         } catch {
           return c.json({ error: 'mailer_send_failed' }, 502);
@@ -5436,13 +5446,23 @@ export function createApp(deps: AppDeps) {
             ? `${deps.publicAppUrl}/e/${estimate.publicToken}`
             : `/e/${estimate.publicToken}`;
           const subject = `Estimate ${estimate.number} from ${companyName}`;
-          const greeting = customer.name ? `Hi ${customer.name},` : 'Hi,';
+          const greeting = customer.name ? `Hi ${customer.name},` : 'Hi there,';
+          const amount = `${estimate.total} ${estimate.currency}`;
           const expiresLine = estimate.expiresOn ? `Valid until ${estimate.expiresOn}.\n` : '';
-          const text = `${greeting}\n\nEstimate ${estimate.number} for ${estimate.total} ${estimate.currency} is ready for your review.\n${expiresLine}\nView it: ${publicUrl}\n\n— ${companyName}`;
+          const text = `${greeting}\n\nHere's estimate ${estimate.number} for ${amount}, ready for your review.\n${expiresLine}\nView the estimate: ${publicUrl}\n\n— ${companyName}\n\n${emailFooterText(true)}`;
           const expiresHtml = estimate.expiresOn
-            ? ` Valid until ${escapeHtml(estimate.expiresOn)}.`
+            ? ` It's valid until ${escapeHtml(estimate.expiresOn)}.`
             : '';
-          const html = `<p>${escapeHtml(greeting)}</p><p>Estimate <strong>${escapeHtml(estimate.number)}</strong> for <strong>${escapeHtml(estimate.total)} ${escapeHtml(estimate.currency)}</strong> is ready for your review.${expiresHtml}</p><p><a href="${escapeHtml(publicUrl)}">View estimate</a></p><p>— ${escapeHtml(companyName)}</p>`;
+          const html = renderEmailHtml({
+            brandName: companyName,
+            preheader: `Estimate ${estimate.number} · ${amount}${estimate.expiresOn ? ` · valid until ${estimate.expiresOn}` : ''}`,
+            heading: `Estimate ${estimate.number}`,
+            bodyHtml:
+              `<p style="margin:0 0 14px;">${escapeHtml(greeting)}</p>` +
+              `<p style="margin:0;">Here's estimate <strong>${escapeHtml(estimate.number)}</strong> for <strong>${escapeHtml(amount)}</strong>, ready for your review.${expiresHtml} Take a look and let us know if you'd like to go ahead.</p>`,
+            cta: { label: 'View estimate', url: publicUrl },
+            poweredBy: true,
+          });
 
           try {
             await deps.mailer.send({
