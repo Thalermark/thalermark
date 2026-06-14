@@ -78,7 +78,7 @@
   {/if}
 
   <dl class="mt-8 grid grid-cols-1 gap-x-12 gap-y-6 sm:grid-cols-3">
-    {#if inv.companyName && (inv.companyAddress || inv.companyPhone)}
+    {#if inv.companyName && (inv.companyAddress || inv.companyPhone || inv.companyEmail)}
       <div>
         <dt class="label">From</dt>
         <dd class="mt-1 text-fg">{inv.companyName}</dd>
@@ -87,6 +87,9 @@
         {/if}
         {#if inv.companyPhone}
           <dd class="mt-1 text-sm text-fg/70">{inv.companyPhone}</dd>
+        {/if}
+        {#if inv.companyEmail}
+          <dd class="mt-1 text-sm text-fg/70">{inv.companyEmail}</dd>
         {/if}
       </div>
     {/if}

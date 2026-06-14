@@ -61,6 +61,14 @@ export const load: PageServerLoad = async (event) => {
   return {
     companyId: company.id,
     suggestedNumber,
+    // Company-level "show on invoices" defaults — seed the from-block checkboxes
+    // on a fresh invoice. The user can override per invoice; the API persists
+    // whatever the form submits.
+    showDefaults: {
+      showAddress: company.showAddressOnInvoice,
+      showPhone: company.showPhoneOnInvoice,
+      showEmail: company.showEmailOnInvoice,
+    },
     // email is loaded alongside name so the dupe-detection helper (8.6b)
     // can match against it client-side without an extra round-trip. The
     // dropdown render only uses {id, name}; the rest is opaque to the UI.
@@ -79,6 +87,9 @@ type FormValues = {
   dueDate: string;
   notes: string;
   tax: string;
+  showAddress: boolean;
+  showPhone: boolean;
+  showEmail: boolean;
   lineItems: {
     description: string;
     quantity: string;
@@ -110,6 +121,11 @@ function readForm(data: FormData): FormValues {
     dueDate: String(data.get('dueDate') ?? '').trim(),
     notes: String(data.get('notes') ?? '').trim(),
     tax: String(data.get('tax') ?? '').trim(),
+    // Unchecked boxes don't submit, so absence = false. The form always renders
+    // all three, so each round-trips as an explicit boolean.
+    showAddress: data.get('showAddress') === 'on',
+    showPhone: data.get('showPhone') === 'on',
+    showEmail: data.get('showEmail') === 'on',
     lineItems,
   };
 }
@@ -200,6 +216,9 @@ export const actions: Actions = {
       tax,
       total,
       notes: values.notes === '' ? undefined : values.notes,
+      showAddress: values.showAddress,
+      showPhone: values.showPhone,
+      showEmail: values.showEmail,
       lineItems: computedLines,
     };
 
