@@ -23,6 +23,24 @@
     --info: 61 90 108; /* slate */
   }
 
+  /* Dark theme — navy surfaces. Remaps the same role tokens, so no markup
+     changes are needed: every screen references roles, not literals. Toggled by
+     adding `.dark` to <html> (inline init script in app.html + ThemeToggle).
+     Primary fill inverts to cream (mirroring ink-on-cream in light); gold stays
+     reserved for accents; status colors are lifted to stay legible on navy. */
+  .dark {
+    --surface: 15 22 38; /* navy-deep #0f1626 — app background */
+    --surface-2: 26 34 56; /* navy #1a2238 — raised cards/inputs (elevation = lighter) */
+    --fg: 244 237 224; /* cream — primary text + borders (via opacity) */
+    --inverse: 244 237 224; /* cream — primary button / avatar fill */
+    --on-inverse: 15 22 38; /* ink — text on an inverse fill */
+    --accent: 200 166 99; /* gold #c8a663 — links, focus rings, button hover */
+    --danger: 207 112 96; /* lifted oxblood */
+    --success: 143 175 99; /* lifted sage */
+    --warning: 217 154 92; /* lifted copper */
+    --info: 110 149 168; /* lifted slate */
+  }
+
   html {
     scroll-behavior: smooth;
   }
@@ -46,6 +64,13 @@
     z-index: 100;
     mix-blend-mode: multiply;
     background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  /* On navy the multiply grain would just vanish — switch to a screen blend so
+     the noise lifts subtly instead of darkening into the background. */
+  .dark body::before {
+    mix-blend-mode: screen;
+    opacity: 0.02;
   }
 }
 

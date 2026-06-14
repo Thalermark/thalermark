@@ -2,6 +2,7 @@
   import { authClient } from '$lib/auth-client';
   import { COPY } from '@thalermark/brand';
   import AvatarBubble from './AvatarBubble.svelte';
+  import ThemeToggle from './ThemeToggle.svelte';
 
   type Company = { id: string; name: string };
   type Props = {
@@ -126,6 +127,9 @@
       >
         {COPY.settings}
       </a>
+      <div class="my-1 border-t border-fg/10"></div>
+      <ThemeToggle />
+      <div class="my-1 border-t border-fg/10"></div>
       <button
         type="button"
         role="menuitem"
