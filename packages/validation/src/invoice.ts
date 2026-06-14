@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { isoDateString, moneyString, quantityString } from './money.js';
+import { isoDateString, moneyString, quantityString, taxRateString } from './money.js';
 
 // Per-line input. position is the 1-based ordinal the UI uses to render the
 // rows; the server trusts what the client sent rather than re-sequencing,
@@ -12,6 +12,16 @@ export const invoiceLineItemInputSchema = z.object({
   quantity: quantityString,
   unitPrice: moneyString,
   amount: moneyString,
+  // Per-line tax snapshot. taxable gates whether the line is taxed; taxRatePct
+  // is the applied policy's rate (percent string); taxAmount is the computed
+  // line tax (taxOfAmount(amount, taxRatePct)). All optional — the DB defaults
+  // them to false / '0' / '0'. Like the money fields, the client computes and
+  // the server stores as-sent (no re-derivation). The invoice header `tax` is
+  // the sum of these line taxAmounts. taxPolicyId is a provenance breadcrumb.
+  taxable: z.boolean().optional(),
+  taxRatePct: taxRateString.optional(),
+  taxAmount: moneyString.optional(),
+  taxPolicyId: z.string().uuid().optional(),
   // Reporting breadcrumb back to the catalog item this line was picked from
   // (omitted for hand-typed lines). The stored/displayed values are always
   // the snapshot above — this is provenance only, never re-read.

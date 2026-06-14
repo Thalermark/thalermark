@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { isoDateString, moneyString, quantityString } from './money.js';
+import { isoDateString, moneyString, quantityString, taxRateString } from './money.js';
 
 // Template line item — identical shape to invoiceLineItemInputSchema; the
 // sweeper clones these verbatim onto each generated invoice.
@@ -9,6 +9,12 @@ export const recurringInvoiceLineItemInputSchema = z.object({
   quantity: quantityString,
   unitPrice: moneyString,
   amount: moneyString,
+  // Per-line tax snapshot — see invoiceLineItemInputSchema. Cloned verbatim
+  // onto each generated invoice line by the sweeper.
+  taxable: z.boolean().optional(),
+  taxRatePct: taxRateString.optional(),
+  taxAmount: moneyString.optional(),
+  taxPolicyId: z.string().uuid().optional(),
   // Reporting breadcrumb back to the catalog item (omitted for hand-typed
   // lines). Cloned verbatim onto each generated invoice line by the sweeper.
   sourceItemId: z.string().uuid().optional(),

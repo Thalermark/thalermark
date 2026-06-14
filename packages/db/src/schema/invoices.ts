@@ -16,6 +16,7 @@ import { companies } from './companies.js';
 import { customers } from './customers.js';
 import { items } from './items.js';
 import { recurringInvoices } from './recurring-invoices.js';
+import { taxPolicies } from './tax_policies.js';
 
 // Invoice header. Money columns are numeric(15,2) — exact-precision arithmetic
 // in Postgres, returned as string in TS to dodge JS float precision. Status is
@@ -131,6 +132,18 @@ export const invoiceLineItems = pgTable(
     quantity: numeric('quantity', { precision: 15, scale: 4 }).notNull(),
     unitPrice: numeric('unit_price', { precision: 15, scale: 2 }).notNull(),
     amount: numeric('amount', { precision: 15, scale: 2 }).notNull(),
+    // Per-line tax snapshot. taxable gates whether this line is taxed;
+    // tax_rate_pct is the policy's rate copied at line time (numeric(7,4)
+    // percent); tax_amount is the computed line tax (amount * rate / 100,
+    // rounded). All three are stored snapshots — editing or archiving the source
+    // policy never rewrites a sent invoice. The invoice header `tax` is the sum
+    // of these. tax_policy_id is a provenance breadcrumb only (SET NULL on
+    // policy delete, but policies archive so it survives), never re-read for
+    // display — same contract as source_item_id.
+    taxable: boolean('taxable').notNull().default(false),
+    taxRatePct: numeric('tax_rate_pct', { precision: 7, scale: 4 }).notNull().default('0'),
+    taxAmount: numeric('tax_amount', { precision: 15, scale: 2 }).notNull().default('0'),
+    taxPolicyId: uuid('tax_policy_id'),
     // Reporting breadcrumb back to the catalog item this line was picked from
     // (null for hand-typed lines). ON DELETE SET NULL, but items archive rather
     // than delete, so in practice this survives. Displayed values always come
@@ -149,6 +162,11 @@ export const invoiceLineItems = pgTable(
       name: 'invoice_line_items_source_item_fk',
       columns: [table.sourceItemId],
       foreignColumns: [items.id],
+    }).onDelete('set null'),
+    taxPolicyFk: foreignKey({
+      name: 'invoice_line_items_tax_policy_fk',
+      columns: [table.taxPolicyId],
+      foreignColumns: [taxPolicies.id],
     }).onDelete('set null'),
   }),
 );

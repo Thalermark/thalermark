@@ -16,6 +16,7 @@ import { companies } from './companies.js';
 import { customers } from './customers.js';
 import { invoices } from './invoices.js';
 import { items } from './items.js';
+import { taxPolicies } from './tax_policies.js';
 
 // Estimates mirror the invoice header. Status is 'draft' default with the rest
 // set by the transition endpoints ('sent' / 'accepted' / 'declined' /
@@ -108,6 +109,11 @@ export const estimateLineItems = pgTable(
     quantity: numeric('quantity', { precision: 15, scale: 4 }).notNull(),
     unitPrice: numeric('unit_price', { precision: 15, scale: 2 }).notNull(),
     amount: numeric('amount', { precision: 15, scale: 2 }).notNull(),
+    // Per-line tax snapshot — see invoice_line_items for the full contract.
+    taxable: boolean('taxable').notNull().default(false),
+    taxRatePct: numeric('tax_rate_pct', { precision: 7, scale: 4 }).notNull().default('0'),
+    taxAmount: numeric('tax_amount', { precision: 15, scale: 2 }).notNull().default('0'),
+    taxPolicyId: uuid('tax_policy_id'),
     // Reporting breadcrumb back to the catalog item (null for hand-typed
     // lines). Snapshot semantics — see invoice_line_items.source_item_id.
     sourceItemId: uuid('source_item_id'),
@@ -122,6 +128,11 @@ export const estimateLineItems = pgTable(
       name: 'estimate_line_items_source_item_fk',
       columns: [table.sourceItemId],
       foreignColumns: [items.id],
+    }).onDelete('set null'),
+    taxPolicyFk: foreignKey({
+      name: 'estimate_line_items_tax_policy_fk',
+      columns: [table.taxPolicyId],
+      foreignColumns: [taxPolicies.id],
     }).onDelete('set null'),
   }),
 );

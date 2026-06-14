@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { isoDateString, moneyString, quantityString } from './money.js';
+import { isoDateString, moneyString, quantityString, taxRateString } from './money.js';
 
 // Per-line input for estimates. Identical shape to invoice line items —
 // position is 1-based, amount duplicates quantity * unit_price (client
@@ -12,6 +12,11 @@ export const estimateLineItemInputSchema = z.object({
   quantity: quantityString,
   unitPrice: moneyString,
   amount: moneyString,
+  // Per-line tax snapshot — see invoiceLineItemInputSchema for the contract.
+  taxable: z.boolean().optional(),
+  taxRatePct: taxRateString.optional(),
+  taxAmount: moneyString.optional(),
+  taxPolicyId: z.string().uuid().optional(),
   // Reporting breadcrumb back to the catalog item (omitted for hand-typed
   // lines). Provenance only — see invoiceLineItemInputSchema.
   sourceItemId: z.string().uuid().optional(),
