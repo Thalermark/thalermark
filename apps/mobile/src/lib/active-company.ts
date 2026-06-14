@@ -13,9 +13,12 @@ export type CompanyLite = { id: string; name: string };
 // self-heals to the first company rather than scoping every read to nothing.
 // Persists the resolved choice so the heal sticks. Returns undefined only for an
 // empty list (the 0-company case the screens already guard as "no company").
-export async function pickActiveCompany(
-  companies: CompanyLite[],
-): Promise<CompanyLite | undefined> {
+// Generic over the element type so callers keep the full company shape they
+// passed in (e.g. the hc-typed company with its show-on-invoice/estimate
+// defaults), not a narrowed CompanyLite. Only `id` is used internally.
+export async function pickActiveCompany<T extends CompanyLite>(
+  companies: T[],
+): Promise<T | undefined> {
   const first = companies[0];
   if (!first) return undefined;
   const stored = await getActiveCompanyId();

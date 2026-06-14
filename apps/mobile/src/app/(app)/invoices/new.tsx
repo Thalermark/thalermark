@@ -20,6 +20,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Checkbox } from '../../../components/Checkbox';
 import { DateField } from '../../../components/DateField';
 import { ItemPickerField } from '../../../components/ItemPickerField';
 import { pickActiveCompany } from '../../../lib/active-company';
@@ -72,6 +73,12 @@ export default function NewInvoice() {
   const [dueDate, setDueDate] = useState(plusDaysIso(30));
   const [tax, setTax] = useState('');
   const [notes, setNotes] = useState('');
+  // From-block "show on this invoice" toggles, seeded from the company defaults
+  // at bootstrap. Default true so a no-company / load failure still submits a
+  // sensible (always-show) invoice.
+  const [showAddress, setShowAddress] = useState(true);
+  const [showPhone, setShowPhone] = useState(true);
+  const [showEmail, setShowEmail] = useState(true);
   const [rows, setRows] = useState<Row[]>([blankRow()]);
 
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -102,6 +109,9 @@ export default function NewInvoice() {
           const company = await pickActiveCompany(companies);
           if (company) {
             setCompanyId(company.id);
+            setShowAddress(company.showAddressOnInvoice);
+            setShowPhone(company.showPhoneOnInvoice);
+            setShowEmail(company.showEmailOnInvoice);
             const numRes = await api.api.invoices['next-number'].$get({
               query: { companyId: company.id },
             });
@@ -223,6 +233,9 @@ export default function NewInvoice() {
       tax: taxVal,
       total: addMoney(sub, taxVal ?? '0'),
       notes: notes.trim() === '' ? undefined : notes.trim(),
+      showAddress,
+      showPhone,
+      showEmail,
       lineItems,
     };
 
@@ -462,6 +475,34 @@ export default function NewInvoice() {
                 onChangeText={setNotes}
                 multiline
                 className="mt-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink"
+              />
+            </View>
+
+            {/* From-block toggles */}
+            <View>
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                Your details on this invoice
+              </Text>
+              <Text className="mt-1 text-xs text-ink/50">
+                Only details you've added in Business settings will show.
+              </Text>
+              <Checkbox
+                label="Show my address"
+                value={showAddress}
+                onToggle={() => setShowAddress((v) => !v)}
+                className="mt-3"
+              />
+              <Checkbox
+                label="Show my phone"
+                value={showPhone}
+                onToggle={() => setShowPhone((v) => !v)}
+                className="mt-3"
+              />
+              <Checkbox
+                label="Show my email"
+                value={showEmail}
+                onToggle={() => setShowEmail((v) => !v)}
+                className="mt-3"
               />
             </View>
 
