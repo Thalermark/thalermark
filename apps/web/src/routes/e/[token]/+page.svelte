@@ -10,6 +10,13 @@
 <div class="mx-auto max-w-3xl px-6 py-12 sm:py-20">
   <header class="flex flex-wrap items-start justify-between gap-6 border-b border-fg/10 pb-8">
     <div>
+      {#if est.companyLogoUrl}
+        <img
+          src={est.companyLogoUrl}
+          alt={est.companyName ?? 'Business logo'}
+          class="mb-3 max-h-16 max-w-[12rem] object-contain"
+        />
+      {/if}
       <p class="eyebrow text-fg/50">{est.companyName ?? 'Estimate'}</p>
       <h1 class="mt-2 font-serif text-4xl font-light leading-none tracking-tight text-fg">
         Estimate {est.number}<span class="text-accent">.</span>

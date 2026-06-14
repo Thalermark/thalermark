@@ -70,6 +70,7 @@ type PublicEstimate = {
   companyAddress: string | null;
   companyPhone: string | null;
   companyEmail: string | null;
+  companyLogoUrl: string | null;
   customerName: string | null;
   lineItems: PublicEstimateLine[];
   canRespond: boolean;

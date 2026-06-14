@@ -6239,6 +6239,7 @@ export function createApp(deps: AppDeps) {
             businessAddress: companies.businessAddress,
             businessPhone: companies.businessPhone,
             businessEmail: companies.businessEmail,
+            logoStorageKey: companies.logoStorageKey,
           })
           .from(companies)
           .where(eq(companies.id, estimate.companyId))
@@ -6261,6 +6262,17 @@ export function createApp(deps: AppDeps) {
           .where(eq(estimateLineItems.estimateId, estimate.id))
           .orderBy(asc(estimateLineItems.position));
 
+        // Fresh signed URL for the sender logo per page load — same best-effort
+        // pattern as the public invoice (no toggle: the logo always shows when
+        // set). Falls back to the text-only sender block if storage is
+        // unconfigured or signing fails.
+        let companyLogoUrl: string | null = null;
+        if (company?.logoStorageKey && deps.storage) {
+          companyLogoUrl = await deps.storage
+            .getSignedDownloadUrl(company.logoStorageKey, { expiresInSeconds: 3600 })
+            .catch(() => null);
+        }
+
         return c.json({
           number: estimate.number,
           status: estimate.status,
@@ -6280,6 +6292,7 @@ export function createApp(deps: AppDeps) {
           companyAddress: estimate.showAddress ? (company?.businessAddress ?? null) : null,
           companyPhone: estimate.showPhone ? (company?.businessPhone ?? null) : null,
           companyEmail: estimate.showEmail ? (company?.businessEmail ?? null) : null,
+          companyLogoUrl,
           customerName: customer?.name ?? null,
           lineItems: lines,
           // Tells the public page whether to render Accept/Decline. Only

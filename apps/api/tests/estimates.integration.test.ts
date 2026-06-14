@@ -1139,6 +1139,7 @@ describe('Public estimate routes', () => {
         total: string;
         customerName: string | null;
         companyName: string | null;
+        companyLogoUrl: string | null;
         lineItems: { description: string }[];
         canRespond: boolean;
       };
@@ -1148,6 +1149,8 @@ describe('Public estimate routes', () => {
       expect(body.customerName).toBe('Wile E. Coyote');
       expect(body.lineItems).toHaveLength(1);
       expect(body.canRespond).toBe(true);
+      // No logo seeded → null (the field is always present in the shape).
+      expect(body.companyLogoUrl).toBeNull();
       // No account/company ids leak to the recipient
       expect(body as Record<string, unknown>).not.toHaveProperty('accountId');
       expect(body as Record<string, unknown>).not.toHaveProperty('companyId');
