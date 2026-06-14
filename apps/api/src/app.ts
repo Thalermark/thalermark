@@ -1240,7 +1240,11 @@ export function createApp(deps: AppDeps) {
             businessType: companies.businessType,
             businessAddress: companies.businessAddress,
             businessPhone: companies.businessPhone,
+            businessEmail: companies.businessEmail,
             replyToEmail: companies.replyToEmail,
+            showAddressOnInvoice: companies.showAddressOnInvoice,
+            showPhoneOnInvoice: companies.showPhoneOnInvoice,
+            showEmailOnInvoice: companies.showEmailOnInvoice,
             paymentCashEnabled: companies.paymentCashEnabled,
             paymentCheckEnabled: companies.paymentCheckEnabled,
             paymentCheckPayableTo: companies.paymentCheckPayableTo,
@@ -1299,7 +1303,11 @@ export function createApp(deps: AppDeps) {
               businessType: created.businessType,
               businessAddress: created.businessAddress,
               businessPhone: created.businessPhone,
+              businessEmail: created.businessEmail,
               replyToEmail: created.replyToEmail,
+              showAddressOnInvoice: created.showAddressOnInvoice,
+              showPhoneOnInvoice: created.showPhoneOnInvoice,
+              showEmailOnInvoice: created.showEmailOnInvoice,
               ...paymentMethodsView(created),
             },
             201,
@@ -1343,6 +1351,14 @@ export function createApp(deps: AppDeps) {
           // Business identity — sparse + '' → null, same as replyToEmail below.
           if (data.businessAddress !== undefined) patch.businessAddress = data.businessAddress;
           if (data.businessPhone !== undefined) patch.businessPhone = data.businessPhone;
+          if (data.businessEmail !== undefined) patch.businessEmail = data.businessEmail;
+          // Per-field invoice-display defaults — plain booleans, sparse.
+          if (data.showAddressOnInvoice !== undefined)
+            patch.showAddressOnInvoice = data.showAddressOnInvoice;
+          if (data.showPhoneOnInvoice !== undefined)
+            patch.showPhoneOnInvoice = data.showPhoneOnInvoice;
+          if (data.showEmailOnInvoice !== undefined)
+            patch.showEmailOnInvoice = data.showEmailOnInvoice;
           // Validation coerces '' → null, so an explicit clear lands as null here.
           if (data.replyToEmail !== undefined) patch.replyToEmail = data.replyToEmail;
           // Offline payment instructions — same sparse + '' → null semantics.
@@ -1375,7 +1391,11 @@ export function createApp(deps: AppDeps) {
               businessType: before.businessType,
               businessAddress: before.businessAddress,
               businessPhone: before.businessPhone,
+              businessEmail: before.businessEmail,
               replyToEmail: before.replyToEmail,
+              showAddressOnInvoice: before.showAddressOnInvoice,
+              showPhoneOnInvoice: before.showPhoneOnInvoice,
+              showEmailOnInvoice: before.showEmailOnInvoice,
               ...paymentMethodsView(before),
             },
             after: {
@@ -1383,7 +1403,11 @@ export function createApp(deps: AppDeps) {
               businessType: after.businessType,
               businessAddress: after.businessAddress,
               businessPhone: after.businessPhone,
+              businessEmail: after.businessEmail,
               replyToEmail: after.replyToEmail,
+              showAddressOnInvoice: after.showAddressOnInvoice,
+              showPhoneOnInvoice: after.showPhoneOnInvoice,
+              showEmailOnInvoice: after.showEmailOnInvoice,
               ...paymentMethodsView(after),
             },
             companyId: id,
@@ -1395,7 +1419,11 @@ export function createApp(deps: AppDeps) {
             businessType: after.businessType,
             businessAddress: after.businessAddress,
             businessPhone: after.businessPhone,
+            businessEmail: after.businessEmail,
             replyToEmail: after.replyToEmail,
+            showAddressOnInvoice: after.showAddressOnInvoice,
+            showPhoneOnInvoice: after.showPhoneOnInvoice,
+            showEmailOnInvoice: after.showEmailOnInvoice,
             ...paymentMethodsView(after),
           });
         },
@@ -3468,6 +3496,27 @@ export function createApp(deps: AppDeps) {
           .limit(1);
         if (taken) return c.json({ error: 'invoice_number_taken' }, 409);
 
+        // Seed the per-invoice from-block "show" flags from the company's
+        // defaults when the client didn't send them (e.g. an API client that
+        // doesn't render the toggles). The web/mobile forms send explicit
+        // values, which win via the ?? below. The customer↔company check above
+        // guarantees this company exists.
+        const [companyDefaults] = await tx
+          .select({
+            showAddressOnInvoice: companies.showAddressOnInvoice,
+            showPhoneOnInvoice: companies.showPhoneOnInvoice,
+            showEmailOnInvoice: companies.showEmailOnInvoice,
+          })
+          .from(companies)
+          .where(and(eq(companies.id, companyId), eq(companies.accountId, accountId)))
+          .limit(1);
+        if (!companyDefaults) return c.json({ error: 'company_not_found' }, 404);
+        const showFlags = {
+          showAddress: header.showAddress ?? companyDefaults.showAddressOnInvoice,
+          showPhone: header.showPhone ?? companyDefaults.showPhoneOnInvoice,
+          showEmail: header.showEmail ?? companyDefaults.showEmailOnInvoice,
+        };
+
         const invoiceId = uuidv7();
         await tx.insert(invoices).values({
           id: invoiceId,
@@ -3475,6 +3524,7 @@ export function createApp(deps: AppDeps) {
           companyId,
           customerId,
           ...header,
+          ...showFlags,
         });
         const lineRows = lineItems.map((li) => ({
           id: uuidv7(),
@@ -3488,11 +3538,11 @@ export function createApp(deps: AppDeps) {
           entityType: 'invoice',
           entityId: invoiceId,
           action: 'create',
-          after: { id: invoiceId, ...parsed.data },
+          after: { id: invoiceId, ...parsed.data, ...showFlags },
           companyId,
         });
 
-        return c.json({ id: invoiceId, ...parsed.data }, 201);
+        return c.json({ id: invoiceId, ...parsed.data, ...showFlags }, 201);
       })
       // Duplicate-as-template: clone any invoice into a fresh draft to reuse as
       // a starting point. Copies customer + line items + header amounts/notes;
@@ -3561,6 +3611,11 @@ export function createApp(deps: AppDeps) {
           tax: source.tax,
           total: source.total,
           notes: source.notes,
+          // A duplicate is a template — carry the source's from-block display
+          // choices forward rather than re-seeding from company defaults.
+          showAddress: source.showAddress,
+          showPhone: source.showPhone,
+          showEmail: source.showEmail,
         });
         if (sourceLines.length > 0) {
           await tx.insert(invoiceLineItems).values(
@@ -3805,6 +3860,11 @@ export function createApp(deps: AppDeps) {
               tax: header.tax ?? '0',
               total: header.total,
               notes: header.notes ?? null,
+              // From-block display flags — keep current values if the client
+              // didn't send them (the edit form always does).
+              showAddress: header.showAddress ?? current.showAddress,
+              showPhone: header.showPhone ?? current.showPhone,
+              showEmail: header.showEmail ?? current.showEmail,
               updatedAt: new Date(),
             })
             .where(and(eq(invoices.id, id), eq(invoices.accountId, accountId)))
@@ -4700,6 +4760,18 @@ export function createApp(deps: AppDeps) {
           .limit(1);
         if (taken) return c.json({ error: 'invoice_number_collision', number: invoiceNumber }, 409);
 
+        // Estimates have no from-block flags of their own, so the converted
+        // invoice inherits the company's display defaults.
+        const [convertCompany] = await tx
+          .select({
+            showAddress: companies.showAddressOnInvoice,
+            showPhone: companies.showPhoneOnInvoice,
+            showEmail: companies.showEmailOnInvoice,
+          })
+          .from(companies)
+          .where(and(eq(companies.id, estimate.companyId), eq(companies.accountId, accountId)))
+          .limit(1);
+
         const invoiceId = uuidv7();
         await tx.insert(invoices).values({
           id: invoiceId,
@@ -4714,6 +4786,9 @@ export function createApp(deps: AppDeps) {
           tax: estimate.tax,
           total: estimate.total,
           notes: estimate.notes,
+          showAddress: convertCompany?.showAddress ?? true,
+          showPhone: convertCompany?.showPhone ?? true,
+          showEmail: convertCompany?.showEmail ?? true,
         });
         if (estimateLines.length > 0) {
           await tx.insert(invoiceLineItems).values(
@@ -5918,6 +5993,7 @@ export function createApp(deps: AppDeps) {
             name: companies.name,
             businessAddress: companies.businessAddress,
             businessPhone: companies.businessPhone,
+            businessEmail: companies.businessEmail,
             logoStorageKey: companies.logoStorageKey,
             stripeConnectAccountId: companies.stripeConnectAccountId,
             stripeConnectChargesEnabled: companies.stripeConnectChargesEnabled,
@@ -6002,8 +6078,12 @@ export function createApp(deps: AppDeps) {
           sentAt: invoice.sentAt,
           paidAt: invoice.paidAt,
           companyName: company?.name ?? null,
-          companyAddress: company?.businessAddress ?? null,
-          companyPhone: company?.businessPhone ?? null,
+          // From-block contact fields are gated per-invoice: a false show flag
+          // means the value never reaches the recipient's page (not merely
+          // hidden client-side). The company name + logo always show.
+          companyAddress: invoice.showAddress ? (company?.businessAddress ?? null) : null,
+          companyPhone: invoice.showPhone ? (company?.businessPhone ?? null) : null,
+          companyEmail: invoice.showEmail ? (company?.businessEmail ?? null) : null,
           companyLogoUrl,
           customerName: customer?.name ?? null,
           lineItems: lines,

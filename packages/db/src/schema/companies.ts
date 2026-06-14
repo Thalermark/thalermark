@@ -36,6 +36,21 @@ export const companies = pgTable(
     // whatever reads right on an invoice, not a structured record.
     businessAddress: text('business_address'),
     businessPhone: text('business_phone'),
+    // Customer-facing business email shown in the public invoice "from" block
+    // (distinct from reply_to_email, which only sets the Reply-To header on
+    // outbound mail). Nullable, free-text-ish — the public invoice omits it
+    // until set. Collected lazily in Settings → Business alongside address/phone.
+    businessEmail: text('business_email'),
+    // Per-field defaults for whether the company's contact details print on the
+    // public invoice "from" block. These seed each new invoice's own show_*
+    // flags at creation; the public invoice reads the *invoice's* flag, not
+    // these (so a later settings change never rewrites already-issued invoices).
+    // Default true preserves the prior behavior (address/phone always showed
+    // when set); email defaults true too so a filled business email surfaces
+    // without a second opt-in.
+    showAddressOnInvoice: boolean('show_address_on_invoice').notNull().default(true),
+    showPhoneOnInvoice: boolean('show_phone_on_invoice').notNull().default(true),
+    showEmailOnInvoice: boolean('show_email_on_invoice').notNull().default(true),
     // Object-storage key for the company logo shown on invoices/estimates.
     // Same storage abstraction as receipts (S3/R2/MinIO/local-FS); the bytes
     // never live in Postgres, only this key. Nullable — no logo by default, and

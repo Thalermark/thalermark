@@ -1,5 +1,6 @@
 import {
   bigint,
+  boolean,
   date,
   foreignKey,
   index,
@@ -55,6 +56,16 @@ export const invoices = pgTable(
     tax: numeric('tax', { precision: 15, scale: 2 }).notNull().default('0'),
     total: numeric('total', { precision: 15, scale: 2 }).notNull().default('0'),
     notes: text('notes'),
+    // Per-invoice overrides for whether the company's contact details print in
+    // the public "from" block. Seeded from the company's show_*_on_invoice
+    // defaults at create time, then independently editable while the invoice is
+    // a draft. The public invoice handler gates each field on these — a false
+    // flag means the value is never sent to the recipient's page, not merely
+    // hidden client-side. Default true backfills existing rows to the prior
+    // always-show behavior.
+    showAddress: boolean('show_address').notNull().default(true),
+    showPhone: boolean('show_phone').notNull().default(true),
+    showEmail: boolean('show_email').notNull().default(true),
     sentAt: timestamp('sent_at', { withTimezone: true }),
     paidAt: timestamp('paid_at', { withTimezone: true }),
     voidedAt: timestamp('voided_at', { withTimezone: true }),

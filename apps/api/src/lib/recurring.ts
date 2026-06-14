@@ -122,6 +122,19 @@ export async function generateOnce(
     )
     .orderBy(asc(recurringInvoiceLineItems.position));
 
+  // Auto-generated invoices go straight out as `sent`, so they must honor the
+  // company's from-block display defaults (the recipient never sees a draft to
+  // edit). Schedules carry no per-invoice flags of their own.
+  const [showCompany] = await tx
+    .select({
+      showAddress: companies.showAddressOnInvoice,
+      showPhone: companies.showPhoneOnInvoice,
+      showEmail: companies.showEmailOnInvoice,
+    })
+    .from(companies)
+    .where(and(eq(companies.id, schedule.companyId), eq(companies.accountId, accountId)))
+    .limit(1);
+
   const invoiceId = uuidv7();
   const publicToken = randomBytes(32).toString('hex');
   await tx.insert(invoices).values({
@@ -138,6 +151,9 @@ export async function generateOnce(
     tax: schedule.tax,
     total: schedule.total,
     notes: schedule.notes,
+    showAddress: showCompany?.showAddress ?? true,
+    showPhone: showCompany?.showPhone ?? true,
+    showEmail: showCompany?.showEmail ?? true,
     sentAt: now,
     publicToken,
     recurringInvoiceId: schedule.id,
