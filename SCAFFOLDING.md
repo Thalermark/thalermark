@@ -1,6 +1,6 @@
 # Scaffolding Plan
 
-**Status:** Phases 0–8 shipped; **Phase 9 (mobile catch-up) COMPLETE (2026-06-09)** — the RN/Expo app now mirrors every web MVP flow (slices M1–M11f, PRs #174–#190). Phase 8 (MVP features) slices 8.1–8.4f, 8.5a–8.5e, 8.6a–8.6c, 8.7a–8.7e, 8.8a–8.8b, L1–L4, 8.9a–8.9h, 8.10–8.15, R1–R4, I1–I5 merged (latest 2026-06-07). Invoice CRUD + status flow, the send-invoice chain (public view → email → Stripe self-host pay → SaaS Stripe Connect onboarding + connected payments), the customer-creation chain (inline create → dupe detection → address autocomplete), the full estimates chain (DB + RLS, CRUD/transitions, web pages, convert-to-invoice, public view + send + accept/decline), audit-history UI (per-entity tab + account-wide /activity feed with collapsible inline diffs), the hidden-double-entry ledger reshape (foundation + invoice-transition postings + business-type wizard + GL / trial-balance export), and the full expenses chain (DB + RLS → ledger posting policy → CRUD API → web list/create/detail/edit → object-storage package → receipt capture → vision-LLM receipt extraction) all complete; plus the position dashboard, the full AI insight layer (5 insights: receipt extraction, expense categorization, cash-flow nudges, late-payer detection, spending anomalies), duplicate-as-template across invoices/estimates/expenses, and the recurring-invoice chain (schema → CRUD → pg-boss generation engine + sweeper → web UI — the first pg-boss consumer); plus the items / products & services catalog (Slice I, scoped 2026-06-07 — table + provenance FK → CRUD API → management surface → line-item autocomplete → top-products report). The full locked MVP web scope is feature-complete, and the **mobile catch-up is now complete too (Phase 9)** — every web MVP flow has a native equivalent. **Remaining MVP product work is polish + ship.** **Post-MVP web polish (not slice-tracked here):** keyset pagination across the lists, the report lineup grown to 9, and **#237** — client-side CSV export on every report page + the GL/ledger export finally surfaced in the UI (detail on the **L4** row). **Pre-launch email overhaul (slice-tracked below):** the customer-facing emails got a branded shell (#251) then became **per-company editable** across web + mobile (#252–#255) — see *Post-MVP polish — editable email templates*. **Next: Phase 10 — production hardening + open-core seams** (public-repo prep for a real deploy; the managed layer that fills those seams is maintained out-of-repo).
+**Status:** Phases 0–8 shipped; **Phase 9 (mobile catch-up) COMPLETE (2026-06-09)** — the RN/Expo app now mirrors every web MVP flow (slices M1–M11f, PRs #174–#190). Phase 8 (MVP features) slices 8.1–8.4f, 8.5a–8.5e, 8.6a–8.6c, 8.7a–8.7e, 8.8a–8.8b, L1–L4, 8.9a–8.9h, 8.10–8.15, R1–R4, I1–I5 merged (latest 2026-06-07). Invoice CRUD + status flow, the send-invoice chain (public view → email → Stripe self-host pay → SaaS Stripe Connect onboarding + connected payments), the customer-creation chain (inline create → dupe detection → address autocomplete), the full estimates chain (DB + RLS, CRUD/transitions, web pages, convert-to-invoice, public view + send + accept/decline), audit-history UI (per-entity tab + account-wide /activity feed with collapsible inline diffs), the hidden-double-entry ledger reshape (foundation + invoice-transition postings + business-type wizard + GL / trial-balance export), and the full expenses chain (DB + RLS → ledger posting policy → CRUD API → web list/create/detail/edit → object-storage package → receipt capture → vision-LLM receipt extraction) all complete; plus the position dashboard, the full AI insight layer (5 insights: receipt extraction, expense categorization, cash-flow nudges, late-payer detection, spending anomalies), duplicate-as-template across invoices/estimates/expenses, and the recurring-invoice chain (schema → CRUD → pg-boss generation engine + sweeper → web UI — the first pg-boss consumer); plus the items / products & services catalog (Slice I, scoped 2026-06-07 — table + provenance FK → CRUD API → management surface → line-item autocomplete → top-products report). The full locked MVP web scope is feature-complete, and the **mobile catch-up is now complete too (Phase 9)** — every web MVP flow has a native equivalent. **Remaining MVP product work is polish + ship.** **Post-MVP web polish (not slice-tracked here):** keyset pagination across the lists, the report lineup grown to 9, and **#237** — client-side CSV export on every report page + the GL/ledger export finally surfaced in the UI (detail on the **L4** row). **Pre-launch email overhaul (slice-tracked below):** the customer-facing emails got a branded shell (#251) then became **per-company editable** across web + mobile (#252–#255) — see *Post-MVP polish — editable email templates*. **Invoice & estimate "from" block (slice-tracked below):** per-invoice / per-estimate control over which company contact details (address / phone / a new business email) print in the public "from" block, with separate per-document-type company defaults, plus the company logo brought to the public estimate — across web + mobile (#257–#262); see *Post-MVP polish — invoice & estimate from-block*. **Next: Phase 10 — production hardening + open-core seams** (public-repo prep for a real deploy; the managed layer that fills those seams is maintained out-of-repo).
 **Reads:** Assumes you've read PROJECT.md and TECH-STACK.md.
 
 The shape of work between "all decisions locked" and shipping the MVP. Eight foundation phases (0–7), a Phase 8 for the MVP-feature slices, and a Phase 9 for the mobile catch-up — roughly sequential, each builds on the previous one. Phases 0–7 are the foundation; Phase 8 is where the product becomes visible on web; Phase 9 brings the mobile app to parity.
@@ -640,6 +640,41 @@ table, "valid until" line, reply-to note, footer) is not editable.
 **Realized differs from plan:** mobile carries no `react-native-webview`, so its View/Preview
 shows the email's **text** rendering (the preview endpoint returns it) rather than the HTML
 iframe the web uses — same content, no new native dependency.
+
+---
+
+## Post-MVP polish — Invoice & estimate "from" block
+
+Pre-launch presentation polish, **not a numbered phase** (so no Phase-overview row — same
+deviation as the email-templates wrap above). The public invoice / estimate's sender block is
+the recipient's first impression of the user's business, so the operator now controls what it
+shows. Two levers per document type: a **new business email** (distinct from the reply-to
+address — reply-to only sets a mail header), and **per-field "show on the document" toggles**
+for address / phone / email. Built api → web → mobile per the usual slice discipline.
+
+**Design (locked, user-confirmed):** a company-level **default** per field, **separate by
+document type** — `show_{address,phone,email}_on_invoice` and `…_on_estimate` on `companies`
+(a business may show contact on invoices but not estimates, or vice versa); `business_email` is
+shared, gated independently per type. Each invoice / estimate snapshots its own
+`show_{address,phone,email}` flags from the company default at create, then they're editable
+while it's a draft, so a later settings change never rewrites an already-issued document. The
+public view **gates server-side** — a hidden field never reaches the recipient's page, not
+merely hidden client-side. All flags default **true** (preserves the prior always-show
+behavior; the new email defaults on too). Estimate → invoice convert keeps seeding from the
+*invoice* defaults (separate document type). The estimate "from" block was **built from
+scratch** — the public estimate previously rendered only the company name.
+
+| Slice | PR | What landed |
+|---|---|---|
+| A — invoice api | #257 | `companies` gains `business_email` + `show_{address,phone,email}_on_invoice`; `invoices` gains `show_{address,phone,email}` overrides (migration 0045). Company read/create/update carry the new fields; invoice create seeds flags from company defaults (client override wins), edit persists, duplicate carries source flags, estimate-convert + the recurring sweeper seed from company defaults; the public invoice GET gates the three contact fields + returns `companyEmail`. |
+| B — invoice web | #258 | Settings → Business gains the Email field + a "Show on invoices" checkbox per field; invoice new/edit forms get a "Your details on this invoice" checkbox section (new seeds from company defaults, edit from the invoice's flags); the public invoice view renders the business email. |
+| A2 — estimate api | #259 | `companies` gains `show_{address,phone,email}_on_estimate`; `estimates` gains the override flags (migration 0046). Estimate create/edit/duplicate wired like invoices; the public estimate GET returns + gates `companyAddress/Phone/Email` (the block was name-only before). |
+| B2 — estimate web | #260 | Settings → Business gains a second "Show on estimates" checkbox per field (6 total); estimate new/edit forms get the toggle section; the public estimate view (`/e/[token]`) gets a **new** "From" block. |
+| Logo | #261 | The public estimate header now renders the company logo (fresh signed URL per load), matching the public invoice — no toggle. |
+| C — mobile | #262 | Native parity: `more/business` gains the email field + the 6 checkboxes; the invoice + estimate new/edit forms get the toggle section. New shared `components/Checkbox.tsx`; `pickActiveCompany` made generic so callers keep the full hc-typed company. No public render on mobile. |
+
+**Note:** item 2 of the original polish pair (de-spam the outbound emails) was absorbed by the
+*editable email templates* feature above, not this one.
 
 ---
 
