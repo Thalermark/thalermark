@@ -35,6 +35,13 @@ export const estimateCreateSchema = z.object({
   tax: moneyString.optional(),
   total: moneyString,
   notes: z.string().max(5000).optional(),
+  // Per-estimate "show this in the public from-block" flags for the company's
+  // address / phone / email. Optional: when omitted the server seeds them from
+  // the company's show_*_on_estimate defaults. The edit form sends them
+  // explicitly. Inherited by estimateUpdateSchema below. Mirrors invoices.
+  showAddress: z.boolean().optional(),
+  showPhone: z.boolean().optional(),
+  showEmail: z.boolean().optional(),
   lineItems: z.array(estimateLineItemInputSchema).min(1).max(200),
 });
 

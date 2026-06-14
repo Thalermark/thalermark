@@ -1,5 +1,6 @@
 import {
   bigint,
+  boolean,
   date,
   foreignKey,
   index,
@@ -50,6 +51,15 @@ export const estimates = pgTable(
     tax: numeric('tax', { precision: 15, scale: 2 }).notNull().default('0'),
     total: numeric('total', { precision: 15, scale: 2 }).notNull().default('0'),
     notes: text('notes'),
+    // Per-estimate overrides for whether the company's contact details print in
+    // the public "from" block. Seeded from the company's show_*_on_estimate
+    // defaults at create, editable while a draft. The public estimate handler
+    // gates each field on these (a false flag means the value is never sent to
+    // the recipient's page). Mirrors the invoices table; default true backfills
+    // existing rows. NB the estimate "from" block is new — these gate it.
+    showAddress: boolean('show_address').notNull().default(true),
+    showPhone: boolean('show_phone').notNull().default(true),
+    showEmail: boolean('show_email').notNull().default(true),
     sentAt: timestamp('sent_at', { withTimezone: true }),
     acceptedAt: timestamp('accepted_at', { withTimezone: true }),
     declinedAt: timestamp('declined_at', { withTimezone: true }),
