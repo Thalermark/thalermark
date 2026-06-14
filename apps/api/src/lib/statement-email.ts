@@ -1,4 +1,5 @@
 import type { CustomerStatement, StatementLine } from './customer-statement.js';
+import { emailFooterText, renderEmailHtml } from './email-layout.js';
 import { escapeHtml } from './html.js';
 import type { Mailer } from './mailer.js';
 import { formatSender } from './sender.js';
@@ -26,7 +27,8 @@ export function buildStatementEmail(input: StatementEmailInput): {
   const { statement } = input;
   const companyName = statement.company.name || 'Thalermark';
   const greeting = `Hi ${statement.customer.name},`;
-  const subject = `Statement from ${companyName} — balance due ${money(statement.balanceDue)}`;
+  const balanceDue = money(statement.balanceDue);
+  const subject = `Statement from ${companyName} — balance due ${balanceDue}`;
 
   const sign = (l: StatementLine) =>
     l.charge ? `+${money(l.charge)}` : l.payment ? `-${money(l.payment)}` : '';
@@ -42,13 +44,15 @@ export function buildStatementEmail(input: StatementEmailInput): {
     '',
     `Total invoiced: ${money(statement.totalCharges)}`,
     `Total paid: ${money(statement.totalPayments)}`,
-    `Balance due: ${money(statement.balanceDue)}`,
+    `Balance due: ${balanceDue}`,
     '',
     `— ${companyName}`,
+    '',
+    emailFooterText(true),
   ].join('\n');
 
   const cell = (v: string, right = false) =>
-    `<td style="padding:4px 8px;${right ? 'text-align:right;' : ''}">${v}</td>`;
+    `<td style="padding:6px 8px;border-bottom:1px solid #ece3cf;${right ? 'text-align:right;white-space:nowrap;' : ''}">${v}</td>`;
   const rows = statement.lines
     .map(
       (l) =>
@@ -56,17 +60,17 @@ export function buildStatementEmail(input: StatementEmailInput): {
     )
     .join('');
   const head =
-    '<thead><tr style="text-align:left;border-bottom:1px solid #ccc;"><th style="padding:4px 8px;">Date</th><th style="padding:4px 8px;">Description</th><th style="padding:4px 8px;text-align:right;">Charge</th><th style="padding:4px 8px;text-align:right;">Payment</th><th style="padding:4px 8px;text-align:right;">Balance</th></tr></thead>';
+    '<thead><tr style="text-align:left;border-bottom:2px solid #d9ccad;font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:#6b6f7e;"><th style="padding:6px 8px;font-weight:600;">Date</th><th style="padding:6px 8px;font-weight:600;">Description</th><th style="padding:6px 8px;text-align:right;font-weight:600;">Charge</th><th style="padding:6px 8px;text-align:right;font-weight:600;">Payment</th><th style="padding:6px 8px;text-align:right;font-weight:600;">Balance</th></tr></thead>';
   const table = statement.lines.length
-    ? `<table style="border-collapse:collapse;width:100%;font-size:14px;">${head}<tbody>${rows}</tbody></table>`
-    : '<p>No invoices on file.</p>';
-  const html = [
-    `<p>${escapeHtml(greeting)}</p>`,
-    `<p>Here's your account statement from <strong>${escapeHtml(companyName)}</strong> as of ${escapeHtml(statement.statementDate)}.</p>`,
-    table,
-    `<p style="margin-top:16px;">Total invoiced: ${escapeHtml(money(statement.totalCharges))}<br>Total paid: ${escapeHtml(money(statement.totalPayments))}<br><strong>Balance due: ${escapeHtml(money(statement.balanceDue))}</strong></p>`,
-    `<p>— ${escapeHtml(companyName)}</p>`,
-  ].join('');
+    ? `<table style="border-collapse:collapse;width:100%;font-size:14px;margin:18px 0 4px;">${head}<tbody>${rows}</tbody></table>`
+    : '<p style="margin:14px 0 0;">No invoices on file.</p>';
+  const html = renderEmailHtml({
+    brandName: companyName,
+    preheader: `Balance due ${balanceDue} · statement as of ${statement.statementDate}`,
+    heading: 'Account statement',
+    bodyHtml: `<p style="margin:0;">${escapeHtml(greeting)}</p><p style="margin:14px 0 0;">Here's your account statement from <strong>${escapeHtml(companyName)}</strong> as of ${escapeHtml(statement.statementDate)}.</p>${table}<p style="margin:16px 0 0;">Total invoiced: ${escapeHtml(money(statement.totalCharges))}<br>Total paid: ${escapeHtml(money(statement.totalPayments))}<br><strong>Balance due: ${escapeHtml(balanceDue)}</strong></p>`,
+    poweredBy: true,
+  });
 
   return { subject, text, html };
 }

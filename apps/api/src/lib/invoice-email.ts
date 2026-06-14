@@ -1,3 +1,4 @@
+import { emailFooterText, renderEmailHtml } from './email-layout.js';
 import { escapeHtml } from './html.js';
 import type { Mailer } from './mailer.js';
 import { formatSender } from './sender.js';
@@ -34,25 +35,44 @@ export function buildInvoiceEmail(input: InvoiceEmailInput): {
   text: string;
   html: string;
 } {
-  const { invoice, customerName, companyName, publicAppUrl } = input;
+  const { invoice, customerName, companyName, publicAppUrl, replyToEmail } = input;
   const publicUrl = publicAppUrl
     ? `${publicAppUrl}/i/${invoice.publicToken}`
     : `/i/${invoice.publicToken}`;
   const subject = `Invoice ${invoice.number} from ${companyName}`;
-  const greeting = customerName ? `Hi ${customerName},` : 'Hi,';
-  const text =
-    `${greeting}\n\n` +
-    `Invoice ${invoice.number} for ${invoice.total} ${invoice.currency} is ready.\n` +
-    `Due ${invoice.dueDate}.\n\n` +
-    `View it: ${publicUrl}\n\n` +
-    `— ${companyName}`;
-  const html =
-    `<p>${escapeHtml(greeting)}</p>` +
-    `<p>Invoice <strong>${escapeHtml(invoice.number)}</strong> for ` +
-    `<strong>${escapeHtml(invoice.total)} ${escapeHtml(invoice.currency)}</strong> is ready. ` +
-    `Due ${escapeHtml(invoice.dueDate)}.</p>` +
-    `<p><a href="${escapeHtml(publicUrl)}">View invoice</a></p>` +
-    `<p>— ${escapeHtml(companyName)}</p>`;
+  const greeting = customerName ? `Hi ${customerName},` : 'Hi there,';
+  const amount = `${invoice.total} ${invoice.currency}`;
+  // Only invite a reply when one will actually reach the business (the company
+  // set a contact address). Without it, replies hit the platform envelope.
+  const replyNote = replyToEmail
+    ? `Questions about this invoice? Just reply to this email and it'll reach ${companyName}.`
+    : undefined;
+
+  const text = [
+    greeting,
+    '',
+    `Thanks for your business. Invoice ${invoice.number} for ${amount} is ready, due ${invoice.dueDate}.`,
+    '',
+    `View your invoice: ${publicUrl}`,
+    ...(replyNote ? ['', replyNote] : []),
+    '',
+    `— ${companyName}`,
+    '',
+    emailFooterText(true),
+  ].join('\n');
+
+  const html = renderEmailHtml({
+    brandName: companyName,
+    preheader: `Invoice ${invoice.number} · ${amount} · due ${invoice.dueDate}`,
+    heading: `Invoice ${invoice.number}`,
+    bodyHtml:
+      `<p style="margin:0 0 14px;">${escapeHtml(greeting)}</p>` +
+      `<p style="margin:0;">Thanks for your business. Invoice <strong>${escapeHtml(invoice.number)}</strong> ` +
+      `for <strong>${escapeHtml(amount)}</strong> is ready — it's due ${escapeHtml(invoice.dueDate)}.</p>`,
+    cta: { label: 'View invoice', url: publicUrl },
+    footnote: replyNote,
+    poweredBy: true,
+  });
   return { subject, text, html };
 }
 
