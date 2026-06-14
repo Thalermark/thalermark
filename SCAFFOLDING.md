@@ -1,6 +1,6 @@
 # Scaffolding Plan
 
-**Status:** Phases 0–8 shipped; **Phase 9 (mobile catch-up) COMPLETE (2026-06-09)** — the RN/Expo app now mirrors every web MVP flow (slices M1–M11f, PRs #174–#190). Phase 8 (MVP features) slices 8.1–8.4f, 8.5a–8.5e, 8.6a–8.6c, 8.7a–8.7e, 8.8a–8.8b, L1–L4, 8.9a–8.9h, 8.10–8.15, R1–R4, I1–I5 merged (latest 2026-06-07). Invoice CRUD + status flow, the send-invoice chain (public view → email → Stripe self-host pay → SaaS Stripe Connect onboarding + connected payments), the customer-creation chain (inline create → dupe detection → address autocomplete), the full estimates chain (DB + RLS, CRUD/transitions, web pages, convert-to-invoice, public view + send + accept/decline), audit-history UI (per-entity tab + account-wide /activity feed with collapsible inline diffs), the hidden-double-entry ledger reshape (foundation + invoice-transition postings + business-type wizard + GL / trial-balance export), and the full expenses chain (DB + RLS → ledger posting policy → CRUD API → web list/create/detail/edit → object-storage package → receipt capture → vision-LLM receipt extraction) all complete; plus the position dashboard, the full AI insight layer (5 insights: receipt extraction, expense categorization, cash-flow nudges, late-payer detection, spending anomalies), duplicate-as-template across invoices/estimates/expenses, and the recurring-invoice chain (schema → CRUD → pg-boss generation engine + sweeper → web UI — the first pg-boss consumer); plus the items / products & services catalog (Slice I, scoped 2026-06-07 — table + provenance FK → CRUD API → management surface → line-item autocomplete → top-products report). The full locked MVP web scope is feature-complete, and the **mobile catch-up is now complete too (Phase 9)** — every web MVP flow has a native equivalent. **Remaining MVP product work is polish + ship.** **Post-MVP web polish (not slice-tracked here):** keyset pagination across the lists, the report lineup grown to 9, and **#237** — client-side CSV export on every report page + the GL/ledger export finally surfaced in the UI (detail on the **L4** row). **Next: Phase 10 — production hardening + open-core seams** (public-repo prep for a real deploy; the managed layer that fills those seams is maintained out-of-repo).
+**Status:** Phases 0–8 shipped; **Phase 9 (mobile catch-up) COMPLETE (2026-06-09)** — the RN/Expo app now mirrors every web MVP flow (slices M1–M11f, PRs #174–#190). Phase 8 (MVP features) slices 8.1–8.4f, 8.5a–8.5e, 8.6a–8.6c, 8.7a–8.7e, 8.8a–8.8b, L1–L4, 8.9a–8.9h, 8.10–8.15, R1–R4, I1–I5 merged (latest 2026-06-07). Invoice CRUD + status flow, the send-invoice chain (public view → email → Stripe self-host pay → SaaS Stripe Connect onboarding + connected payments), the customer-creation chain (inline create → dupe detection → address autocomplete), the full estimates chain (DB + RLS, CRUD/transitions, web pages, convert-to-invoice, public view + send + accept/decline), audit-history UI (per-entity tab + account-wide /activity feed with collapsible inline diffs), the hidden-double-entry ledger reshape (foundation + invoice-transition postings + business-type wizard + GL / trial-balance export), and the full expenses chain (DB + RLS → ledger posting policy → CRUD API → web list/create/detail/edit → object-storage package → receipt capture → vision-LLM receipt extraction) all complete; plus the position dashboard, the full AI insight layer (5 insights: receipt extraction, expense categorization, cash-flow nudges, late-payer detection, spending anomalies), duplicate-as-template across invoices/estimates/expenses, and the recurring-invoice chain (schema → CRUD → pg-boss generation engine + sweeper → web UI — the first pg-boss consumer); plus the items / products & services catalog (Slice I, scoped 2026-06-07 — table + provenance FK → CRUD API → management surface → line-item autocomplete → top-products report). The full locked MVP web scope is feature-complete, and the **mobile catch-up is now complete too (Phase 9)** — every web MVP flow has a native equivalent. **Remaining MVP product work is polish + ship.** **Post-MVP web polish (not slice-tracked here):** keyset pagination across the lists, the report lineup grown to 9, and **#237** — client-side CSV export on every report page + the GL/ledger export finally surfaced in the UI (detail on the **L4** row). **Pre-launch email overhaul (slice-tracked below):** the customer-facing emails got a branded shell (#251) then became **per-company editable** across web + mobile (#252–#255) — see *Post-MVP polish — editable email templates*. **Next: Phase 10 — production hardening + open-core seams** (public-repo prep for a real deploy; the managed layer that fills those seams is maintained out-of-repo).
 **Reads:** Assumes you've read PROJECT.md and TECH-STACK.md.
 
 The shape of work between "all decisions locked" and shipping the MVP. Eight foundation phases (0–7), a Phase 8 for the MVP-feature slices, and a Phase 9 for the mobile catch-up — roughly sequential, each builds on the previous one. Phases 0–7 are the foundation; Phase 8 is where the product becomes visible on web; Phase 9 brings the mobile app to parity.
@@ -608,6 +608,38 @@ maintained out-of-repo; nothing of it lands here.)*
 
 Sequence hardening ahead of the seams (hardening gates any real deploy; the seams are
 additive). Slices TBD when the phase starts.
+
+---
+
+## Post-MVP polish — Editable email templates (+ branded email shell)
+
+Pre-launch trust + commercialization polish, **not a numbered phase** (so no Phase-overview
+row — tracked here because it grew past a status-line mention). The customer-facing emails
+(invoice / estimate / statement) went from bare `<p>` + raw-link bodies to a branded,
+inline-styled shell, then became **per-company editable** — a business customizes the
+subject + message with `{{placeholders}}` while the branded chrome stays server-owned.
+Platform emails (verification, invitation) are intentionally **not** editable. Built
+api → web → mobile, mirroring the MVP slice discipline.
+
+**Design (locked):** edit structured plain-text fields rendered **into** the fixed shell —
+never user-authored HTML to recipients, so escaping stays ours; **defaults live in code**, a
+DB row is only an override (an empty `email_templates` table is the correct zero-config
+state — self-host needs no seeding); the send path resolves override-or-default by
+`(company_id, type)`; a per-type placeholder whitelist in `@thalermark/validation` that the
+editor and the API validate identically; the fixed chrome (CTA button, statement ledger
+table, "valid until" line, reply-to note, footer) is not editable.
+
+| Slice | PR | What landed |
+|---|---|---|
+| De-spam shell | #251 | Shared branded email shell (`apps/api/src/lib/email-layout.ts`): table-based, inline-styled, one CTA, hidden preheader, no images (deliverability-safe). All five recipient-facing emails routed through it with warmer copy — customer emails lead with the sending company's name + a subtle "Sent with Thalermark" footer; platform emails lead with Thalermark. |
+| A — backend | #252 | `email_templates` table (account+company, type, subject, body, `unique(company_id,type)`) + RLS; validation (types, placeholder registry, update schema, `unknownPlaceholders`); `DEFAULT_TEMPLATES` + `applyTemplate`/`renderTemplate` + `resolveEmailTemplate`; builders made template-driven (invoice/statement refactored, estimate extracted to `lib/estimate-email.ts`) with the resolver wired into the invoice / estimate / statement / recurring send paths; `GET` / `PUT` / `DELETE` / `POST :type/preview` endpoints (settings:manage for writes, GET ungated). Tests: integration (incl. override-changes-the-sent-email) + unit + an RLS-isolation block. |
+| B — web editor | #253 | `/settings/email` lists the 3 templates (Default/Customized badge) + Edit; new `/settings/email/[type]` editor (subject + message, placeholder reference, Save / Preview / Reset). Preview renders the candidate template through the API preview endpoint (real builders + sample data) into a sandboxed iframe. Plain SvelteKit form actions; under the settings:manage Email tab. |
+| B.1 — web view | #254 | A **View** on each template row renders the *effective* template into an inline sandboxed iframe (peek without editing); toggles to **Close** while open (`?/view` ↔ `?/close`). |
+| C — mobile | #255 | Native parity: `more/email` lists the 3 templates with **View/Close** (inline preview) + **Edit**; `more/email/[type]` editor (subject/body, placeholder reference, Save/Preview/Reset). Gated by the More menu's `useMay('settings:manage')`. |
+
+**Realized differs from plan:** mobile carries no `react-native-webview`, so its View/Preview
+shows the email's **text** rendering (the preview endpoint returns it) rather than the HTML
+iframe the web uses — same content, no new native dependency.
 
 ---
 
