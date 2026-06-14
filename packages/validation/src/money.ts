@@ -20,6 +20,15 @@ export const quantityString = z
   .regex(/^\d+(\.\d{1,4})?$/, 'quantity must be a decimal string with up to 4 fractional digits')
   .refine((s) => s.length <= 20, 'quantity exceeds 15-digit precision');
 
+// Tax rate as a percent decimal string, up to 4 fractional digits ("8.25",
+// "8.8750"). Mirrors tax_policies.rate_pct numeric(7,4). Capped at 100 so a
+// fat-fingered "825" (meant as 8.25) fails the schema instead of levying an
+// 825% tax.
+export const taxRateString = z
+  .string()
+  .regex(/^\d+(\.\d{1,4})?$/, 'tax rate must be a decimal string with up to 4 fractional digits')
+  .refine((s) => Number(s) <= 100, 'tax rate must not exceed 100');
+
 // ISO 8601 calendar date (YYYY-MM-DD), no time, no zone. Mirrors the
 // drizzle `date({ mode: 'string' })` column type for invoice issue/due dates.
 export const isoDateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date must be YYYY-MM-DD');
@@ -40,6 +49,7 @@ export const isoDateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date must 
 
 const MONEY_SCALE = 2;
 const QUANTITY_SCALE = 4;
+const RATE_SCALE = 4;
 const DECIMAL_RE = /^\d+(\.\d+)?$/;
 
 function toScaled(s: string, scale: number): bigint {
@@ -78,4 +88,21 @@ export function sumMoney(values: readonly string[]): string {
 
 export function addMoney(a: string, b: string): string {
   return sumMoney([a, b]);
+}
+
+// Per-line tax: amount × ratePct ÷ 100, rounded half-away-from-zero to the
+// money scale. amount is a money string (scale 2), ratePct a percent string
+// (scale 4). Both client preview and server recompute call this so a taxable
+// line and the derived invoice tax can never drift. Tolerant of malformed
+// input the same way the other helpers are (reads as zero), so a mid-type
+// preview keeps computing.
+//
+// amount_scaled2 (a) × rate_scaled4 (r) = amount×ratePct at scale 6. Dividing
+// that by 10^6 lands amount×ratePct÷100 back at the money scale in one rounded
+// step (10^4 drops scale 6 → scale 2; the extra 10^2 is the percent's /100).
+export function taxOfAmount(amount: string, ratePct: string): string {
+  const a = toScaled(amount, MONEY_SCALE);
+  const r = toScaled(ratePct, RATE_SCALE);
+  const divisor = 10n ** BigInt(MONEY_SCALE + RATE_SCALE);
+  return fromScaled(roundDiv(a * r, divisor), MONEY_SCALE);
 }

@@ -1,5 +1,6 @@
 import {
   bigint,
+  boolean,
   date,
   foreignKey,
   index,
@@ -13,6 +14,7 @@ import { accounts } from './accounts.js';
 import { companies } from './companies.js';
 import { customers } from './customers.js';
 import { items } from './items.js';
+import { taxPolicies } from './tax_policies.js';
 
 // A recurring invoice schedule: a template header + line items + a cadence
 // that the background sweeper (pg-boss, first consumer) clones into a real
@@ -112,6 +114,13 @@ export const recurringInvoiceLineItems = pgTable(
     quantity: numeric('quantity', { precision: 15, scale: 4 }).notNull(),
     unitPrice: numeric('unit_price', { precision: 15, scale: 2 }).notNull(),
     amount: numeric('amount', { precision: 15, scale: 2 }).notNull(),
+    // Per-line tax snapshot — cloned verbatim onto each generated invoice line
+    // so the tax carries through to every occurrence. See invoice_line_items
+    // for the full contract.
+    taxable: boolean('taxable').notNull().default(false),
+    taxRatePct: numeric('tax_rate_pct', { precision: 7, scale: 4 }).notNull().default('0'),
+    taxAmount: numeric('tax_amount', { precision: 15, scale: 2 }).notNull().default('0'),
+    taxPolicyId: uuid('tax_policy_id'),
     // Reporting breadcrumb back to the catalog item (null for hand-typed
     // lines). Cloned verbatim onto generated invoice lines, so the provenance
     // carries through to each occurrence. Snapshot semantics — see
@@ -137,6 +146,11 @@ export const recurringInvoiceLineItems = pgTable(
       name: 'recurring_line_items_source_item_fk',
       columns: [table.sourceItemId],
       foreignColumns: [items.id],
+    }).onDelete('set null'),
+    taxPolicyFk: foreignKey({
+      name: 'recurring_line_items_tax_policy_fk',
+      columns: [table.taxPolicyId],
+      foreignColumns: [taxPolicies.id],
     }).onDelete('set null'),
   }),
 );

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addMoney, multiplyMoney, sumMoney } from './money.js';
+import { addMoney, multiplyMoney, sumMoney, taxOfAmount } from './money.js';
 
 describe('multiplyMoney', () => {
   it('multiplies whole numbers', () => {
@@ -74,5 +74,39 @@ describe('addMoney', () => {
 
   it('treats empty a as zero', () => {
     expect(addMoney('', '5.00')).toBe('5.00');
+  });
+});
+
+describe('taxOfAmount', () => {
+  it('computes a whole-percent rate', () => {
+    expect(taxOfAmount('100.00', '10')).toBe('10.00');
+    expect(taxOfAmount('120.00', '8.25')).toBe('9.90');
+  });
+
+  it('honours full 4-decimal rate precision', () => {
+    expect(taxOfAmount('100.00', '8.8750')).toBe('8.88');
+    expect(taxOfAmount('1000.00', '8.8750')).toBe('88.75');
+  });
+
+  it('rounds half-away-from-zero to the cent', () => {
+    // 1.00 × 0.5% = 0.005 → 0.01
+    expect(taxOfAmount('1.00', '0.5')).toBe('0.01');
+    // 10.10 × 8.25% = 0.83325 → 0.83
+    expect(taxOfAmount('10.10', '8.25')).toBe('0.83');
+  });
+
+  it('a zero rate or zero amount yields zero tax', () => {
+    expect(taxOfAmount('100.00', '0')).toBe('0.00');
+    expect(taxOfAmount('0.00', '8.25')).toBe('0.00');
+  });
+
+  it('empty / malformed inputs read as zero (schema catches them downstream)', () => {
+    expect(taxOfAmount('', '8.25')).toBe('0.00');
+    expect(taxOfAmount('100.00', '')).toBe('0.00');
+    expect(taxOfAmount('100.00', 'bogus')).toBe('0.00');
+  });
+
+  it('large amounts stay exact (no FP drift)', () => {
+    expect(taxOfAmount('999999999999.00', '10')).toBe('99999999999.90');
   });
 });

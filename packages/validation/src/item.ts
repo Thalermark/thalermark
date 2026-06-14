@@ -15,6 +15,12 @@ export const itemCreateSchema = z.object({
   unitPrice: moneyString.optional(),
   unitLabel: z.string().max(50).optional(),
   defaultQuantity: quantityString.optional(),
+  // Whether picking this item onto a line defaults that line to taxable, and
+  // under which company tax policy. Both optional — the DB defaults taxable to
+  // false; taxPolicyId may be null even when taxable (the line then falls back
+  // to the company default policy). Provenance + default, never re-derived.
+  taxable: z.boolean().optional(),
+  taxPolicyId: z.string().uuid().optional(),
 });
 
 export type ItemCreateInput = z.infer<typeof itemCreateSchema>;

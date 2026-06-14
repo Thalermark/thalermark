@@ -1,6 +1,7 @@
-import { index, numeric, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { boolean, index, numeric, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { accounts } from './accounts.js';
 import { companies } from './companies.js';
+import { taxPolicies } from './tax_policies.js';
 
 // A per-company catalog of saved line items (products & services) — the
 // reusable source behind the line-item type-ahead and the top-products report.
@@ -42,6 +43,14 @@ export const items = pgTable(
     defaultQuantity: numeric('default_quantity', { precision: 15, scale: 4 })
       .notNull()
       .default('1'),
+    // Whether picking this item onto a line defaults that line to taxable, and
+    // under which company tax policy. taxable defaults false — labor / services
+    // are commonly non-taxable, so the operator opts items in. tax_policy_id is
+    // SET NULL on policy delete, but policies archive (never delete) so it
+    // survives; a null policy on a taxable item falls back to the company
+    // default policy at line time.
+    taxable: boolean('taxable').notNull().default(false),
+    taxPolicyId: uuid('tax_policy_id').references(() => taxPolicies.id, { onDelete: 'set null' }),
     archivedAt: timestamp('archived_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
