@@ -17,6 +17,7 @@ import type { RecurringFrequency } from '@thalermark/validation';
 import { and, asc, eq, lte } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
 import { type AuditWriter, createAuditWriter } from '../middleware/audit.js';
+import { resolveEmailTemplate } from './email-templates.js';
 import { sendInvoiceEmail } from './invoice-email.js';
 import { suggestNextInvoiceNumber } from './invoice-number.js';
 import { postInvoiceTransition } from './ledger.js';
@@ -211,6 +212,9 @@ export async function generateOnce(
     const to = customer?.email?.trim() ?? '';
     if (to) {
       try {
+        // Same per-company override resolution as the hand-send route, so an
+        // auto-generated invoice matches a hand-sent one.
+        const template = await resolveEmailTemplate(tx, accountId, schedule.companyId, 'invoice');
         const { subject } = await sendInvoiceEmail(mail.mailer, to, {
           invoice: {
             number,
@@ -224,6 +228,7 @@ export async function generateOnce(
           publicAppUrl: mail.publicAppUrl,
           emailFrom: mail.emailFrom,
           replyToEmail: company?.replyToEmail ?? null,
+          template,
         });
         emailed = true;
         await audit({

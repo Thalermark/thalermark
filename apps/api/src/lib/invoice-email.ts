@@ -1,5 +1,5 @@
 import { emailFooterText, renderEmailHtml } from './email-layout.js';
-import { escapeHtml } from './html.js';
+import { DEFAULT_TEMPLATES, renderTemplate } from './email-templates.js';
 import type { Mailer } from './mailer.js';
 import { formatSender } from './sender.js';
 
@@ -28,6 +28,9 @@ export type InvoiceEmailInput = {
   emailFrom?: string;
   // Company contact address replies route to, when set.
   replyToEmail?: string | null;
+  // Resolved subject+body (the company's override or the in-code default). The
+  // route/recurring engine resolves it; omitted → DEFAULT_TEMPLATES.invoice.
+  template?: { subject: string; body: string };
 };
 
 export function buildInvoiceEmail(input: InvoiceEmailInput): {
@@ -35,23 +38,32 @@ export function buildInvoiceEmail(input: InvoiceEmailInput): {
   text: string;
   html: string;
 } {
-  const { invoice, customerName, companyName, publicAppUrl, replyToEmail } = input;
+  const { invoice, customerName, companyName, publicAppUrl, replyToEmail, template } = input;
   const publicUrl = publicAppUrl
     ? `${publicAppUrl}/i/${invoice.publicToken}`
     : `/i/${invoice.publicToken}`;
-  const subject = `Invoice ${invoice.number} from ${companyName}`;
-  const greeting = customerName ? `Hi ${customerName},` : 'Hi there,';
   const amount = `${invoice.total} ${invoice.currency}`;
+
+  // The editable subject + greeting/message prose. customer_name falls back to
+  // "there" so a nameless customer reads "Hi there," not "Hi ,".
+  const { subject, textBody, htmlBody } = renderTemplate(template ?? DEFAULT_TEMPLATES.invoice, {
+    customer_name: customerName?.trim() || 'there',
+    invoice_number: invoice.number,
+    amount,
+    due_date: invoice.dueDate,
+    company_name: companyName,
+  });
+
   // Only invite a reply when one will actually reach the business (the company
   // set a contact address). Without it, replies hit the platform envelope.
   const replyNote = replyToEmail
     ? `Questions about this invoice? Just reply to this email and it'll reach ${companyName}.`
     : undefined;
 
+  // The public link is the HTML CTA button; text has no button, so it carries
+  // the URL as a line (also what the integration test asserts on).
   const text = [
-    greeting,
-    '',
-    `Thanks for your business. Invoice ${invoice.number} for ${amount} is ready, due ${invoice.dueDate}.`,
+    textBody,
     '',
     `View your invoice: ${publicUrl}`,
     ...(replyNote ? ['', replyNote] : []),
@@ -65,10 +77,7 @@ export function buildInvoiceEmail(input: InvoiceEmailInput): {
     brandName: companyName,
     preheader: `Invoice ${invoice.number} · ${amount} · due ${invoice.dueDate}`,
     heading: `Invoice ${invoice.number}`,
-    bodyHtml:
-      `<p style="margin:0 0 14px;">${escapeHtml(greeting)}</p>` +
-      `<p style="margin:0;">Thanks for your business. Invoice <strong>${escapeHtml(invoice.number)}</strong> ` +
-      `for <strong>${escapeHtml(amount)}</strong> is ready — it's due ${escapeHtml(invoice.dueDate)}.</p>`,
+    bodyHtml: htmlBody,
     cta: { label: 'View invoice', url: publicUrl },
     footnote: replyNote,
     poweredBy: true,

@@ -4,6 +4,7 @@ export * from './auth.js';
 export * from './chart_of_accounts.js';
 export * from './companies.js';
 export * from './customers.js';
+export * from './email_templates.js';
 export * from './estimates.js';
 export * from './expenses.js';
 export * from './invitations.js';

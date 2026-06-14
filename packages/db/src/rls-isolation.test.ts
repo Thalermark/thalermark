@@ -9,6 +9,7 @@ import { authUser } from './schema/auth.js';
 import { chartOfAccounts } from './schema/chart_of_accounts.js';
 import { companies } from './schema/companies.js';
 import { customers } from './schema/customers.js';
+import { emailTemplates } from './schema/email_templates.js';
 import { estimateLineItems, estimates } from './schema/estimates.js';
 import { expenses } from './schema/expenses.js';
 import { invitations } from './schema/invitations.js';
@@ -953,6 +954,149 @@ describe('RLS — items under staff_readonly', () => {
     await expect(getStaffDb().delete(items)).rejects.toThrow();
     const rows = await getTestDb().select().from(items);
     expect(rows).toHaveLength(2);
+  });
+});
+
+// email_templates: per-company email overrides, same tenant idiom as items.
+// App role gets full CRUD within its account (DELETE = reset-to-default);
+// staff_readonly bypasses RLS for SELECT only.
+
+async function seedEmailTemplates(): Promise<{ companyAId: string; companyBId: string }> {
+  const db = getTestDb();
+  const [companyA] = await db.select().from(companies).where(eq(companies.accountId, accountAId));
+  const [companyB] = await db.select().from(companies).where(eq(companies.accountId, accountBId));
+  if (!companyA || !companyB) throw new Error('seedTwoTenants did not produce one company each');
+
+  await db.insert(emailTemplates).values([
+    {
+      id: uuidv7(),
+      accountId: accountAId,
+      companyId: companyA.id,
+      type: 'invoice',
+      subject: 'A',
+      body: 'A body',
+    },
+    {
+      id: uuidv7(),
+      accountId: accountBId,
+      companyId: companyB.id,
+      type: 'invoice',
+      subject: 'B',
+      body: 'B body',
+    },
+  ]);
+
+  return { companyAId: companyA.id, companyBId: companyB.id };
+}
+
+describe('RLS — email_templates account isolation', () => {
+  let companyAId: string;
+  let companyBId: string;
+
+  beforeEach(async () => {
+    await resetDb();
+    await seedTwoTenants();
+    ({ companyAId, companyBId } = await seedEmailTemplates());
+  });
+
+  it('sees only its own account templates when context is set', async () => {
+    const seen = await withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+      return tx.select().from(emailTemplates);
+    });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.accountId).toBe(accountAId);
+    expect(seen[0]?.subject).toBe('A');
+  });
+
+  it('sees no rows when no account context is set', async () => {
+    const seen = await getAppDb().select().from(emailTemplates);
+    expect(seen).toEqual([]);
+  });
+
+  it('allows insert with matching account_id', async () => {
+    const id = uuidv7();
+    await expect(
+      withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+        await tx.insert(emailTemplates).values({
+          id,
+          accountId: accountAId,
+          companyId: companyAId,
+          type: 'estimate',
+          subject: 'A Estimate',
+          body: 'x',
+        });
+      }),
+    ).resolves.not.toThrow();
+    const found = await getTestDb().select().from(emailTemplates).where(eq(emailTemplates.id, id));
+    expect(found).toHaveLength(1);
+  });
+
+  it('blocks insert with a foreign account_id (WITH CHECK violation)', async () => {
+    const smuggledId = uuidv7();
+    await expect(
+      withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+        await tx.insert(emailTemplates).values({
+          id: smuggledId,
+          accountId: accountBId,
+          companyId: companyBId,
+          type: 'estimate',
+          subject: 'Smuggled',
+          body: 'x',
+        });
+      }),
+    ).rejects.toThrow();
+    const found = await getTestDb()
+      .select()
+      .from(emailTemplates)
+      .where(eq(emailTemplates.id, smuggledId));
+    expect(found).toEqual([]);
+  });
+
+  it('cannot UPDATE templates in another account', async () => {
+    await withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+      await tx
+        .update(emailTemplates)
+        .set({ subject: 'pwned' })
+        .where(eq(emailTemplates.accountId, accountBId));
+    });
+    const bRows = await getTestDb()
+      .select()
+      .from(emailTemplates)
+      .where(eq(emailTemplates.accountId, accountBId));
+    expect(bRows[0]?.subject).toBe('B');
+  });
+
+  it('cannot DELETE templates in another account', async () => {
+    await withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
+      await tx.delete(emailTemplates).where(eq(emailTemplates.accountId, accountBId));
+    });
+    const bRows = await getTestDb()
+      .select()
+      .from(emailTemplates)
+      .where(eq(emailTemplates.accountId, accountBId));
+    expect(bRows).toHaveLength(1);
+  });
+});
+
+describe('RLS — email_templates under staff_readonly', () => {
+  beforeEach(async () => {
+    await resetDb();
+    await seedTwoTenants();
+    await seedEmailTemplates();
+  });
+
+  it('reads templates across accounts (BYPASSRLS)', async () => {
+    const seen = await getStaffDb().select().from(emailTemplates);
+    expect(seen).toHaveLength(2);
+  });
+
+  it('cannot UPDATE (privilege denied)', async () => {
+    await expect(
+      getStaffDb()
+        .update(emailTemplates)
+        .set({ subject: 'pwned' })
+        .where(eq(emailTemplates.accountId, accountAId)),
+    ).rejects.toThrow();
   });
 });
 
