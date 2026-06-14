@@ -169,6 +169,12 @@ export async function generateOnce(
         quantity: li.quantity,
         unitPrice: li.unitPrice,
         amount: li.amount,
+        // Clone the template line's tax snapshot so each generated invoice is
+        // taxed identically (the header tax was already copied above).
+        taxable: li.taxable,
+        taxRatePct: li.taxRatePct,
+        taxAmount: li.taxAmount,
+        taxPolicyId: li.taxPolicyId,
         // Carry the catalog breadcrumb from the schedule's template line onto
         // each generated invoice line so the report counts recurring sales.
         sourceItemId: li.sourceItemId,
