@@ -24,12 +24,12 @@ export type BusinessType = z.infer<typeof businessTypeSchema>;
 // field. Sparse semantics rely on the typed Hono client treating `undefined`
 // as "leave alone", matching the customer PATCH idiom for editable strings.
 // At least one of the two fields must be present.
-// Reply-to is nullable on the wire: an empty field from settings clears it
-// (sets the column back to null → no Reply-To header). `null` and a valid
-// email are both accepted; `undefined` means "leave alone" per the sparse
-// idiom. We trim then coerce empty-string to null so a cleared input doesn't
-// fail the email check.
-const replyToEmailField = z
+// Nullable-email field idiom (reply-to + business email): an empty field from
+// settings clears it (sets the column back to null); `null` and a valid email
+// are both accepted; `undefined` means "leave alone" per the sparse idiom. We
+// trim then coerce empty-string to null so a cleared input doesn't fail the
+// email check.
+const nullableEmailField = z
   .union([z.string().trim().email(), z.literal(''), z.null()])
   .transform((v) => (v ? v : null))
   .optional();
@@ -49,7 +49,7 @@ export const companyUpdateSchema = z
   .object({
     name: z.string().min(1).max(200).optional(),
     businessType: businessTypeSchema.optional(),
-    replyToEmail: replyToEmailField,
+    replyToEmail: nullableEmailField,
     paymentCashEnabled: z.boolean().optional(),
     paymentCheckEnabled: z.boolean().optional(),
     paymentCheckPayableTo: optionalText(200),
@@ -62,6 +62,16 @@ export const companyUpdateSchema = z
     // formats vary by locale and it's display-only.
     businessAddress: optionalText(500),
     businessPhone: optionalText(50),
+    // Customer-facing business email for the invoice "from" block. Nullable on
+    // the wire like replyToEmail: '' clears it, a valid email sets it,
+    // `undefined` leaves it alone. Validated as an email (unlike address/phone)
+    // since it's a single structured value.
+    businessEmail: nullableEmailField,
+    // Per-field defaults for whether each contact detail prints on invoices.
+    // Plain optional booleans (sparse: omitted → leave alone).
+    showAddressOnInvoice: z.boolean().optional(),
+    showPhoneOnInvoice: z.boolean().optional(),
+    showEmailOnInvoice: z.boolean().optional(),
   })
   // Sparse: at least one field must be present (zod only surfaces keys that
   // were actually sent, so an empty body fails this).

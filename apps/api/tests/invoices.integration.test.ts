@@ -1083,6 +1083,95 @@ describe('public invoice view', () => {
     }
   });
 
+  it('from-block contact fields are gated per-invoice by the show flags', async () => {
+    const ctx = buildApp();
+    try {
+      const cookie = await signUp(ctx.app, 'from-flags@example.com');
+      const { accountId, companyId } = await userContext('from-flags@example.com');
+      const customerId = await createCustomer(ctx, cookie, accountId, companyId);
+
+      // Fill the company's contact identity.
+      const patched = await ctx.app.request(`/api/companies/${companyId}`, {
+        method: 'PATCH',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          businessAddress: '1 Test Way\nAustin, TX',
+          businessPhone: '+1 512 555 0100',
+          businessEmail: 'hello@acme.test',
+        }),
+      });
+      expect(patched.status).toBe(200);
+
+      // Invoice shows address + email but hides phone (overriding defaults).
+      const create = await ctx.app.request('/api/invoices', {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          ...invoiceBody(companyId, customerId),
+          showAddress: true,
+          showPhone: false,
+          showEmail: true,
+        }),
+      });
+      expect(create.status).toBe(201);
+      const { id: invoiceId } = (await create.json()) as { id: string };
+
+      await ctx.app.request(`/api/invoices/${invoiceId}/mark-sent`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      const db = getTestDb();
+      const [row] = await db.select().from(invoices).where(eq(invoices.id, invoiceId));
+
+      const res = await ctx.app.request(`/api/public/invoices/${row?.publicToken}`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        companyAddress: string | null;
+        companyPhone: string | null;
+        companyEmail: string | null;
+      };
+      expect(body.companyAddress).toBe('1 Test Way\nAustin, TX');
+      expect(body.companyPhone).toBeNull(); // hidden by showPhone=false
+      expect(body.companyEmail).toBe('hello@acme.test');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('new invoices seed their show flags from the company defaults when omitted', async () => {
+    const ctx = buildApp();
+    try {
+      const cookie = await signUp(ctx.app, 'from-seed@example.com');
+      const { accountId, companyId } = await userContext('from-seed@example.com');
+      const customerId = await createCustomer(ctx, cookie, accountId, companyId);
+
+      // Turn the email default off at the company level.
+      const patched = await ctx.app.request(`/api/companies/${companyId}`, {
+        method: 'PATCH',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify({ showEmailOnInvoice: false }),
+      });
+      expect(patched.status).toBe(200);
+
+      // Create without sending any flags — the server seeds from the company.
+      const create = await ctx.app.request('/api/invoices', {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify(invoiceBody(companyId, customerId)),
+      });
+      expect(create.status).toBe(201);
+      const { id } = (await create.json()) as { id: string };
+
+      const db = getTestDb();
+      const [row] = await db.select().from(invoices).where(eq(invoices.id, id));
+      expect(row?.showAddress).toBe(true);
+      expect(row?.showPhone).toBe(true);
+      expect(row?.showEmail).toBe(false); // inherited the company default
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
   it('returns 404 for an unknown token', async () => {
     const ctx = buildApp();
     try {
