@@ -17,6 +17,7 @@ import {
   chartOfAccounts,
   companies,
   customers,
+  emailTemplates,
   estimateLineItems,
   estimates,
   expenses,
@@ -35,11 +36,15 @@ import type { AddressAutocompleteProvider, AddressSuggestion } from '@thalermark
 import { type StorageProvider, readLocalObject, verifyFileToken } from '@thalermark/storage';
 import { emit } from '@thalermark/telemetry';
 import {
+  EMAIL_TEMPLATE_PLACEHOLDERS,
+  EMAIL_TEMPLATE_TYPES,
   can,
   companyCreateSchema,
   companyUpdateSchema,
   customerCreateSchema,
   customerUpdateSchema,
+  emailTemplateTypeSchema,
+  emailTemplateUpdateSchema,
   estimateCreateSchema,
   estimateSendSchema,
   estimateUpdateSchema,
@@ -55,6 +60,7 @@ import {
   itemUpdateSchema,
   recurringInvoiceCreateSchema,
   recurringInvoiceUpdateSchema,
+  unknownPlaceholders,
 } from '@thalermark/validation';
 import {
   and,
@@ -80,7 +86,9 @@ import { v7 as uuidv7 } from 'uuid';
 import type { ApiAuth } from './lib/auth.js';
 import { buildCustomerStatement } from './lib/customer-statement.js';
 import { emailFooterText, renderEmailHtml } from './lib/email-layout.js';
-import { escapeHtml } from './lib/html.js';
+import { buildEmailPreview } from './lib/email-preview.js';
+import { DEFAULT_TEMPLATES, resolveEmailTemplate } from './lib/email-templates.js';
+import { sendEstimateEmail } from './lib/estimate-email.js';
 import { sendInvoiceEmail } from './lib/invoice-email.js';
 import { suggestNextEstimateNumber, suggestNextInvoiceNumber } from './lib/invoice-number.js';
 import {
@@ -95,7 +103,6 @@ import {
 import type { Mailer } from './lib/mailer.js';
 import { applyCursor, keysetOrderBy, parseLimit, slicePage } from './lib/pagination.js';
 import { generateOnce } from './lib/recurring.js';
-import { formatSender } from './lib/sender.js';
 import { sendStatementEmail } from './lib/statement-email.js';
 import { type StripeBundle, decimalDollarsToCents } from './lib/stripe.js';
 import { requireCapability } from './middleware/authz.js';
@@ -1391,6 +1398,229 @@ export function createApp(deps: AppDeps) {
             replyToEmail: after.replyToEmail,
             ...paymentMethodsView(after),
           });
+        },
+      )
+      // ---- Per-company email templates ------------------------------------
+      // The customer-facing emails (invoice/estimate/statement) a business can
+      // customize. An override row exists only when customized; otherwise the
+      // in-code default (DEFAULT_TEMPLATES) is returned + sent. Editable surface
+      // is subject + body prose with {{placeholders}}; the HTML chrome stays
+      // ours. GET is ungated (a read); writes are settings:manage.
+      .get('/api/companies/:id/email-templates', async (c) => {
+        const id = c.req.param('id');
+        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+
+        const [company] = await tx
+          .select({ id: companies.id })
+          .from(companies)
+          .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
+          .limit(1);
+        if (!company) return c.json({ error: 'company_not_found' }, 404);
+
+        const overrides = await tx
+          .select({
+            type: emailTemplates.type,
+            subject: emailTemplates.subject,
+            body: emailTemplates.body,
+            updatedAt: emailTemplates.updatedAt,
+          })
+          .from(emailTemplates)
+          .where(and(eq(emailTemplates.companyId, id), eq(emailTemplates.accountId, accountId)));
+        const byType = new Map(overrides.map((o) => [o.type, o]));
+
+        const templates = EMAIL_TEMPLATE_TYPES.map((type) => {
+          const override = byType.get(type);
+          const def = DEFAULT_TEMPLATES[type];
+          return {
+            type,
+            subject: override?.subject ?? def.subject,
+            body: override?.body ?? def.body,
+            isCustomized: Boolean(override),
+            updatedAt: override?.updatedAt ?? null,
+            placeholders: EMAIL_TEMPLATE_PLACEHOLDERS[type],
+            defaultTemplate: def,
+          };
+        });
+        return c.json({ templates });
+      })
+      .put(
+        '/api/companies/:id/email-templates/:type',
+        requireCapability('settings:manage'),
+        validator('json', (value, c) => {
+          const parsed = emailTemplateUpdateSchema.safeParse(value);
+          if (!parsed.success) {
+            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+          }
+          return parsed.data;
+        }),
+        async (c) => {
+          const id = c.req.param('id');
+          if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+          const typeParsed = emailTemplateTypeSchema.safeParse(c.req.param('type'));
+          if (!typeParsed.success) return c.json({ error: 'invalid_type' }, 400);
+          const type = typeParsed.data;
+          const { subject, body } = c.req.valid('json');
+
+          // Reject any {{token}} not valid for this type so a typo never ships
+          // as literal text to a customer (the editor validates the same way).
+          const bad = unknownPlaceholders(type, subject, body);
+          if (bad.length) return c.json({ error: 'unknown_placeholders', placeholders: bad }, 400);
+
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+
+          const [company] = await tx
+            .select({ id: companies.id })
+            .from(companies)
+            .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
+            .limit(1);
+          if (!company) return c.json({ error: 'company_not_found' }, 404);
+
+          const [before] = await tx
+            .select({ subject: emailTemplates.subject, body: emailTemplates.body })
+            .from(emailTemplates)
+            .where(
+              and(
+                eq(emailTemplates.companyId, id),
+                eq(emailTemplates.accountId, accountId),
+                eq(emailTemplates.type, type),
+              ),
+            )
+            .limit(1);
+
+          const now = new Date();
+          const [after] = await tx
+            .insert(emailTemplates)
+            .values({
+              id: uuidv7(),
+              accountId,
+              companyId: id,
+              type,
+              subject,
+              body,
+              createdAt: now,
+              updatedAt: now,
+            })
+            .onConflictDoUpdate({
+              target: [emailTemplates.companyId, emailTemplates.type],
+              set: { subject, body, updatedAt: now },
+            })
+            .returning({
+              subject: emailTemplates.subject,
+              body: emailTemplates.body,
+              updatedAt: emailTemplates.updatedAt,
+            });
+          if (!after) return c.json({ error: 'email_template_write_failed' }, 500);
+
+          await c.var.audit({
+            entityType: 'email-template',
+            entityId: id,
+            action: before ? 'update' : 'create',
+            before: before ? { type, subject: before.subject, body: before.body } : { type },
+            after: { type, subject: after.subject, body: after.body },
+            companyId: id,
+          });
+
+          return c.json({
+            type,
+            subject: after.subject,
+            body: after.body,
+            isCustomized: true,
+            updatedAt: after.updatedAt,
+            placeholders: EMAIL_TEMPLATE_PLACEHOLDERS[type],
+            defaultTemplate: DEFAULT_TEMPLATES[type],
+          });
+        },
+      )
+      // Reset to default = drop the override row. Idempotent: resetting an
+      // already-default template is a 200 no-op echoing the default back.
+      .delete(
+        '/api/companies/:id/email-templates/:type',
+        requireCapability('settings:manage'),
+        async (c) => {
+          const id = c.req.param('id');
+          if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+          const typeParsed = emailTemplateTypeSchema.safeParse(c.req.param('type'));
+          if (!typeParsed.success) return c.json({ error: 'invalid_type' }, 400);
+          const type = typeParsed.data;
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+
+          const [deleted] = await tx
+            .delete(emailTemplates)
+            .where(
+              and(
+                eq(emailTemplates.companyId, id),
+                eq(emailTemplates.accountId, accountId),
+                eq(emailTemplates.type, type),
+              ),
+            )
+            .returning({ subject: emailTemplates.subject, body: emailTemplates.body });
+
+          if (deleted) {
+            await c.var.audit({
+              entityType: 'email-template',
+              entityId: id,
+              action: 'reset',
+              before: { type, subject: deleted.subject, body: deleted.body },
+              after: { type },
+              companyId: id,
+            });
+          }
+
+          const def = DEFAULT_TEMPLATES[type];
+          return c.json({
+            type,
+            subject: def.subject,
+            body: def.body,
+            isCustomized: false,
+            updatedAt: null,
+            placeholders: EMAIL_TEMPLATE_PLACEHOLDERS[type],
+            defaultTemplate: def,
+          });
+        },
+      )
+      // Render a candidate (unsaved) template against sample data with the real
+      // builders, so the editor preview is exactly what a customer receives.
+      .post(
+        '/api/companies/:id/email-templates/:type/preview',
+        requireCapability('settings:manage'),
+        validator('json', (value, c) => {
+          const parsed = emailTemplateUpdateSchema.safeParse(value);
+          if (!parsed.success) {
+            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+          }
+          return parsed.data;
+        }),
+        async (c) => {
+          const id = c.req.param('id');
+          if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+          const typeParsed = emailTemplateTypeSchema.safeParse(c.req.param('type'));
+          if (!typeParsed.success) return c.json({ error: 'invalid_type' }, 400);
+          const type = typeParsed.data;
+          const { subject, body } = c.req.valid('json');
+          const bad = unknownPlaceholders(type, subject, body);
+          if (bad.length) return c.json({ error: 'unknown_placeholders', placeholders: bad }, 400);
+
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+          const [company] = await tx
+            .select({ name: companies.name })
+            .from(companies)
+            .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
+            .limit(1);
+          if (!company) return c.json({ error: 'company_not_found' }, 404);
+
+          return c.json(
+            buildEmailPreview(
+              type,
+              { subject, body },
+              company.name ?? 'Your business',
+              deps.publicAppUrl,
+            ),
+          );
         },
       )
       // ---- Company logo (shown on invoices) -------------------------------
@@ -2950,12 +3180,17 @@ export function createApp(deps: AppDeps) {
             .where(and(eq(customers.id, id), eq(customers.accountId, accountId)))
             .limit(1);
 
+          const template = meta?.companyId
+            ? await resolveEmailTemplate(tx, accountId, meta.companyId, 'statement')
+            : undefined;
+
           let subject: string;
           try {
             ({ subject } = await sendStatementEmail(deps.mailer, to, {
               statement,
               emailFrom: deps.emailFrom,
               replyToEmail: meta?.replyToEmail ?? null,
+              template,
             }));
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
@@ -5311,6 +5546,12 @@ export function createApp(deps: AppDeps) {
           }
 
           const companyName = company?.name ?? 'Thalermark';
+          const template = await resolveEmailTemplate(
+            c.get('tx'),
+            c.get('accountId'),
+            invoice.companyId,
+            'invoice',
+          );
           // Shared builder (lib/invoice-email.ts) so this route and the
           // recurring-invoice sweeper emit identical email. publicToken is
           // guaranteed set by the guard above.
@@ -5323,6 +5564,7 @@ export function createApp(deps: AppDeps) {
               publicAppUrl: deps.publicAppUrl,
               emailFrom: deps.emailFrom,
               replyToEmail: company?.replyToEmail ?? null,
+              template,
             }));
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
@@ -5442,38 +5684,25 @@ export function createApp(deps: AppDeps) {
           }
 
           const companyName = company?.name ?? 'Thalermark';
-          const publicUrl = deps.publicAppUrl
-            ? `${deps.publicAppUrl}/e/${estimate.publicToken}`
-            : `/e/${estimate.publicToken}`;
-          const subject = `Estimate ${estimate.number} from ${companyName}`;
-          const greeting = customer.name ? `Hi ${customer.name},` : 'Hi there,';
-          const amount = `${estimate.total} ${estimate.currency}`;
-          const expiresLine = estimate.expiresOn ? `Valid until ${estimate.expiresOn}.\n` : '';
-          const text = `${greeting}\n\nHere's estimate ${estimate.number} for ${amount}, ready for your review.\n${expiresLine}\nView the estimate: ${publicUrl}\n\n— ${companyName}\n\n${emailFooterText(true)}`;
-          const expiresHtml = estimate.expiresOn
-            ? ` It's valid until ${escapeHtml(estimate.expiresOn)}.`
-            : '';
-          const html = renderEmailHtml({
-            brandName: companyName,
-            preheader: `Estimate ${estimate.number} · ${amount}${estimate.expiresOn ? ` · valid until ${estimate.expiresOn}` : ''}`,
-            heading: `Estimate ${estimate.number}`,
-            bodyHtml:
-              `<p style="margin:0 0 14px;">${escapeHtml(greeting)}</p>` +
-              `<p style="margin:0;">Here's estimate <strong>${escapeHtml(estimate.number)}</strong> for <strong>${escapeHtml(amount)}</strong>, ready for your review.${expiresHtml} Take a look and let us know if you'd like to go ahead.</p>`,
-            cta: { label: 'View estimate', url: publicUrl },
-            poweredBy: true,
-          });
-
+          const template = await resolveEmailTemplate(
+            tx,
+            accountId,
+            estimate.companyId,
+            'estimate',
+          );
+          // Shared builder (lib/estimate-email.ts) so this route and the
+          // template-preview endpoint emit identical email.
+          let subject: string;
           try {
-            await deps.mailer.send({
-              to,
-              subject,
-              html,
-              text,
-              // See invoice /send: company-named From, company-routed Reply-To.
-              from: deps.emailFrom ? formatSender(deps.emailFrom, companyName) : undefined,
-              replyTo: company?.replyToEmail ?? undefined,
-            });
+            ({ subject } = await sendEstimateEmail(deps.mailer, to, {
+              estimate: { ...estimate, publicToken: estimate.publicToken },
+              customerName: customer.name,
+              companyName,
+              publicAppUrl: deps.publicAppUrl,
+              emailFrom: deps.emailFrom,
+              replyToEmail: company?.replyToEmail ?? null,
+              template,
+            }));
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             return c.json({ error: 'email_failed', detail: message }, 502);

@@ -1,5 +1,6 @@
 import type { CustomerStatement, StatementLine } from './customer-statement.js';
 import { emailFooterText, renderEmailHtml } from './email-layout.js';
+import { DEFAULT_TEMPLATES, renderTemplate } from './email-templates.js';
 import { escapeHtml } from './html.js';
 import type { Mailer } from './mailer.js';
 import { formatSender } from './sender.js';
@@ -14,6 +15,10 @@ export type StatementEmailInput = {
   statement: CustomerStatement;
   emailFrom?: string;
   replyToEmail?: string | null;
+  // Resolved subject+intro (override or default). The route resolves it;
+  // omitted → DEFAULT_TEMPLATES.statement. The ledger table + totals are fixed
+  // chrome appended after the templated intro, not editable.
+  template?: { subject: string; body: string };
 };
 
 const money = (v: string) =>
@@ -24,11 +29,18 @@ export function buildStatementEmail(input: StatementEmailInput): {
   text: string;
   html: string;
 } {
-  const { statement } = input;
+  const { statement, template } = input;
   const companyName = statement.company.name || 'Thalermark';
-  const greeting = `Hi ${statement.customer.name},`;
   const balanceDue = money(statement.balanceDue);
-  const subject = `Statement from ${companyName} — balance due ${balanceDue}`;
+
+  // Editable subject + intro. The ledger table + totals + signoff below are
+  // fixed chrome (the data, not prose).
+  const { subject, textBody, htmlBody } = renderTemplate(template ?? DEFAULT_TEMPLATES.statement, {
+    customer_name: statement.customer.name,
+    company_name: companyName,
+    statement_date: statement.statementDate,
+    balance_due: balanceDue,
+  });
 
   const sign = (l: StatementLine) =>
     l.charge ? `+${money(l.charge)}` : l.payment ? `-${money(l.payment)}` : '';
@@ -36,9 +48,7 @@ export function buildStatementEmail(input: StatementEmailInput): {
     (l) => `${l.date}  ${l.description}  ${sign(l)}  (${money(l.balance)})`,
   );
   const text = [
-    `${greeting}`,
-    '',
-    `Here's your account statement from ${companyName} as of ${statement.statementDate}.`,
+    textBody,
     '',
     ...(textLines.length ? textLines : ['No invoices on file.']),
     '',
@@ -68,7 +78,7 @@ export function buildStatementEmail(input: StatementEmailInput): {
     brandName: companyName,
     preheader: `Balance due ${balanceDue} · statement as of ${statement.statementDate}`,
     heading: 'Account statement',
-    bodyHtml: `<p style="margin:0;">${escapeHtml(greeting)}</p><p style="margin:14px 0 0;">Here's your account statement from <strong>${escapeHtml(companyName)}</strong> as of ${escapeHtml(statement.statementDate)}.</p>${table}<p style="margin:16px 0 0;">Total invoiced: ${escapeHtml(money(statement.totalCharges))}<br>Total paid: ${escapeHtml(money(statement.totalPayments))}<br><strong>Balance due: ${escapeHtml(balanceDue)}</strong></p>`,
+    bodyHtml: `${htmlBody}${table}<p style="margin:16px 0 0;">Total invoiced: ${escapeHtml(money(statement.totalCharges))}<br>Total paid: ${escapeHtml(money(statement.totalPayments))}<br><strong>Balance due: ${escapeHtml(balanceDue)}</strong></p>`,
     poweredBy: true,
   });
 
