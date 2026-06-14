@@ -6,6 +6,12 @@
   // Show the just-saved value back on the form after an action, else the
   // stored value from load. Empty string renders as a cleared field.
   const value = $derived(form?.replyToEmail ?? data.company.replyToEmail ?? '');
+
+  const TEMPLATE_LABELS: Record<string, string> = {
+    invoice: 'Invoice',
+    estimate: 'Estimate',
+    statement: 'Customer statement',
+  };
 </script>
 
 <h1 class="font-serif text-4xl font-light leading-none tracking-tight text-fg">
@@ -48,4 +54,31 @@
       {/if}
     </div>
   </form>
+</section>
+
+<section class="mt-8 rounded-sm border border-fg/15 bg-surface-2">
+  <header class="border-b border-fg/10 px-6 py-5">
+    <span class="eyebrow">Email templates</span>
+    <p class="mt-2 text-sm text-fg/70">
+      Customize the wording your customers see. The Thalermark layout, buttons, and footer stay the
+      same — you edit the subject and message.
+    </p>
+  </header>
+  <ul class="divide-y divide-fg/10">
+    {#each data.templates as tpl (tpl.type)}
+      <li class="flex items-center justify-between gap-4 px-6 py-4">
+        <div>
+          <p class="font-serif text-lg text-fg">{TEMPLATE_LABELS[tpl.type] ?? tpl.type}</p>
+          <span
+            class="mt-1 inline-block rounded-sm px-2 py-0.5 font-mono text-[0.65rem] uppercase tracking-widest {tpl.isCustomized
+              ? 'bg-accent/15 text-accent'
+              : 'bg-fg/10 text-fg/60'}"
+          >
+            {tpl.isCustomized ? 'Customized' : 'Default'}
+          </span>
+        </div>
+        <a href="/settings/email/{tpl.type}" class="btn-ghost btn-sm">Edit</a>
+      </li>
+    {/each}
+  </ul>
 </section>
