@@ -66,6 +66,10 @@
 
 <dl class="mt-8 grid grid-cols-1 gap-x-12 gap-y-6 sm:grid-cols-2">
   <div>
+    <dt class="label">Type</dt>
+    <dd class="mt-1 text-fg">{item.type === 'product' ? 'Product' : 'Service'}</dd>
+  </div>
+  <div>
     <dt class="label">Unit price</dt>
     <dd class="mt-1 text-fg">
       {fmt(item.unitPrice)}{#if item.unitLabel}<span class="text-fg/50"> / {item.unitLabel}</span>{/if}

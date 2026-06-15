@@ -15,6 +15,9 @@ function readForm(data: FormData): Record<string, string | boolean | undefined> 
     const raw = data.get(k);
     if (typeof raw === 'string' && raw.trim() !== '') out[k] = raw.trim();
   }
+  // Product vs service — full-replace: undefined collapses to the DB default.
+  const type = String(data.get('type') ?? '');
+  if (type === 'product' || type === 'service') out.type = type;
   // Taxable + its policy — only attach the policy when taxable (full-replace:
   // unchecking taxable clears tax_policy_id via the omitted optional).
   out.taxable = data.get('taxable') === 'on';

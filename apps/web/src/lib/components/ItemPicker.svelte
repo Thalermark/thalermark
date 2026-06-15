@@ -18,6 +18,9 @@
     unitPrice: string;
     unitLabel: string | null;
     defaultQuantity: string;
+    // Product vs service — the parent copies this onto the picked row via onpick
+    // so the hidden ledger routes the line's revenue to the right account.
+    type: 'product' | 'service';
     // Tax prefill — the catalog item's taxability + default policy (the policy
     // is null when the item defers to the company default). The parent resolves
     // these onto the row's tax controls via onpick.
