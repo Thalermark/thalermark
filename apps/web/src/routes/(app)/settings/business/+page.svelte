@@ -39,104 +39,113 @@
     <span class="eyebrow">Address &amp; contact</span>
     <p class="mt-2 font-serif text-lg text-fg">{data.company.name}</p>
   </header>
-  <form method="POST" action="?/save" class="px-6 py-6">
+  <form method="POST" action="?/save" class="px-6 py-7">
     <input type="hidden" name="companyId" value={data.company.id} />
-    <p class="text-sm text-fg/70">
+    <p class="max-w-prose text-sm leading-relaxed text-fg/70">
       These show in the &ldquo;from&rdquo; block on the invoices and estimates your customers see,
       under your business name. The checkboxes set the default for new documents &mdash; you can
       still change it on any individual invoice or estimate. Leave a field blank to omit it entirely.
     </p>
-    <label class="mt-5 block">
-      <span class="label">Business address</span>
-      <textarea
-        name="businessAddress"
-        rows="3"
-        placeholder="123 Main St&#10;Springfield, IL 62704"
-        class="mt-2 w-full max-w-md rounded-sm border border-fg/20 bg-surface px-3 py-2 text-sm text-fg focus:border-accent focus:outline-none"
-        >{address}</textarea
-      >
-    </label>
-    <div class="mt-2 flex flex-wrap gap-x-6 gap-y-2">
-      <label class="flex items-center gap-2 text-sm text-fg/70">
+
+    <div class="mt-8 space-y-8">
+      <div>
+        <label for="businessAddress" class="label block">Business address</label>
+        <textarea
+          id="businessAddress"
+          name="businessAddress"
+          rows="3"
+          placeholder="123 Main St&#10;Springfield, IL 62704"
+          class="mt-2 w-full max-w-md rounded-sm border border-fg/20 bg-surface px-3 py-2 text-sm text-fg focus:border-accent focus:outline-none"
+          >{address}</textarea
+        >
+        <div class="mt-3 flex flex-wrap gap-x-6 gap-y-2">
+          <label class="flex items-center gap-2 text-sm text-fg/70">
+            <input
+              type="checkbox"
+              name="showAddressOnInvoice"
+              checked={showAddressInvoice}
+              class="size-4 rounded-sm border-fg/30 text-accent focus:ring-accent"
+            />
+            Show on invoices
+          </label>
+          <label class="flex items-center gap-2 text-sm text-fg/70">
+            <input
+              type="checkbox"
+              name="showAddressOnEstimate"
+              checked={showAddressEstimate}
+              class="size-4 rounded-sm border-fg/30 text-accent focus:ring-accent"
+            />
+            Show on estimates
+          </label>
+        </div>
+      </div>
+
+      <div>
+        <label for="businessPhone" class="label block">Phone</label>
         <input
-          type="checkbox"
-          name="showAddressOnInvoice"
-          checked={showAddressInvoice}
-          class="size-4 rounded-sm border-fg/30 text-accent focus:ring-accent"
+          id="businessPhone"
+          type="tel"
+          name="businessPhone"
+          value={phone}
+          placeholder="(555) 123-4567"
+          class="mt-2 w-full max-w-md rounded-sm border border-fg/20 bg-surface px-3 py-2 text-sm text-fg focus:border-accent focus:outline-none"
         />
-        Show on invoices
-      </label>
-      <label class="flex items-center gap-2 text-sm text-fg/70">
+        <div class="mt-3 flex flex-wrap gap-x-6 gap-y-2">
+          <label class="flex items-center gap-2 text-sm text-fg/70">
+            <input
+              type="checkbox"
+              name="showPhoneOnInvoice"
+              checked={showPhoneInvoice}
+              class="size-4 rounded-sm border-fg/30 text-accent focus:ring-accent"
+            />
+            Show on invoices
+          </label>
+          <label class="flex items-center gap-2 text-sm text-fg/70">
+            <input
+              type="checkbox"
+              name="showPhoneOnEstimate"
+              checked={showPhoneEstimate}
+              class="size-4 rounded-sm border-fg/30 text-accent focus:ring-accent"
+            />
+            Show on estimates
+          </label>
+        </div>
+      </div>
+
+      <div>
+        <label for="businessEmail" class="label block">Email</label>
         <input
-          type="checkbox"
-          name="showAddressOnEstimate"
-          checked={showAddressEstimate}
-          class="size-4 rounded-sm border-fg/30 text-accent focus:ring-accent"
+          id="businessEmail"
+          type="email"
+          name="businessEmail"
+          value={email}
+          placeholder="hello@yourbusiness.com"
+          class="mt-2 w-full max-w-md rounded-sm border border-fg/20 bg-surface px-3 py-2 text-sm text-fg focus:border-accent focus:outline-none"
         />
-        Show on estimates
-      </label>
+        <div class="mt-3 flex flex-wrap gap-x-6 gap-y-2">
+          <label class="flex items-center gap-2 text-sm text-fg/70">
+            <input
+              type="checkbox"
+              name="showEmailOnInvoice"
+              checked={showEmailInvoice}
+              class="size-4 rounded-sm border-fg/30 text-accent focus:ring-accent"
+            />
+            Show on invoices
+          </label>
+          <label class="flex items-center gap-2 text-sm text-fg/70">
+            <input
+              type="checkbox"
+              name="showEmailOnEstimate"
+              checked={showEmailEstimate}
+              class="size-4 rounded-sm border-fg/30 text-accent focus:ring-accent"
+            />
+            Show on estimates
+          </label>
+        </div>
+      </div>
     </div>
-    <label class="mt-5 block">
-      <span class="label">Phone</span>
-      <input
-        type="tel"
-        name="businessPhone"
-        value={phone}
-        placeholder="(555) 123-4567"
-        class="mt-2 w-full max-w-md rounded-sm border border-fg/20 bg-surface px-3 py-2 text-sm text-fg focus:border-accent focus:outline-none"
-      />
-    </label>
-    <div class="mt-2 flex flex-wrap gap-x-6 gap-y-2">
-      <label class="flex items-center gap-2 text-sm text-fg/70">
-        <input
-          type="checkbox"
-          name="showPhoneOnInvoice"
-          checked={showPhoneInvoice}
-          class="size-4 rounded-sm border-fg/30 text-accent focus:ring-accent"
-        />
-        Show on invoices
-      </label>
-      <label class="flex items-center gap-2 text-sm text-fg/70">
-        <input
-          type="checkbox"
-          name="showPhoneOnEstimate"
-          checked={showPhoneEstimate}
-          class="size-4 rounded-sm border-fg/30 text-accent focus:ring-accent"
-        />
-        Show on estimates
-      </label>
-    </div>
-    <label class="mt-5 block">
-      <span class="label">Email</span>
-      <input
-        type="email"
-        name="businessEmail"
-        value={email}
-        placeholder="hello@yourbusiness.com"
-        class="mt-2 w-full max-w-md rounded-sm border border-fg/20 bg-surface px-3 py-2 text-sm text-fg focus:border-accent focus:outline-none"
-      />
-    </label>
-    <div class="mt-2 flex flex-wrap gap-x-6 gap-y-2">
-      <label class="flex items-center gap-2 text-sm text-fg/70">
-        <input
-          type="checkbox"
-          name="showEmailOnInvoice"
-          checked={showEmailInvoice}
-          class="size-4 rounded-sm border-fg/30 text-accent focus:ring-accent"
-        />
-        Show on invoices
-      </label>
-      <label class="flex items-center gap-2 text-sm text-fg/70">
-        <input
-          type="checkbox"
-          name="showEmailOnEstimate"
-          checked={showEmailEstimate}
-          class="size-4 rounded-sm border-fg/30 text-accent focus:ring-accent"
-        />
-        Show on estimates
-      </label>
-    </div>
-    <div class="mt-5 flex items-center gap-4">
+
+    <div class="mt-8 flex items-center gap-4">
       <button
         type="submit"
         class="btn"
