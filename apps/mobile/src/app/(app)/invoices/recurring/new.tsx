@@ -21,10 +21,12 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { DateField } from '../../../../components/DateField';
-import { ItemPickerField } from '../../../../components/ItemPickerField';
+import { type ItemPatch, ItemPickerField } from '../../../../components/ItemPickerField';
+import { TaxRow } from '../../../../components/TaxRow';
 import { pickActiveCompany } from '../../../../lib/active-company';
 import { api } from '../../../../lib/api';
 import { type DupeCandidate, findEmailDupe, findNameDupes } from '../../../../lib/customer-dupes';
+import { type TaxPolicyLite, lineTax, policyRate, resolvePolicyId } from '../../../../lib/line-tax';
 
 // Mirror of apps/web's /recurring/new — the invoice create form minus
 // number/issue/due, plus cadence (frequency, every-N, start/end, max
@@ -43,8 +45,17 @@ type Row = {
   quantity: string;
   unitPrice: string;
   sourceItemId: string | null;
+  taxable: boolean;
+  taxPolicyId: string;
 };
-const blankRow = (): Row => ({ description: '', quantity: '', unitPrice: '', sourceItemId: null });
+const blankRow = (): Row => ({
+  description: '',
+  quantity: '',
+  unitPrice: '',
+  sourceItemId: null,
+  taxable: false,
+  taxPolicyId: '',
+});
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
 const FRIENDLY: Record<string, string> = {
@@ -70,7 +81,7 @@ export default function NewRecurring() {
   const [endDate, setEndDate] = useState('');
   const [maxOccurrences, setMaxOccurrences] = useState('');
   const [netTermsDays, setNetTermsDays] = useState('');
-  const [tax, setTax] = useState('');
+  const [taxPolicies, setTaxPolicies] = useState<TaxPolicyLite[]>([]);
   const [notes, setNotes] = useState('');
   const [rows, setRows] = useState<Row[]>([blankRow()]);
 
@@ -97,7 +108,23 @@ export default function NewRecurring() {
         if (compRes.ok) {
           const { companies } = await compRes.json();
           const company = await pickActiveCompany(companies);
-          if (company) setCompanyId(company.id);
+          if (company) {
+            setCompanyId(company.id);
+            const polRes = await api.api['tax-policies'].$get({
+              query: { companyId: company.id },
+            });
+            if (active && polRes.ok) {
+              const { taxPolicies: pols } = await polRes.json();
+              setTaxPolicies(
+                pols.map((p) => ({
+                  id: p.id,
+                  name: p.name,
+                  ratePct: p.ratePct,
+                  isDefault: p.isDefault,
+                })),
+              );
+            }
+          }
         }
         if (active) setBootstrapped(true);
       })().catch(() => {
@@ -122,17 +149,48 @@ export default function NewRecurring() {
   );
 
   const computedRows = useMemo(
-    () => rows.map((r) => ({ ...r, amount: multiplyMoney(r.quantity, r.unitPrice) })),
-    [rows],
+    () =>
+      rows.map((r) => {
+        const amount = multiplyMoney(r.quantity, r.unitPrice);
+        const rate = r.taxable ? policyRate(taxPolicies, r.taxPolicyId) : '0';
+        return { ...r, amount, tax: lineTax(r.taxable, rate, amount) };
+      }),
+    [rows, taxPolicies],
   );
   const subtotal = useMemo(() => sumMoney(computedRows.map((r) => r.amount)), [computedRows]);
-  const total = useMemo(() => addMoney(subtotal, tax || '0'), [subtotal, tax]);
+  const taxTotal = useMemo(() => sumMoney(computedRows.map((r) => r.tax)), [computedRows]);
+  const total = useMemo(() => addMoney(subtotal, taxTotal), [subtotal, taxTotal]);
 
   const patchRow = (i: number, patch: Partial<Row>) =>
     setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   const addRow = () => setRows((rs) => [...rs, blankRow()]);
   const removeRow = (i: number) =>
     setRows((rs) => (rs.length <= 1 ? rs : rs.filter((_, j) => j !== i)));
+  const toggleRowTaxable = (i: number) =>
+    setRows((rs) =>
+      rs.map((r, j) => {
+        if (j !== i) return r;
+        const turningOn = !r.taxable;
+        return {
+          ...r,
+          taxable: turningOn,
+          taxPolicyId:
+            turningOn && !r.taxPolicyId ? resolvePolicyId(taxPolicies, '') : r.taxPolicyId,
+        };
+      }),
+    );
+  const applyPick = (i: number, patch: ItemPatch) => {
+    const { taxable, taxPolicyId, ...rest } = patch;
+    if (taxable !== undefined) {
+      patchRow(i, {
+        ...rest,
+        taxable,
+        taxPolicyId: taxable ? resolvePolicyId(taxPolicies, taxPolicyId ?? '') : '',
+      });
+    } else {
+      patchRow(i, rest);
+    }
+  };
 
   const noCompany = bootstrapped && companyId === null;
   const hasCustomer = inlineMode ? newName.trim().length > 0 : customerId !== '';
@@ -193,16 +251,24 @@ export default function NewRecurring() {
       }
     }
 
-    const lineItems: RecurringInvoiceLineItemInput[] = rows.map((r, i) => ({
-      position: i + 1,
-      description: r.description.trim(),
-      quantity: r.quantity.trim(),
-      unitPrice: r.unitPrice.trim(),
-      amount: multiplyMoney(r.quantity, r.unitPrice),
-      sourceItemId: r.sourceItemId ?? undefined,
-    }));
+    const lineItems: RecurringInvoiceLineItemInput[] = rows.map((r, i) => {
+      const amount = multiplyMoney(r.quantity, r.unitPrice);
+      const rate = r.taxable ? policyRate(taxPolicies, r.taxPolicyId) : '0';
+      return {
+        position: i + 1,
+        description: r.description.trim(),
+        quantity: r.quantity.trim(),
+        unitPrice: r.unitPrice.trim(),
+        amount,
+        taxable: r.taxable,
+        taxRatePct: rate,
+        taxAmount: lineTax(r.taxable, rate, amount),
+        taxPolicyId: r.taxable ? r.taxPolicyId || undefined : undefined,
+        sourceItemId: r.sourceItemId ?? undefined,
+      };
+    });
     const sub = sumMoney(lineItems.map((li) => li.amount));
-    const taxVal = tax.trim() === '' ? undefined : tax.trim();
+    const taxVal = sumMoney(lineItems.map((li) => li.taxAmount ?? '0'));
     const payload = {
       companyId,
       customerId: resolvedCustomerId,
@@ -214,7 +280,7 @@ export default function NewRecurring() {
       netTermsDays: toInt(netTermsDays),
       subtotal: sub,
       tax: taxVal,
-      total: addMoney(sub, taxVal ?? '0'),
+      total: addMoney(sub, taxVal),
       notes: notes.trim() === '' ? undefined : notes.trim(),
       lineItems,
     };
@@ -415,7 +481,7 @@ export default function NewRecurring() {
                   <View key={i} className="rounded-sm border border-ink/10 bg-cream-warm p-3">
                     <ItemPickerField
                       description={row.description}
-                      onChange={(patch) => patchRow(i, patch)}
+                      onChange={(patch) => applyPick(i, patch)}
                     />
                     <View className="mt-2 flex-row gap-2">
                       <View className="flex-1">
@@ -449,6 +515,14 @@ export default function NewRecurring() {
                         </Text>
                       </View>
                     </View>
+                    <TaxRow
+                      taxPolicies={taxPolicies}
+                      taxable={row.taxable}
+                      taxPolicyId={row.taxPolicyId}
+                      lineTaxAmount={computedRows[i]?.tax ?? '0.00'}
+                      onToggle={() => toggleRowTaxable(i)}
+                      onSelectPolicy={(pid) => patchRow(i, { taxPolicyId: pid })}
+                    />
                     {rows.length > 1 ? (
                       <Pressable onPress={() => removeRow(i)} className="mt-2 self-end">
                         <Text className="font-mono text-xs uppercase tracking-wider text-oxblood">
@@ -464,12 +538,11 @@ export default function NewRecurring() {
               </Pressable>
             </View>
 
-            <LabeledInput label="Tax" value={tax} onChangeText={setTax} error={fieldErrors.tax} />
             <View className="rounded-sm border border-ink/10 bg-cream-warm p-4">
               <TotalRow label="Subtotal" value={subtotal} />
-              <TotalRow label="Tax" value={tax || '0.00'} />
+              <TotalRow label="Tax" value={taxTotal} />
               <View className="mt-3 border-t border-ink/10 pt-3">
-                <TotalRow label="Total" value={total} emphasize />
+                <TotalRow label="Total per invoice" value={total} emphasize />
               </View>
             </View>
 

@@ -21,8 +21,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Checkbox } from '../../../../components/Checkbox';
 import { DateField } from '../../../../components/DateField';
-import { ItemPickerField } from '../../../../components/ItemPickerField';
+import { type ItemPatch, ItemPickerField } from '../../../../components/ItemPickerField';
+import { TaxRow } from '../../../../components/TaxRow';
 import { api } from '../../../../lib/api';
+import { type TaxPolicyLite, lineTax, policyRate, resolvePolicyId } from '../../../../lib/line-tax';
 
 // Edit half of apps/web's /invoices/[id]/edit — draft-only on the API (the
 // detail screen only surfaces the Edit button for drafts). PATCHes the whole
@@ -37,13 +39,22 @@ type Row = {
   quantity: string;
   unitPrice: string;
   sourceItemId: string | null;
+  taxable: boolean;
+  taxPolicyId: string;
 };
+const blankRow = (): Row => ({
+  description: '',
+  quantity: '',
+  unitPrice: '',
+  sourceItemId: null,
+  taxable: false,
+  taxPolicyId: '',
+});
 type Seed = {
   customerId: string;
   number: string;
   issueDate: string;
   dueDate: string;
-  tax: string;
   notes: string;
   showAddress: boolean;
   showPhone: boolean;
@@ -63,6 +74,7 @@ export default function EditInvoice() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [seed, setSeed] = useState<Seed | null>(null);
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [taxPolicies, setTaxPolicies] = useState<TaxPolicyLite[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
@@ -93,7 +105,6 @@ export default function EditInvoice() {
           number: inv.number,
           issueDate: inv.issueDate,
           dueDate: inv.dueDate,
-          tax: inv.tax ?? '',
           notes: inv.notes ?? '',
           showAddress: inv.showAddress,
           showPhone: inv.showPhone,
@@ -103,8 +114,22 @@ export default function EditInvoice() {
             quantity: li.quantity,
             unitPrice: li.unitPrice,
             sourceItemId: li.sourceItemId ?? null,
+            taxable: li.taxable ?? false,
+            taxPolicyId: li.taxPolicyId ?? '',
           })),
         });
+        const polRes = await api.api['tax-policies'].$get({ query: { companyId: inv.companyId } });
+        if (active && polRes.ok) {
+          const { taxPolicies: pols } = await polRes.json();
+          setTaxPolicies(
+            pols.map((p) => ({
+              id: p.id,
+              name: p.name,
+              ratePct: p.ratePct,
+              isDefault: p.isDefault,
+            })),
+          );
+        }
       })().catch(() => {
         if (active) setFormError('load_failed');
       });
@@ -120,25 +145,54 @@ export default function EditInvoice() {
     setSeed((s) =>
       s ? { ...s, rows: s.rows.map((r, j) => (j === i ? { ...r, ...patch } : r)) } : s,
     );
-  const addRow = () =>
+  const addRow = () => setSeed((s) => (s ? { ...s, rows: [...s.rows, blankRow()] } : s));
+  const removeRow = (i: number) =>
+    setSeed((s) => (s && s.rows.length > 1 ? { ...s, rows: s.rows.filter((_, j) => j !== i) } : s));
+  const toggleRowTaxable = (i: number) =>
     setSeed((s) =>
       s
         ? {
             ...s,
-            rows: [...s.rows, { description: '', quantity: '', unitPrice: '', sourceItemId: null }],
+            rows: s.rows.map((r, j) => {
+              if (j !== i) return r;
+              const turningOn = !r.taxable;
+              return {
+                ...r,
+                taxable: turningOn,
+                taxPolicyId:
+                  turningOn && !r.taxPolicyId ? resolvePolicyId(taxPolicies, '') : r.taxPolicyId,
+              };
+            }),
           }
         : s,
     );
-  const removeRow = (i: number) =>
-    setSeed((s) => (s && s.rows.length > 1 ? { ...s, rows: s.rows.filter((_, j) => j !== i) } : s));
+  const applyPick = (i: number, patch: ItemPatch) => {
+    const { taxable, taxPolicyId, ...rest } = patch;
+    if (taxable !== undefined) {
+      patchRow(i, {
+        ...rest,
+        taxable,
+        taxPolicyId: taxable ? resolvePolicyId(taxPolicies, taxPolicyId ?? '') : '',
+      });
+    } else {
+      patchRow(i, rest);
+    }
+  };
 
   const computedRows = useMemo(
     () =>
-      seed ? seed.rows.map((r) => ({ ...r, amount: multiplyMoney(r.quantity, r.unitPrice) })) : [],
-    [seed],
+      seed
+        ? seed.rows.map((r) => {
+            const amount = multiplyMoney(r.quantity, r.unitPrice);
+            const rate = r.taxable ? policyRate(taxPolicies, r.taxPolicyId) : '0';
+            return { ...r, amount, tax: lineTax(r.taxable, rate, amount) };
+          })
+        : [],
+    [seed, taxPolicies],
   );
   const subtotal = useMemo(() => sumMoney(computedRows.map((r) => r.amount)), [computedRows]);
-  const total = useMemo(() => addMoney(subtotal, seed?.tax || '0'), [subtotal, seed?.tax]);
+  const taxTotal = useMemo(() => sumMoney(computedRows.map((r) => r.tax)), [computedRows]);
+  const total = useMemo(() => addMoney(subtotal, taxTotal), [subtotal, taxTotal]);
 
   const selectedName = seed
     ? (customers.find((c) => c.id === seed.customerId)?.name ?? null)
@@ -149,16 +203,24 @@ export default function EditInvoice() {
     setFormError(null);
     setFieldErrors({});
 
-    const lineItems: InvoiceLineItemInput[] = seed.rows.map((r, i) => ({
-      position: i + 1,
-      description: r.description.trim(),
-      quantity: r.quantity.trim(),
-      unitPrice: r.unitPrice.trim(),
-      amount: multiplyMoney(r.quantity, r.unitPrice),
-      sourceItemId: r.sourceItemId ?? undefined,
-    }));
+    const lineItems: InvoiceLineItemInput[] = seed.rows.map((r, i) => {
+      const amount = multiplyMoney(r.quantity, r.unitPrice);
+      const rate = r.taxable ? policyRate(taxPolicies, r.taxPolicyId) : '0';
+      return {
+        position: i + 1,
+        description: r.description.trim(),
+        quantity: r.quantity.trim(),
+        unitPrice: r.unitPrice.trim(),
+        amount,
+        taxable: r.taxable,
+        taxRatePct: rate,
+        taxAmount: lineTax(r.taxable, rate, amount),
+        taxPolicyId: r.taxable ? r.taxPolicyId || undefined : undefined,
+        sourceItemId: r.sourceItemId ?? undefined,
+      };
+    });
     const sub = sumMoney(lineItems.map((li) => li.amount));
-    const taxVal = seed.tax.trim() === '' ? undefined : seed.tax.trim();
+    const taxVal = sumMoney(lineItems.map((li) => li.taxAmount ?? '0'));
     const payload = {
       customerId: seed.customerId,
       number: seed.number.trim(),
@@ -166,7 +228,7 @@ export default function EditInvoice() {
       dueDate: seed.dueDate.trim(),
       subtotal: sub,
       tax: taxVal,
-      total: addMoney(sub, taxVal ?? '0'),
+      total: addMoney(sub, taxVal),
       notes: seed.notes.trim() === '' ? undefined : seed.notes.trim(),
       showAddress: seed.showAddress,
       showPhone: seed.showPhone,
@@ -277,20 +339,17 @@ export default function EditInvoice() {
               rows={seed.rows}
               computed={computedRows}
               error={fieldErrors.lineItems}
+              taxPolicies={taxPolicies}
               patchRow={patchRow}
+              applyPick={applyPick}
+              toggleRowTaxable={toggleRowTaxable}
               addRow={addRow}
               removeRow={removeRow}
             />
 
-            <LabeledInput
-              label="Tax"
-              value={seed.tax}
-              onChangeText={(t) => set('tax', t)}
-              error={fieldErrors.tax}
-            />
             <View className="rounded-sm border border-ink/10 bg-cream-warm p-4">
               <TotalRow label="Subtotal" value={subtotal} />
-              <TotalRow label="Tax" value={seed.tax || '0.00'} />
+              <TotalRow label="Tax" value={taxTotal} />
               <View className="mt-3 border-t border-ink/10 pt-3">
                 <TotalRow label="Total" value={total} emphasize />
               </View>
@@ -388,14 +447,20 @@ function LineItems({
   rows,
   computed,
   error,
+  taxPolicies,
   patchRow,
+  applyPick,
+  toggleRowTaxable,
   addRow,
   removeRow,
 }: {
   rows: Row[];
-  computed: { amount: string }[];
+  computed: { amount: string; tax: string }[];
   error?: string;
+  taxPolicies: TaxPolicyLite[];
   patchRow: (i: number, patch: Partial<Row>) => void;
+  applyPick: (i: number, patch: ItemPatch) => void;
+  toggleRowTaxable: (i: number) => void;
   addRow: () => void;
   removeRow: (i: number) => void;
 }) {
@@ -409,7 +474,7 @@ function LineItems({
           <View key={i} className="rounded-sm border border-ink/10 bg-cream-warm p-3">
             <ItemPickerField
               description={row.description}
-              onChange={(patch) => patchRow(i, patch)}
+              onChange={(patch) => applyPick(i, patch)}
             />
             <View className="mt-2 flex-row gap-2">
               <View className="flex-1">
@@ -443,6 +508,14 @@ function LineItems({
                 </Text>
               </View>
             </View>
+            <TaxRow
+              taxPolicies={taxPolicies}
+              taxable={row.taxable}
+              taxPolicyId={row.taxPolicyId}
+              lineTaxAmount={computed[i]?.tax ?? '0.00'}
+              onToggle={() => toggleRowTaxable(i)}
+              onSelectPolicy={(pid) => patchRow(i, { taxPolicyId: pid })}
+            />
             {rows.length > 1 ? (
               <Pressable onPress={() => removeRow(i)} className="mt-2 self-end">
                 <Text className="font-mono text-xs uppercase tracking-wider text-oxblood">

@@ -26,7 +26,8 @@ type Entry = {
     | '/more/reports'
     | '/more/business'
     | '/more/payments'
-    | '/more/email';
+    | '/more/email'
+    | '/more/tax-policies';
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
   subtitle: string;
@@ -102,6 +103,12 @@ const SETTINGS_ENTRIES: Entry[] = [
     icon: 'card-outline',
     title: 'Payments',
     subtitle: 'Connect Stripe and list the other ways customers can pay you.',
+  },
+  {
+    href: '/more/tax-policies',
+    icon: 'receipt-outline',
+    title: 'Tax policies',
+    subtitle: 'Named sales-tax rates you apply to items and invoice lines.',
   },
   {
     href: '/more/email',

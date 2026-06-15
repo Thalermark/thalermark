@@ -9,6 +9,8 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import type { TaxPolicyLite } from '../lib/line-tax';
+import { Checkbox } from './Checkbox';
 
 // Shared catalog-item form for more/items/new + more/items/[id]/edit — the two
 // screens render the same five visible fields (web duplicates the markup across
@@ -32,6 +34,11 @@ export function ItemForm({
   submitLabel,
   values,
   onChange,
+  taxPolicies,
+  taxable,
+  taxPolicyId,
+  onToggleTaxable,
+  onSelectPolicy,
   fieldErrors,
   formError,
   submitting,
@@ -44,6 +51,12 @@ export function ItemForm({
   submitLabel: string;
   values: ItemFormValues;
   onChange: (key: ItemFieldKey, val: string) => void;
+  // Taxable flag + default policy (a non-taxable item carries no policy).
+  taxPolicies: TaxPolicyLite[];
+  taxable: boolean;
+  taxPolicyId: string;
+  onToggleTaxable: () => void;
+  onSelectPolicy: (id: string) => void;
   fieldErrors: Partial<Record<ItemFieldKey, string>>;
   formError: string | null;
   submitting: boolean;
@@ -108,6 +121,45 @@ export function ItemForm({
               keyboardType="decimal-pad"
               placeholder="1"
             />
+
+            <View className="rounded-sm border border-ink/10 bg-cream-warm p-4">
+              <Checkbox
+                label="Taxable — charge sales tax when on an invoice"
+                value={taxable}
+                onToggle={onToggleTaxable}
+              />
+              {taxable ? (
+                taxPolicies.length > 0 ? (
+                  <View className="mt-3">
+                    <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                      Tax policy
+                    </Text>
+                    <View className="mt-2 flex-row flex-wrap gap-2">
+                      {taxPolicies.map((p) => {
+                        const selected = p.id === taxPolicyId;
+                        return (
+                          <Pressable
+                            key={p.id}
+                            onPress={() => onSelectPolicy(p.id)}
+                            className={`rounded-sm border px-3 py-1.5 ${selected ? 'border-gold-deep bg-gold-deep/10' : 'border-ink/15 bg-cream'}`}
+                          >
+                            <Text
+                              className={`text-xs ${selected ? 'text-gold-deep' : 'text-ink/70'}`}
+                            >
+                              {p.name} ({Number(p.ratePct)}%)
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+                ) : (
+                  <Text className="mt-2 text-xs text-ink/50">
+                    No tax policies yet. Create one under More → Tax policies.
+                  </Text>
+                )
+              ) : null}
+            </View>
 
             <Pressable
               onPress={onSubmit}

@@ -9,6 +9,7 @@ import {
   type ItemFormValues,
 } from '../../../../../components/ItemForm';
 import { api } from '../../../../../lib/api';
+import { type TaxPolicyLite, resolvePolicyId } from '../../../../../lib/line-tax';
 
 // Mirror of apps/web's /settings/items/[id]/edit. Seeds from the loaded item,
 // then PATCHes with full-replacement semantics — omitted optionals collapse to
@@ -24,6 +25,9 @@ export default function EditItem() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [values, setValues] = useState<ItemFormValues | null>(null);
+  const [taxPolicies, setTaxPolicies] = useState<TaxPolicyLite[]>([]);
+  const [taxable, setTaxable] = useState(false);
+  const [taxPolicyId, setTaxPolicyId] = useState('');
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<ItemFieldKey, string>>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -49,6 +53,20 @@ export default function EditItem() {
             unitLabel: i.unitLabel ?? '',
             defaultQuantity: i.defaultQuantity,
           });
+          setTaxable(i.taxable ?? false);
+          setTaxPolicyId(i.taxPolicyId ?? '');
+          const polRes = await api.api['tax-policies'].$get({ query: { companyId: i.companyId } });
+          if (active && polRes.ok) {
+            const { taxPolicies: pols } = await polRes.json();
+            setTaxPolicies(
+              pols.map((p) => ({
+                id: p.id,
+                name: p.name,
+                ratePct: p.ratePct,
+                isDefault: p.isDefault,
+              })),
+            );
+          }
         })
         .catch(() => {
           if (active) setFormError('load_failed');
@@ -60,16 +78,27 @@ export default function EditItem() {
   );
 
   const set = (key: ItemFieldKey, val: string) => setValues((v) => (v ? { ...v, [key]: val } : v));
+  function toggleTaxable() {
+    const turningOn = !taxable;
+    setTaxable(turningOn);
+    if (turningOn && !taxPolicyId) setTaxPolicyId(resolvePolicyId(taxPolicies, ''));
+  }
 
   async function onSubmit() {
     if (!values) return;
     setFormError(null);
     setFieldErrors({});
 
-    const body: Record<string, string> = { name: values.name.trim() };
+    const body: Record<string, unknown> = { name: values.name.trim() };
     for (const k of OPTIONAL_KEYS) {
       const trimmed = values[k].trim();
       if (trimmed !== '') body[k] = trimmed;
+    }
+    // Full-replacement: unchecking taxable clears the policy server-side (the
+    // omitted optional collapses tax_policy_id to null).
+    if (taxable) {
+      body.taxable = true;
+      if (taxPolicyId) body.taxPolicyId = taxPolicyId;
     }
 
     const parsed = itemUpdateSchema.safeParse(body);
@@ -121,6 +150,11 @@ export default function EditItem() {
       submitLabel="Save changes"
       values={values}
       onChange={set}
+      taxPolicies={taxPolicies}
+      taxable={taxable}
+      taxPolicyId={taxPolicyId}
+      onToggleTaxable={toggleTaxable}
+      onSelectPolicy={setTaxPolicyId}
       fieldErrors={fieldErrors}
       formError={formError}
       submitting={submitting}

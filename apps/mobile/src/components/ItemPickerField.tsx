@@ -16,13 +16,19 @@ type Suggestion = {
   unitPrice: string;
   unitLabel: string | null;
   defaultQuantity: string;
+  taxable: boolean;
+  taxPolicyId: string | null;
 };
 
-type Patch = {
+export type ItemPatch = {
   description?: string;
   quantity?: string;
   unitPrice?: string;
   sourceItemId?: string | null;
+  // Tax prefill from the catalog item; the parent resolves the policy id onto
+  // the row's tax controls.
+  taxable?: boolean;
+  taxPolicyId?: string | null;
 };
 
 const DEBOUNCE_MS = 200;
@@ -38,7 +44,7 @@ export function ItemPickerField({
   onChange,
 }: {
   description: string;
-  onChange: (patch: Patch) => void;
+  onChange: (patch: ItemPatch) => void;
 }) {
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [open, setOpen] = useState(false);
@@ -97,6 +103,8 @@ export function ItemPickerField({
       unitPrice: s.unitPrice,
       quantity: cleanQty(s.defaultQuantity),
       sourceItemId: s.id,
+      taxable: s.taxable,
+      taxPolicyId: s.taxPolicyId,
     });
     setSuggestions([]);
     setOpen(false);

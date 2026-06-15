@@ -16,6 +16,7 @@ type Item = {
   unitLabel: string | null;
   defaultQuantity: string;
   archivedAt: string | null;
+  taxLabel: string;
 };
 type DetailState = { state: 'loading' } | { state: 'ready'; item: Item } | { state: 'error' };
 
@@ -42,6 +43,22 @@ export default function ItemDetail() {
             return;
           }
           const i = await res.json();
+          // "Taxable · General 8.25%" / "Taxable · Company default" / "Not taxable".
+          // Resolve the policy name best-effort; a removed/unreadable policy
+          // degrades to "Company default".
+          let taxLabel = 'Not taxable';
+          if (i.taxable) {
+            taxLabel = 'Taxable · Company default';
+            if (i.taxPolicyId) {
+              const polRes = await api.api['tax-policies'][':id']
+                .$get({ param: { id: i.taxPolicyId } })
+                .catch(() => null);
+              if (active() && polRes?.ok) {
+                const p = await polRes.json();
+                taxLabel = `Taxable · ${p.name} ${Number(p.ratePct)}%`;
+              }
+            }
+          }
           setDetail({
             state: 'ready',
             item: {
@@ -51,6 +68,7 @@ export default function ItemDetail() {
               unitLabel: i.unitLabel ?? null,
               defaultQuantity: i.defaultQuantity,
               archivedAt: i.archivedAt ?? null,
+              taxLabel,
             },
           });
         })
@@ -166,6 +184,7 @@ export default function ItemDetail() {
                 }
               />
               <DetailRow label="Default quantity" value={qty(item.defaultQuantity)} />
+              <DetailRow label="Tax" value={item.taxLabel} />
               {item.description ? <DetailRow label="Description" value={item.description} /> : null}
             </View>
 
