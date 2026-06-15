@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ItemTaxFields from '$lib/components/ItemTaxFields.svelte';
   import type { PageProps } from './$types';
 
   let { data, form }: PageProps = $props();
@@ -17,6 +18,12 @@
   function err(key: FieldKey): string | undefined {
     return (fieldErrors as Record<string, string>)[key];
   }
+  const taxable = $derived((seed as Record<string, unknown>).taxable === true);
+  const policyId = $derived(
+    typeof (seed as Record<string, unknown>).taxPolicyId === 'string'
+      ? ((seed as Record<string, unknown>).taxPolicyId as string)
+      : '',
+  );
 </script>
 
 <a href="/settings/items/{data.item.id}" class="eyebrow text-fg/60 hover:text-fg">← {data.item.name}</a>
@@ -117,6 +124,8 @@
       {/if}
     </div>
   </div>
+
+  <ItemTaxFields taxPolicies={data.taxPolicies} {taxable} {policyId} />
 
   <div class="flex items-center gap-4">
     <button

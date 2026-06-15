@@ -9,6 +9,19 @@ export const load: PageServerLoad = async (event) => {
   if (!res.ok) throw error(res.status, 'failed to load item');
   const item = await res.json();
 
+  // Resolve the item's tax-policy name for display (best-effort — a deleted or
+  // unreadable policy degrades to null and the detail shows "Company default").
+  let taxPolicy: { name: string; ratePct: string } | null = null;
+  if (item.taxPolicyId) {
+    const polRes = await client.api['tax-policies'][':id'].$get({
+      param: { id: item.taxPolicyId },
+    });
+    if (polRes.ok) {
+      const p = await polRes.json();
+      taxPolicy = { name: p.name, ratePct: p.ratePct };
+    }
+  }
+
   // Per-entity history sidebar — best-effort; a non-OK degrades to empty.
   const auditRes = await client.api['audit-events'].$get({
     query: { entityType: 'item', entityId: event.params.id },
@@ -17,7 +30,7 @@ export const load: PageServerLoad = async (event) => {
     ? ((await auditRes.json()) as { events: AuditEvent[] }).events
     : [];
 
-  return { item, auditEvents };
+  return { item, taxPolicy, auditEvents };
 };
 
 type AuditEvent = {

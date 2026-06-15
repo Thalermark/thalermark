@@ -35,6 +35,9 @@ export const GET: RequestHandler = async (event) => {
       unitPrice: i.unitPrice,
       unitLabel: i.unitLabel,
       defaultQuantity: i.defaultQuantity,
+      // Prefill a picked line's taxability + policy from the catalog item.
+      taxable: i.taxable,
+      taxPolicyId: i.taxPolicyId,
     })),
   });
 };

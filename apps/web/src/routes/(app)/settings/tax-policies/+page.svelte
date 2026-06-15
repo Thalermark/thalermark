@@ -1,0 +1,118 @@
+<script lang="ts">
+  import LoadMore from '$lib/components/LoadMore.svelte';
+  import { fetchMore } from '$lib/load-more';
+  import { may } from '$lib/perms';
+  import { untrack } from 'svelte';
+  import type { PageProps } from './$types';
+
+  let { data }: PageProps = $props();
+
+  const showArchived = $derived(data.showArchived);
+  const canManage = $derived(may(data.role, 'settings:manage'));
+
+  type Row = (typeof data.taxPolicies)[number];
+  let rows = $state<Row[]>(untrack(() => data.taxPolicies));
+  let cursor = $state<string | null>(untrack(() => data.nextCursor));
+  let loading = $state(false);
+  let loadError = $state(false);
+
+  $effect(() => {
+    const nextRows = data.taxPolicies;
+    const next = data.nextCursor;
+    untrack(() => {
+      rows = nextRows;
+      cursor = next;
+    });
+  });
+
+  async function more() {
+    if (loading || cursor === null) return;
+    loading = true;
+    loadError = false;
+    try {
+      const page = await fetchMore<Row>('/settings/tax-policies/more', cursor, {
+        archived: showArchived ? '1' : '',
+      });
+      rows = [...rows, ...page.rows];
+      cursor = page.nextCursor;
+    } catch {
+      loadError = true;
+    } finally {
+      loading = false;
+    }
+  }
+
+  // numeric(7,4) reads as "8.2500"; show it as a tidy "8.25%".
+  const ratePct = (s: string) => `${Number(s)}%`;
+</script>
+
+<div class="flex items-baseline justify-between gap-6">
+  <div>
+    <span class="eyebrow">Tax</span>
+    <h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-fg">
+      Tax policies<span class="text-accent">.</span>
+    </h1>
+  </div>
+  {#if canManage}
+    <a href="/settings/tax-policies/new" class="btn"> + New policy </a>
+  {/if}
+</div>
+
+<p class="mt-3 text-sm text-fg/60">
+  Named sales-tax rates you can apply to catalog items and individual invoice lines.
+</p>
+
+<div class="mt-6">
+  <a
+    href={data.showArchived ? '/settings/tax-policies' : '/settings/tax-policies?archived=1'}
+    class="label hover:text-accent"
+  >
+    {data.showArchived ? '← Hide archived' : 'Show archived'}
+  </a>
+</div>
+
+{#if rows.length === 0}
+  <p class="mt-8 text-fg/70">
+    {data.showArchived ? 'No tax policies yet.' : 'No active tax policies yet.'}
+  </p>
+{:else}
+  <ul class="mt-6 divide-y divide-fg/10 rounded-sm border border-fg/10 bg-surface-2">
+    {#each rows as policy (policy.id)}
+      <li class="flex items-center justify-between gap-4 px-5 py-4">
+        <a
+          href="/settings/tax-policies/{policy.id}"
+          class="min-w-0 flex-1 transition-colors hover:opacity-70"
+        >
+          <span class="font-serif text-lg text-fg">{policy.name}</span>
+          {#if policy.isDefault}
+            <span
+              class="ml-2 rounded-sm border border-accent/40 px-1.5 py-0.5 font-mono text-[0.6rem] uppercase tracking-widest text-accent"
+            >
+              Default
+            </span>
+          {/if}
+          {#if policy.archivedAt}
+            <span
+              class="ml-2 rounded-sm border border-fg/15 px-1.5 py-0.5 font-mono text-[0.6rem] uppercase tracking-widest text-fg/50"
+            >
+              Archived
+            </span>
+          {/if}
+        </a>
+        <span class="label">{ratePct(policy.ratePct)}</span>
+        {#if canManage}
+          <form method="post" action={policy.archivedAt ? '?/restore' : '?/archive'}>
+            <input type="hidden" name="id" value={policy.id} />
+            <button
+              type="submit"
+              class="rounded-sm border border-fg/15 px-2 py-1 font-mono text-xs uppercase tracking-widest text-fg/60 transition-colors hover:border-accent hover:text-accent"
+            >
+              {policy.archivedAt ? 'Restore' : 'Archive'}
+            </button>
+          </form>
+        {/if}
+      </li>
+    {/each}
+  </ul>
+  <LoadMore hasMore={cursor !== null} {loading} error={loadError} onclick={more} />
+{/if}
