@@ -52,6 +52,16 @@ export type CreateAuthOptions = {
     user: { email: string; name?: string | null };
     url: string;
   }) => Promise<void>;
+  // Sends the password-reset email. Injected by the api (mailer-agnostic here);
+  // when absent, the reset endpoint is disabled — a self-host install without a
+  // mailer simply has no reset path, same posture as verification above. Better
+  // Auth hands us the one-time `token`; the api builds the link to the web app's
+  // /reset-password page from publicAppUrl (server controls the target, so it
+  // works cross-device and needs no client redirectTo).
+  sendResetPassword?: (data: {
+    user: { email: string; name?: string | null };
+    token: string;
+  }) => Promise<void>;
 };
 
 // Wires Better Auth to our auth_* Drizzle tables. Email/password ON; the
@@ -88,6 +98,19 @@ export function createAuth(db: Database, options: CreateAuthOptions) {
     emailAndPassword: {
       enabled: true,
       requireEmailVerification: options.requireEmailVerification ?? false,
+      // Password reset is wired only when a sender is injected (mailer present).
+      // Better Auth disables the /request-password-reset endpoint when this is
+      // absent, so a no-mailer self-host install has no half-built reset path.
+      // BA passes the one-time `token`; the api turns it into the web app link.
+      sendResetPassword: options.sendResetPassword
+        ? async ({ user, token }) => {
+            await options.sendResetPassword?.({ user, token });
+          }
+        : undefined,
+      // A completed reset kills every existing session for that user — if the
+      // reset was a recovery from a compromised password, the attacker's
+      // sessions die with it.
+      revokeSessionsOnPasswordReset: true,
     },
     emailVerification: {
       // Send the verification link automatically on signup (only meaningful when

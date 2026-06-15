@@ -1,8 +1,12 @@
 import { type SocialProviderCreds, createAuth } from '@thalermark/auth';
 import type { Database } from '@thalermark/db';
+import { getLogger } from '@thalermark/logger';
 import type { Env } from '../env.js';
 import type { Mailer } from './mailer.js';
+import { resetPasswordEmail } from './reset-password-email.js';
 import { verificationEmail } from './verification-email.js';
+
+const log = getLogger(['api', 'auth']);
 
 // Social provider creds resolved from env — a provider is included only when
 // BOTH halves are set (a half-set pair is an operator mistake, not a partial
@@ -56,6 +60,22 @@ export function createApiAuth(db: Database, env: Env, mailer?: Mailer) {
     sendVerificationEmail: mailer
       ? async ({ user, url }) => {
           const { subject, html, text } = verificationEmail({ name: user.name, url });
+          await mailer.send({ to: user.email, subject, html, text });
+        }
+      : undefined,
+    // Password-reset email through the same mailer. Better Auth gives us the
+    // one-time token; we build the link to the web app's /reset-password page
+    // from publicAppUrl so the server (not the client) owns the target — the
+    // same link works whether the reset was requested from web or mobile, and
+    // whatever device opens the email lands on the universal web page. Disabled
+    // (BA returns RESET_PASSWORD_DISABLED) when no mailer is configured.
+    sendResetPassword: mailer
+      ? async ({ user, token }) => {
+          if (!env.publicAppUrl) {
+            log.warn('PUBLIC_APP_URL is unset; the password-reset link will not be usable');
+          }
+          const url = `${env.publicAppUrl}/reset-password?token=${encodeURIComponent(token)}`;
+          const { subject, html, text } = resetPasswordEmail({ name: user.name, url });
           await mailer.send({ to: user.email, subject, html, text });
         }
       : undefined,
