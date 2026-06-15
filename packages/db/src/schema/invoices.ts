@@ -132,6 +132,11 @@ export const invoiceLineItems = pgTable(
     quantity: numeric('quantity', { precision: 15, scale: 4 }).notNull(),
     unitPrice: numeric('unit_price', { precision: 15, scale: 2 }).notNull(),
     amount: numeric('amount', { precision: 15, scale: 2 }).notNull(),
+    // product | service snapshot, copied from the catalog item on pick (or set
+    // by hand). Drives the hidden ledger revenue split at posting: product line
+    // amounts credit Product Revenue (4100), the rest Service Revenue (4000).
+    // Default 'service'. App-layer enum; see items.type for the full contract.
+    type: text('type').notNull().default('service'),
     // Per-line tax snapshot. taxable gates whether this line is taxed;
     // tax_rate_pct is the policy's rate copied at line time (numeric(7,4)
     // percent); tax_amount is the computed line tax (amount * rate / 100,

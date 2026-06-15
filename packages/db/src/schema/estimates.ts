@@ -109,6 +109,9 @@ export const estimateLineItems = pgTable(
     quantity: numeric('quantity', { precision: 15, scale: 4 }).notNull(),
     unitPrice: numeric('unit_price', { precision: 15, scale: 2 }).notNull(),
     amount: numeric('amount', { precision: 15, scale: 2 }).notNull(),
+    // product | service snapshot — carried onto the converted invoice line so
+    // the revenue split survives convert-to-invoice. See invoice_line_items.type.
+    type: text('type').notNull().default('service'),
     // Per-line tax snapshot — see invoice_line_items for the full contract.
     taxable: boolean('taxable').notNull().default(false),
     taxRatePct: numeric('tax_rate_pct', { precision: 7, scale: 4 }).notNull().default('0'),

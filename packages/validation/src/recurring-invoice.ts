@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { lineItemType } from './item.js';
 import { isoDateString, moneyString, quantityString, taxRateString } from './money.js';
 
 // Template line item — identical shape to invoiceLineItemInputSchema; the
@@ -9,6 +10,9 @@ export const recurringInvoiceLineItemInputSchema = z.object({
   quantity: quantityString,
   unitPrice: moneyString,
   amount: moneyString,
+  // product | service snapshot — cloned verbatim onto each generated invoice
+  // line by the sweeper. See invoiceLineItemInputSchema for the contract.
+  type: lineItemType.optional(),
   // Per-line tax snapshot — see invoiceLineItemInputSchema. Cloned verbatim
   // onto each generated invoice line by the sweeper.
   taxable: z.boolean().optional(),

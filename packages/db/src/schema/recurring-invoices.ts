@@ -114,6 +114,10 @@ export const recurringInvoiceLineItems = pgTable(
     quantity: numeric('quantity', { precision: 15, scale: 4 }).notNull(),
     unitPrice: numeric('unit_price', { precision: 15, scale: 2 }).notNull(),
     amount: numeric('amount', { precision: 15, scale: 2 }).notNull(),
+    // product | service snapshot — cloned verbatim onto each generated invoice
+    // line so the revenue split carries to every occurrence. See
+    // invoice_line_items.type.
+    type: text('type').notNull().default('service'),
     // Per-line tax snapshot — cloned verbatim onto each generated invoice line
     // so the tax carries through to every occurrence. See invoice_line_items
     // for the full contract.

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { lineItemType } from './item.js';
 import { isoDateString, moneyString, quantityString, taxRateString } from './money.js';
 
 // Per-line input for estimates. Identical shape to invoice line items —
@@ -12,6 +13,9 @@ export const estimateLineItemInputSchema = z.object({
   quantity: quantityString,
   unitPrice: moneyString,
   amount: moneyString,
+  // product | service snapshot — carried onto the converted invoice line. See
+  // invoiceLineItemInputSchema for the contract.
+  type: lineItemType.optional(),
   // Per-line tax snapshot — see invoiceLineItemInputSchema for the contract.
   taxable: z.boolean().optional(),
   taxRatePct: taxRateString.optional(),

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { lineItemType } from './item.js';
 import { isoDateString, moneyString, quantityString, taxRateString } from './money.js';
 
 // Per-line input. position is the 1-based ordinal the UI uses to render the
@@ -12,6 +13,10 @@ export const invoiceLineItemInputSchema = z.object({
   quantity: quantityString,
   unitPrice: moneyString,
   amount: moneyString,
+  // product | service snapshot, copied from the catalog item on pick. Optional
+  // — the DB defaults to 'service'. Drives the ledger revenue split. The server
+  // sums product-line amounts at posting to route them to Product Revenue.
+  type: lineItemType.optional(),
   // Per-line tax snapshot. taxable gates whether the line is taxed; taxRatePct
   // is the applied policy's rate (percent string); taxAmount is the computed
   // line tax (taxOfAmount(amount, taxRatePct)). All optional — the DB defaults
