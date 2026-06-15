@@ -169,6 +169,9 @@ export async function generateOnce(
         quantity: li.quantity,
         unitPrice: li.unitPrice,
         amount: li.amount,
+        // Clone the product/service type so each generated invoice posts to the
+        // same revenue accounts as the template implies.
+        type: li.type,
         // Clone the template line's tax snapshot so each generated invoice is
         // taxed identically (the header tax was already copied above).
         taxable: li.taxable,

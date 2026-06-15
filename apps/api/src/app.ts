@@ -3497,6 +3497,7 @@ export function createApp(deps: AppDeps) {
           const patch = {
             name: data.name,
             description: data.description ?? null,
+            type: data.type ?? 'service',
             unitPrice: data.unitPrice ?? '0',
             unitLabel: data.unitLabel ?? null,
             defaultQuantity: data.defaultQuantity ?? '1',
@@ -3865,6 +3866,9 @@ export function createApp(deps: AppDeps) {
               quantity: li.quantity,
               unitPrice: li.unitPrice,
               amount: li.amount,
+              // Carry the product/service type forward so the duplicate posts
+              // to the same revenue accounts.
+              type: li.type,
               // Carry the line's tax snapshot forward — a duplicate keeps the
               // same taxability/rate it was sold at.
               taxable: li.taxable,
@@ -4700,6 +4704,8 @@ export function createApp(deps: AppDeps) {
               quantity: li.quantity,
               unitPrice: li.unitPrice,
               amount: li.amount,
+              // Carry the product/service type forward (duplicate = same terms).
+              type: li.type,
               // Carry the line's tax snapshot forward (duplicate = same terms).
               taxable: li.taxable,
               taxRatePct: li.taxRatePct,
@@ -5079,6 +5085,9 @@ export function createApp(deps: AppDeps) {
               quantity: li.quantity,
               unitPrice: li.unitPrice,
               amount: li.amount,
+              // Carry the product/service type onto the converted invoice line
+              // so it posts to the same revenue accounts the estimate implied.
+              type: li.type,
               // Carry the estimate line's tax snapshot onto the converted
               // invoice line so the invoice is taxed exactly as quoted.
               taxable: li.taxable,

@@ -236,6 +236,67 @@ describe('ledger postings — invoice transitions', () => {
     }
   });
 
+  it('mark-sent splits revenue across Service (4000) and Product (4100) by line type', async () => {
+    const ctx = buildApp();
+    try {
+      const cookie = await signUp(ctx.app, 'splitter@example.com');
+      const { accountId, companyId } = await userContext('splitter@example.com');
+      const customerId = await createCustomer(ctx.app, cookie, accountId, companyId);
+      const res = await ctx.app.request('/api/invoices', {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          companyId,
+          customerId,
+          number: 'L-SPLIT',
+          issueDate: '2026-05-28',
+          dueDate: '2026-06-27',
+          subtotal: '100.00',
+          tax: '0',
+          total: '100.00',
+          lineItems: [
+            {
+              position: 1,
+              description: 'Labor',
+              quantity: '1',
+              unitPrice: '60.00',
+              amount: '60.00',
+              type: 'service',
+            },
+            {
+              position: 2,
+              description: 'Parts',
+              quantity: '1',
+              unitPrice: '40.00',
+              amount: '40.00',
+              type: 'product',
+            },
+          ],
+        }),
+      });
+      expect(res.status).toBe(201);
+      const invoiceId = ((await res.json()) as { id: string }).id;
+
+      const sent = await ctx.app.request(`/api/invoices/${invoiceId}/mark-sent`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(sent.status).toBe(200);
+
+      const entries = await entriesFor(invoiceId);
+      expect(entries).toHaveLength(1);
+      const lines = await linesFor(entries[0]?.id as string);
+      // Tax = 0 → no Sales Tax line; the revenue leg splits 60/40.
+      expect(lines).toHaveLength(3);
+      const byCode = new Map(lines.map((l) => [l.code, l]));
+      expect(byCode.get('1200')).toMatchObject({ side: 'debit', amount: '100.00' });
+      expect(byCode.get('4000')).toMatchObject({ side: 'credit', amount: '60.00' });
+      expect(byCode.get('4100')).toMatchObject({ side: 'credit', amount: '40.00' });
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
   it('mark-paid sent→paid posts Dr Cash / Cr AR (two entries total per invoice)', async () => {
     const ctx = buildApp();
     try {
