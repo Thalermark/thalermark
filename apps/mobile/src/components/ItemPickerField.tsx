@@ -1,3 +1,4 @@
+import type { LineItemType } from '@thalermark/validation';
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import { api } from '../lib/api';
@@ -16,6 +17,8 @@ type Suggestion = {
   unitPrice: string;
   unitLabel: string | null;
   defaultQuantity: string;
+  // 'product' | 'service' — text column on the wire, narrowed on pick.
+  type: string;
   taxable: boolean;
   taxPolicyId: string | null;
 };
@@ -25,6 +28,9 @@ export type ItemPatch = {
   quantity?: string;
   unitPrice?: string;
   sourceItemId?: string | null;
+  // Product/service copied from the catalog item; drives the ledger split. The
+  // parent merges it onto the row (defaults to 'service' for a hand-typed line).
+  type?: LineItemType;
   // Tax prefill from the catalog item; the parent resolves the policy id onto
   // the row's tax controls.
   taxable?: boolean;
@@ -103,6 +109,7 @@ export function ItemPickerField({
       unitPrice: s.unitPrice,
       quantity: cleanQty(s.defaultQuantity),
       sourceItemId: s.id,
+      type: s.type === 'product' ? 'product' : 'service',
       taxable: s.taxable,
       taxPolicyId: s.taxPolicyId,
     });

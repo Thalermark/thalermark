@@ -1,4 +1,5 @@
 import {
+  type LineItemType,
   type RecurringInvoiceLineItemInput,
   addMoney,
   multiplyMoney,
@@ -22,6 +23,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { DateField } from '../../../../../components/DateField';
 import { type ItemPatch, ItemPickerField } from '../../../../../components/ItemPickerField';
 import { TaxRow } from '../../../../../components/TaxRow';
+import { TypeRow } from '../../../../../components/TypeRow';
 import { api } from '../../../../../lib/api';
 import {
   type TaxPolicyLite,
@@ -50,6 +52,7 @@ type Row = {
   quantity: string;
   unitPrice: string;
   sourceItemId: string | null;
+  type: LineItemType;
   taxable: boolean;
   taxPolicyId: string;
 };
@@ -58,6 +61,7 @@ const blankRow = (): Row => ({
   quantity: '',
   unitPrice: '',
   sourceItemId: null,
+  type: 'service',
   taxable: false,
   taxPolicyId: '',
 });
@@ -128,6 +132,7 @@ export default function EditRecurring() {
                   quantity: li.quantity,
                   unitPrice: li.unitPrice,
                   sourceItemId: li.sourceItemId ?? null,
+                  type: li.type === 'product' ? 'product' : 'service',
                   taxable: li.taxable ?? false,
                   taxPolicyId: li.taxPolicyId ?? '',
                 }))
@@ -233,6 +238,7 @@ export default function EditRecurring() {
         quantity: r.quantity.trim(),
         unitPrice: r.unitPrice.trim(),
         amount,
+        type: r.type,
         taxable: r.taxable,
         taxRatePct: rate,
         taxAmount: lineTax(r.taxable, rate, amount),
@@ -530,6 +536,7 @@ function LineItems({
               description={row.description}
               onChange={(patch) => applyPick(i, patch)}
             />
+            <TypeRow value={row.type} onSelect={(t) => patchRow(i, { type: t })} />
             <View className="mt-2 flex-row gap-2">
               <View className="flex-1">
                 <Text className="font-mono text-[10px] uppercase tracking-widest text-ink/50">
