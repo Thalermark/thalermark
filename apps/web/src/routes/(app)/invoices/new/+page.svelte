@@ -2,6 +2,7 @@
   import { untrack } from 'svelte';
   import { findEmailDupe, findNameDupes } from '$lib/customer-dupes';
   import ItemPicker from '$lib/components/ItemPicker.svelte';
+  import { defaultPolicyId, lineTax, policyRate } from '$lib/line-tax';
   import { addMoney, multiplyMoney, sumMoney } from '@thalermark/validation';
   import type { PageProps } from './$types';
 
@@ -12,10 +13,31 @@
     quantity: string;
     unitPrice: string;
     sourceItemId: string | null;
+    taxable: boolean;
+    taxPolicyId: string;
   };
 
   function blankRow(): Row {
-    return { description: '', quantity: '', unitPrice: '', sourceItemId: null };
+    return { description: '', quantity: '', unitPrice: '', sourceItemId: null, taxable: false, taxPolicyId: '' };
+  }
+
+  // Resolve a preferred policy id to a concrete, currently-active one — falls
+  // back to the company default (or the first policy) when the preference is
+  // empty or points at an archived/removed policy.
+  function resolvePolicyId(pref: string): string {
+    if (pref && data.taxPolicies.some((p) => p.id === pref)) return pref;
+    return defaultPolicyId(data.taxPolicies) || data.taxPolicies[0]?.id || '';
+  }
+
+  // Toggling a row taxable seeds it with a concrete policy so the rate isn't 0.
+  function onTaxableChange(row: Row) {
+    if (row.taxable && !row.taxPolicyId) row.taxPolicyId = resolvePolicyId('');
+  }
+
+  // Prefill a row's tax from the picked catalog item.
+  function applyItemTax(row: Row, taxable: boolean, taxPolicyId: string | null) {
+    row.taxable = taxable;
+    row.taxPolicyId = taxable ? resolvePolicyId(taxPolicyId ?? '') : '';
   }
 
   function todayIso(): string {
@@ -45,7 +67,6 @@
   //    value" is exactly the seeding behavior we want.
   const values = $derived(form?.values);
 
-  let tax = $state<string>(untrack(() => form?.values?.tax ?? ''));
   let rows = $state<Row[]>(
     untrack(() => {
       const seeded = form?.values?.lineItems;
@@ -55,20 +76,28 @@
             quantity: li.quantity,
             unitPrice: li.unitPrice,
             sourceItemId: li.sourceItemId ?? null,
+            taxable: li.taxable ?? false,
+            taxPolicyId: li.taxPolicyId ?? '',
           }))
         : [blankRow()];
     }),
   );
 
   // Live preview mirrors the server's compute path so the user sees exactly
-  // what'll be stored before submitting. Without JS, these stay at the SSR
-  // values (zero, or restored from prior submit) and the server recomputes
-  // on POST — the form still works, just without per-keystroke feedback.
+  // what'll be stored before submitting. Tax is the derived sum of per-line
+  // tax — never typed by hand. Without JS, these stay at the SSR values and the
+  // server recomputes on POST — the form still works, just without per-keystroke
+  // feedback.
   const computedRows = $derived(
-    rows.map((r) => ({ ...r, amount: multiplyMoney(r.quantity, r.unitPrice) })),
+    rows.map((r) => {
+      const amount = multiplyMoney(r.quantity, r.unitPrice);
+      const rate = r.taxable ? policyRate(data.taxPolicies, r.taxPolicyId) : '0';
+      return { ...r, amount, tax: lineTax(r.taxable, rate, amount) };
+    }),
   );
   const subtotal = $derived(sumMoney(computedRows.map((r) => r.amount)));
-  const total = $derived(addMoney(subtotal, tax));
+  const taxTotal = $derived(sumMoney(computedRows.map((r) => r.tax)));
+  const total = $derived(addMoney(subtotal, taxTotal));
 
   // From-block "show on this invoice" toggles. Seed from the prior submit on a
   // fail re-render, else the company-level default. `??` respects a returned
@@ -338,6 +367,7 @@
             <th class="px-3 py-2">Description</th>
             <th class="w-28 px-3 py-2 text-right">Qty</th>
             <th class="w-32 px-3 py-2 text-right">Unit price</th>
+            <th class="w-36 px-3 py-2">Tax</th>
             <th class="w-32 px-3 py-2 text-right">Amount</th>
             <th class="w-10 px-3 py-2"></th>
           </tr>
@@ -351,6 +381,7 @@
                   bind:quantity={row.quantity}
                   bind:unitPrice={row.unitPrice}
                   bind:sourceItemId={row.sourceItemId}
+                  onpick={(s) => applyItemTax(row, s.taxable, s.taxPolicyId)}
                 />
               </td>
               <td class="px-3 py-2">
@@ -373,8 +404,51 @@
                   class="w-full rounded-sm border border-fg/15 bg-surface px-2 py-1 text-right font-mono tabular-nums text-fg focus:border-accent focus:outline-none"
                 />
               </td>
-              <td class="px-3 py-2 text-right font-mono tabular-nums text-fg">
+              <td class="px-3 py-2 align-top">
+                <label class="flex items-center gap-1.5 text-xs text-fg/70">
+                  <input
+                    type="checkbox"
+                    bind:checked={row.taxable}
+                    onchange={() => onTaxableChange(row)}
+                    class="size-4 accent-accent"
+                  />
+                  Taxable
+                </label>
+                {#if row.taxable}
+                  {#if data.taxPolicies.length > 0}
+                    <select
+                      bind:value={row.taxPolicyId}
+                      aria-label="Tax policy"
+                      class="mt-1 w-full rounded-sm border border-fg/15 bg-surface px-1.5 py-1 text-xs text-fg focus:border-accent focus:outline-none"
+                    >
+                      {#each data.taxPolicies as p (p.id)}
+                        <option value={p.id}>{p.name} ({Number(p.ratePct)}%)</option>
+                      {/each}
+                    </select>
+                  {:else}
+                    <a
+                      href="/settings/tax-policies/new"
+                      class="mt-1 block text-[0.65rem] text-accent hover:underline"
+                    >
+                      + Add a rate
+                    </a>
+                  {/if}
+                {/if}
+                <!-- Always-present hidden inputs keep the server's index-zip aligned. -->
+                <input type="hidden" name="li_taxable" value={row.taxable ? '1' : '0'} />
+                <input
+                  type="hidden"
+                  name="li_taxPolicyId"
+                  value={row.taxable ? row.taxPolicyId : ''}
+                />
+              </td>
+              <td class="px-3 py-2 text-right align-top font-mono tabular-nums text-fg">
                 {computedRows[i]?.amount ?? '0.00'}
+                {#if row.taxable}
+                  <span class="block text-[0.65rem] font-normal text-fg/50">
+                    +{computedRows[i]?.tax ?? '0.00'} tax
+                  </span>
+                {/if}
               </td>
               <td class="px-3 py-2 text-right">
                 <button
@@ -401,29 +475,15 @@
     </button>
   </fieldset>
 
-  <div class="grid grid-cols-1 gap-6 sm:grid-cols-2 sm:items-end">
-    <div>
-      <label for="tax" class="label">Tax</label>
-      <input
-        id="tax"
-        name="tax"
-        type="text"
-        inputmode="decimal"
-        bind:value={tax}
-        class="field mt-1 text-right font-mono tabular-nums"
-      />
-      {#if err('tax')}
-        <p class="mt-1 text-xs text-danger">{err('tax')}</p>
-      {/if}
-    </div>
-    <dl class="rounded-sm border border-fg/10 bg-surface-2 p-4 text-sm">
+  <div class="flex justify-end">
+    <dl class="w-full max-w-xs rounded-sm border border-fg/10 bg-surface-2 p-4 text-sm">
       <div class="flex justify-between">
         <dt class="label">Subtotal</dt>
         <dd class="font-mono tabular-nums text-fg">{subtotal}</dd>
       </div>
       <div class="mt-2 flex justify-between">
         <dt class="label">Tax</dt>
-        <dd class="font-mono tabular-nums text-fg">{tax || '0.00'}</dd>
+        <dd class="font-mono tabular-nums text-fg">{taxTotal}</dd>
       </div>
       <div class="mt-3 flex justify-between border-t border-fg/10 pt-3">
         <dt class="font-mono text-xs uppercase tracking-widest text-fg/70">Total</dt>

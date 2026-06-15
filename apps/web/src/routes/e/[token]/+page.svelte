@@ -86,7 +86,12 @@
       <tbody class="divide-y divide-fg/10">
         {#each est.lineItems as li (li.id)}
           <tr>
-            <td class="px-5 py-4 text-fg">{li.description}</td>
+            <td class="px-5 py-4 text-fg">
+              {li.description}
+              {#if li.taxable}
+                <span class="block text-xs text-fg/40">Taxable · {Number(li.taxRatePct)}%</span>
+              {/if}
+            </td>
             <td class="px-5 py-4 text-right font-mono tabular-nums text-fg/80">{li.quantity}</td>
             <td class="px-5 py-4 text-right font-mono tabular-nums text-fg/80">{li.unitPrice}</td>
             <td class="px-5 py-4 text-right font-mono tabular-nums text-fg">{li.amount}</td>

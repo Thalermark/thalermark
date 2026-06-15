@@ -18,6 +18,11 @@
     unitPrice: string;
     unitLabel: string | null;
     defaultQuantity: string;
+    // Tax prefill — the catalog item's taxability + default policy (the policy
+    // is null when the item defers to the company default). The parent resolves
+    // these onto the row's tax controls via onpick.
+    taxable: boolean;
+    taxPolicyId: string | null;
   };
 
   type Props = {
@@ -25,6 +30,10 @@
     quantity: string;
     unitPrice: string;
     sourceItemId: string | null;
+    // Fired after a catalog pick (not on hand-typing) with the chosen item, so
+    // the parent can prefill the row's taxable flag + tax policy. Optional —
+    // forms that don't surface per-line tax simply omit it.
+    onpick?: (s: Suggestion) => void;
   };
 
   let {
@@ -32,6 +41,7 @@
     quantity = $bindable(),
     unitPrice = $bindable(),
     sourceItemId = $bindable(),
+    onpick,
   }: Props = $props();
 
   // Unique, hydration-stable id so each row's combobox points aria-controls
@@ -111,6 +121,7 @@
     unitPrice = s.unitPrice;
     quantity = cleanQty(s.defaultQuantity);
     sourceItemId = s.id;
+    onpick?.(s);
     suggestions = [];
     open = false;
     activeIndex = -1;

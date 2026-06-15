@@ -1,6 +1,7 @@
 import { pickActiveCompany } from '$lib/active-company';
 import { serverApiClient } from '$lib/api.server';
 import { findEmailDupe } from '$lib/customer-dupes';
+import { lineTax, policyRate } from '$lib/line-tax';
 import { error, fail, redirect } from '@sveltejs/kit';
 import {
   type InvoiceCreateInput,
@@ -27,6 +28,12 @@ const LINE_FIELD_DESCRIPTION = 'li_description';
 const LINE_FIELD_QUANTITY = 'li_quantity';
 const LINE_FIELD_UNIT_PRICE = 'li_unitPrice';
 const LINE_FIELD_SOURCE_ITEM_ID = 'li_sourceItemId';
+// Per-row tax: a hidden "1"/"0" flag + the chosen policy id. Hidden inputs
+// (not a checkbox) so every row always submits a value and the index-zip below
+// stays aligned. The rate is resolved server-side from the policy, never
+// trusted from the client — same authority model as the recomputed amount.
+const LINE_FIELD_TAXABLE = 'li_taxable';
+const LINE_FIELD_TAX_POLICY_ID = 'li_taxPolicyId';
 
 export const load: PageServerLoad = async (event) => {
   const client = serverApiClient(event);
@@ -44,6 +51,12 @@ export const load: PageServerLoad = async (event) => {
   const { customers } = await customersRes.json();
   const company = pickActiveCompany(event.cookies, companies);
   if (!company) throw error(500, 'no company in this workspace');
+
+  // Active tax policies for the per-line tax picker (scoped to this company).
+  const polRes = await client.api['tax-policies'].$get({
+    query: { companyId: company.id, limit: '100' },
+  });
+  const taxPolicies = polRes.ok ? (await polRes.json()).taxPolicies : [];
 
   // Suggestion fetch is best-effort: a transient failure shouldn't block the
   // page from rendering. The user can always type their own number, and the
@@ -75,6 +88,13 @@ export const load: PageServerLoad = async (event) => {
     customers: customers
       .map((c) => ({ id: c.id, name: c.name, email: c.email ?? null }))
       .sort((a, b) => a.name.localeCompare(b.name)),
+    // Active policies for the per-line tax picker; pared to what the UI needs.
+    taxPolicies: taxPolicies.map((p) => ({
+      id: p.id,
+      name: p.name,
+      ratePct: p.ratePct,
+      isDefault: p.isDefault,
+    })),
   };
 };
 
@@ -86,7 +106,6 @@ type FormValues = {
   issueDate: string;
   dueDate: string;
   notes: string;
-  tax: string;
   showAddress: boolean;
   showPhone: boolean;
   showEmail: boolean;
@@ -95,6 +114,8 @@ type FormValues = {
     quantity: string;
     unitPrice: string;
     sourceItemId?: string;
+    taxable: boolean;
+    taxPolicyId?: string;
   }[];
 };
 
@@ -103,6 +124,8 @@ function readForm(data: FormData): FormValues {
   const quantities = data.getAll(LINE_FIELD_QUANTITY).map((v) => String(v));
   const unitPrices = data.getAll(LINE_FIELD_UNIT_PRICE).map((v) => String(v));
   const sourceItemIds = data.getAll(LINE_FIELD_SOURCE_ITEM_ID).map((v) => String(v));
+  const taxables = data.getAll(LINE_FIELD_TAXABLE).map((v) => String(v));
+  const taxPolicyIds = data.getAll(LINE_FIELD_TAX_POLICY_ID).map((v) => String(v));
   const rowCount = Math.max(descriptions.length, quantities.length, unitPrices.length);
   const lineItems = Array.from({ length: rowCount }, (_, i) => ({
     description: (descriptions[i] ?? '').trim(),
@@ -111,6 +134,8 @@ function readForm(data: FormData): FormValues {
     // Empty hidden input (hand-typed line) → undefined, so the schema's
     // optional uuid passes and the column stays null.
     sourceItemId: (sourceItemIds[i] ?? '').trim() || undefined,
+    taxable: (taxables[i] ?? '0') === '1',
+    taxPolicyId: (taxPolicyIds[i] ?? '').trim() || undefined,
   }));
   return {
     customerId: String(data.get('customerId') ?? '').trim(),
@@ -120,7 +145,6 @@ function readForm(data: FormData): FormValues {
     issueDate: String(data.get('issueDate') ?? '').trim(),
     dueDate: String(data.get('dueDate') ?? '').trim(),
     notes: String(data.get('notes') ?? '').trim(),
-    tax: String(data.get('tax') ?? '').trim(),
     // Unchecked boxes don't submit, so absence = false. The form always renders
     // all three, so each round-trips as an explicit boolean.
     showAddress: data.get('showAddress') === 'on',
@@ -193,18 +217,29 @@ export const actions: Actions = {
 
     // Server is authority for money math — same helpers the page uses for
     // live preview, so the form works without JS (zero-row totals still
-    // compute). Schema validation runs against these computed values.
-    const computedLines: InvoiceLineItemInput[] = values.lineItems.map((row, i) => ({
-      position: i + 1,
-      description: row.description,
-      quantity: row.quantity,
-      unitPrice: row.unitPrice,
-      amount: multiplyMoney(row.quantity, row.unitPrice),
-      sourceItemId: row.sourceItemId,
-    }));
+    // compute). Schema validation runs against these computed values. The line
+    // tax rate is resolved from the policy here (not trusted from the client),
+    // and the invoice tax is the derived sum of line tax.
+    const policies = await loadPolicyRates(event, companyId);
+    const computedLines: InvoiceLineItemInput[] = values.lineItems.map((row, i) => {
+      const amount = multiplyMoney(row.quantity, row.unitPrice);
+      const rate = row.taxable ? policyRate(policies, row.taxPolicyId ?? '') : '0';
+      return {
+        position: i + 1,
+        description: row.description,
+        quantity: row.quantity,
+        unitPrice: row.unitPrice,
+        amount,
+        taxable: row.taxable,
+        taxRatePct: rate,
+        taxAmount: lineTax(row.taxable, rate, amount),
+        taxPolicyId: row.taxable ? row.taxPolicyId : undefined,
+        sourceItemId: row.sourceItemId,
+      };
+    });
     const subtotal = sumMoney(computedLines.map((li) => li.amount));
-    const tax = values.tax === '' ? undefined : values.tax;
-    const total = addMoney(subtotal, tax ?? '0');
+    const tax = sumMoney(computedLines.map((li) => li.taxAmount ?? '0'));
+    const total = addMoney(subtotal, tax);
 
     const payload: InvoiceCreateInput = {
       companyId,
@@ -278,4 +313,20 @@ async function loadCompanyId(event: Parameters<Actions['default']>[0]) {
   if (!res.ok) return null;
   const { companies } = await res.json();
   return pickActiveCompany(event.cookies, companies)?.id;
+}
+
+// Policy id → rate map for the authoritative line-tax recompute. includeArchived
+// so a line referencing a just-archived policy still resolves its rate.
+async function loadPolicyRates(
+  event: Parameters<Actions['default']>[0],
+  companyId: string,
+): Promise<{ id: string; ratePct: string }[]> {
+  if (!companyId) return [];
+  const client = serverApiClient(event);
+  const res = await client.api['tax-policies'].$get({
+    query: { companyId, includeArchived: 'true', limit: '500' },
+  });
+  if (!res.ok) return [];
+  const { taxPolicies } = await res.json();
+  return taxPolicies.map((p) => ({ id: p.id, ratePct: p.ratePct }));
 }

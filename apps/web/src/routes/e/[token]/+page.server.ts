@@ -51,6 +51,9 @@ type PublicEstimateLine = {
   quantity: string;
   unitPrice: string;
   amount: string;
+  taxable: boolean;
+  taxRatePct: string;
+  taxAmount: string;
 };
 
 type PublicEstimate = {
