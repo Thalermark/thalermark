@@ -1,5 +1,6 @@
-import { resolve } from 'node:path';
-import { loadEnvFile } from 'node:process';
+// MUST be first: populates process.env from .env before any dependency (notably
+// Better Auth) captures it at import time. See load-env.ts for the full why.
+import './load-env.js';
 import { serve } from '@hono/node-server';
 import {
   type CashFlowAdvisor,
@@ -26,15 +27,6 @@ import { type Mailer, createConsoleMailer, createResendMailer } from './lib/mail
 import { sweepRecurringInvoices } from './lib/recurring.js';
 import { provisionAppRole } from './lib/role-provision.js';
 import { createStripeBundle } from './lib/stripe.js';
-
-// Project-root .env is the dev convention (see drizzle.config.ts). Resolved
-// from this file because pnpm --filter runs with cwd=apps/api/, not the root.
-// Container deploys pass env vars directly and won't have a file present.
-try {
-  loadEnvFile(resolve(import.meta.dirname, '../../../.env'));
-} catch {
-  // No .env on disk — fall back to process.env as-is.
-}
 
 const env = loadEnv();
 

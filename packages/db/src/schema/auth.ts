@@ -1,4 +1,13 @@
-import { boolean, index, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import {
+  bigint,
+  boolean,
+  index,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core';
 import { accounts } from './accounts.js';
 
 // Seeded by migration 0009. The synthetic actor for system-initiated audit
@@ -96,6 +105,28 @@ export const authVerification = pgTable(
   }),
 );
 
+// auth_rate_limit — Better Auth's request rate-limit counters (storage:'database').
+// One row per limiter key (BA keys by IP + path); `count` is the hits in the
+// current window, `last_request` an epoch-ms timestamp (hence bigint, not int4).
+// No RLS — like the other auth_* tables this is owned by Better Auth on the
+// bootstrap/superuser connection, never tenant-scoped. The api enables the
+// limiter only in production (RATE_LIMIT_ENABLED); the table exists regardless.
+export const authRateLimit = pgTable(
+  'auth_rate_limit',
+  {
+    id: uuid('id').primaryKey(),
+    key: text('key').notNull(),
+    // bigint (not int4): a small counter in practice, but squawk's
+    // prefer-bigint rule rejects int4, and it stays consistent with last_request.
+    // BA reads/writes it as a plain JS number (mode:'number').
+    count: bigint('count', { mode: 'number' }).notNull(),
+    lastRequest: bigint('last_request', { mode: 'number' }).notNull(),
+  },
+  (table) => ({
+    keyIdx: index('auth_rate_limit_key_idx').on(table.key),
+  }),
+);
+
 export type AuthUser = typeof authUser.$inferSelect;
 export type NewAuthUser = typeof authUser.$inferInsert;
 export type AuthSession = typeof authSession.$inferSelect;
@@ -104,3 +135,5 @@ export type AuthAccount = typeof authAccount.$inferSelect;
 export type NewAuthAccount = typeof authAccount.$inferInsert;
 export type AuthVerification = typeof authVerification.$inferSelect;
 export type NewAuthVerification = typeof authVerification.$inferInsert;
+export type AuthRateLimit = typeof authRateLimit.$inferSelect;
+export type NewAuthRateLimit = typeof authRateLimit.$inferInsert;
