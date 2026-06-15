@@ -2,9 +2,9 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { type AuditEvent, AuditHistory } from '../../../../components/AuditHistory';
-import { api } from '../../../../lib/api';
-import { useMay } from '../../../../lib/role';
+import { type AuditEvent, AuditHistory } from '../../../../../components/AuditHistory';
+import { api } from '../../../../../lib/api';
+import { useMay } from '../../../../../lib/role';
 
 function cadenceLabel(frequency: string, interval: number): string {
   const unit = frequency === 'weekly' ? 'week' : frequency === 'monthly' ? 'month' : 'year';
@@ -12,8 +12,9 @@ function cadenceLabel(frequency: string, interval: number): string {
 }
 
 // Recurring schedule detail + actions (mirror of apps/web's /recurring/[id]):
-// run-now / pause / resume / end, gated by RECURRING_TRANSITIONS. Edit + the
-// generated-invoices history are deferred.
+// run-now / pause / resume / end gated by RECURRING_TRANSITIONS, plus Edit
+// (active|paused only — an ended schedule is terminal/read-only). The
+// generated-invoices history list is still deferred.
 type LineItem = {
   position: number;
   description: string;
@@ -123,6 +124,9 @@ export default function RecurringDetail() {
   const canPause = canWrite && status === 'active';
   const canResume = canWrite && status === 'paused';
   const canEnd = canWrite && (status === 'active' || status === 'paused');
+  // Edit mirrors the web gate: allowed while non-terminal; the API rejects an
+  // edit on an ended schedule (the edit screen also guards on load).
+  const canEdit = canWrite && (status === 'active' || status === 'paused');
   const hasActions = canRunNow || canPause || canResume || canEnd;
 
   const endLabel = s?.endDate
@@ -197,9 +201,21 @@ export default function RecurringDetail() {
               <Text className="font-serif text-3xl font-light text-ink">
                 {cadenceLabel(s.frequency, s.intervalCount)}
               </Text>
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
-                {s.status}
-              </Text>
+              <View className="flex-row items-center gap-3">
+                {canEdit ? (
+                  <Pressable
+                    onPress={() => router.push(`/invoices/recurring/${id}/edit`)}
+                    className="rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep"
+                  >
+                    <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
+                      Edit
+                    </Text>
+                  </Pressable>
+                ) : null}
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+                  {s.status}
+                </Text>
+              </View>
             </View>
 
             {transitionError ? (
