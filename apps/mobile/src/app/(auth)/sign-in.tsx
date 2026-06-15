@@ -89,6 +89,11 @@ export default function SignIn() {
               className="mt-2 border-b border-ink/30 py-2 text-ink"
             />
           </View>
+          <View className="items-end">
+            <Link href="/forgot-password" className="text-sm text-gold-deep underline">
+              Forgot password?
+            </Link>
+          </View>
           {error ? (
             <Text className="font-mono text-xs uppercase tracking-widest text-oxblood">
               {error}
