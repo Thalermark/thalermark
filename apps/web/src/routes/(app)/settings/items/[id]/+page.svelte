@@ -17,6 +17,13 @@
   // Trailing zeros from numeric(15,4) read oddly for a quantity ("2.5000");
   // strip them for display while leaving the stored value untouched.
   const qty = (s: string) => String(Number(s));
+
+  // "Taxable · General 8.25%" / "Taxable · Company default" / "Not taxable".
+  const taxLabel = $derived.by(() => {
+    if (!item.taxable) return 'Not taxable';
+    const p = data.taxPolicy;
+    return p ? `Taxable · ${p.name} ${Number(p.ratePct)}%` : 'Taxable · Company default';
+  });
 </script>
 
 <a href="/settings/items" class="eyebrow text-fg/60 hover:text-fg">← Items</a>
@@ -67,6 +74,10 @@
   <div>
     <dt class="label">Default quantity</dt>
     <dd class="mt-1 text-fg">{qty(item.defaultQuantity)}</dd>
+  </div>
+  <div>
+    <dt class="label">Tax</dt>
+    <dd class="mt-1 text-fg">{taxLabel}</dd>
   </div>
   {#if item.description}
     <div class="sm:col-span-2">

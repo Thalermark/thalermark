@@ -8,13 +8,18 @@ import type { Actions, PageServerLoad } from './$types';
 // PATCH then resets the column to its default ('0' / '1' / null).
 const OPTIONAL_FIELDS = ['description', 'unitPrice', 'unitLabel', 'defaultQuantity'] as const;
 
-function readForm(data: FormData): Record<string, string | undefined> {
-  const out: Record<string, string | undefined> = {};
+function readForm(data: FormData): Record<string, string | boolean | undefined> {
+  const out: Record<string, string | boolean | undefined> = {};
   out.name = String(data.get('name') ?? '').trim();
   for (const k of OPTIONAL_FIELDS) {
     const raw = data.get(k);
     if (typeof raw === 'string' && raw.trim() !== '') out[k] = raw.trim();
   }
+  // Taxable + its policy — only attach the policy when taxable (full-replace:
+  // unchecking taxable clears tax_policy_id via the omitted optional).
+  out.taxable = data.get('taxable') === 'on';
+  const policyId = String(data.get('taxPolicyId') ?? '');
+  if (out.taxable && policyId) out.taxPolicyId = policyId;
   return out;
 }
 
@@ -24,7 +29,13 @@ export const load: PageServerLoad = async (event) => {
   if (res.status === 404) throw error(404, 'item not found');
   if (!res.ok) throw error(res.status, 'failed to load item');
   const item = await res.json();
-  return { item };
+
+  // Active tax policies for the company this item belongs to (for the picker).
+  const polRes = await client.api['tax-policies'].$get({
+    query: { companyId: item.companyId, limit: '100' },
+  });
+  const taxPolicies = polRes.ok ? (await polRes.json()).taxPolicies : [];
+  return { item, taxPolicies };
 };
 
 export const actions: Actions = {

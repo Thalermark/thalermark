@@ -1,7 +1,8 @@
 <script lang="ts">
+  import ItemTaxFields from '$lib/components/ItemTaxFields.svelte';
   import type { PageProps } from './$types';
 
-  let { form }: PageProps = $props();
+  let { form, data }: PageProps = $props();
   const values = $derived(form?.values ?? {});
   const fieldErrors = $derived(form?.fieldErrors ?? {});
 
@@ -13,6 +14,12 @@
   function err(key: FieldKey): string | undefined {
     return (fieldErrors as Record<string, string>)[key];
   }
+  const taxable = $derived((values as Record<string, unknown>).taxable === true);
+  const policyId = $derived(
+    typeof (values as Record<string, unknown>).taxPolicyId === 'string'
+      ? ((values as Record<string, unknown>).taxPolicyId as string)
+      : '',
+  );
 </script>
 
 <a href="/settings/items" class="eyebrow text-fg/60 hover:text-fg">← Items</a>
@@ -113,6 +120,8 @@
       {/if}
     </div>
   </div>
+
+  <ItemTaxFields taxPolicies={data.taxPolicies} {taxable} {policyId} />
 
   <div class="flex items-center gap-4">
     <button
