@@ -344,6 +344,13 @@
       "when": 1781470305943,
       "tag": "0048_enable_rls_tax_policies",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1781537298169,
+      "tag": "0049_supreme_black_knight",
+      "breakpoints": true
     }
   ]
 }

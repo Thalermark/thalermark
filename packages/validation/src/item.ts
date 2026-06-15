@@ -1,6 +1,15 @@
 import { z } from 'zod';
 import { moneyString, quantityString } from './money.js';
 
+// Product (goods) vs service (labor). Lives here as the canonical home — the
+// catalog item carries it and each line copies it as a snapshot (the invoice /
+// estimate / recurring line schemas reuse this enum). Drives the hidden ledger
+// revenue split (Service Revenue 4000 vs Product Revenue 4100) at posting.
+// Defaults to 'service' server-side when omitted.
+export const LINE_ITEM_TYPES = ['product', 'service'] as const;
+export const lineItemType = z.enum(LINE_ITEM_TYPES);
+export type LineItemType = z.infer<typeof lineItemType>;
+
 // Input schema for POST /api/items. accountId comes from the rls-context
 // middleware (x-account-id header); the client supplies the company scope and
 // the visible catalog fields. unitPrice / defaultQuantity ride the wire as
@@ -12,6 +21,9 @@ export const itemCreateSchema = z.object({
   companyId: z.string().uuid(),
   name: z.string().min(1).max(200),
   description: z.string().max(5000).optional(),
+  // product | service. Optional on the wire — the DB defaults to 'service'.
+  // Copied onto a picked line; drives the ledger revenue split. See lineItemType.
+  type: lineItemType.optional(),
   unitPrice: moneyString.optional(),
   unitLabel: z.string().max(50).optional(),
   defaultQuantity: quantityString.optional(),

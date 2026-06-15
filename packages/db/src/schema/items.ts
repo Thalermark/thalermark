@@ -38,6 +38,13 @@ export const items = pgTable(
       .references(() => companies.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
     description: text('description'),
+    // Whether this catalog entry is a product (goods) or a service (labor).
+    // Copied onto a picked line as a snapshot; drives the hidden ledger revenue
+    // split (Service Revenue 4000 vs Product Revenue 4100) at invoice posting.
+    // Defaults 'service' — the freelancer/trades audience is service-heavy, so
+    // the operator opts items into 'product'. App-layer enum ('product' |
+    // 'service'); CHECK deferred like business_type.
+    type: text('type').notNull().default('service'),
     unitPrice: numeric('unit_price', { precision: 15, scale: 2 }).notNull().default('0'),
     unitLabel: text('unit_label'),
     defaultQuantity: numeric('default_quantity', { precision: 15, scale: 4 })
