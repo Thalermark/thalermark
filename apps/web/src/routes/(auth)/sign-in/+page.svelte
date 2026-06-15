@@ -68,6 +68,9 @@
     <span class="label block">Password</span>
     <input type="password" required bind:value={password} class="field-line mt-2" />
   </label>
+  <div class="flex justify-end">
+    <a href="/forgot-password" class="link text-sm">Forgot password?</a>
+  </div>
   {#if error}
     <p class="label text-danger">{error}</p>
   {/if}
