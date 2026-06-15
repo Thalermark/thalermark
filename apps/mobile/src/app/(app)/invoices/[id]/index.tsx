@@ -26,6 +26,8 @@ type LineItem = {
   quantity: string;
   unitPrice: string;
   amount: string;
+  taxable: boolean;
+  taxRatePct: string;
 };
 type Invoice = {
   status: string;
@@ -460,6 +462,11 @@ export default function InvoiceDetail() {
               {inv.lineItems.map((li) => (
                 <View key={li.position} className="border-b border-ink/10 px-4 py-3">
                   <Text className="text-ink">{li.description}</Text>
+                  {li.taxable ? (
+                    <Text className="mt-0.5 text-[10px] text-ink/40">
+                      Taxable · {Number(li.taxRatePct)}%
+                    </Text>
+                  ) : null}
                   <View className="mt-1 flex-row justify-between">
                     <Text className="font-mono text-xs text-ink/50">
                       {String(Number(li.quantity))} × {li.unitPrice}
