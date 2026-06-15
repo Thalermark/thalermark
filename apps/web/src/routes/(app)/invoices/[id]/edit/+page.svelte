@@ -2,7 +2,7 @@
   import { untrack } from 'svelte';
   import ItemPicker from '$lib/components/ItemPicker.svelte';
   import { defaultPolicyId, lineTax, policyRate } from '$lib/line-tax';
-  import { addMoney, multiplyMoney, sumMoney } from '@thalermark/validation';
+  import { type LineItemType, addMoney, multiplyMoney, sumMoney } from '@thalermark/validation';
   import type { PageProps } from './$types';
 
   let { data, form }: PageProps = $props();
@@ -12,6 +12,7 @@
     quantity: string;
     unitPrice: string;
     sourceItemId: string | null;
+    type: LineItemType;
     taxable: boolean;
     taxPolicyId: string;
   };
@@ -33,6 +34,7 @@
           quantity: li.quantity,
           unitPrice: li.unitPrice,
           sourceItemId: li.sourceItemId ?? null,
+          type: li.type === 'product' ? 'product' : 'service',
           taxable: li.taxable ?? false,
           taxPolicyId: li.taxPolicyId ?? '',
         }));
@@ -42,6 +44,7 @@
         quantity: li.quantity,
         unitPrice: li.unitPrice,
         sourceItemId: li.sourceItemId ?? null,
+        type: li.type === 'product' ? 'product' : 'service',
         taxable: li.taxable ?? false,
         taxPolicyId: li.taxPolicyId ?? '',
       }));
@@ -93,7 +96,7 @@
   }
 
   function blankRow(): Row {
-    return { description: '', quantity: '', unitPrice: '', sourceItemId: null, taxable: false, taxPolicyId: '' };
+    return { description: '', quantity: '', unitPrice: '', sourceItemId: null, type: 'service', taxable: false, taxPolicyId: '' };
   }
 </script>
 
@@ -206,14 +209,26 @@
         <tbody class="divide-y divide-fg/10">
           {#each rows as row, i (i)}
             <tr>
-              <td class="px-3 py-2">
+              <td class="px-3 py-2 align-top">
                 <ItemPicker
                   bind:description={row.description}
                   bind:quantity={row.quantity}
                   bind:unitPrice={row.unitPrice}
                   bind:sourceItemId={row.sourceItemId}
-                  onpick={(s) => applyItemTax(row, s.taxable, s.taxPolicyId)}
+                  onpick={(s) => {
+                    row.type = s.type;
+                    applyItemTax(row, s.taxable, s.taxPolicyId);
+                  }}
                 />
+                <select
+                  bind:value={row.type}
+                  name="li_type"
+                  aria-label="Type"
+                  class="mt-1 rounded-sm border border-fg/15 bg-surface px-1.5 py-1 text-xs text-fg/70 focus:border-accent focus:outline-none"
+                >
+                  <option value="service">Service</option>
+                  <option value="product">Product</option>
+                </select>
               </td>
               <td class="px-3 py-2">
                 <input

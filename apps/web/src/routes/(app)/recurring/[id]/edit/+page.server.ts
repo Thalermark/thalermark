@@ -2,6 +2,7 @@ import { serverApiClient } from '$lib/api.server';
 import { lineTax, policyRate } from '$lib/line-tax';
 import { error, fail, redirect } from '@sveltejs/kit';
 import {
+  type LineItemType,
   type RecurringInvoiceLineItemInput,
   type RecurringInvoiceUpdateInput,
   addMoney,
@@ -15,6 +16,8 @@ const LINE_FIELD_DESCRIPTION = 'li_description';
 const LINE_FIELD_QUANTITY = 'li_quantity';
 const LINE_FIELD_UNIT_PRICE = 'li_unitPrice';
 const LINE_FIELD_SOURCE_ITEM_ID = 'li_sourceItemId';
+// Product/service <select> — one value per row, always submitted.
+const LINE_FIELD_TYPE = 'li_type';
 const LINE_FIELD_TAXABLE = 'li_taxable';
 const LINE_FIELD_TAX_POLICY_ID = 'li_taxPolicyId';
 
@@ -72,6 +75,7 @@ type FormValues = {
     quantity: string;
     unitPrice: string;
     sourceItemId?: string;
+    type?: LineItemType;
     taxable: boolean;
     taxPolicyId?: string;
   }[];
@@ -82,14 +86,17 @@ function readForm(data: FormData): FormValues {
   const quantities = data.getAll(LINE_FIELD_QUANTITY).map((v) => String(v));
   const unitPrices = data.getAll(LINE_FIELD_UNIT_PRICE).map((v) => String(v));
   const sourceItemIds = data.getAll(LINE_FIELD_SOURCE_ITEM_ID).map((v) => String(v));
+  const types = data.getAll(LINE_FIELD_TYPE).map((v) => String(v));
   const taxables = data.getAll(LINE_FIELD_TAXABLE).map((v) => String(v));
   const taxPolicyIds = data.getAll(LINE_FIELD_TAX_POLICY_ID).map((v) => String(v));
   const rowCount = Math.max(descriptions.length, quantities.length, unitPrices.length);
-  const lineItems = Array.from({ length: rowCount }, (_, i) => ({
+  const lineItems = Array.from({ length: rowCount }, (_, i): FormValues['lineItems'][number] => ({
     description: (descriptions[i] ?? '').trim(),
     quantity: (quantities[i] ?? '').trim(),
     unitPrice: (unitPrices[i] ?? '').trim(),
     sourceItemId: (sourceItemIds[i] ?? '').trim() || undefined,
+    // Garbage / missing → undefined so the API defaults the line to 'service'.
+    type: types[i] === 'product' ? 'product' : types[i] === 'service' ? 'service' : undefined,
     taxable: (taxables[i] ?? '0') === '1',
     taxPolicyId: (taxPolicyIds[i] ?? '').trim() || undefined,
   }));
@@ -145,6 +152,7 @@ export const actions: Actions = {
         quantity: row.quantity,
         unitPrice: row.unitPrice,
         amount,
+        type: row.type,
         taxable: row.taxable,
         taxRatePct: rate,
         taxAmount: lineTax(row.taxable, rate, amount),

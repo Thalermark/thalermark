@@ -14,6 +14,11 @@
   function err(key: FieldKey): string | undefined {
     return (fieldErrors as Record<string, string>)[key];
   }
+  // Product vs service. Defaults to 'service' (the trades/freelance audience is
+  // service-heavy); drives the hidden ledger's revenue split.
+  const itemType = $derived(
+    (values as Record<string, unknown>).type === 'product' ? 'product' : 'service',
+  );
   const taxable = $derived((values as Record<string, unknown>).taxable === true);
   const policyId = $derived(
     typeof (values as Record<string, unknown>).taxPolicyId === 'string'
@@ -65,6 +70,17 @@
       >{v('description')}</textarea
     >
     <p class="mt-1 text-xs text-fg/50">Flows into the line item when this is picked.</p>
+  </div>
+
+  <div class="max-w-xs">
+    <label for="type" class="label">Type</label>
+    <select id="type" name="type" class="field mt-1">
+      <option value="service" selected={itemType === 'service'}>Service</option>
+      <option value="product" selected={itemType === 'product'}>Product</option>
+    </select>
+    <p class="mt-1 text-xs text-fg/50">
+      Routes revenue on your books. Most trades & freelance work is a service.
+    </p>
   </div>
 
   <div class="grid grid-cols-1 gap-6 sm:grid-cols-3">

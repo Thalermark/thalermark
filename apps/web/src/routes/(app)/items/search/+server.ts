@@ -35,6 +35,9 @@ export const GET: RequestHandler = async (event) => {
       unitPrice: i.unitPrice,
       unitLabel: i.unitLabel,
       defaultQuantity: i.defaultQuantity,
+      // Product vs service — copied onto a picked line so the ledger routes its
+      // revenue to the right account (Service 4000 / Product 4100).
+      type: i.type,
       // Prefill a picked line's taxability + policy from the catalog item.
       taxable: i.taxable,
       taxPolicyId: i.taxPolicyId,

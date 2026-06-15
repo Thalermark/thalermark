@@ -28,6 +28,10 @@ function readForm(data: FormData): Record<string, string | boolean | undefined> 
     const raw = data.get(k);
     if (typeof raw === 'string' && raw.trim() !== '') out[k] = raw.trim();
   }
+  // Product vs service. The select always submits one of the two; anything else
+  // collapses to undefined so the DB default ('service') applies.
+  const type = String(data.get('type') ?? '');
+  if (type === 'product' || type === 'service') out.type = type;
   // Taxable + its policy. A non-taxable item carries no policy; only attach the
   // selected policy when taxable so the data can't disagree with the toggle.
   out.taxable = data.get('taxable') === 'on';
