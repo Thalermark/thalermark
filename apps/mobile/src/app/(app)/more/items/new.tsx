@@ -1,4 +1,4 @@
-import { itemCreateSchema } from '@thalermark/validation';
+import { type LineItemType, itemCreateSchema } from '@thalermark/validation';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { type ItemFieldKey, ItemForm, type ItemFormValues } from '../../../../components/ItemForm';
@@ -29,6 +29,7 @@ export default function NewItem() {
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [bootstrapped, setBootstrapped] = useState(false);
   const [taxPolicies, setTaxPolicies] = useState<TaxPolicyLite[]>([]);
+  const [type, setType] = useState<LineItemType>('service');
   const [taxable, setTaxable] = useState(false);
   const [taxPolicyId, setTaxPolicyId] = useState('');
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<ItemFieldKey, string>>>({});
@@ -90,7 +91,7 @@ export default function NewItem() {
     setFormError(null);
     setFieldErrors({});
 
-    const body: Record<string, unknown> = { companyId, name: values.name.trim() };
+    const body: Record<string, unknown> = { companyId, name: values.name.trim(), type };
     for (const k of OPTIONAL_KEYS) {
       const trimmed = values[k].trim();
       if (trimmed !== '') body[k] = trimmed;
@@ -136,6 +137,8 @@ export default function NewItem() {
       submitLabel="Create item"
       values={values}
       onChange={set}
+      type={type}
+      onSelectType={setType}
       taxPolicies={taxPolicies}
       taxable={taxable}
       taxPolicyId={taxPolicyId}

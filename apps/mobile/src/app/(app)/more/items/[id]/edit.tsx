@@ -1,4 +1,4 @@
-import { itemUpdateSchema } from '@thalermark/validation';
+import { type LineItemType, itemUpdateSchema } from '@thalermark/validation';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Text, View } from 'react-native';
@@ -26,6 +26,7 @@ export default function EditItem() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [values, setValues] = useState<ItemFormValues | null>(null);
   const [taxPolicies, setTaxPolicies] = useState<TaxPolicyLite[]>([]);
+  const [type, setType] = useState<LineItemType>('service');
   const [taxable, setTaxable] = useState(false);
   const [taxPolicyId, setTaxPolicyId] = useState('');
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<ItemFieldKey, string>>>({});
@@ -53,6 +54,7 @@ export default function EditItem() {
             unitLabel: i.unitLabel ?? '',
             defaultQuantity: i.defaultQuantity,
           });
+          setType(i.type === 'product' ? 'product' : 'service');
           setTaxable(i.taxable ?? false);
           setTaxPolicyId(i.taxPolicyId ?? '');
           const polRes = await api.api['tax-policies'].$get({ query: { companyId: i.companyId } });
@@ -89,7 +91,7 @@ export default function EditItem() {
     setFormError(null);
     setFieldErrors({});
 
-    const body: Record<string, unknown> = { name: values.name.trim() };
+    const body: Record<string, unknown> = { name: values.name.trim(), type };
     for (const k of OPTIONAL_KEYS) {
       const trimmed = values[k].trim();
       if (trimmed !== '') body[k] = trimmed;
@@ -150,6 +152,8 @@ export default function EditItem() {
       submitLabel="Save changes"
       values={values}
       onChange={set}
+      type={type}
+      onSelectType={setType}
       taxPolicies={taxPolicies}
       taxable={taxable}
       taxPolicyId={taxPolicyId}

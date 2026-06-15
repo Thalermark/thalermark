@@ -1,3 +1,4 @@
+import type { LineItemType } from '@thalermark/validation';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -27,6 +28,11 @@ export type ItemFormValues = {
 
 export type ItemFieldKey = keyof ItemFormValues;
 
+const TYPE_OPTIONS: { value: LineItemType; label: string }[] = [
+  { value: 'service', label: 'Service' },
+  { value: 'product', label: 'Product' },
+];
+
 export function ItemForm({
   backLabel,
   onBack,
@@ -34,6 +40,8 @@ export function ItemForm({
   submitLabel,
   values,
   onChange,
+  type,
+  onSelectType,
   taxPolicies,
   taxable,
   taxPolicyId,
@@ -51,6 +59,10 @@ export function ItemForm({
   submitLabel: string;
   values: ItemFormValues;
   onChange: (key: ItemFieldKey, val: string) => void;
+  // Product vs service — drives the hidden-ledger revenue split. A separate prop
+  // (not part of ItemFormValues) like taxable, since it's an enum not free text.
+  type: LineItemType;
+  onSelectType: (t: LineItemType) => void;
   // Taxable flag + default policy (a non-taxable item carries no policy).
   taxPolicies: TaxPolicyLite[];
   taxable: boolean;
@@ -121,6 +133,29 @@ export function ItemForm({
               keyboardType="decimal-pad"
               placeholder="1"
             />
+
+            <View>
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">Type</Text>
+              <View className="mt-1 flex-row gap-2">
+                {TYPE_OPTIONS.map((o) => {
+                  const selected = o.value === type;
+                  return (
+                    <Pressable
+                      key={o.value}
+                      onPress={() => onSelectType(o.value)}
+                      className={`rounded-sm border px-3 py-1.5 ${selected ? 'border-gold-deep bg-gold-deep/10' : 'border-ink/15 bg-cream'}`}
+                    >
+                      <Text className={`text-xs ${selected ? 'text-gold-deep' : 'text-ink/70'}`}>
+                        {o.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <Text className="mt-1 text-xs text-ink/50">
+                Routes revenue on your books. Most trades & freelance work is a service.
+              </Text>
+            </View>
 
             <View className="rounded-sm border border-ink/10 bg-cream-warm p-4">
               <Checkbox

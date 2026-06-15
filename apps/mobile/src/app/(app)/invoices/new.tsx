@@ -1,5 +1,6 @@
 import {
   type InvoiceLineItemInput,
+  type LineItemType,
   addMoney,
   customerCreateSchema,
   invoiceCreateSchema,
@@ -24,6 +25,7 @@ import { Checkbox } from '../../../components/Checkbox';
 import { DateField } from '../../../components/DateField';
 import { type ItemPatch, ItemPickerField } from '../../../components/ItemPickerField';
 import { TaxRow } from '../../../components/TaxRow';
+import { TypeRow } from '../../../components/TypeRow';
 import { pickActiveCompany } from '../../../lib/active-company';
 import { api } from '../../../lib/api';
 import { type DupeCandidate, findEmailDupe, findNameDupes } from '../../../lib/customer-dupes';
@@ -40,6 +42,7 @@ type Row = {
   quantity: string;
   unitPrice: string;
   sourceItemId: string | null;
+  type: LineItemType;
   taxable: boolean;
   taxPolicyId: string;
 };
@@ -48,6 +51,7 @@ const blankRow = (): Row => ({
   quantity: '',
   unitPrice: '',
   sourceItemId: null,
+  type: 'service',
   taxable: false,
   taxPolicyId: '',
 });
@@ -282,6 +286,7 @@ export default function NewInvoice() {
         quantity: r.quantity.trim(),
         unitPrice: r.unitPrice.trim(),
         amount,
+        type: r.type,
         taxable: r.taxable,
         taxRatePct: rate,
         taxAmount: lineTax(r.taxable, rate, amount),
@@ -478,6 +483,7 @@ export default function NewInvoice() {
                       description={row.description}
                       onChange={(patch) => applyPick(i, patch)}
                     />
+                    <TypeRow value={row.type} onSelect={(t) => patchRow(i, { type: t })} />
                     <View className="mt-2 flex-row gap-2">
                       <View className="flex-1">
                         <Text className="font-mono text-[10px] uppercase tracking-widest text-ink/50">

@@ -15,6 +15,7 @@ type Item = {
   unitPrice: string;
   unitLabel: string | null;
   defaultQuantity: string;
+  type: string;
   archivedAt: string | null;
   taxLabel: string;
 };
@@ -67,6 +68,7 @@ export default function ItemDetail() {
               unitPrice: i.unitPrice,
               unitLabel: i.unitLabel ?? null,
               defaultQuantity: i.defaultQuantity,
+              type: i.type,
               archivedAt: i.archivedAt ?? null,
               taxLabel,
             },
@@ -175,6 +177,7 @@ export default function ItemDetail() {
             ) : null}
 
             <View className="mt-8 space-y-6">
+              <DetailRow label="Type" value={item.type === 'product' ? 'Product' : 'Service'} />
               <DetailRow
                 label="Unit price"
                 value={
