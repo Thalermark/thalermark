@@ -3,6 +3,7 @@ import {
   type Invoice,
   type Transaction,
   chartOfAccounts,
+  invoiceLineItems,
   journalEntries,
   journalLines,
 } from '@thalermark/db';
@@ -23,17 +24,28 @@ import { v7 as uuidv7 } from 'uuid';
 
 // COA codes the posting helper targets. Hardcoded against SOLE_PROP_COA in
 // packages/db/src/seed/coa-sole-prop.ts — if the seed renumbers, this map
-// has to follow. Service Revenue (4000) is used for all revenue postings
-// in MVP; Product Revenue (4100) is in the COA but trades pass materials
-// through as billed line items, so a separate product/service flag on
-// line items is a v1.x add. Sales Tax Payable (2200) is only touched when
-// the invoice carries tax > 0.
+// has to follow. Revenue is split by line type: the product-line subtotal
+// credits Product Revenue (4100), the rest credits Service Revenue (4000).
+// The split is derived at posting from the invoice's line items (see
+// productSubtotalForInvoice) — there is no header column for it, so the entry
+// always balances against the client-sent subtotal/total. Sales Tax Payable
+// (2200) is only touched when the invoice carries tax > 0.
 const COA_CASH = '1000';
 // Exported for the position dashboard (slice 8.10): "money in/out" sums cash
 // movement across asset accounts *except* AR, and "owed" is the AR balance.
 export const COA_AR = '1200';
 const COA_SALES_TAX_PAYABLE = '2200';
-const COA_REVENUE = '4000';
+const COA_SERVICE_REVENUE = '4000';
+const COA_PRODUCT_REVENUE = '4100';
+
+// Exact 2-dp decimal subtraction over the cents domain — avoids the FP drift
+// of Number arithmetic on money strings. Both inputs are numeric(15,2), so
+// Math.round mops up the *100 representation error. Used to derive the service
+// revenue leg as subtotal − productSubtotal.
+function subtractMoney(a: string, b: string): string {
+  const cents = Math.round(Number(a) * 100) - Math.round(Number(b) * 100);
+  return (cents / 100).toFixed(2);
+}
 
 export type LedgerSide = 'debit' | 'credit';
 
@@ -49,33 +61,42 @@ export type InvoiceStatusForPosting = 'draft' | 'sent' | 'paid' | 'voided';
 // returns the list of journal lines to post. Empty array means "no
 // posting" (e.g. draft → voided where nothing was previously booked).
 //
+// Revenue is split by line type: productSubtotal credits Product Revenue
+// (4100) and serviceSubtotal = subtotal − productSubtotal credits Service
+// Revenue (4000). serviceSubtotal + productSubtotal == subtotal by
+// construction, so total = subtotal + tax still balances Dr AR/Cash.
+//
 // Posting matrix:
-//   draft  → sent    Dr AR=total, Cr Rev=subtotal, Cr Tax=tax (if>0)
-//   draft  → paid    Dr Cash=total, Cr Rev=subtotal, Cr Tax=tax (if>0)
-//   sent   → paid    Dr Cash=total, Cr AR=total
-//   sent   → voided  Dr Rev=subtotal, Dr Tax=tax (if>0), Cr AR=total
+//   draft  → sent    Dr AR=total, Cr SvcRev, Cr ProdRev, Cr Tax (if>0)
+//   draft  → paid    Dr Cash=total, Cr SvcRev, Cr ProdRev, Cr Tax (if>0)
+//   sent   → paid    Dr Cash=total, Cr AR=total (no revenue movement)
+//   sent   → voided  Dr SvcRev, Dr ProdRev, Dr Tax (if>0), Cr AR=total
 //   draft  → voided  (nothing — no prior posting to reverse)
 //
-// Lines with amount=0 are dropped by postJournalEntry, so a tax=0 invoice
-// emits a 2-line entry (revenue, AR) without the empty tax line.
+// Lines with amount=0 are dropped by postJournalEntry, so an all-service,
+// tax=0 invoice emits a 2-line entry (service revenue, AR) without the empty
+// product-revenue or tax lines.
 export function invoicePostingLines(
   prevStatus: InvoiceStatusForPosting,
   nextStatus: InvoiceStatusForPosting,
-  amounts: { subtotal: string; tax: string; total: string },
+  amounts: { subtotal: string; productSubtotal: string; tax: string; total: string },
 ): LedgerLine[] {
-  const { subtotal, tax, total } = amounts;
+  const { subtotal, productSubtotal, tax, total } = amounts;
+  const serviceSubtotal = subtractMoney(subtotal, productSubtotal);
 
   if (prevStatus === 'draft' && nextStatus === 'sent') {
     return [
       { code: COA_AR, side: 'debit', amount: total },
-      { code: COA_REVENUE, side: 'credit', amount: subtotal },
+      { code: COA_SERVICE_REVENUE, side: 'credit', amount: serviceSubtotal },
+      { code: COA_PRODUCT_REVENUE, side: 'credit', amount: productSubtotal },
       { code: COA_SALES_TAX_PAYABLE, side: 'credit', amount: tax },
     ];
   }
   if (prevStatus === 'draft' && nextStatus === 'paid') {
     return [
       { code: COA_CASH, side: 'debit', amount: total },
-      { code: COA_REVENUE, side: 'credit', amount: subtotal },
+      { code: COA_SERVICE_REVENUE, side: 'credit', amount: serviceSubtotal },
+      { code: COA_PRODUCT_REVENUE, side: 'credit', amount: productSubtotal },
       { code: COA_SALES_TAX_PAYABLE, side: 'credit', amount: tax },
     ];
   }
@@ -87,12 +108,37 @@ export function invoicePostingLines(
   }
   if (prevStatus === 'sent' && nextStatus === 'voided') {
     return [
-      { code: COA_REVENUE, side: 'debit', amount: subtotal },
+      { code: COA_SERVICE_REVENUE, side: 'debit', amount: serviceSubtotal },
+      { code: COA_PRODUCT_REVENUE, side: 'debit', amount: productSubtotal },
       { code: COA_SALES_TAX_PAYABLE, side: 'debit', amount: tax },
       { code: COA_AR, side: 'credit', amount: total },
     ];
   }
   return [];
+}
+
+// Sums the product-typed line-item amounts for an invoice — the revenue split
+// input for postInvoiceTransition / repostInvoicePaymentDate. Derived from the
+// persisted lines (which carry the type snapshot) rather than a header column,
+// so it always agrees with what was billed. Filters by accountId too: the
+// webhook posting path runs without RLS, and it keeps the lookup on-index.
+async function productSubtotalForInvoice(
+  tx: Database | Transaction,
+  args: { accountId: string; invoiceId: string },
+): Promise<string> {
+  const [row] = await tx
+    .select({
+      productSubtotal: sql<string>`coalesce(sum(${invoiceLineItems.amount}), 0)::numeric(15,2)`,
+    })
+    .from(invoiceLineItems)
+    .where(
+      and(
+        eq(invoiceLineItems.accountId, args.accountId),
+        eq(invoiceLineItems.invoiceId, args.invoiceId),
+        eq(invoiceLineItems.type, 'product'),
+      ),
+    );
+  return row?.productSubtotal ?? '0.00';
 }
 
 // Inserts one journal_entries header + N journal_lines rows. Filters out
@@ -273,8 +319,13 @@ export async function postInvoiceTransition(
     postedAt: Date;
   },
 ): Promise<string | null> {
+  const productSubtotal = await productSubtotalForInvoice(tx, {
+    accountId: args.accountId,
+    invoiceId: args.invoice.id,
+  });
   const lines = invoicePostingLines(args.prevStatus, args.nextStatus, {
     subtotal: args.invoice.subtotal,
+    productSubtotal,
     tax: args.invoice.tax,
     total: args.invoice.total,
   });
@@ -310,8 +361,13 @@ export async function repostInvoicePaymentDate(
     toDate: Date;
   },
 ): Promise<void> {
+  const productSubtotal = await productSubtotalForInvoice(tx, {
+    accountId: args.accountId,
+    invoiceId: args.invoice.id,
+  });
   const original = invoicePostingLines(args.prevStatus, 'paid', {
     subtotal: args.invoice.subtotal,
+    productSubtotal,
     tax: args.invoice.tax,
     total: args.invoice.total,
   });

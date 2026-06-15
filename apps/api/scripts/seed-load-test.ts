@@ -324,7 +324,14 @@ async function main() {
       }
       const taxN = Math.random() < 0.5 ? Math.round(subtotalN * 0.0725 * 100) / 100 : 0;
       const totalN = subtotalN + taxN;
-      const amounts = { subtotal: money(subtotalN), tax: money(taxN), total: money(totalN) };
+      // Load-test rows are all-service (productSubtotal 0) — the revenue split
+      // is exercised by the integration tests, not the bulk seed.
+      const amounts = {
+        subtotal: money(subtotalN),
+        productSubtotal: money(0),
+        tax: money(taxN),
+        total: money(totalN),
+      };
 
       const sentAt = ['sent', 'paid', 'voided'].includes(status)
         ? clampNow(addDays(issued, randInt(0, 2)))

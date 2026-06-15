@@ -10,15 +10,20 @@ import {
 // (real Postgres, deferred trigger, RLS) lives in
 // apps/api/tests/ledger.integration.test.ts.
 
-const taxed = { subtotal: '100.00', tax: '8.25', total: '108.25' };
-const untaxed = { subtotal: '100.00', tax: '0.00', total: '100.00' };
-const zero = { subtotal: '0.00', tax: '0.00', total: '0.00' };
+// productSubtotal '0.00' = an all-service invoice, so the empty Product Revenue
+// (4100) line rides along at 0.00 (postJournalEntry drops it). `mixed` exercises
+// the split: 40.00 of the 100.00 subtotal is product.
+const taxed = { subtotal: '100.00', productSubtotal: '0.00', tax: '8.25', total: '108.25' };
+const untaxed = { subtotal: '100.00', productSubtotal: '0.00', tax: '0.00', total: '100.00' };
+const zero = { subtotal: '0.00', productSubtotal: '0.00', tax: '0.00', total: '0.00' };
+const mixed = { subtotal: '100.00', productSubtotal: '40.00', tax: '8.25', total: '108.25' };
 
 describe('invoicePostingLines — draft → sent', () => {
-  it('posts Dr AR / Cr Revenue / Cr Sales Tax Payable when taxed', () => {
+  it('posts Dr AR / Cr Service Rev / Cr Product Rev / Cr Sales Tax Payable when taxed', () => {
     expect(invoicePostingLines('draft', 'sent', taxed)).toEqual([
       { code: '1200', side: 'debit', amount: '108.25' },
       { code: '4000', side: 'credit', amount: '100.00' },
+      { code: '4100', side: 'credit', amount: '0.00' },
       { code: '2200', side: 'credit', amount: '8.25' },
     ]);
   });
@@ -27,16 +32,38 @@ describe('invoicePostingLines — draft → sent', () => {
     expect(invoicePostingLines('draft', 'sent', untaxed)).toEqual([
       { code: '1200', side: 'debit', amount: '100.00' },
       { code: '4000', side: 'credit', amount: '100.00' },
+      { code: '4100', side: 'credit', amount: '0.00' },
       { code: '2200', side: 'credit', amount: '0.00' },
     ]);
   });
 });
 
+describe('invoicePostingLines — product/service revenue split', () => {
+  it('splits the revenue leg across Service (4000) and Product (4100) on draft → sent', () => {
+    expect(invoicePostingLines('draft', 'sent', mixed)).toEqual([
+      { code: '1200', side: 'debit', amount: '108.25' },
+      { code: '4000', side: 'credit', amount: '60.00' },
+      { code: '4100', side: 'credit', amount: '40.00' },
+      { code: '2200', side: 'credit', amount: '8.25' },
+    ]);
+  });
+
+  it('debits both revenue accounts on sent → voided', () => {
+    expect(invoicePostingLines('sent', 'voided', mixed)).toEqual([
+      { code: '4000', side: 'debit', amount: '60.00' },
+      { code: '4100', side: 'debit', amount: '40.00' },
+      { code: '2200', side: 'debit', amount: '8.25' },
+      { code: '1200', side: 'credit', amount: '108.25' },
+    ]);
+  });
+});
+
 describe('invoicePostingLines — draft → paid', () => {
-  it('posts Dr Cash / Cr Revenue / Cr Sales Tax Payable — skips AR', () => {
+  it('posts Dr Cash / Cr Service Rev / Cr Product Rev / Cr Sales Tax Payable — skips AR', () => {
     expect(invoicePostingLines('draft', 'paid', taxed)).toEqual([
       { code: '1000', side: 'debit', amount: '108.25' },
       { code: '4000', side: 'credit', amount: '100.00' },
+      { code: '4100', side: 'credit', amount: '0.00' },
       { code: '2200', side: 'credit', amount: '8.25' },
     ]);
   });
@@ -52,9 +79,10 @@ describe('invoicePostingLines — sent → paid', () => {
 });
 
 describe('invoicePostingLines — sent → voided', () => {
-  it('reverses mark-sent: Dr Revenue / Dr Sales Tax / Cr AR', () => {
+  it('reverses mark-sent: Dr Service Rev / Dr Product Rev / Dr Sales Tax / Cr AR', () => {
     expect(invoicePostingLines('sent', 'voided', taxed)).toEqual([
       { code: '4000', side: 'debit', amount: '100.00' },
+      { code: '4100', side: 'debit', amount: '0.00' },
       { code: '2200', side: 'debit', amount: '8.25' },
       { code: '1200', side: 'credit', amount: '108.25' },
     ]);
