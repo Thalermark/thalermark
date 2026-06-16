@@ -1,7 +1,25 @@
+import { dev } from '$app/environment';
 import { env as privateEnv } from '$env/dynamic/private';
 import { env as publicEnv } from '$env/dynamic/public';
+import * as Sentry from '@sentry/sveltekit';
 import { type Handle, error, redirect } from '@sveltejs/kit';
+import { sequence } from '@sveltejs/kit/hooks';
 import type { Session } from './app.d.ts';
+
+// SSR-side error tracking. Inert unless PUBLIC_ERROR_TRACKING_DSN is set — same
+// opt-in posture as the api (apps/api/src/lib/error-tracking.ts). Shares the DSN
+// with the browser init in hooks.client.ts (it's a write-only public key).
+// GlitchTip is the chosen backend; the SDK is backend-agnostic via the DSN.
+const errorTrackingDsn = publicEnv.PUBLIC_ERROR_TRACKING_DSN;
+if (errorTrackingDsn) {
+  Sentry.init({
+    dsn: errorTrackingDsn,
+    environment: dev ? 'development' : 'production',
+    release: publicEnv.PUBLIC_RELEASE || undefined,
+    // No performance tracing yet — mirror the api (tracesSampleRate: 0).
+    tracesSampleRate: 0,
+  });
+}
 
 // SSR fetches need an absolute URL. Behind Caddy the browser uses relative
 // /api/* paths (PUBLIC_API_URL=""), so the server resolves a separate
@@ -44,7 +62,7 @@ async function loadSession(cookieHeader: string | null): Promise<Session | null>
   return (await res.json()) as Session;
 }
 
-export const handle: Handle = async ({ event, resolve }) => {
+const appHandle: Handle = async ({ event, resolve }) => {
   event.locals.session = await loadSession(event.request.headers.get('cookie'));
 
   const path = event.url.pathname;
@@ -98,3 +116,13 @@ export const handle: Handle = async ({ event, resolve }) => {
   if (path !== SELECT_COMPANY_PATH) throw redirect(303, SELECT_COMPANY_PATH);
   return resolve(event);
 };
+
+// Run Sentry's request handler ahead of the app's only when tracking is on, so
+// SSR errors carry request context. Without a DSN the chain is just appHandle —
+// no wrapper, fully inert.
+export const handle: Handle = errorTrackingDsn
+  ? sequence(Sentry.sentryHandle(), appHandle)
+  : appHandle;
+
+// Reports unexpected SSR errors to Sentry (a no-op while uninitialised).
+export const handleError = Sentry.handleErrorWithSentry();
