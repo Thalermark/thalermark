@@ -2,8 +2,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
-import { api } from '../lib/api';
 import { type SocialProvider, signInWithProvider } from '../lib/auth-client';
+import { getLastAuthMethod } from '../lib/secure-store';
+import { useSocialProviders } from '../lib/social-providers';
 
 // Native mirror of web's SocialSignIn.svelte. Renders a button per provider the
 // api reports as configured (GET /api/social-providers — a public route), in a
@@ -26,18 +27,18 @@ const ICONS: Record<SocialProvider, keyof typeof Ionicons.glyphMap> = {
 
 export function SocialSignIn() {
   const router = useRouter();
-  const [providers, setProviders] = useState<string[]>([]);
+  const providers = useSocialProviders();
   const [busy, setBusy] = useState<SocialProvider | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // This device's last sign-in method — the matching button gets a "Last used"
+  // badge (a hint, never a reorder; ORDER stays fixed).
+  const [lastUsed, setLastUsed] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
-    api.api['social-providers']
-      .$get()
-      .then(async (res) => {
-        if (active && res.ok) setProviders((await res.json()).providers);
-      })
-      .catch(() => {});
+    getLastAuthMethod().then((m) => {
+      if (active) setLastUsed(m);
+    });
     return () => {
       active = false;
     };
@@ -81,6 +82,13 @@ export function SocialSignIn() {
                 <Text className="text-sm font-medium text-ink">{LABELS[provider]}</Text>
               </>
             )}
+            {provider === lastUsed ? (
+              <View className="absolute right-3 rounded-full bg-ink/10 px-2 py-0.5">
+                <Text className="font-mono text-[10px] uppercase tracking-wider text-ink/55">
+                  Last used
+                </Text>
+              </View>
+            ) : null}
           </Pressable>
         ))}
       </View>

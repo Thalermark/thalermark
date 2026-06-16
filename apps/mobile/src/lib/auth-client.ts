@@ -7,6 +7,7 @@ import {
   clearAuthToken,
   getAuthToken,
   setAuthToken,
+  setLastAuthMethod,
 } from './secure-store';
 import { getServerUrl } from './server-url';
 
@@ -109,6 +110,9 @@ export async function signInWithProvider(
   const token = sessionTokenFromCookie(authClient.getCookie());
   if (!token) return { ok: false, error: 'Could not establish a session.' };
   await setAuthToken(token);
+  // Remember this device's last method so the next visit badges this button and
+  // suppresses the wrong-method hint (mirrors web's last_auth_method cookie).
+  await setLastAuthMethod(provider);
   return { ok: true };
 }
 
