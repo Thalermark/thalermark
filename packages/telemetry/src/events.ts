@@ -40,7 +40,20 @@ export type ExpenseCategorisedEvent = {
 
 export type ReportViewedEvent = {
   name: 'report_viewed';
-  report_type: 'income' | 'expenses' | 'summary' | 'custom';
+  // One slug per /reports/<slug> route (web) / report screen (mobile). Kept in
+  // sync with TELEMETRY_REPORT_TYPES in @thalermark/validation, which the
+  // client-ingest endpoint validates against.
+  report_type:
+    | 'profit-and-loss'
+    | 'balance-sheet'
+    | 'ar-aging'
+    | 'revenue-over-time'
+    | 'expenses-by-category'
+    | 'sales-by-customer'
+    | 'sales-tax'
+    | 'estimate-win-rate'
+    | 'top-products'
+    | 'general-ledger';
 };
 
 export type ClientCreatedEvent = {

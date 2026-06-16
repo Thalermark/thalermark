@@ -9,3 +9,42 @@ export const telemetryUpdateSchema = z.object({
 });
 
 export type TelemetryUpdate = z.infer<typeof telemetryUpdateSchema>;
+
+// Client-ingest pipeline (TELEMETRY.md "client ingest"). Events that can only
+// originate in the browser/app — currently just report_viewed — POST to
+// /api/telemetry/ingest, which stages them via the same opt-in-gated emit() the
+// server-side events use. The discriminated union grows as more client surfaces
+// are wired; the API rejects any shape not listed here, so an unwired event
+// name can never stage. Must stay structurally compatible with the matching
+// variants of the Event union in @thalermark/telemetry.
+
+// The report slugs match the /reports/<slug> routes 1:1 (web) and the mobile
+// report screens. Answers "which reports get used" without any row content.
+export const TELEMETRY_REPORT_TYPES = [
+  'profit-and-loss',
+  'balance-sheet',
+  'ar-aging',
+  'revenue-over-time',
+  'expenses-by-category',
+  'sales-by-customer',
+  'sales-tax',
+  'estimate-win-rate',
+  'top-products',
+  'general-ledger',
+] as const;
+
+export const clientTelemetryEventSchema = z.discriminatedUnion('name', [
+  z.object({ name: z.literal('report_viewed'), report_type: z.enum(TELEMETRY_REPORT_TYPES) }),
+]);
+
+export type ClientTelemetryEvent = z.infer<typeof clientTelemetryEventSchema>;
+
+// Cap a single ingest batch. Client emitters buffer a handful of low-frequency
+// events and flush; this bounds an abusive or buggy client.
+export const TELEMETRY_INGEST_MAX = 50;
+
+export const telemetryIngestSchema = z.object({
+  events: z.array(clientTelemetryEventSchema).min(1).max(TELEMETRY_INGEST_MAX),
+});
+
+export type TelemetryIngest = z.infer<typeof telemetryIngestSchema>;

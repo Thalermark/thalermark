@@ -3,6 +3,7 @@
   import TelemetryConsent from '$lib/components/TelemetryConsent.svelte';
   import UserMenu from '$lib/components/UserMenu.svelte';
   import { may } from '$lib/perms';
+  import { setTelemetryEnabled } from '$lib/telemetry';
 
   let { children, data } = $props();
 
@@ -11,15 +12,24 @@
   // exempt paths (e.g. /select-company) — UserMenu hides the section then.
   const companies = $derived(data?.companies ?? []);
   const activeCompanyId = $derived(data?.activeCompanyId ?? null);
-  // First-run telemetry consent: show the prompt only once the account hasn't
-  // decided and the deployment hasn't disabled it. Null for roles that can't
-  // manage settings (the layout load omits it for them).
+  // Creating a company + the account-wide telemetry decision are both
+  // settings:manage (owner/admin); switching companies is open to every role.
+  const canManageSettings = $derived(may(page.data.role, 'settings:manage'));
+  // First-run telemetry consent: shown only to settings:manage roles (they own
+  // the account-wide decision), once the account hasn't decided and the
+  // deployment hasn't disabled it.
   const showTelemetryConsent = $derived(
-    !!data?.telemetry && !data.telemetry.decided && !data.telemetry.disabled,
+    canManageSettings &&
+      !!data?.telemetry &&
+      !data.telemetry.decided &&
+      !data.telemetry.disabled,
   );
-  // Creating a company is settings:manage (owner/admin), matching the API gate;
-  // switching is open to every role. Hide "+ Add company" for those who can't.
-  const canManageCompanies = $derived(may(page.data.role, 'settings:manage'));
+
+  // Keep the client telemetry emitter's gate in sync with the account's opt-in
+  // (every member, not just admins — report views come from any role).
+  $effect(() => {
+    setTelemetryEnabled(data?.telemetry?.enabled ?? false);
+  });
 </script>
 
 <header class="border-b border-fg/10 bg-surface print:hidden">
@@ -42,7 +52,7 @@
         email={session.user.email}
         {companies}
         {activeCompanyId}
-        {canManageCompanies}
+        canManageCompanies={canManageSettings}
         currentPath={page.url.pathname + page.url.search}
       />
     {/if}
