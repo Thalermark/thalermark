@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router';
 import type { ReactNode } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useTrackReportView } from '../lib/use-report-view';
 
 // Shared chrome + table primitives for the report screens. Each screen wraps its
 // body in <ReportScaffold> (back-link + title + selector + note) and gates it
@@ -20,6 +21,9 @@ export function ReportScaffold({
   children: ReactNode;
 }) {
   const router = useRouter();
+  // report_viewed for every report that uses this scaffold (derived from the
+  // route). top-products has its own layout, so it calls the hook directly.
+  useTrackReportView();
   return (
     <SafeAreaView className="flex-1 bg-cream" edges={['top']}>
       <ScrollView contentContainerClassName="px-6 pt-6 pb-16">

@@ -67,7 +67,7 @@ Self-hosted installs with the environment variable set will never prompt and wil
 
 All events are anonymous and aggregated. No event contains personal, financial, or identifying information.
 
-**Collection status (current release).** Events raised by a server-side action are wired and stage locally the moment an account opts in: the **Feature Usage** events (invoice/estimate/customer/company creation, sends, mark-paid) and `expense_categorised`. The events that can only originate in the client — **Session**, **Performance**, **Flow Completion**, `report_viewed`, and the **AI** view/dismiss/query/suggestion events — are documented here but **not yet collected**; they arrive with the client-ingest pipeline in a later release. Regardless of wiring, nothing leaves the host until a deployment sets `TELEMETRY_TRANSPORT_ENABLED` and `TELEMETRY_ENDPOINT_URL` (see `.env.example`).
+**Collection status (current release).** Two paths are wired. **Server-side events** stage the moment an account opts in: the **Feature Usage** events (invoice/estimate/customer/company creation, sends, mark-paid) and `expense_categorised`. **Client-ingest events** are emitted by the web/mobile app and POSTed to `/api/telemetry/ingest` (which stages them through the same opt-in gate): currently `report_viewed`. The remaining client-only events — **Session**, **Performance**, **Flow Completion**, and the **AI** view/dismiss/query/suggestion events — are documented here but **not yet collected**; they'll be wired as their UI surfaces land. Regardless of wiring, nothing leaves the host until a deployment sets `TELEMETRY_TRANSPORT_ENABLED` and `TELEMETRY_ENDPOINT_URL` (see `.env.example`).
 
 ### Installation & Identity
 
@@ -101,7 +101,7 @@ The `install_id` is a random UUID with no connection to user identity. In this i
 | `invoice_marked_paid` | none | Payment workflow usage |
 | `expense_logged` | `has_receipt_attached`: boolean | Receipt capture adoption |
 | `expense_categorised` | `method`: `manual` or `ai_suggested` | AI suggestion adoption |
-| `report_viewed` | `report_type`: `income`, `expenses`, `summary`, `custom` | Report feature usage |
+| `report_viewed` | `report_type`: one slug per report (`profit-and-loss`, `balance-sheet`, `ar-aging`, `revenue-over-time`, `expenses-by-category`, `sales-by-customer`, `sales-tax`, `estimate-win-rate`, `top-products`, `general-ledger`) | Report feature usage |
 | `client_created` | none | Client management adoption |
 | `company_created` | none | Multi-company feature adoption |
 | `estimate_created` | none | Estimate feature adoption |
@@ -192,6 +192,8 @@ Reports include active install counts, most/least used features, onboarding comp
 - **Event definitions:** `packages/telemetry/src/events.ts`
 - **Local staging (opt-in gate):** `packages/telemetry/src/emit.ts` + `opt-in.ts`
 - **Transmission code:** `packages/telemetry/src/flush.ts` (HMAC signing in `sign.ts`)
+- **Client-ingest endpoint + schema:** `POST /api/telemetry/ingest` in `apps/api/src/app.ts`, validated by `telemetryIngestSchema` in `packages/validation/src/telemetry.ts`
+- **Client emitters:** `apps/web/src/lib/telemetry.ts` and `apps/mobile/src/lib/telemetry.ts`
 
 Discrepancies between this document and the code are treated as critical bugs. Please open a GitHub issue immediately if you find one.
 

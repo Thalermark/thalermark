@@ -1,13 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import type { Role } from '@thalermark/validation';
 import { Redirect, Tabs, useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
-import { ActivityIndicator, Pressable, Text, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, AppState, Pressable, Text, View } from 'react-native';
 import { resolveActiveAccount } from '../../lib/active-account';
 import { pickActiveCompany } from '../../lib/active-company';
 import { api } from '../../lib/api';
 import { authClient } from '../../lib/auth-client';
 import { RoleProvider } from '../../lib/role';
+import { flushTelemetry, setTelemetryEnabled } from '../../lib/telemetry';
 
 // 'loading' until the session + active-account resolution settles, then:
 //   'anon'    → no session, go sign in
@@ -73,6 +74,14 @@ export default function AppLayout() {
             return;
           }
         }
+        // Sync the client telemetry emitter's gate with the account's opt-in
+        // (every member — report views come from any role). Best-effort.
+        api.api.account.telemetry
+          .$get()
+          .then(async (r) => {
+            if (active && r.ok) setTelemetryEnabled((await r.json()).enabled);
+          })
+          .catch(() => {});
         setGate('ready');
       })
       .catch(() => {
@@ -84,6 +93,15 @@ export default function AppLayout() {
   }, []);
 
   useFocusEffect(runGate);
+
+  // Flush any buffered telemetry when the app leaves the foreground — the
+  // mobile counterpart of web's visibility-hidden flush.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'background' || state === 'inactive') void flushTelemetry();
+    });
+    return () => sub.remove();
+  }, []);
 
   if (gate === 'loading') {
     return (

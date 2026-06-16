@@ -215,7 +215,7 @@ describe('telemetry consent + server emit', () => {
     }
   });
 
-  it('forbids a member without settings:manage from reading or changing consent', async () => {
+  it('lets a member read consent but forbids changing it (settings:manage)', async () => {
     const ctx = buildApp();
     try {
       await signUp(ctx.app, 'tel-owner@example.com');
@@ -232,15 +232,104 @@ describe('telemetry consent + server emit', () => {
         'content-type': 'application/json',
       };
 
+      // A member can READ consent (the client emitter needs `enabled`)...
       const get = await ctx.app.request('/api/account/telemetry', { headers });
-      expect(get.status).toBe(403);
+      expect(get.status).toBe(200);
 
+      // ...but cannot CHANGE the account-wide decision.
       const patch = await ctx.app.request('/api/account/telemetry', {
         method: 'PATCH',
         headers,
         body: JSON.stringify({ enabled: true }),
       });
       expect(patch.status).toBe(403);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('client ingest stages events for an opted-in account', async () => {
+    const ctx = buildApp();
+    try {
+      const cookie = await signUp(ctx.app, 'tel-ingest@example.com');
+      const { accountId } = await userContext('tel-ingest@example.com');
+      const headers = { cookie, 'x-account-id': accountId, 'content-type': 'application/json' };
+
+      await ctx.app.request('/api/account/telemetry', {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ enabled: true }),
+      });
+
+      const res = await ctx.app.request('/api/telemetry/ingest', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          events: [
+            { name: 'report_viewed', report_type: 'profit-and-loss' },
+            { name: 'report_viewed', report_type: 'ar-aging' },
+          ],
+        }),
+      });
+      expect(res.status).toBe(200);
+      expect((await res.json()) as { accepted: number }).toEqual({ accepted: 2 });
+
+      const staged = await getTestDb().select().from(telemetryEvents);
+      expect(staged.map((r) => r.eventName)).toEqual(['report_viewed', 'report_viewed']);
+      expect(staged.map((r) => (r.payload as { report_type: string }).report_type).sort()).toEqual([
+        'ar-aging',
+        'profit-and-loss',
+      ]);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('client ingest stages nothing for an opted-out account (server-side gate)', async () => {
+    const ctx = buildApp();
+    try {
+      const cookie = await signUp(ctx.app, 'tel-ingest-off@example.com');
+      const { accountId } = await userContext('tel-ingest-off@example.com');
+      const res = await ctx.app.request('/api/telemetry/ingest', {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify({ events: [{ name: 'report_viewed', report_type: 'sales-tax' }] }),
+      });
+      // Best-effort accepted, but emit() drops it — nothing stages.
+      expect(res.status).toBe(200);
+      expect(await getTestDb().select().from(telemetryEvents)).toEqual([]);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('client ingest rejects an unwired/invalid event shape with 400', async () => {
+    const ctx = buildApp();
+    try {
+      const cookie = await signUp(ctx.app, 'tel-ingest-bad@example.com');
+      const { accountId } = await userContext('tel-ingest-bad@example.com');
+      const headers = { cookie, 'x-account-id': accountId, 'content-type': 'application/json' };
+
+      const unknownName = await ctx.app.request('/api/telemetry/ingest', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ events: [{ name: 'session_start', deployment_type: 'cloud' }] }),
+      });
+      expect(unknownName.status).toBe(400);
+
+      const badReport = await ctx.app.request('/api/telemetry/ingest', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ events: [{ name: 'report_viewed', report_type: 'not-a-report' }] }),
+      });
+      expect(badReport.status).toBe(400);
+
+      const empty = await ctx.app.request('/api/telemetry/ingest', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ events: [] }),
+      });
+      expect(empty.status).toBe(400);
     } finally {
       await ctx.handle.close();
     }

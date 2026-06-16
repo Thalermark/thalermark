@@ -1,6 +1,5 @@
 import { ACTIVE_COMPANY_COOKIE, pickActiveCompany, setActiveCompany } from '$lib/active-company';
 import { serverApiClient } from '$lib/api.server';
-import { may } from '$lib/perms';
 import { redirect } from '@sveltejs/kit';
 import type { LayoutServerLoad } from './$types';
 
@@ -41,15 +40,13 @@ export const load: LayoutServerLoad = async (event) => {
     setActiveCompany(event.cookies, active.id);
   }
 
-  // Telemetry consent state for the first-run prompt rendered in the layout.
-  // The route is settings:manage-gated (account-wide consent is an admin call),
-  // so only fetch it for capable roles — others never see the prompt. A failed
-  // fetch just omits it (prompt stays hidden), never blocks the page.
+  // Telemetry consent state. Fed to every (app) page for two consumers: the
+  // first-run prompt (gated to settings:manage roles in the layout) and the
+  // client emitter's enabled flag (needed by every user, since report views
+  // come from any member). GET is open to members; a failed fetch just omits it.
   let telemetry: { enabled: boolean; decided: boolean; disabled: boolean } | null = null;
-  if (may(event.locals.role, 'settings:manage')) {
-    const telRes = await client.api.account.telemetry.$get();
-    if (telRes.ok) telemetry = await telRes.json();
-  }
+  const telRes = await client.api.account.telemetry.$get();
+  if (telRes.ok) telemetry = await telRes.json();
 
   return {
     companies: companies.map((c) => ({ id: c.id, name: c.name })),

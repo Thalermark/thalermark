@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from '../../../../lib/api';
+import { useTrackReportView } from '../../../../lib/use-report-view';
 
 // Mirror of apps/web's /reports/top-products. A sales lens, not a tax figure:
 // pre-tax revenue grouped by source_item_id, with a single "Uncatalogued /
@@ -31,6 +32,8 @@ const basisNote = (b: Basis) =>
 
 export default function TopProducts() {
   const router = useRouter();
+  // report_viewed — this screen has its own layout (no ReportScaffold).
+  useTrackReportView();
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [basis, setBasis] = useState<Basis>('paid');
   const [products, setProducts] = useState<Product[] | null>(null);

@@ -17,7 +17,7 @@ const SAMPLES: Record<EventName, Event> = {
   invoice_marked_paid: { name: 'invoice_marked_paid' },
   expense_logged: { name: 'expense_logged', has_receipt_attached: true },
   expense_categorised: { name: 'expense_categorised', method: 'ai_suggested' },
-  report_viewed: { name: 'report_viewed', report_type: 'income' },
+  report_viewed: { name: 'report_viewed', report_type: 'profit-and-loss' },
   client_created: { name: 'client_created' },
   company_created: { name: 'company_created' },
   estimate_created: { name: 'estimate_created' },
