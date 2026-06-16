@@ -18,6 +18,13 @@ const ACTIVE_COMPANY_KEY = 'thalermark.active-company-id';
 // avoid a second persistence dependency for one value. See server-url.ts for
 // the cache + hydration that make it readable synchronously by the API client.
 const SERVER_URL_KEY = 'thalermark.server-url';
+// This device's last sign-in method ('google' | 'facebook' | 'twitter' |
+// 'password') — the mobile equivalent of web's `last_auth_method` cookie. Drives
+// the "Last used" badge on the social buttons and suppresses the wrong-method
+// hint when the last method was a password. Only the method string is stored,
+// nothing identifying; deliberately NOT cleared on sign-out so the next visit
+// still gets the hint.
+const LAST_AUTH_METHOD_KEY = 'thalermark.last-auth-method';
 
 export async function getAuthToken(): Promise<string | null> {
   return SecureStore.getItemAsync(AUTH_TOKEN_KEY);
@@ -53,6 +60,14 @@ export async function setActiveCompanyId(companyId: string): Promise<void> {
 
 export async function clearActiveCompanyId(): Promise<void> {
   await SecureStore.deleteItemAsync(ACTIVE_COMPANY_KEY);
+}
+
+export async function getLastAuthMethod(): Promise<string | null> {
+  return SecureStore.getItemAsync(LAST_AUTH_METHOD_KEY);
+}
+
+export async function setLastAuthMethod(method: string): Promise<void> {
+  await SecureStore.setItemAsync(LAST_AUTH_METHOD_KEY, method);
 }
 
 export async function getStoredServerUrl(): Promise<string | null> {

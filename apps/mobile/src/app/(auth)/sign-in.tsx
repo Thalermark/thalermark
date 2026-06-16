@@ -1,10 +1,26 @@
 import { COPY } from '@thalermark/brand';
 import { Link, router, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { SocialSignIn } from '../../components/SocialSignIn';
 import { authClient } from '../../lib/auth-client';
+import { getLastAuthMethod, setLastAuthMethod } from '../../lib/secure-store';
+import { useSocialProviders } from '../../lib/social-providers';
+
+// Short provider names for the wrong-method hint (the buttons use longer labels).
+const PROVIDER_NAMES: Record<string, string> = {
+  google: 'Google',
+  facebook: 'Facebook',
+  twitter: 'X',
+};
+
+// Oxford-style "A, B, or C".
+function joinOr(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? '';
+  if (names.length === 2) return `${names[0]} or ${names[1]}`;
+  return `${names.slice(0, -1).join(', ')}, or ${names.at(-1)}`;
+}
 
 export default function SignIn() {
   const { invite } = useLocalSearchParams<{ invite?: string }>();
@@ -17,6 +33,27 @@ export default function SignIn() {
   const [needsVerification, setNeedsVerification] = useState(false);
   const [resending, setResending] = useState(false);
   const [resent, setResent] = useState(false);
+
+  const providers = useSocialProviders();
+  // This device's last sign-in method — suppresses the wrong-method hint when it
+  // was a password (a device-local signal that leaks nothing remotely).
+  const [lastMethod, setLastMethod] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    getLastAuthMethod().then((m) => {
+      if (active) setLastMethod(m);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // Option B wrong-method rescue: on any failed sign-in, nudge users who signed
+  // up with a social provider toward the buttons below. Unconditional w.r.t. the
+  // entered email (no email→provider lookup) so it can't leak account existence;
+  // hidden when no providers are configured or this device last used a password.
+  const showMethodHint = !!error && providers.length > 0 && lastMethod !== 'password';
+  const methodHintText = joinOr(providers.map((p) => PROVIDER_NAMES[p] ?? p));
 
   async function onSubmit() {
     setError(null);
@@ -35,6 +72,7 @@ export default function SignIn() {
       setError(msg);
       return;
     }
+    await setLastAuthMethod('password');
     if (invite) {
       router.replace({ pathname: '/accept-invite', params: { token: invite } });
     } else {
@@ -97,6 +135,12 @@ export default function SignIn() {
           {error ? (
             <Text className="font-mono text-xs uppercase tracking-widest text-oxblood">
               {error}
+            </Text>
+          ) : null}
+          {showMethodHint ? (
+            <Text className="text-sm text-ink/60">
+              Signed up with {methodHintText}? Use the button
+              {providers.length > 1 ? 's' : ''} below.
             </Text>
           ) : null}
           {needsVerification ? (
