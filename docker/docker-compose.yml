@@ -46,6 +46,12 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-thalermark}:${POSTGRES_PASSWORD:-thalermark}@postgres:5432/${POSTGRES_DB:-thalermark}
       APP_DATABASE_URL: postgres://thalermark_app:${THALERMARK_APP_PASSWORD:-thalermark_app}@postgres:5432/${POSTGRES_DB:-thalermark}
       THALERMARK_APP_PASSWORD: ${THALERMARK_APP_PASSWORD:-thalermark_app}
+      # pg-boss runs on its own least-privilege role (migration 0052), not the
+      # superuser handle — so a compromised api can't reach BYPASSRLS through the
+      # job runner. Boot provisions the role's password the same way as the app
+      # role above.
+      PGBOSS_DATABASE_URL: postgres://thalermark_pgboss:${THALERMARK_PGBOSS_PASSWORD:-thalermark_pgboss}@postgres:5432/${POSTGRES_DB:-thalermark}
+      THALERMARK_PGBOSS_PASSWORD: ${THALERMARK_PGBOSS_PASSWORD:-thalermark_pgboss}
       MIGRATE_ON_BOOT: "true"
       # External URL for cookies/redirects/invite links. BA uses this as its
       # canonical baseURL; Caddy terminates TLS so requests reach api over

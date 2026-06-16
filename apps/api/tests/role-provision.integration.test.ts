@@ -1,6 +1,6 @@
 import { Pool } from 'pg';
 import { afterAll, describe, expect, it } from 'vitest';
-import { provisionAppRole } from '../src/lib/role-provision.js';
+import { provisionAppRole, provisionPgBossRole } from '../src/lib/role-provision.js';
 
 // Verifies that provisionAppRole flips thalermark_app to LOGIN and that a
 // pool opened with the resulting credentials authenticates as that role.
@@ -49,5 +49,47 @@ describe('provisionAppRole', () => {
     // Restore the original password so the rest of the file (and any sibling
     // test runs sharing the container) keep working.
     await provisionAppRole(superuserUrl, TEST_PASSWORD);
+  });
+});
+
+describe('provisionPgBossRole', () => {
+  const superuserUrl = process.env.DATABASE_URL;
+  if (!superuserUrl) throw new Error('DATABASE_URL not set — global-setup should have set it');
+  const pgBossUrl = withCredentials(superuserUrl, 'thalermark_pgboss', TEST_PASSWORD);
+  let pool: Pool | undefined;
+
+  afterAll(async () => {
+    await pool?.end();
+  });
+
+  it('promotes thalermark_pgboss to LOGIN, but NOT to superuser/BYPASSRLS', async () => {
+    await provisionPgBossRole(superuserUrl, TEST_PASSWORD);
+    pool = new Pool({ connectionString: pgBossUrl });
+    const who = await pool.query<{ current_user: string }>('SELECT current_user');
+    expect(who.rows[0]?.current_user).toBe('thalermark_pgboss');
+    // The whole point of the split: the job runner's role must not be able to
+    // bypass tenant isolation.
+    const attrs = await pool.query<{ rolsuper: boolean; rolbypassrls: boolean }>(
+      'SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user',
+    );
+    expect(attrs.rows[0]?.rolsuper).toBe(false);
+    expect(attrs.rows[0]?.rolbypassrls).toBe(false);
+  });
+
+  it('owns its pgboss schema but cannot read tenant tables', async () => {
+    await provisionPgBossRole(superuserUrl, TEST_PASSWORD);
+    const p = new Pool({ connectionString: pgBossUrl });
+    try {
+      // Owns the schema migration 0052 created — can create objects in it.
+      const canCreate = await p.query<{ has: boolean }>(
+        "SELECT has_schema_privilege('thalermark_pgboss', 'pgboss', 'CREATE') AS has",
+      );
+      expect(canCreate.rows[0]?.has).toBe(true);
+      // No grant on the public tenant tables → the privilege check rejects
+      // before RLS even applies. This is the isolation guarantee.
+      await expect(p.query('SELECT 1 FROM accounts LIMIT 1')).rejects.toThrow(/permission denied/i);
+    } finally {
+      await p.end();
+    }
   });
 });

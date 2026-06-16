@@ -25,7 +25,7 @@ import { createApiDatabase } from './lib/db.js';
 import { initErrorTracking } from './lib/error-tracking.js';
 import { type Mailer, createConsoleMailer, createResendMailer } from './lib/mailer.js';
 import { sweepRecurringInvoices } from './lib/recurring.js';
-import { provisionAppRole } from './lib/role-provision.js';
+import { provisionAppRole, provisionPgBossRole } from './lib/role-provision.js';
 import { createStripeBundle } from './lib/stripe.js';
 
 const env = loadEnv();
@@ -55,6 +55,14 @@ if (env.migrateOnBoot) {
 if (env.appRolePassword) {
   log.info('provisioning thalermark_app role');
   await provisionAppRole(env.databaseUrl, env.appRolePassword);
+}
+
+// Same idempotent promote-to-LOGIN for the dedicated pg-boss role (migration
+// 0052). Only when PGBOSS uses its own role (THALERMARK_PGBOSS_PASSWORD set);
+// skipped on the superuser fallback. Must run after migrations create the role.
+if (env.pgBossRolePassword) {
+  log.info('provisioning thalermark_pgboss role');
+  await provisionPgBossRole(env.databaseUrl, env.pgBossRolePassword);
 }
 
 const dbHandle = createApiDatabase(env.appDatabaseUrl);
@@ -191,17 +199,26 @@ const server = serve(
 );
 
 // Background jobs (pg-boss). Our first and only scheduled job is the
-// recurring-invoice sweep. pg-boss owns its own `pgboss` schema and needs DDL,
-// so it connects on the superuser DATABASE_URL (not the thalermark_app runtime
-// role). The sweep scans all tenants via the bootstrap handle, then generates
-// each schedule inside its own tenant context. A scheduler failure is logged
-// but does NOT take the HTTP server down — recurring billing degrades, the
-// rest of the app serves. Lives only here (not in createApp), so the
+// recurring-invoice sweep. pg-boss owns its own `pgboss` schema and manages the
+// queue tables there; it connects on pgBossDatabaseUrl — the dedicated,
+// least-privilege thalermark_pgboss role (migration 0052) when configured, the
+// superuser fallback otherwise. createSchema:false because the migration already
+// created the schema (owned by the role), so the role needs no CREATE-on-database
+// privilege. The sweep itself scans all tenants via the bootstrap handle, then
+// generates each schedule inside its own tenant context. A scheduler failure is
+// logged but does NOT take the HTTP server down — recurring billing degrades,
+// the rest of the app serves. Lives only here (not in createApp), so the
 // integration-test suite never boots pg-boss.
 const SWEEP_QUEUE = 'recurring-invoice-sweep';
 let boss: PgBoss | null = null;
 try {
-  boss = new PgBoss({ connectionString: env.databaseUrl });
+  boss = new PgBoss({
+    // loadEnv already falls back to databaseUrl; repeat it here so the type's
+    // optional pgBossDatabaseUrl can't slip through as undefined.
+    connectionString: env.pgBossDatabaseUrl ?? env.databaseUrl,
+    schema: 'pgboss',
+    createSchema: false,
+  });
   boss.on('error', (err: unknown) =>
     log.error('pg-boss error: {msg}', {
       msg: err instanceof Error ? err.message : JSON.stringify(err),
