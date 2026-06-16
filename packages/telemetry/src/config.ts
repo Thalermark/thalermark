@@ -37,3 +37,13 @@ function parsePositiveInt(raw: string | undefined, fallback: number): number {
   const n = Number.parseInt(raw, 10);
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
+
+// Hard kill switch independent of the transport keys. When TELEMETRY_DISABLED
+// is set, the consent prompt never shows, the settings toggle is hidden, and
+// emit() refuses to stage anything — even for an account whose opt-in flag is
+// somehow still true. Lets a self-host operator forbid telemetry outright (the
+// TELEMETRY_DISABLED contract documented in TELEMETRY.md), distinct from the
+// deployment transport switch which only governs whether staged events leave.
+export function isTelemetryDisabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.TELEMETRY_DISABLED === 'true';
+}

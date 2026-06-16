@@ -8,11 +8,15 @@ import { v7 as uuidv7 } from 'uuid';
 // cannot be correlated with any pre-opt-out history. Opt-out purges the
 // staging queue immediately — events accumulated under the prior install_id
 // must never be sent.
+//
+// Both stamp `telemetry_decided_at`: the operator answered the first-run
+// prompt (either way), so it never reappears regardless of the enabled value.
 
 export async function enableTelemetry(tx: Transaction): Promise<void> {
   await tx.update(accounts).set({
     telemetryEnabled: true,
     telemetryInstallId: uuidv7(),
+    telemetryDecidedAt: new Date(),
   });
 }
 
@@ -21,5 +25,6 @@ export async function disableTelemetry(tx: Transaction): Promise<void> {
   await tx.update(accounts).set({
     telemetryEnabled: false,
     telemetryInstallId: null,
+    telemetryDecidedAt: new Date(),
   });
 }
