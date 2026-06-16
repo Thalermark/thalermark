@@ -24,6 +24,17 @@ export type Env = {
   // When set, server.ts runs `ALTER ROLE thalermark_app WITH LOGIN PASSWORD`
   // at boot. Leave blank if the role is provisioned out-of-band.
   appRolePassword: string | undefined;
+  // Connection for the pg-boss background-job queue. Points at the dedicated,
+  // least-privilege thalermark_pgboss role (migration 0052) so the job runner no
+  // longer holds superuser creds at runtime. loadEnv falls back to databaseUrl
+  // when PGBOSS_DATABASE_URL is unset, preserving the old single-superuser
+  // behaviour. Optional on the type so test/embedder Env literals needn't list
+  // it (server.ts re-applies the databaseUrl fallback for safety).
+  pgBossDatabaseUrl?: string;
+  // When set, server.ts runs `ALTER ROLE thalermark_pgboss WITH LOGIN PASSWORD`
+  // at boot (mirrors appRolePassword). Leave blank if provisioned out-of-band or
+  // when pg-boss still uses the superuser fallback. Optional on the type as above.
+  pgBossRolePassword?: string;
   migrateOnBoot: boolean;
   betterAuthSecret: string;
   betterAuthUrl: string;
@@ -99,6 +110,8 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     databaseUrl,
     appDatabaseUrl,
     appRolePassword: source.THALERMARK_APP_PASSWORD || undefined,
+    pgBossDatabaseUrl: source.PGBOSS_DATABASE_URL || databaseUrl,
+    pgBossRolePassword: source.THALERMARK_PGBOSS_PASSWORD || undefined,
     migrateOnBoot: parseBool(source.MIGRATE_ON_BOOT),
     betterAuthSecret,
     betterAuthUrl,
