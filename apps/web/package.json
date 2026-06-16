@@ -22,7 +22,7 @@
     "@sentry/sveltekit": "10.55.0",
     "@stripe/stripe-js": "9.7.0",
     "better-auth": "1.6.13",
-    "hono": "4.12.23"
+    "hono": "4.12.25"
   },
   "devDependencies": {
     "@sveltejs/adapter-node": "5.5.4",
