@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
+import * as Sentry from '@sentry/node';
 import {
   CASH_FLOW_NUDGE_VERSION,
   type CashFlowAdvisor,
@@ -34,6 +35,7 @@ import {
   taxPolicies,
 } from '@thalermark/db';
 import type { AddressAutocompleteProvider, AddressSuggestion } from '@thalermark/location';
+import { getLogger } from '@thalermark/logger';
 import { type StorageProvider, readLocalObject, verifyFileToken } from '@thalermark/storage';
 import {
   disableTelemetry,
@@ -91,6 +93,7 @@ import {
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { cors } from 'hono/cors';
+import { HTTPException } from 'hono/http-exception';
 import { validator } from 'hono/validator';
 import { v7 as uuidv7 } from 'uuid';
 import type { ApiAuth } from './lib/auth.js';
@@ -117,6 +120,8 @@ import { sendStatementEmail } from './lib/statement-email.js';
 import { type StripeBundle, decimalDollarsToCents } from './lib/stripe.js';
 import { requireCapability } from './middleware/authz.js';
 import { type RlsVariables, rlsContext } from './middleware/rls-context.js';
+
+const log = getLogger(['api', 'app']);
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -806,6 +811,22 @@ export function createApp(deps: AppDeps) {
   const bootstrapDb = deps.bootstrapDb ?? deps.db;
   return (
     new Hono<{ Variables: RlsVariables }>()
+      // Bridge thrown handler/middleware errors into error tracking. Hono catches
+      // exceptions raised inside route handlers and turns them into a 500, so Node
+      // never sees them as "uncaught" — Sentry's global hooks (armed in server.ts)
+      // would miss exactly the handled 500s we most want. Capture here, then return
+      // the API's JSON error shape. Sentry.captureException is a no-op when the DSN
+      // is unset (uninitialised), so this is safe on self-host. HTTPExceptions carry
+      // their own intended response (e.g. a framework 4xx) and are not server faults,
+      // so pass them straight through without capturing.
+      .onError((err, c) => {
+        if (err instanceof HTTPException) return err.getResponse();
+        Sentry.captureException(err);
+        log.error('unhandled request error: {msg}', {
+          msg: err instanceof Error ? err.message : String(err),
+        });
+        return c.json({ error: 'internal_server_error' }, 500);
+      })
       .get('/health', (c) => c.json({ status: 'ok' }))
       .use(
         '/api/*',
