@@ -156,7 +156,11 @@
 
 <!-- Hidden during an invite flow: invites are email-anchored, so a mismatched
      social account would create a stray account instead of joining. -->
-<SocialSignIn providers={inviteToken ? [] : (page.data.socialProviders ?? [])} callbackPath="/" />
+<SocialSignIn
+  providers={inviteToken ? [] : (page.data.socialProviders ?? [])}
+  callbackPath="/"
+  lastUsed={inviteToken ? null : (page.data.lastAuthMethod ?? null)}
+/>
 
 <p class="mt-8 text-center text-sm text-fg/70">
   Already have an account?

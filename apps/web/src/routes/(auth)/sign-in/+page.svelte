@@ -18,6 +18,44 @@
   );
   const signUpHref = $derived(inviteToken ? `/sign-up?invite=${encodeURIComponent(inviteToken)}` : '/sign-up');
 
+  // Social providers the api advertises (already public via the rendered
+  // buttons) + this device's last-used method (a local, leak-free cookie read
+  // server-side in the (auth) load).
+  const socialProviders = $derived((page.data.socialProviders ?? []) as string[]);
+  const lastAuthMethod = $derived((page.data.lastAuthMethod ?? null) as string | null);
+
+  const PROVIDER_LABELS: Record<string, string> = {
+    google: 'Google',
+    facebook: 'Facebook',
+    twitter: 'X',
+  };
+
+  // Option B wrong-method rescue: on ANY failed login, nudge users who signed up
+  // with a social provider toward the buttons below. Deliberately UNCONDITIONAL
+  // w.r.t. the entered email (no email→provider lookup) so it can't leak whether
+  // an account exists or which provider it uses. Hidden when no social providers
+  // are configured, and suppressed when this device last signed in with a
+  // password (a device-local signal that leaks nothing remotely).
+  const showMethodHint = $derived(
+    !!error && socialProviders.length > 0 && lastAuthMethod !== 'password',
+  );
+  const methodHintText = $derived(joinOr(socialProviders.map((p) => PROVIDER_LABELS[p] ?? p)));
+
+  // Oxford-style "A, B, or C".
+  function joinOr(names: string[]): string {
+    if (names.length <= 1) return names[0] ?? '';
+    if (names.length === 2) return `${names[0]} or ${names[1]}`;
+    return `${names.slice(0, -1).join(', ')}, or ${names.at(-1)}`;
+  }
+
+  // Remember this device's last sign-in method (provider id or 'password') so the
+  // next visit can badge the right button and suppress the wrong-method hint.
+  // Only the method string is stored — nothing identifying. Read back
+  // server-side in the (auth) layout load.
+  function rememberMethod(method: string) {
+    document.cookie = `last_auth_method=${method}; path=/; max-age=31536000; samesite=lax`;
+  }
+
   async function onSubmit(event: SubmitEvent) {
     event.preventDefault();
     error = null;
@@ -37,6 +75,7 @@
       error = msg;
       return;
     }
+    rememberMethod('password');
     // Hard nav: forces hooks.server.ts to re-run membership routing on a
     // fresh request. goto() + invalidateAll() leaves stale layout data.
     window.location.assign(postAuthPath);
@@ -73,6 +112,11 @@
   </div>
   {#if error}
     <p class="label text-danger">{error}</p>
+    {#if showMethodHint}
+      <p class="text-sm text-fg/60">
+        Signed up with {methodHintText}? Use the button{socialProviders.length > 1 ? 's' : ''} below.
+      </p>
+    {/if}
   {/if}
   {#if needsVerification}
     <div class="callout">
@@ -100,6 +144,7 @@
 <SocialSignIn
   providers={inviteToken ? [] : (page.data.socialProviders ?? [])}
   callbackPath={postAuthPath}
+  lastUsed={inviteToken ? null : lastAuthMethod}
 />
 
 <p class="mt-8 text-center text-sm text-fg/70">

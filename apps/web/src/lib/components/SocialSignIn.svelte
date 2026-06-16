@@ -7,8 +7,14 @@
   // bounce lands on the app (not the api origin) in dev where they differ; in
   // prod they're one origin behind Caddy. Better Auth validates the URL against
   // the api's TRUSTED_ORIGINS, where the web origin is already allow-listed.
-  let { providers = [], callbackPath = '/' }: { providers?: string[]; callbackPath?: string } =
-    $props();
+  // lastUsed: this device's last sign-in method (provider id), read from a local
+  // cookie server-side. The matching button gets a "Last used" badge — a
+  // non-authoritative hint, never a reorder (the ORDER below stays fixed).
+  let {
+    providers = [],
+    callbackPath = '/',
+    lastUsed = null,
+  }: { providers?: string[]; callbackPath?: string; lastUsed?: string | null } = $props();
 
   // Render order is fixed here (not the api's array order) so the buttons are
   // stable. Only ids present in `providers` are shown.
@@ -25,6 +31,11 @@
 
   async function signIn(provider: Provider) {
     submitting = true;
+    // Remember this device's last method so the next visit badges this button
+    // (and the sign-in page suppresses its wrong-method hint). Stores only the
+    // provider id — nothing identifying. Set just before the redirect so it
+    // persists across the OAuth bounce.
+    document.cookie = `last_auth_method=${provider}; path=/; max-age=31536000; samesite=lax`;
     // Full-page redirect to the provider; on success Better Auth bounces to
     // callbackURL. The await usually doesn't resolve (page navigates away).
     await authClient.signIn.social({
@@ -84,10 +95,17 @@
         type="button"
         onclick={() => signIn(provider)}
         disabled={submitting}
-        class="flex w-full items-center justify-center gap-3 rounded-sm border border-fg/25 bg-surface px-3 py-3 text-sm font-medium text-fg transition-colors hover:border-fg disabled:opacity-50"
+        class="relative flex w-full items-center justify-center gap-3 rounded-sm border border-fg/25 bg-surface px-3 py-3 text-sm font-medium text-fg transition-colors hover:border-fg disabled:opacity-50"
       >
         {@render icon(provider)}
         {LABELS[provider]}
+        {#if provider === lastUsed}
+          <span
+            class="absolute right-3 rounded-full bg-fg/10 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-fg/55"
+          >
+            Last used
+          </span>
+        {/if}
       </button>
     {/each}
   </div>
