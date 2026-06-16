@@ -46,6 +46,7 @@ export function createApiAuth(db: Database, env: Env, mailer?: Mailer) {
     secret: env.betterAuthSecret,
     baseURL: env.betterAuthUrl,
     trustedOrigins: env.trustedOrigins,
+    rateLimitEnabled: env.rateLimitEnabled,
     ...socialCreds(env),
     // Require email verification when there's a real way to deliver the email,
     // so a self-host install without a mailer isn't locked out. Default = on iff

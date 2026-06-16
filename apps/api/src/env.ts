@@ -43,6 +43,11 @@ export type Env = {
   // VERIFICATION=true to force it (e.g. dev testing with the console mailer, or
   // a self-host using SMTP). Tri-state: undefined means "use the default".
   requireEmailVerification?: boolean;
+  // Turn Better Auth's login/credential rate limiting on. Defaults to on in
+  // production and off everywhere else; RATE_LIMIT_ENABLED overrides either way
+  // (e.g. =true to exercise it locally). loadEnv resolves it to a concrete bool;
+  // optional on the type only so test/embedder Env literals needn't list it.
+  rateLimitEnabled?: boolean;
   trustedOrigins: string[];
   publicAppUrl: string;
   // Email transport. When resendApiKey is set, server.ts wires the Resend
@@ -107,6 +112,10 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
       source.REQUIRE_EMAIL_VERIFICATION === undefined
         ? undefined
         : parseBool(source.REQUIRE_EMAIL_VERIFICATION),
+    rateLimitEnabled:
+      source.RATE_LIMIT_ENABLED === undefined
+        ? nodeEnv === 'production'
+        : parseBool(source.RATE_LIMIT_ENABLED),
     trustedOrigins: parseOrigins(source.TRUSTED_ORIGINS),
     publicAppUrl: source.PUBLIC_APP_URL ?? '',
     resendApiKey: source.RESEND_API_KEY || undefined,

@@ -3,6 +3,7 @@ import type { Database } from '@thalermark/db';
 import {
   accounts,
   authAccount,
+  authRateLimit,
   authSession,
   authUser,
   authVerification,
@@ -62,6 +63,12 @@ export type CreateAuthOptions = {
     user: { email: string; name?: string | null };
     token: string;
   }) => Promise<void>;
+  // Turn on Better Auth's built-in request rate limiting. Off by default (and in
+  // dev/test, so the integration suite isn't throttled); the api enables it in
+  // production. Counters live in the auth_rate_limit table (storage:'database')
+  // so they survive restarts with no second datastore. The per-path ceilings are
+  // fixed in the rateLimit config below — this flag only gates the whole thing.
+  rateLimitEnabled?: boolean;
 };
 
 // Wires Better Auth to our auth_* Drizzle tables. Email/password ON; the
@@ -93,8 +100,27 @@ export function createAuth(db: Database, options: CreateAuthOptions) {
         session: authSession,
         account: authAccount,
         verification: authVerification,
+        rateLimit: authRateLimit,
       },
     }),
+    // Brute-force / password-spray backoff. Enabled only in production (the api
+    // gates it); when off, Better Auth skips the limiter entirely. The baseline
+    // (BA's default ~100 req / 10s per IP+path) is generous enough for normal
+    // auth traffic — get-session polls, social callbacks — while customRules
+    // clamp the credential-guessing endpoints hard. Keying is per IP + path, so
+    // a cooldown never locks a *named* user out (anti-DoS): the bare email is
+    // never part of the key, and password reset is the escape hatch. Counters
+    // persist in auth_rate_limit (storage:'database').
+    rateLimit: {
+      enabled: options.rateLimitEnabled ?? false,
+      storage: 'database',
+      customRules: {
+        '/sign-in/email': { window: 60, max: 10 },
+        '/sign-up/email': { window: 60, max: 10 },
+        '/request-password-reset': { window: 3600, max: 5 },
+        '/reset-password': { window: 3600, max: 10 },
+      },
+    },
     emailAndPassword: {
       enabled: true,
       requireEmailVerification: options.requireEmailVerification ?? false,

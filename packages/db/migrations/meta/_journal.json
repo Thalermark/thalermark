@@ -351,6 +351,13 @@
       "when": 1781537298169,
       "tag": "0049_supreme_black_knight",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1781576323935,
+      "tag": "0050_even_ego",
+      "breakpoints": true
     }
   ]
 }
