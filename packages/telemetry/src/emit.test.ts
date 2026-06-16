@@ -1,7 +1,7 @@
 import { accounts, telemetryEvents, withAccountContext } from '@thalermark/db';
 import { eq } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getAppDb, getTestDb, resetDb } from '../tests/db-test-helper.js';
 import { emit } from './emit.js';
 import type { Event, EventName } from './events.js';
@@ -89,6 +89,20 @@ describe('emit — opt-in gating', () => {
     expect(rows).toEqual([]);
   });
 
+  it('is a no-op when TELEMETRY_DISABLED is set, even for an opted-in account', async () => {
+    await seedAccount({ telemetryEnabled: true });
+    vi.stubEnv('TELEMETRY_DISABLED', 'true');
+    try {
+      await withAccountContext(getAppDb(), { accountId }, async (tx) => {
+        await emit(tx, { name: 'invoice_created', line_item_count: 3 });
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    const rows = await getTestDb().select().from(telemetryEvents);
+    expect(rows).toEqual([]);
+  });
+
   it('round-trips every event variant through jsonb without loss', async () => {
     await seedAccount({ telemetryEnabled: true });
     await withAccountContext(getAppDb(), { accountId }, async (tx) => {
@@ -145,6 +159,30 @@ describe('enableTelemetry / disableTelemetry', () => {
 
     expect(secondId).toBeTruthy();
     expect(secondId).not.toBe(firstId);
+  });
+
+  it('enable and disable both stamp telemetry_decided_at (first-run prompt fires once)', async () => {
+    await seedAccount();
+    const decidedAt = async () =>
+      (
+        await getTestDb()
+          .select({ d: accounts.telemetryDecidedAt })
+          .from(accounts)
+          .where(eq(accounts.id, accountId))
+      )[0]?.d ?? null;
+
+    expect(await decidedAt()).toBeNull();
+
+    await withAccountContext(getAppDb(), { accountId }, async (tx) => {
+      await enableTelemetry(tx);
+    });
+    expect(await decidedAt()).toBeInstanceOf(Date);
+
+    await withAccountContext(getAppDb(), { accountId }, async (tx) => {
+      await disableTelemetry(tx);
+    });
+    // Still decided after opting back out — the prompt must not reappear.
+    expect(await decidedAt()).toBeInstanceOf(Date);
   });
 
   it('disable purges the staging queue and clears opt-in state', async () => {

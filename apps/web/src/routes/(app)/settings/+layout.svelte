@@ -22,6 +22,7 @@
     { href: '/settings/team', label: 'Team' },
     { href: '/settings/payments', label: 'Payments', cap: 'settings:manage' },
     { href: '/settings/email', label: 'Email', cap: 'settings:manage' },
+    { href: '/settings/privacy', label: 'Privacy', cap: 'settings:manage' },
   ];
   const visibleTabs = $derived(TABS.filter((t) => !t.cap || may(page.data.role, t.cap)));
 

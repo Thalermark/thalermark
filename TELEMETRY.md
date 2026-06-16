@@ -38,7 +38,7 @@ On first run, users are presented with the following prompt — not pre-checked,
 >
 > [**Yes, help improve the product**] [**No thanks**]
 
-Opting out dismisses the prompt permanently. The preference is stored locally and respected immediately.
+Answering the prompt either way records the decision (`accounts.telemetry_decided_at`), so it appears exactly once and never nags. The preference is stored locally and respected immediately, and can be changed any time under Settings → Privacy. Because consent is account-wide, the prompt and the toggle are shown to workspace owners/admins (the `settings:manage` capability); other members are never prompted.
 
 ---
 
@@ -67,17 +67,19 @@ Self-hosted installs with the environment variable set will never prompt and wil
 
 All events are anonymous and aggregated. No event contains personal, financial, or identifying information.
 
+**Collection status (current release).** Events raised by a server-side action are wired and stage locally the moment an account opts in: the **Feature Usage** events (invoice/estimate/customer/company creation, sends, mark-paid) and `expense_categorised`. The events that can only originate in the client — **Session**, **Performance**, **Flow Completion**, `report_viewed`, and the **AI** view/dismiss/query/suggestion events — are documented here but **not yet collected**; they arrive with the client-ingest pipeline in a later release. Regardless of wiring, nothing leaves the host until a deployment sets `TELEMETRY_TRANSPORT_ENABLED` and `TELEMETRY_ENDPOINT_URL` (see `.env.example`).
+
 ### Installation & Identity
 
 | Field | Value | Purpose |
 |---|---|---|
-| `install_id` | Random UUID generated at install time | Distinguish unique installs without identifying users |
+| `install_id` | Random UUID, one per account | Distinguish participating accounts without identifying users |
 | `product_version` | e.g. `0.4.2` | Understand adoption of releases |
 | `deployment_type` | `cloud` or `self-hosted` | Understand split between hosting models |
 | `os_platform` | `linux`, `macos`, `windows` | Platform support prioritisation |
 | `node_version` | e.g. `20.11.0` | Runtime compatibility decisions |
 
-The `install_id` is a random UUID with no connection to user identity. It resets if the application is reinstalled.
+The `install_id` is a random UUID with no connection to user identity. In this implementation it is stored per account (`accounts.telemetry_install_id`) and is regenerated every time an account opts in, so events can never be correlated across an opt-out/opt-in boundary — nor back to a real account row without database access.
 
 ---
 
@@ -187,8 +189,9 @@ Reports include active install counts, most/least used features, onboarding comp
 ## Auditing the Code
 
 - **Telemetry module:** `packages/telemetry/`
-- **Event definitions:** `packages/telemetry/events.ts`
-- **Transmission code:** `packages/telemetry/client.ts`
+- **Event definitions:** `packages/telemetry/src/events.ts`
+- **Local staging (opt-in gate):** `packages/telemetry/src/emit.ts` + `opt-in.ts`
+- **Transmission code:** `packages/telemetry/src/flush.ts` (HMAC signing in `sign.ts`)
 
 Discrepancies between this document and the code are treated as critical bugs. Please open a GitHub issue immediately if you find one.
 

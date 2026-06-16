@@ -1,0 +1,1 @@
+ALTER TABLE "accounts" ADD COLUMN "telemetry_decided_at" timestamp with time zone;

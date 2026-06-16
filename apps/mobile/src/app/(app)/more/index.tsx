@@ -27,6 +27,7 @@ type Entry = {
     | '/more/business'
     | '/more/payments'
     | '/more/email'
+    | '/more/privacy'
     | '/more/tax-policies';
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
@@ -115,6 +116,12 @@ const SETTINGS_ENTRIES: Entry[] = [
     icon: 'mail-outline',
     title: 'Email',
     subtitle: 'Set the reply-to address on the email your customers receive.',
+  },
+  {
+    href: '/more/privacy',
+    icon: 'shield-checkmark-outline',
+    title: 'Privacy',
+    subtitle: 'Choose whether to share anonymous usage data.',
   },
 ];
 

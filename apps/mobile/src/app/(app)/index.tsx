@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { pickActiveCompany } from '../../lib/active-company';
 import { api } from '../../lib/api';
 import { signOut } from '../../lib/auth-client';
+import { useMay } from '../../lib/role';
 
 // Position dashboard + AI insights (mirror of apps/web's (app)/+page.svelte).
 // Replaces the Phase-6 shell placeholder. Money figures are decimal strings
@@ -48,6 +49,12 @@ export default function Home() {
   const [nudges, setNudges] = useState<Nudge[]>([]);
   const [nudgesLoading, setNudgesLoading] = useState(false);
   const [pendingInvites, setPendingInvites] = useState(0);
+  // First-run telemetry consent (TELEMETRY.md). Account-wide, so only the
+  // settings:manage roles are asked; others never see it. `consentNeeded` flips
+  // off the moment they answer (locally) or once the account has decided.
+  const canManageSettings = useMay('settings:manage');
+  const [consentNeeded, setConsentNeeded] = useState(false);
+  const [consentBusy, setConsentBusy] = useState(false);
 
   // Resolve the active company once on focus (Home is the first authed screen),
   // plus any pending workspace invitations for the notice below.
@@ -77,10 +84,24 @@ export default function Home() {
         })
         .catch(() => {});
 
+      // First-run telemetry consent. Gated settings:manage on the API, so only
+      // ask roles that can actually decide; show the prompt until the account
+      // has answered and the deployment hasn't disabled telemetry.
+      if (canManageSettings) {
+        api.api.account.telemetry
+          .$get()
+          .then(async (res) => {
+            if (!active || !res.ok) return;
+            const t = await res.json();
+            setConsentNeeded(!t.decided && !t.disabled);
+          })
+          .catch(() => {});
+      }
+
       return () => {
         active = false;
       };
-    }, []),
+    }, [canManageSettings]),
   );
 
   // Position + insights, re-fetched when the company or period changes.
@@ -136,6 +157,20 @@ export default function Home() {
     router.replace('/sign-in');
   }
 
+  // Answer the first-run consent prompt. Either choice stamps decided
+  // server-side; dismiss locally on success so the card disappears at once.
+  async function onAnswerConsent(enabled: boolean) {
+    setConsentBusy(true);
+    try {
+      const res = await api.api.account.telemetry.$patch({ json: { enabled } });
+      if (res.ok) setConsentNeeded(false);
+    } catch {
+      // Leave the prompt up; they can retry or use Settings → Privacy.
+    } finally {
+      setConsentBusy(false);
+    }
+  }
+
   return (
     <SafeAreaView className="flex-1 bg-cream" edges={['top']}>
       <ScrollView contentContainerClassName="px-6 pt-6 pb-16">
@@ -167,6 +202,34 @@ export default function Home() {
               Review →
             </Text>
           </Pressable>
+        ) : null}
+
+        {/* First-run telemetry consent */}
+        {consentNeeded ? (
+          <View className="mt-6 rounded-sm border border-gold-deep/30 bg-gold-deep/5 px-4 py-4">
+            <Text className="font-serif text-base text-ink">Help us build a better product</Text>
+            <Text className="mt-1 text-sm text-ink/70">
+              We'd like to collect anonymous usage data — which features you use and where errors
+              occur. We never collect personal or financial information. You can change this any
+              time in More → Privacy.
+            </Text>
+            <View className="mt-4 flex-row gap-3">
+              <Pressable
+                onPress={() => onAnswerConsent(true)}
+                disabled={consentBusy}
+                className="rounded-sm bg-ink px-4 py-2 active:bg-gold-deep disabled:opacity-50"
+              >
+                <Text className="text-sm font-medium text-cream">Yes, help</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => onAnswerConsent(false)}
+                disabled={consentBusy}
+                className="rounded-sm border border-ink/20 px-4 py-2 active:bg-cream disabled:opacity-50"
+              >
+                <Text className="text-sm font-medium text-ink">No thanks</Text>
+              </Pressable>
+            </View>
+          </View>
         ) : null}
 
         {/* Period selector */}

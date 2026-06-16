@@ -35,7 +35,12 @@ import {
 } from '@thalermark/db';
 import type { AddressAutocompleteProvider, AddressSuggestion } from '@thalermark/location';
 import { type StorageProvider, readLocalObject, verifyFileToken } from '@thalermark/storage';
-import { emit } from '@thalermark/telemetry';
+import {
+  disableTelemetry,
+  emit,
+  enableTelemetry,
+  isTelemetryDisabled,
+} from '@thalermark/telemetry';
 import {
   EMAIL_TEMPLATE_PLACEHOLDERS,
   EMAIL_TEMPLATE_TYPES,
@@ -63,6 +68,7 @@ import {
   recurringInvoiceUpdateSchema,
   taxPolicyCreateSchema,
   taxPolicyUpdateSchema,
+  telemetryUpdateSchema,
   unknownPlaceholders,
 } from '@thalermark/validation';
 import {
@@ -398,6 +404,15 @@ async function transitionInvoice(
     companyId: updated.companyId,
     postedAt: effectiveAt,
   });
+
+  // Telemetry (opt-in; no-op unless the account enabled it). mark-sent here is
+  // the "share a link" delivery; the /send route emits invoice_sent{email}
+  // separately for the email path. void emits nothing (TELEMETRY.md).
+  if (key === 'mark-sent') {
+    await emit(tx, { name: 'invoice_sent', delivery_method: 'link' });
+  } else if (key === 'mark-paid') {
+    await emit(tx, { name: 'invoice_marked_paid' });
+  }
 
   return c.json(updated);
 }
@@ -882,6 +897,42 @@ export function createApp(deps: AppDeps) {
           })),
         });
       })
+      // Per-account telemetry consent (TELEMETRY.md). Account-wide opt-in, so
+      // gated settings:manage like the rest of account config. `decided` drives
+      // the first-run prompt (false → show it); `disabled` reflects the
+      // deployment-wide TELEMETRY_DISABLED kill switch, which forces off and
+      // hides the toggle entirely. Reads the single account row under RLS.
+      .get('/api/account/telemetry', requireCapability('settings:manage'), async (c) => {
+        const tx = c.get('tx');
+        const [row] = await tx
+          .select({
+            enabled: accounts.telemetryEnabled,
+            decidedAt: accounts.telemetryDecidedAt,
+          })
+          .from(accounts)
+          .limit(1);
+        return c.json({
+          enabled: row?.enabled ?? false,
+          decided: row?.decidedAt != null,
+          disabled: isTelemetryDisabled(),
+        });
+      })
+      .patch('/api/account/telemetry', requireCapability('settings:manage'), async (c) => {
+        const parsed = telemetryUpdateSchema.safeParse(await c.req.json().catch(() => null));
+        if (!parsed.success) {
+          return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+        }
+        const tx = c.get('tx');
+        // A deployment that forbids telemetry can't be opted into — collapse any
+        // enable request to a decided opt-out so the prompt still stops, but no
+        // collection is ever armed.
+        if (isTelemetryDisabled() || !parsed.data.enabled) {
+          await disableTelemetry(tx);
+          return c.json({ enabled: false, decided: true, disabled: isTelemetryDisabled() });
+        }
+        await enableTelemetry(tx);
+        return c.json({ enabled: true, decided: true, disabled: false });
+      })
       // Address type-ahead for the mobile customer form. The web client hits its
       // own same-origin SvelteKit proxy (/locations/autocomplete); mobile talks
       // to the api, so it needs this route. Account-agnostic (in the rls-context
@@ -1348,6 +1399,11 @@ export function createApp(deps: AppDeps) {
             after: { name, businessType },
             companyId: id,
           });
+
+          // Telemetry (opt-in; no-op unless the account enabled it). Only the
+          // explicit multi-company create counts; the signup-seeded first
+          // company predates any opt-in so it never reaches here.
+          await emit(tx, { name: 'company_created' });
 
           // Same projection as GET /api/companies rows, so the web can switch to
           // the new company and slot it into the list without a refetch.
@@ -3126,6 +3182,10 @@ export function createApp(deps: AppDeps) {
           companyId: parsed.data.companyId,
         });
 
+        // Telemetry (opt-in; no-op unless the account enabled it). "Client" is
+        // the TELEMETRY.md term for what the app calls a customer.
+        await emit(tx, { name: 'client_created' });
+
         return c.json(row, 201);
       })
       .get('/api/customers', async (c) => {
@@ -3779,6 +3839,10 @@ export function createApp(deps: AppDeps) {
           after: { id: invoiceId, ...parsed.data, ...showFlags },
           companyId,
         });
+
+        // Telemetry (opt-in; no-op unless the account enabled it). Count only —
+        // no amounts (TELEMETRY.md).
+        await emit(tx, { name: 'invoice_created', line_item_count: lineItems.length });
 
         return c.json({ id: invoiceId, ...parsed.data, ...showFlags }, 201);
       })
@@ -4618,6 +4682,9 @@ export function createApp(deps: AppDeps) {
           companyId,
         });
 
+        // Telemetry (opt-in; no-op unless the account enabled it).
+        await emit(tx, { name: 'estimate_created' });
+
         return c.json({ id: estimateId, ...parsed.data, ...showFlags }, 201);
       })
       // Duplicate-as-template (mirrors the invoice route): clone any estimate
@@ -5135,6 +5202,10 @@ export function createApp(deps: AppDeps) {
           companyId: estimate.companyId,
         });
 
+        // Telemetry (opt-in; no-op unless the account enabled it). Reached only
+        // on the real conversion — the idempotent re-call returns early above.
+        await emit(tx, { name: 'estimate_converted' });
+
         return c.json({ id: invoiceId }, 201);
       })
       // ---- Expenses (slice 8.9c) ----------------------------------------
@@ -5226,6 +5297,15 @@ export function createApp(deps: AppDeps) {
           accountId,
           companyId,
           postedAt: expenseDateToPostedAt(rest.expenseDate),
+        });
+
+        // Telemetry (opt-in; no-op unless the account enabled it). Read off the
+        // created row, not a literal — today receipts attach via a follow-up
+        // /:id/receipt upload so this is ~always false, but it stays correct if
+        // the create flow ever carries a receipt inline. No amounts (TELEMETRY.md).
+        await emit(tx, {
+          name: 'expense_logged',
+          has_receipt_attached: !!created?.receiptStorageKey,
         });
 
         return c.json(created, 201);
@@ -5946,6 +6026,14 @@ export function createApp(deps: AppDeps) {
             after: { to, subject },
             companyId: invoice.companyId,
           });
+
+          // Telemetry (opt-in; no-op unless the account enabled it). Only the
+          // first delivery counts — a resend (status was already 'sent') doesn't
+          // re-emit, so each invoice yields one invoice_sent tagged with the
+          // method that first delivered it (TELEMETRY.md).
+          if (current.status === 'draft') {
+            await emit(tx, { name: 'invoice_sent', delivery_method: 'email' });
+          }
 
           return c.json({ ...invoice, sentTo: to });
         },
