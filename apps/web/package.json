@@ -19,6 +19,7 @@
     "@thalermark/brand": "workspace:*",
     "@thalermark/location": "workspace:*",
     "@thalermark/validation": "workspace:*",
+    "@sentry/sveltekit": "10.55.0",
     "@stripe/stripe-js": "9.7.0",
     "better-auth": "1.6.13",
     "hono": "4.12.23"
