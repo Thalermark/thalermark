@@ -1,0 +1,76 @@
+name: Images
+
+# Builds the api + web container images.
+#   - pull_request (path-filtered): build only, NO push — catches a broken
+#     Dockerfile (e.g. a new workspace package missing from its COPY list)
+#     before merge, without building on docs/config-only PRs.
+#   - push tag v* / manual dispatch: build AND push to GHCR for deploy.
+on:
+  pull_request:
+    paths:
+      - 'apps/**'
+      - 'packages/**'
+      - '**/Dockerfile'
+      - 'pnpm-lock.yaml'
+      - 'docker/**'
+      - '.github/workflows/images.yml'
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+concurrency:
+  group: images-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      matrix:
+        app: [api, web]
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      # Registry creds are only needed when we actually push (tag / dispatch).
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          # GHCR paths must be lowercase; the org is "Thalermark".
+          images: ghcr.io/thalermark/thalermark-${{ matrix.app }}
+          tags: |
+            type=ref,event=tag
+            type=sha
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/${{ matrix.app }}/Dockerfile
+          # PR = validate only; tag/manual = publish.
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # DO/Hetzner droplets are x86; single-arch halves build time.
+          platforms: linux/amd64
+          # Distinct scope per image — a shared gha cache namespace would let
+          # the api and web legs clobber each other and tank the hit rate.
+          cache-from: type=gha,scope=${{ matrix.app }}
+          cache-to: type=gha,scope=${{ matrix.app }},mode=max

@@ -30,9 +30,11 @@ services:
       retries: 5
 
   api:
-    build:
-      context: ..
-      dockerfile: apps/api/Dockerfile
+    # Prebuilt image from GHCR (published by .github/workflows/images.yml on
+    # tag/manual dispatch). Pin THALERMARK_VERSION to a release tag or SHA in
+    # .env for reproducible deploys; defaults to the latest release. The box
+    # never compiles — see docker-compose.dev.yml to build from source.
+    image: ghcr.io/thalermark/thalermark-api:${THALERMARK_VERSION:-latest}
     restart: unless-stopped
     env_file:
       - ../.env
@@ -78,9 +80,7 @@ services:
         condition: service_healthy
 
   web:
-    build:
-      context: ..
-      dockerfile: apps/web/Dockerfile
+    image: ghcr.io/thalermark/thalermark-web:${THALERMARK_VERSION:-latest}
     restart: unless-stopped
     environment:
       NODE_ENV: production
