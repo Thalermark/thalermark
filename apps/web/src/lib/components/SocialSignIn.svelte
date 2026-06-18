@@ -101,7 +101,7 @@
         {LABELS[provider]}
         {#if provider === lastUsed}
           <span
-            class="absolute right-3 rounded-full bg-fg/10 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-fg/55"
+            class="absolute right-3 rounded-full bg-accent/10 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-accent"
           >
             Last used
           </span>
