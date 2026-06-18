@@ -1,5 +1,20 @@
-# Thalermark — local dev compose
-# Just the backing services. Apps run on the host via `pnpm dev`.
+# Thalermark — local dev compose (full stack)
+#
+# Builds api + web from your working tree and runs the complete stack
+# (postgres + minio + api + web) on your machine. This is the ONLY compose that
+# builds — production (docker-compose.yml) pulls prebuilt GHCR images instead.
+# Use it to verify the real containerized topology before cutting a release.
+#
+#   docker compose -f docker/docker-compose.dev.yml up --build
+#     → web at http://localhost:5173, api at http://localhost:3000
+#
+# Prefer the fast hot-reload loop? Bring up just the backing services and run
+# the apps on the host with `pnpm dev`:
+#   docker compose -f docker/docker-compose.dev.yml up postgres minio
+#
+# No Caddy here — api + web bind host ports directly (matching the `pnpm dev`
+# port layout, so TRUSTED_ORIGINS/cookies behave the same). The same-origin
+# Caddy proxy is exercised by the production compose.
 
 services:
   postgres:
@@ -38,6 +53,75 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # One-shot: create the receipts bucket so STORAGE_DRIVER=s3 works on a fresh
+  # volume. Idempotent (--ignore-existing); exits as soon as it's done.
+  createbuckets:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 thalermark thalermark-dev &&
+      mc mb --ignore-existing local/thalermark
+      "
+
+  api:
+    build:
+      context: ..
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    # Real integration keys (LLM, Stripe, Resend, …) come from your root .env;
+    # host-specific values are overridden below to point at the compose network.
+    env_file:
+      - ../.env
+    environment:
+      NODE_ENV: production
+      # Inside the compose network postgres/minio answer to their service names,
+      # not localhost — override whatever ../.env set for host-side `pnpm dev`.
+      DATABASE_URL: postgres://thalermark:thalermark@postgres:5432/thalermark
+      APP_DATABASE_URL: postgres://thalermark_app:thalermark_app@postgres:5432/thalermark
+      THALERMARK_APP_PASSWORD: thalermark_app
+      PGBOSS_DATABASE_URL: postgres://thalermark_pgboss:thalermark_pgboss@postgres:5432/thalermark
+      THALERMARK_PGBOSS_PASSWORD: thalermark_pgboss
+      MIGRATE_ON_BOOT: "true"
+      BETTER_AUTH_URL: "http://localhost:3000"
+      PUBLIC_APP_URL: "http://localhost:5173"
+      TRUSTED_ORIGINS: "http://localhost:5173,thalermark://"
+      # Receipt storage → the minio service above (createbuckets seeds the bucket).
+      STORAGE_DRIVER: s3
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: auto
+      S3_BUCKET: thalermark
+      S3_ACCESS_KEY_ID: thalermark
+      S3_SECRET_ACCESS_KEY: thalermark-dev
+      S3_FORCE_PATH_STYLE: "true"
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      createbuckets:
+        condition: service_completed_successfully
+
+  web:
+    build:
+      context: ..
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      # Browser hits api directly on its host port; SSR uses the in-network name.
+      PUBLIC_API_URL: "http://localhost:3000"
+      INTERNAL_API_URL: "http://api:3000"
+      LOCATION_PROVIDER: ${LOCATION_PROVIDER:-}
+      MAPBOX_ACCESS_TOKEN: ${MAPBOX_ACCESS_TOKEN:-}
+      NOMINATIM_BASE_URL: ${NOMINATIM_BASE_URL:-}
+    ports:
+      - "5173:3000"
+    depends_on:
+      - api
 
 volumes:
   postgres_dev_data:
