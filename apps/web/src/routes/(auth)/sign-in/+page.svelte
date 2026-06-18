@@ -107,9 +107,6 @@
     <span class="label block">Password</span>
     <input type="password" required bind:value={password} class="field-line mt-2" />
   </label>
-  <div class="flex justify-end">
-    <a href="/forgot-password" class="link text-sm">Forgot password?</a>
-  </div>
   {#if error}
     <p class="label text-danger">{error}</p>
     {#if showMethodHint}
@@ -137,6 +134,9 @@
   <button type="submit" disabled={submitting} class="btn w-full py-3">
     {COPY.signIn.submit}
   </button>
+  <div class="flex justify-end">
+    <a href="/forgot-password" class="link text-sm">Forgot password?</a>
+  </div>
 </form>
 
 <!-- Hidden during an invite flow: invites are email-anchored, so a mismatched
