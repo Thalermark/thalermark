@@ -16,9 +16,15 @@ The 5-line "just try it on localhost" version lives in the
 | Service | Image | Role |
 |---|---|---|
 | `postgres` | `pgvector/pgvector:pg17` | Database (Postgres 17 + pgvector), `postgres_data` volume |
-| `api` | built from `apps/api/Dockerfile` | Hono backend on `:3000`; runs migrations on boot; owns receipt storage (`storage_data` volume) |
-| `web` | built from `apps/web/Dockerfile` | SvelteKit (adapter-node) on `:3000` |
+| `api` | `ghcr.io/thalermark/thalermark-api` | Hono backend on `:3000`; runs migrations on boot; owns receipt storage (`storage_data` volume) |
+| `web` | `ghcr.io/thalermark/thalermark-web` | SvelteKit (adapter-node) on `:3000` |
 | `caddy` | `caddy:2` | TLS termination + same-origin routing; exposes `:80` / `:443` |
+
+The `api` and `web` images are **prebuilt and published to GHCR** by CI; the prod
+compose **pulls** them, so the deploy host never compiles anything. Pin
+`THALERMARK_VERSION` in `.env` to a release tag (or commit SHA) for reproducible
+deploys; left unset it tracks `latest`. To build from source instead (forking /
+customizing), use `docker/docker-compose.dev.yml` — the only compose that builds.
 
 Caddy is the only service with published ports. It routes `/api/*` → `api` and
 everything else → `web`, so the browser only ever talks to your origin (no CORS
@@ -47,10 +53,10 @@ bundle out of the box.
 ```bash
 cp .env.example .env
 # fill in the secrets — see "Production checklist" below
-docker compose --env-file .env -f docker/docker-compose.yml up -d --build
+docker compose --env-file .env -f docker/docker-compose.yml up -d
 ```
 
-Open <https://localhost>. On the default `localhost` host Caddy serves with its
+`up -d` pulls the published GHCR images on first run. Open <https://localhost>. On the default `localhost` host Caddy serves with its
 internal CA, so the browser warns once — accept and proceed. Sign up to create
 the first account (signup seeds an account + a default company + chart of
 accounts).
@@ -75,6 +81,7 @@ up. They are the secrets and the hostname — nothing else is mandatory.
 | `BETTER_AUTH_SECRET` | Signs sessions | `openssl rand -base64 32` |
 | `POSTGRES_PASSWORD` | Bundled-Postgres superuser password | `openssl rand -hex 32` |
 | `THALERMARK_APP_PASSWORD` | Password for the non-superuser `thalermark_app` DB role the api runs as | `openssl rand -hex 32` |
+| `THALERMARK_PGBOSS_PASSWORD` | Password for the least-privilege `thalermark_pgboss` DB role the job runner uses | `openssl rand -hex 32` |
 | `STORAGE_URL_SECRET` | HMAC that signs receipt download links | `openssl rand -hex 32` |
 
 The compose file overrides the dev-oriented values for you (`NODE_ENV=production`,
@@ -85,7 +92,7 @@ Bring it up with a real domain (ports 80/443 must be publicly reachable so
 Caddy can complete the ACME challenge):
 
 ```bash
-docker compose --env-file .env -f docker/docker-compose.yml up -d --build
+docker compose --env-file .env -f docker/docker-compose.yml up -d
 ```
 
 Caddy auto-issues and renews a Let's Encrypt certificate. To get renewal-failure
@@ -266,12 +273,13 @@ docker run --rm -v docker_storage_data:/data -v "$PWD":/out alpine \
 On managed Postgres + S3/R2 you back those up with the provider's tools and the
 volumes above don't apply.
 
-**Upgrades.** Pull/rebuild and recreate; migrations run on boot (or via your
-dedicated migrate step):
+**Upgrades.** Pull the new GHCR images and recreate; migrations run on boot (or
+via your dedicated migrate step). Bump `THALERMARK_VERSION` in `.env` to the
+target release tag first (or leave it unset to track `latest`):
 
 ```bash
-git pull
-docker compose --env-file .env -f docker/docker-compose.yml up -d --build
+docker compose --env-file .env -f docker/docker-compose.yml pull
+docker compose --env-file .env -f docker/docker-compose.yml up -d
 ```
 
 **Logs / health.** `docker compose ... logs -f api`. The api exposes `/health`
@@ -292,9 +300,10 @@ The **runtime** is light: no Chromium/headless browser, the api is a plain Node
 process, and Postgres is the main memory consumer. A small VPS (≈1–2 GB RAM)
 runs the runtime comfortably for a single-tenant or small-team deploy.
 
-The heavy step is the **image build** (installing + compiling the workspace).
-Build on CI or a box with more headroom and deploy the images, rather than
-building on a tiny runtime host.
+Because the prod compose runs **prebuilt GHCR images**, the deploy host never
+compiles anything — image builds (the heavy step: installing + compiling the
+workspace) happen in CI. You only build locally if you fork and customize, via
+`docker/docker-compose.dev.yml` on a box with more headroom.
 
 ---
 
