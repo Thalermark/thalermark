@@ -169,6 +169,16 @@ describe('capability gate — create routes', () => {
     { name: 'POST /api/invoices', path: '/api/invoices', allow: ['owner', 'admin', 'member'] },
     { name: 'POST /api/customers', path: '/api/customers', allow: ['owner', 'admin', 'member'] },
     {
+      name: 'POST /api/customers/import',
+      path: '/api/customers/import',
+      allow: ['owner', 'admin', 'member'],
+    },
+    {
+      name: 'POST /api/items/import',
+      path: '/api/items/import',
+      allow: ['owner', 'admin', 'member'],
+    },
+    {
       name: 'POST /api/expenses',
       path: '/api/expenses',
       allow: ['owner', 'admin', 'member', 'accountant'],

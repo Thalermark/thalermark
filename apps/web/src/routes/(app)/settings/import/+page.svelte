@@ -1,0 +1,320 @@
+<script lang="ts">
+  import { invalidateAll } from '$app/navigation';
+  import { page } from '$app/state';
+  import { enhance } from '$app/forms';
+  import {
+    type ImportEntity,
+    type ImportEntityKey,
+    IMPORT_ENTITIES,
+    autoMap,
+    entityByKey,
+  } from '$lib/import/descriptors';
+  import { may } from '$lib/perms';
+  import Papa from 'papaparse';
+  import type { PageProps } from './$types';
+
+  let { data, form }: PageProps = $props();
+
+  // Only offer entities the role can actually create (the API gate is the real
+  // authority; this just keeps the UI honest).
+  const entities = $derived(IMPORT_ENTITIES.filter((e) => may(page.data.role, e.cap)));
+
+  let entityKey = $state<ImportEntityKey>('customers');
+  const entity = $derived<ImportEntity>(entityByKey(entityKey));
+
+  let fileName = $state('');
+  let headers = $state<string[]>([]);
+  let dataRows = $state<string[][]>([]);
+  let mapping = $state<Record<string, string>>({});
+  let includeDupes = $state(false);
+  let parseError = $state('');
+  let submitting = $state(false);
+  // The action's success result lives on `form` until the next navigation, so a
+  // local flag lets "Import another file" dismiss the result screen and return
+  // to the upload UI. Cleared on each fresh submit so a new result shows.
+  let dismissed = $state(false);
+
+  const showResult = $derived(form?.created !== undefined && !dismissed);
+  const hasFile = $derived(headers.length > 0);
+  const existingSet = $derived(
+    new Set(entityKey === 'customers' ? data.existing.customers : data.existing.items),
+  );
+
+  function reset() {
+    headers = [];
+    dataRows = [];
+    mapping = {};
+    fileName = '';
+    parseError = '';
+    includeDupes = false;
+  }
+
+  function selectEntity(key: ImportEntityKey) {
+    if (key === entityKey) return;
+    entityKey = key;
+    reset();
+  }
+
+  async function onFile(e: Event) {
+    const input = e.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    fileName = file.name;
+    parseError = '';
+    const txt = await file.text();
+    const result = Papa.parse<string[]>(txt, { skipEmptyLines: 'greedy' });
+    const all = result.data.filter((r) => r.some((c) => String(c).trim() !== ''));
+    if (all.length < 2) {
+      headers = [];
+      dataRows = [];
+      mapping = {};
+      parseError = 'The file needs a header row and at least one data row.';
+      return;
+    }
+    headers = all[0].map((h) => String(h).trim());
+    dataRows = all.slice(1);
+    mapping = autoMap(entity, headers);
+  }
+
+  type Preview = {
+    index: number;
+    status: 'ready' | 'duplicate' | 'error';
+    error?: string;
+    value?: Record<string, unknown>;
+  };
+
+  const preview = $derived.by<Preview[]>(() => {
+    const seen = new Set<string>();
+    const out: Preview[] = [];
+    for (let i = 0; i < dataRows.length; i++) {
+      const raw = dataRows[i];
+      const obj: Record<string, unknown> = {};
+      for (const f of entity.fields) {
+        const header = mapping[f.key];
+        if (!header) continue;
+        const col = headers.indexOf(header);
+        const cell = col >= 0 ? (raw[col] ?? '') : '';
+        const coerced = f.coerce(String(cell));
+        if (coerced !== undefined) obj[f.key] = coerced;
+      }
+      const res = entity.validateRow(obj);
+      if (!res.ok) {
+        out.push({ index: i, status: 'error', error: res.error });
+        continue;
+      }
+      const key = entity.dupeKey(res.value);
+      const dupe = key !== null && (existingSet.has(key) || seen.has(key));
+      if (key) seen.add(key);
+      out.push({ index: i, status: dupe ? 'duplicate' : 'ready', value: res.value });
+    }
+    return out;
+  });
+
+  const counts = $derived.by(() => {
+    let ready = 0;
+    let duplicate = 0;
+    let error = 0;
+    for (const r of preview) {
+      if (r.status === 'ready') ready++;
+      else if (r.status === 'duplicate') duplicate++;
+      else error++;
+    }
+    return { ready, duplicate, error };
+  });
+
+  // Rows actually sent: ready always; duplicates only if the user opts in; never
+  // the validation failures.
+  const toImport = $derived(
+    preview
+      .filter((r) => r.status === 'ready' || (includeDupes && r.status === 'duplicate'))
+      .map((r) => r.value as Record<string, unknown>),
+  );
+
+  const nameMapped = $derived(Boolean(mapping.name));
+  const mappedFields = $derived(entity.fields.filter((f) => mapping[f.key]));
+
+  function statusLabel(s: Preview['status']): string {
+    return s === 'ready' ? 'Ready' : s === 'duplicate' ? 'May exist' : 'Error';
+  }
+
+  async function importAnother() {
+    dismissed = true;
+    reset();
+    await invalidateAll();
+  }
+</script>
+
+<span class="eyebrow">Settings</span>
+<h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-fg">
+  Import<span class="text-accent">.</span>
+</h1>
+<p class="mt-3 max-w-prose text-sm text-fg/60">
+  Bring in your existing customers and items from a CSV — a spreadsheet export, or a download from
+  another tool. Upload the file, line up the columns, and review before anything is saved.
+</p>
+
+{#if !data.companyId}
+  <div class="callout mt-8">Pick a company from the switcher before importing.</div>
+{:else if entities.length === 0}
+  <div class="callout mt-8">Your role can't create customers or items, so there's nothing to import.</div>
+{:else if showResult}
+  {@const done = entityByKey((form?.entity as ImportEntityKey) ?? 'customers')}
+  <div class="mt-8 rounded-sm border border-success/30 bg-success/5 px-5 py-4">
+    <p class="text-fg">
+      Imported <strong>{form?.created}</strong>
+      {form?.created === 1 ? done.label.toLowerCase().replace(/s$/, '') : done.label.toLowerCase()}.
+    </p>
+    <div class="mt-4 flex items-center gap-4">
+      <a href={done.href} class="btn">View {done.label.toLowerCase()}</a>
+      <button type="button" class="link text-sm" onclick={importAnother}>Import another file</button>
+    </div>
+  </div>
+{:else}
+  {#if form?.error}
+    <div class="mt-8 rounded-sm border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
+      {form.error}
+    </div>
+  {/if}
+
+  <!-- Entity picker -->
+  <div class="mt-8 flex gap-2">
+    {#each entities as e (e.key)}
+      <button
+        type="button"
+        onclick={() => selectEntity(e.key)}
+        class="rounded-sm border px-4 py-2 text-sm transition-colors {entityKey === e.key
+          ? 'border-accent bg-accent/10 text-fg'
+          : 'border-fg/15 text-fg/60 hover:text-fg'}"
+      >
+        {e.label}
+      </button>
+    {/each}
+  </div>
+
+  <!-- Upload -->
+  <div class="mt-6">
+    <label for="csv" class="label">CSV file</label>
+    <input
+      id="csv"
+      type="file"
+      accept=".csv,text/csv"
+      onchange={onFile}
+      class="mt-1 block w-full text-sm text-fg/70 file:mr-4 file:rounded-sm file:border-0 file:bg-surface-2 file:px-4 file:py-2 file:text-sm file:text-fg hover:file:bg-surface-2/70"
+    />
+    {#if fileName}
+      <p class="mt-1 text-xs text-fg/50">{fileName} — {dataRows.length} row{dataRows.length === 1 ? '' : 's'}</p>
+    {/if}
+    {#if parseError}
+      <p class="mt-1 text-xs text-danger">{parseError}</p>
+    {/if}
+  </div>
+
+  {#if hasFile}
+    <!-- Column mapping -->
+    <section class="mt-10">
+      <h2 class="font-serif text-2xl font-light text-fg">Map columns</h2>
+      <p class="mt-1 text-sm text-fg/60">
+        We matched what we could. Set the rest, or leave a field as “Don't import”.
+      </p>
+      <div class="mt-4 grid gap-3 sm:grid-cols-2">
+        {#each entity.fields as f (f.key)}
+          <div class="flex items-center gap-3">
+            <span class="w-40 shrink-0 text-sm text-fg/70">
+              {f.label}{#if f.required}<span class="text-accent">*</span>{/if}
+            </span>
+            <select bind:value={mapping[f.key]} class="field">
+              <option value="">— Don't import —</option>
+              {#each headers as h (h)}
+                <option value={h}>{h}</option>
+              {/each}
+            </select>
+          </div>
+        {/each}
+      </div>
+      {#if !nameMapped}
+        <p class="mt-3 text-xs text-danger">Map a column to <strong>Name</strong> — it's required.</p>
+      {/if}
+    </section>
+
+    <!-- Preview -->
+    <section class="mt-10">
+      <h2 class="font-serif text-2xl font-light text-fg">Preview</h2>
+      <p class="mt-2 text-sm text-fg/70">
+        <strong class="text-fg">{counts.ready}</strong> ready
+        {#if counts.duplicate > 0}· <strong class="text-fg">{counts.duplicate}</strong> may already exist{/if}
+        {#if counts.error > 0}· <strong class="text-danger">{counts.error}</strong> with errors (skipped){/if}
+      </p>
+
+      {#if counts.duplicate > 0}
+        <label class="mt-3 flex items-center gap-2 text-sm text-fg/70">
+          <input type="checkbox" bind:checked={includeDupes} />
+          Import the {counts.duplicate} possible duplicate{counts.duplicate === 1 ? '' : 's'} anyway
+        </label>
+      {/if}
+
+      <div class="mt-4 overflow-x-auto rounded-sm border border-fg/15">
+        <table class="w-full text-sm">
+          <thead class="bg-surface-2 text-left text-xs uppercase tracking-wide text-fg/50">
+            <tr>
+              <th class="px-3 py-2 font-medium">Status</th>
+              {#each mappedFields as f (f.key)}
+                <th class="px-3 py-2 font-medium">{f.label}</th>
+              {/each}
+            </tr>
+          </thead>
+          <tbody>
+            {#each preview.slice(0, 12) as row (row.index)}
+              <tr class="border-t border-fg/10">
+                <td class="whitespace-nowrap px-3 py-2">
+                  <span
+                    class="rounded-sm px-1.5 py-0.5 text-xs {row.status === 'ready'
+                      ? 'bg-success/10 text-success'
+                      : row.status === 'duplicate'
+                        ? 'bg-warning/10 text-warning'
+                        : 'bg-danger/10 text-danger'}"
+                  >
+                    {statusLabel(row.status)}
+                  </span>
+                </td>
+                {#each mappedFields as f (f.key)}
+                  <td class="px-3 py-2 text-fg/80">
+                    {#if row.status === 'error' && f.key === 'name'}
+                      <span class="text-danger">{row.error}</span>
+                    {:else}
+                      {row.value?.[f.key] ?? ''}
+                    {/if}
+                  </td>
+                {/each}
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+      {#if preview.length > 12}
+        <p class="mt-2 text-xs text-fg/50">Showing the first 12 of {preview.length} rows.</p>
+      {/if}
+
+      <!-- Submit -->
+      <form
+        method="post"
+        action="?/import"
+        class="mt-6"
+        use:enhance={() => {
+          submitting = true;
+          dismissed = false;
+          return async ({ update }) => {
+            submitting = false;
+            await update();
+          };
+        }}
+      >
+        <input type="hidden" name="entity" value={entityKey} />
+        <input type="hidden" name="companyId" value={data.companyId} />
+        <input type="hidden" name="rows" value={JSON.stringify(toImport)} />
+        <button type="submit" class="btn" disabled={submitting || toImport.length === 0}>
+          {submitting ? 'Importing…' : `Import ${toImport.length} ${entity.label.toLowerCase()}`}
+        </button>
+      </form>
+    </section>
+  {/if}
+{/if}

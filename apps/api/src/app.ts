@@ -50,6 +50,7 @@ import {
   companyCreateSchema,
   companyUpdateSchema,
   customerCreateSchema,
+  customerImportSchema,
   customerUpdateSchema,
   emailTemplateTypeSchema,
   emailTemplateUpdateSchema,
@@ -65,6 +66,7 @@ import {
   invoiceSendSchema,
   invoiceUpdateSchema,
   itemCreateSchema,
+  itemImportSchema,
   itemUpdateSchema,
   recurringInvoiceCreateSchema,
   recurringInvoiceUpdateSchema,
@@ -3228,6 +3230,46 @@ export function createApp(deps: AppDeps) {
 
         return c.json(row, 201);
       })
+      // Bulk CSV import (web). The importer parses + maps + previews client-side,
+      // then posts the mapped rows as JSON. Registered before /api/customers/:id
+      // so Hono's first-match doesn't capture "import" as an :id. companyId is
+      // supplied once and merged onto every row; the whole batch validated up
+      // front (customerImportSchema), so this is atomic — every row lands or none.
+      .post('/api/customers/import', requireCapability('customers:write'), async (c) => {
+        const body = await c.req.json().catch(() => null);
+        const parsed = customerImportSchema.safeParse(body);
+        if (!parsed.success) {
+          return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+        }
+
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+        const { companyId } = parsed.data;
+
+        const [company] = await tx
+          .select({ id: companies.id })
+          .from(companies)
+          .where(and(eq(companies.id, companyId), eq(companies.accountId, accountId)))
+          .limit(1);
+        if (!company) return c.json({ error: 'company_not_found' }, 404);
+
+        // One INSERT for the batch; per-row audit so each customer's history tab
+        // shows its creation (action 'create', identical to the single path).
+        const rows = parsed.data.rows.map((r) => ({ id: uuidv7(), accountId, companyId, ...r }));
+        await tx.insert(customers).values(rows);
+        for (const row of rows) {
+          await c.var.audit({
+            entityType: 'customer',
+            entityId: row.id,
+            action: 'create',
+            after: row,
+            companyId,
+          });
+          await emit(tx, { name: 'client_created' });
+        }
+
+        return c.json({ created: rows.length }, 201);
+      })
       .get('/api/customers', async (c) => {
         const tx = c.get('tx');
         const accountId = c.get('accountId');
@@ -3509,6 +3551,41 @@ export function createApp(deps: AppDeps) {
         });
 
         return c.json(row, 201);
+      })
+      // Bulk CSV import (web) — mirrors /api/customers/import. Registered before
+      // /api/items/:id so first-match doesn't capture "import" as an :id. Atomic:
+      // the whole batch validates (itemImportSchema) before any row inserts.
+      .post('/api/items/import', requireCapability('sales:write'), async (c) => {
+        const body = await c.req.json().catch(() => null);
+        const parsed = itemImportSchema.safeParse(body);
+        if (!parsed.success) {
+          return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+        }
+
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+        const { companyId } = parsed.data;
+
+        const [company] = await tx
+          .select({ id: companies.id })
+          .from(companies)
+          .where(and(eq(companies.id, companyId), eq(companies.accountId, accountId)))
+          .limit(1);
+        if (!company) return c.json({ error: 'company_not_found' }, 404);
+
+        const rows = parsed.data.rows.map((r) => ({ id: uuidv7(), accountId, companyId, ...r }));
+        await tx.insert(items).values(rows);
+        for (const row of rows) {
+          await c.var.audit({
+            entityType: 'item',
+            entityId: row.id,
+            action: 'create',
+            after: row,
+            companyId,
+          });
+        }
+
+        return c.json({ created: rows.length }, 201);
       })
       // List for both the management surface and the line-item autocomplete.
       // Archived items are hidden by default (the picker must never offer them);
