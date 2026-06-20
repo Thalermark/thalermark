@@ -18,6 +18,7 @@
     { href: '/settings/activity', label: 'Activity' },
     { href: '/settings/business', label: 'Business', cap: 'settings:manage' },
     { href: '/settings/items', label: 'Items' },
+    { href: '/settings/import', label: 'Import', cap: 'customers:write' },
     { href: '/settings/tax-policies', label: 'Tax', cap: 'settings:manage' },
     { href: '/settings/team', label: 'Team' },
     { href: '/settings/payments', label: 'Payments', cap: 'settings:manage' },
