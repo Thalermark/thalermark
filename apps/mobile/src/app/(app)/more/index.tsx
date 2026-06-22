@@ -16,6 +16,7 @@ import { getActiveAccountId } from '../../../lib/secure-store';
 // account.
 type Entry = {
   href:
+    | '/more/profile'
     | '/estimates'
     | '/invoices/recurring'
     | '/more/team'
@@ -32,6 +33,15 @@ type Entry = {
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
   subtitle: string;
+};
+
+// Personal account settings — your own name + password. Always visible (every
+// user can change their own login, regardless of workspace role).
+const PROFILE_ENTRY: Entry = {
+  href: '/more/profile',
+  icon: 'person-circle-outline',
+  title: 'Profile',
+  subtitle: 'Your display name and password.',
 };
 
 const SALES_ENTRIES: Entry[] = [
@@ -170,6 +180,7 @@ export default function MoreHub() {
         <Text className="font-mono text-xs uppercase tracking-widest text-gold-deep">More</Text>
         <Text className="mt-2 font-serif text-3xl font-light text-ink">{accountName ?? ' '}</Text>
 
+        <Section label="Account" entries={[PROFILE_ENTRY]} onOpen={(href) => router.push(href)} />
         <Section label="Sales" entries={SALES_ENTRIES} onOpen={(href) => router.push(href)} />
         <Section label="Workspace" entries={accountEntries} onOpen={(href) => router.push(href)} />
         <Section
