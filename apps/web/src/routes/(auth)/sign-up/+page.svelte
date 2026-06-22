@@ -4,6 +4,7 @@
   import { page } from '$app/state';
   import { authClient } from '$lib/auth-client';
   import SocialSignIn from '$lib/components/SocialSignIn.svelte';
+  import PasswordStrength from '$lib/components/PasswordStrength.svelte';
   import { COPY } from '@thalermark/brand';
 
   const apiUrl = env.PUBLIC_API_URL ?? 'http://localhost:3000';
@@ -145,6 +146,7 @@
   <label class="block">
     <span class="label block">Password</span>
     <input type="password" required minlength={8} bind:value={password} class="field-line mt-2" />
+    <PasswordStrength {password} />
   </label>
   {#if error}
     <p class="label text-danger">{error}</p>
