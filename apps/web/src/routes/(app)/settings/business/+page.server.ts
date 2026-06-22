@@ -89,6 +89,28 @@ export const actions: Actions = {
     };
   },
 
+  // Saves the reply-to address shown to the customer's mail client. Empty input
+  // clears it (API coerces '' → null, dropping the Reply-To header from outbound
+  // invoice/estimate emails). Distinct replyToSaved/replyToError flags keep this
+  // from tripping the contact form's status (both POST to this page).
+  saveReplyTo: async (event) => {
+    const client = serverApiClient(event);
+    const formData = await event.request.formData();
+    const companyId = String(formData.get('companyId') ?? '');
+    const replyToEmail = String(formData.get('replyToEmail') ?? '').trim();
+    if (!companyId) return fail(400, { replyToError: 'missing_company_id' });
+
+    const res = await client.api.companies[':id'].$patch({
+      param: { id: companyId },
+      json: { replyToEmail },
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      return fail(res.status, { replyToError: body?.error ?? 'save_failed', replyToEmail });
+    }
+    return { replyToSaved: true, replyToEmail };
+  },
+
   // Forward the multipart logo to the api. Raw fetch (not the typed client),
   // same pattern as the expense receipt upload — FormData sets its own
   // content-type and serverApiHeaders carries the session + account.

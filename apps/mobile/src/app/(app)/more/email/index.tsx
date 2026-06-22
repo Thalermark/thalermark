@@ -1,16 +1,15 @@
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from '../../../../lib/api';
 
-// Email settings — native mirror of apps/web's /settings/email. Two sections:
-// the reply-to address (PATCHes the company), and the customizable email
-// templates (invoice/estimate/statement). The editor lives at
-// /more/email/[type]; here a "View" expands the rendered email TEXT inline (RN
-// has no webview, so we show the text rendering the preview endpoint returns —
-// same content the web shows as HTML).
-type Company = { id: string; name: string; replyToEmail: string | null };
+// Email templates — native mirror of apps/web's /settings/email. Lists the
+// customizable templates (invoice/estimate/statement); the editor lives at
+// /more/email/[type]. Here a "View" expands the rendered email TEXT inline (RN
+// has no webview, so we show the text the preview endpoint returns — same
+// content the web shows as HTML). The reply-to address moved to Business.
+type Company = { id: string };
 type Template = { type: string; subject: string; body: string; isCustomized: boolean };
 type LoadState =
   | { state: 'loading' }
@@ -26,9 +25,6 @@ const TEMPLATE_LABELS: Record<string, string> = {
 export default function EmailSettings() {
   const router = useRouter();
   const [load, setLoad] = useState<LoadState>({ state: 'loading' });
-  const [replyTo, setReplyTo] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [status, setStatus] = useState<'idle' | 'saved' | 'error'>('idle');
   // Inline preview ("View"), one template at a time.
   const [previewType, setPreviewType] = useState<string | null>(null);
   const [previewText, setPreviewText] = useState<string | null>(null);
@@ -57,10 +53,9 @@ export default function EmailSettings() {
           if (!active) return;
           setLoad({
             state: 'ready',
-            company: { id: company.id, name: company.name, replyToEmail: company.replyToEmail },
+            company: { id: company.id },
             templates,
           });
-          setReplyTo(company.replyToEmail ?? '');
         } catch {
           if (active) setLoad({ state: 'error' });
         }
@@ -73,23 +68,6 @@ export default function EmailSettings() {
 
   const company = load.state === 'ready' ? load.company : null;
   const templates = load.state === 'ready' ? load.templates : [];
-
-  async function onSave() {
-    if (!company) return;
-    setSaving(true);
-    setStatus('idle');
-    try {
-      const res = await api.api.companies[':id'].$patch({
-        param: { id: company.id },
-        json: { replyToEmail: replyTo.trim() },
-      });
-      setStatus(res.ok ? 'saved' : 'error');
-    } catch {
-      setStatus('error');
-    } finally {
-      setSaving(false);
-    }
-  }
 
   async function onToggleView(tpl: Template) {
     if (!company) return;
@@ -127,7 +105,11 @@ export default function EmailSettings() {
         >
           ← More
         </Text>
-        <Text className="mt-3 font-serif text-3xl font-light text-ink">Email</Text>
+        <Text className="mt-3 font-serif text-3xl font-light text-ink">Email templates</Text>
+        <Text className="mt-3 text-sm text-ink/70">
+          Customize the wording your customers see. The Thalermark layout, buttons, and footer stay
+          the same — you edit the subject and message.
+        </Text>
 
         {load.state === 'loading' ? (
           <View className="mt-12 items-center">
@@ -137,59 +119,7 @@ export default function EmailSettings() {
           <Text className="mt-8 text-sm text-oxblood">Couldn't load these settings.</Text>
         ) : (
           <>
-            <View className="mt-8 rounded-sm border border-ink/15 bg-cream-warm p-6">
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
-                Reply-to address
-              </Text>
-              <Text className="mt-2 font-serif text-lg text-ink">{company.name}</Text>
-              <Text className="mt-3 text-sm text-ink/70">
-                Invoices and estimates go out under your business name, but from Thalermark's
-                sending address. Set a reply-to so when a customer hits "reply," it reaches you.
-                Leave it blank to send with no reply-to.
-              </Text>
-
-              <Text className="mt-5 font-mono text-xs uppercase tracking-widest text-ink/50">
-                Reply-to email
-              </Text>
-              <TextInput
-                value={replyTo}
-                onChangeText={(t) => {
-                  setReplyTo(t);
-                  setStatus('idle');
-                }}
-                placeholder="you@yourbusiness.com"
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-                className="mt-2 rounded-sm border border-ink/20 bg-cream px-3 py-2 text-ink"
-              />
-
-              <View className="mt-5 flex-row items-center gap-4">
-                <Pressable
-                  onPress={onSave}
-                  disabled={saving}
-                  className="rounded-sm bg-ink px-4 py-3 active:bg-gold-deep disabled:opacity-50"
-                >
-                  <Text className="text-sm font-medium text-cream">Save</Text>
-                </Pressable>
-                {status === 'saved' ? (
-                  <Text className="text-sm text-ink/60">Saved.</Text>
-                ) : status === 'error' ? (
-                  <Text className="text-sm text-oxblood">Couldn't save.</Text>
-                ) : null}
-              </View>
-            </View>
-
             <View className="mt-8 rounded-sm border border-ink/15 bg-cream-warm">
-              <View className="border-b border-ink/10 p-6">
-                <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
-                  Email templates
-                </Text>
-                <Text className="mt-2 text-sm text-ink/70">
-                  Customize the wording your customers see. The Thalermark layout, buttons, and
-                  footer stay the same — you edit the subject and message.
-                </Text>
-              </View>
               {templates.map((tpl, i) => (
                 <View key={tpl.type} className={i > 0 ? 'border-t border-ink/10' : ''}>
                   <View className="flex-row items-center justify-between gap-3 p-6">

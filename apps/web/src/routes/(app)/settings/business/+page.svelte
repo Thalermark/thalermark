@@ -9,6 +9,10 @@
   const address = $derived(form?.businessAddress ?? data.company.businessAddress ?? '');
   const phone = $derived(form?.businessPhone ?? data.company.businessPhone ?? '');
   const email = $derived(form?.businessEmail ?? data.company.businessEmail ?? '');
+  // Reply-to is saved by its own action (?/saveReplyTo) with distinct
+  // replyToSaved/replyToError flags, so saving it doesn't trip the contact
+  // form's "Saved." and vice-versa.
+  const replyTo = $derived(form?.replyToEmail ?? data.company.replyToEmail ?? '');
   // Per-field show defaults, split by document type (invoice vs estimate).
   const showAddressInvoice = $derived(
     form?.showAddressOnInvoice ?? data.company.showAddressOnInvoice ?? true,
@@ -156,6 +160,39 @@
         <span class="text-sm text-fg/60">Saved.</span>
       {:else if form?.error}
         <span class="text-sm text-danger">Couldn't save: {form.error}</span>
+      {/if}
+    </div>
+  </form>
+</section>
+
+<section class="mt-8 rounded-sm border border-fg/15 bg-surface-2">
+  <header class="border-b border-fg/10 px-6 py-5">
+    <span class="eyebrow">Reply-to address</span>
+    <p class="mt-2 font-serif text-lg text-fg">{data.company.name}</p>
+  </header>
+  <form method="POST" action="?/saveReplyTo" class="px-6 py-6">
+    <input type="hidden" name="companyId" value={data.company.id} />
+    <p class="max-w-prose text-sm leading-relaxed text-fg/70">
+      Invoices and estimates go out under your business name, but from Thalermark's sending address.
+      Set a reply-to so when a customer hits "reply," it reaches you. Leave it blank to send with no
+      reply-to.
+    </p>
+    <label class="mt-5 block">
+      <span class="label">Reply-to email</span>
+      <input
+        type="email"
+        name="replyToEmail"
+        value={replyTo}
+        placeholder="you@yourbusiness.com"
+        class="mt-2 w-full max-w-md rounded-sm border border-fg/20 bg-surface px-3 py-2 text-sm text-fg focus:border-accent focus:outline-none"
+      />
+    </label>
+    <div class="mt-5 flex items-center gap-4">
+      <button type="submit" class="btn">Save</button>
+      {#if form?.replyToSaved}
+        <span class="text-sm text-fg/60">Saved.</span>
+      {:else if form?.replyToError}
+        <span class="text-sm text-danger">Couldn't save: {form.replyToError}</span>
       {/if}
     </div>
   </form>

@@ -31,27 +31,6 @@ export const load: PageServerLoad = async (event) => {
 };
 
 export const actions: Actions = {
-  // Saves the reply-to address. Empty input clears it (API coerces '' → null,
-  // which drops the Reply-To header from outbound invoice/estimate emails).
-  // Plain HTML form action — no use:enhance, matching the rest of settings.
-  save: async (event) => {
-    const client = serverApiClient(event);
-    const formData = await event.request.formData();
-    const companyId = String(formData.get('companyId') ?? '');
-    const replyToEmail = String(formData.get('replyToEmail') ?? '').trim();
-    if (!companyId) return fail(400, { error: 'missing_company_id' });
-
-    const res = await client.api.companies[':id'].$patch({
-      param: { id: companyId },
-      json: { replyToEmail },
-    });
-    if (!res.ok) {
-      const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      return fail(res.status, { error: body?.error ?? 'save_failed', replyToEmail });
-    }
-    return { saved: true, replyToEmail };
-  },
-
   // Render the EFFECTIVE template (saved override or default) as the customer
   // would see it, so a user can peek at the wording without entering the editor.
   // Re-renders through the same preview endpoint the editor uses (sample data),
