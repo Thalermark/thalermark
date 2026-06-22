@@ -132,6 +132,29 @@ describe('password reset', () => {
     }
   });
 
+  it('rejects a reset to a weak/common password and keeps the old one', async () => {
+    const { mailer, sent } = recorderMailer();
+    const ctx = buildApp(mailer);
+    try {
+      const email = 'reset-weak@example.com';
+      const oldPassword = 'correct horse battery staple';
+      expect((await signUp(ctx.app, email, oldPassword)).status).toBe(200);
+
+      expect((await requestReset(ctx.app, email)).status).toBe(200);
+      const token = tokenFromEmail(emailAt(sent, 0));
+
+      // 'usuckballz1' clears the length rule (11 chars) but is on the breach
+      // list, so the gate must reject it — the same policy as signup, now at
+      // reset (NIST 800-63B "establish AND change").
+      expect((await resetPassword(ctx.app, token, 'usuckballz1')).status).not.toBe(200);
+
+      // The reset was blocked, not partially applied: the old password still works.
+      expect((await signIn(ctx.app, email, oldPassword)).status).toBe(200);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
   it('lets a social-only user (no credential) set a password via reset', async () => {
     const { mailer, sent } = recorderMailer();
     const ctx = buildApp(mailer);

@@ -26,6 +26,19 @@ import { v7 as uuidv7 } from 'uuid';
 // list (a vendored array — no external service, self-host-safe).
 const DISPOSABLE_DOMAINS = new Set(disposableDomains.map((d) => d.toLowerCase()));
 
+// Better Auth endpoints that establish or change a password, and the request
+// body field each one carries the new secret under. The password policy gate
+// (hooks.before) runs on all of them, so the strength / common-password check
+// holds at "establish AND change" — what NIST 800-63B requires — not just at
+// signup. /change-password + /set-password aren't surfaced in our UI yet, but
+// Better Auth exposes the endpoints, so gating them is defense in depth.
+const PASSWORD_BODY_FIELD: Record<string, string> = {
+  '/sign-up/email': 'password',
+  '/reset-password': 'newPassword',
+  '/change-password': 'newPassword',
+  '/set-password': 'newPassword',
+};
+
 // clientId/clientSecret pair for an OAuth provider. Google, Facebook, and X
 // (Better Auth provider key `twitter`) all share this shape.
 export type SocialProviderCreds = { clientId: string; clientSecret: string };
@@ -192,19 +205,20 @@ export function createAuth(db: Database, options: CreateAuthOptions) {
     // unaffected — it keeps using http callbacks). Pairs with `expoClient` on
     // apps/mobile.
     plugins: [bearer(), expo()],
-    // Enforce the signup password policy at the boundary. The web + mobile forms
-    // run the same checkPassword for instant feedback, but that's only UX — this
-    // request hook is the gate. Runs before the sign-up handler and rejects short
-    // or "Weak" passwords (which includes every common-password blocklist match)
-    // with a clean client-facing message. Scoped to /sign-up/email; social
-    // signups carry no password, and length on reset/change is covered by
-    // minPasswordLength above.
+    // Enforce the password policy at the boundary, on every endpoint that
+    // establishes or changes a password (NIST 800-63B requires the blocklist /
+    // strength check at "establish AND change", not just signup — see
+    // PASSWORD_BODY_FIELD for the covered paths). The web + mobile forms run the
+    // same checkPassword for instant feedback, but that's only UX — this request
+    // hook is the gate. Rejects short or "Weak" passwords (which includes every
+    // common-password blocklist match) with a clean client-facing message.
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
-        if (ctx.path !== '/sign-up/email') return;
-        const body = ctx.body as { password?: unknown } | undefined;
-        const password = typeof body?.password === 'string' ? body.password : '';
-        const check = checkPassword(password);
+        const field = PASSWORD_BODY_FIELD[ctx.path];
+        if (!field) return;
+        const body = ctx.body as Record<string, unknown> | undefined;
+        const value = body?.[field];
+        const check = checkPassword(typeof value === 'string' ? value : '');
         if (!check.ok) {
           throw new APIError('UNPROCESSABLE_ENTITY', { message: check.message });
         }
