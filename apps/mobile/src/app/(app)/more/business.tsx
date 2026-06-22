@@ -26,6 +26,7 @@ type Company = {
   businessAddress: string | null;
   businessPhone: string | null;
   businessEmail: string | null;
+  replyToEmail: string | null;
   showAddressOnInvoice: boolean;
   showPhoneOnInvoice: boolean;
   showEmailOnInvoice: boolean;
@@ -53,6 +54,11 @@ export default function BusinessSettings() {
   const [address, setAddress] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
+  // Reply-to has its own card + save (separate concern from the invoice "from"
+  // block above it), so it carries its own saving/status state.
+  const [replyTo, setReplyTo] = useState('');
+  const [replySaving, setReplySaving] = useState(false);
+  const [replyStatus, setReplyStatus] = useState<'idle' | 'saved' | 'error'>('idle');
   // Per-field "show on" defaults, split by document type (invoice vs estimate).
   const [showAddrInv, setShowAddrInv] = useState(true);
   const [showPhoneInv, setShowPhoneInv] = useState(true);
@@ -90,6 +96,7 @@ export default function BusinessSettings() {
         businessAddress: company.businessAddress,
         businessPhone: company.businessPhone,
         businessEmail: company.businessEmail,
+        replyToEmail: company.replyToEmail,
         showAddressOnInvoice: company.showAddressOnInvoice,
         showPhoneOnInvoice: company.showPhoneOnInvoice,
         showEmailOnInvoice: company.showEmailOnInvoice,
@@ -102,6 +109,7 @@ export default function BusinessSettings() {
     setAddress(company.businessAddress ?? '');
     setPhone(company.businessPhone ?? '');
     setEmail(company.businessEmail ?? '');
+    setReplyTo(company.replyToEmail ?? '');
     setShowAddrInv(company.showAddressOnInvoice);
     setShowPhoneInv(company.showPhoneOnInvoice);
     setShowEmailInv(company.showEmailOnInvoice);
@@ -149,6 +157,23 @@ export default function BusinessSettings() {
       setStatus('error');
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function onSaveReplyTo() {
+    if (!company) return;
+    setReplySaving(true);
+    setReplyStatus('idle');
+    try {
+      const res = await api.api.companies[':id'].$patch({
+        param: { id: company.id },
+        json: { replyToEmail: replyTo.trim() },
+      });
+      setReplyStatus(res.ok ? 'saved' : 'error');
+    } catch {
+      setReplyStatus('error');
+    } finally {
+      setReplySaving(false);
     }
   }
 
@@ -334,6 +359,49 @@ export default function BusinessSettings() {
                 {status === 'saved' ? (
                   <Text className="text-sm text-ink/60">Saved.</Text>
                 ) : status === 'error' ? (
+                  <Text className="text-sm text-oxblood">Couldn't save.</Text>
+                ) : null}
+              </View>
+            </View>
+
+            <View className="mt-8 rounded-sm border border-ink/15 bg-cream-warm p-6">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                Reply-to address
+              </Text>
+              <Text className="mt-2 font-serif text-lg text-ink">{company.name}</Text>
+              <Text className="mt-3 text-sm text-ink/70">
+                Invoices and estimates go out under your business name, but from Thalermark's
+                sending address. Set a reply-to so when a customer hits "reply," it reaches you.
+                Leave it blank to send with no reply-to.
+              </Text>
+
+              <Text className="mt-5 font-mono text-xs uppercase tracking-widest text-ink/50">
+                Reply-to email
+              </Text>
+              <TextInput
+                value={replyTo}
+                onChangeText={(t) => {
+                  setReplyTo(t);
+                  setReplyStatus('idle');
+                }}
+                placeholder="you@yourbusiness.com"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+                className="mt-2 rounded-sm border border-ink/20 bg-cream px-3 py-2 text-ink"
+              />
+
+              <View className="mt-5 flex-row items-center gap-4">
+                <Pressable
+                  onPress={onSaveReplyTo}
+                  disabled={replySaving}
+                  className="rounded-sm bg-ink px-4 py-3 active:bg-gold-deep disabled:opacity-50"
+                >
+                  <Text className="text-sm font-medium text-cream">Save</Text>
+                </Pressable>
+                {replyStatus === 'saved' ? (
+                  <Text className="text-sm text-ink/60">Saved.</Text>
+                ) : replyStatus === 'error' ? (
                   <Text className="text-sm text-oxblood">Couldn't save.</Text>
                 ) : null}
               </View>

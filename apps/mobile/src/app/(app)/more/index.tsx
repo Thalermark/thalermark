@@ -107,13 +107,7 @@ const SETTINGS_ENTRIES: Entry[] = [
     href: '/more/business',
     icon: 'business-outline',
     title: 'Business',
-    subtitle: 'Address, phone, and logo shown on the invoices customers see.',
-  },
-  {
-    href: '/more/payments',
-    icon: 'card-outline',
-    title: 'Payments',
-    subtitle: 'Connect Stripe and list the other ways customers can pay you.',
+    subtitle: 'Address, phone, and logo on your invoices, plus your reply-to email.',
   },
   {
     href: '/more/tax-policies',
@@ -122,10 +116,16 @@ const SETTINGS_ENTRIES: Entry[] = [
     subtitle: 'Named sales-tax rates you apply to items and invoice lines.',
   },
   {
+    href: '/more/payments',
+    icon: 'card-outline',
+    title: 'Payments',
+    subtitle: 'Connect Stripe and list the other ways customers can pay you.',
+  },
+  {
     href: '/more/email',
     icon: 'mail-outline',
-    title: 'Email',
-    subtitle: 'Set the reply-to address on the email your customers receive.',
+    title: 'Email templates',
+    subtitle: 'Customize the subject and message your customers receive.',
   },
   {
     href: '/more/privacy',
