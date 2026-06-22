@@ -12,7 +12,7 @@
 //
 // Caveat by design: pure entropy can't see dictionary words or sequences. It
 // CAN'T see common breached passwords either, so a small blocklist
-// (common-passwords.generated.ts, the SecLists top ~1k) short-circuits exact
+// (the SecLists top ~1k plus a hand-maintained supplement) short-circuits exact
 // matches to "Weak" ahead of the math — otherwise "Usuckballz1" would read
 // "Fair". The UI also nudges toward passphrases, which the formula rewards.
 //
@@ -27,10 +27,17 @@
 // Shared by the web + mobile signup meters (and a future api signup gate) so
 // every surface agrees on one verdict.
 
+import { COMMON_PASSWORDS_EXTRA } from './common-passwords.extra.js';
 import { COMMON_PASSWORDS } from './common-passwords.generated.js';
 
-// Known breached passwords, lowercased (see common-passwords.generated.ts).
-const COMMON_PASSWORD_SET = new Set(COMMON_PASSWORDS);
+// Known breached passwords: the generated SecLists list + a hand-maintained
+// supplement. Trimmed + lowercased on the way in, so the membership test (which
+// lowercases the candidate) is case-insensitive however an entry was typed.
+const COMMON_PASSWORD_SET = new Set(
+  [...COMMON_PASSWORDS, ...COMMON_PASSWORDS_EXTRA]
+    .map((p) => p.trim().toLowerCase())
+    .filter((p) => p.length > 0),
+);
 
 export const STRENGTH_LABELS = ['Weak', 'Fair', 'Good', 'Strong'] as const;
 export type StrengthScore = 0 | 1 | 2 | 3;

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { COMMON_PASSWORDS_EXTRA } from './common-passwords.extra.js';
 import { COMMON_PASSWORDS } from './common-passwords.generated.js';
 import {
   MIN_PASSWORD_LENGTH,
@@ -87,6 +88,13 @@ describe('common-password blocklist', () => {
     expect(COMMON_PASSWORDS.length).toBeGreaterThan(900);
     expect(COMMON_PASSWORDS.every((p) => p === p.toLowerCase())).toBe(true);
     expect(new Set(COMMON_PASSWORDS).size).toBe(COMMON_PASSWORDS.length);
+  });
+
+  it('blocks every entry on the hand-maintained extra list (case-insensitive)', () => {
+    for (const pw of COMMON_PASSWORDS_EXTRA) {
+      expect(estimatePasswordStrength(pw).score).toBe(0);
+      expect(estimatePasswordStrength(pw.toUpperCase()).score).toBe(0);
+    }
   });
 });
 
