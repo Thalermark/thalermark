@@ -104,3 +104,46 @@ describe('createAuth — email/password sign-up', () => {
     expect(rows[0]?.name).toBe('noname');
   });
 });
+
+describe('createAuth — signup password gate', () => {
+  beforeEach(resetDb);
+
+  function newAuth() {
+    return createAuth(getTestDb(), {
+      secret: 'test-secret-at-least-32-characters-long',
+      baseURL: 'http://localhost:3000',
+    });
+  }
+
+  async function attemptSignUp(
+    auth: ReturnType<typeof createAuth>,
+    email: string,
+    password: string,
+  ) {
+    return auth.handler(
+      new Request('http://localhost:3000/api/auth/sign-up/email', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email, password, name: 'Gate' }),
+      }),
+    );
+  }
+
+  it('rejects a long-but-common password and creates no user', async () => {
+    const db = getTestDb();
+    // 'usuckballz1' clears the length rule (11 chars) but is on the breach list,
+    // so the strength gate must reject it — proving the gate is more than length.
+    const res = await attemptSignUp(newAuth(), 'weak@example.com', 'usuckballz1');
+    expect(res.status).not.toBe(200);
+    const rows = await db.select().from(authUser).where(eq(authUser.email, 'weak@example.com'));
+    expect(rows).toHaveLength(0);
+  });
+
+  it('rejects a password under the minimum length and creates no user', async () => {
+    const db = getTestDb();
+    const res = await attemptSignUp(newAuth(), 'short@example.com', 'aB3$xY9');
+    expect(res.status).not.toBe(200);
+    const rows = await db.select().from(authUser).where(eq(authUser.email, 'short@example.com'));
+    expect(rows).toHaveLength(0);
+  });
+});

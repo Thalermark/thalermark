@@ -1,4 +1,5 @@
 import { COPY } from '@thalermark/brand';
+import { checkPassword } from '@thalermark/validation';
 import { Link, router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-native';
@@ -25,6 +26,11 @@ export default function SignUp() {
 
   async function onSubmit() {
     setError(null);
+    const pwCheck = checkPassword(password);
+    if (!pwCheck.ok) {
+      setError(pwCheck.message);
+      return;
+    }
     setSubmitting(true);
     const result = await authClient.signUp.email({ email, password, name });
     if (result.error) {

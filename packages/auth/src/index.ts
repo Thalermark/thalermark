@@ -12,9 +12,10 @@ import {
   memberships,
   seedChartOfAccounts,
 } from '@thalermark/db';
+import { checkPassword } from '@thalermark/validation';
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
-import { APIError } from 'better-auth/api';
+import { APIError, createAuthMiddleware } from 'better-auth/api';
 import { bearer } from 'better-auth/plugins';
 import disposableDomains from 'disposable-email-domains';
 import { and, eq, gt, isNull, sql } from 'drizzle-orm';
@@ -123,6 +124,12 @@ export function createAuth(db: Database, options: CreateAuthOptions) {
     },
     emailAndPassword: {
       enabled: true,
+      // Visible minimum length, enforced by Better Auth on every password-setting
+      // path (sign-up, reset, change). Matches the signup strength gate below: no
+      // password under ~10 chars can clear "Weak" anyway, so this is the legible
+      // front door. The `hooks.before` gate adds the strength/common-password rule
+      // on top, for sign-up specifically.
+      minPasswordLength: 10,
       requireEmailVerification: options.requireEmailVerification ?? false,
       // Password reset is wired only when a sender is injected (mailer present).
       // Better Auth disables the /request-password-reset endpoint when this is
@@ -185,6 +192,24 @@ export function createAuth(db: Database, options: CreateAuthOptions) {
     // unaffected — it keeps using http callbacks). Pairs with `expoClient` on
     // apps/mobile.
     plugins: [bearer(), expo()],
+    // Enforce the signup password policy at the boundary. The web + mobile forms
+    // run the same checkPassword for instant feedback, but that's only UX — this
+    // request hook is the gate. Runs before the sign-up handler and rejects short
+    // or "Weak" passwords (which includes every common-password blocklist match)
+    // with a clean client-facing message. Scoped to /sign-up/email; social
+    // signups carry no password, and length on reset/change is covered by
+    // minPasswordLength above.
+    hooks: {
+      before: createAuthMiddleware(async (ctx) => {
+        if (ctx.path !== '/sign-up/email') return;
+        const body = ctx.body as { password?: unknown } | undefined;
+        const password = typeof body?.password === 'string' ? body.password : '';
+        const check = checkPassword(password);
+        if (!check.ok) {
+          throw new APIError('UNPROCESSABLE_ENTITY', { message: check.message });
+        }
+      }),
+    },
     databaseHooks: {
       user: {
         create: {
