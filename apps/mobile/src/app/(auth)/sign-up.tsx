@@ -3,6 +3,7 @@ import { Link, router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { PasswordStrength } from '../../components/PasswordStrength';
 import { SocialSignIn } from '../../components/SocialSignIn';
 import { authClient } from '../../lib/auth-client';
 import { getAuthToken } from '../../lib/secure-store';
@@ -137,6 +138,7 @@ export default function SignUp() {
                   autoComplete="new-password"
                   className="mt-2 border-b border-ink/30 py-2 text-ink"
                 />
+                <PasswordStrength password={password} />
               </View>
               {error ? (
                 <Text className="font-mono text-xs uppercase tracking-widest text-oxblood">
