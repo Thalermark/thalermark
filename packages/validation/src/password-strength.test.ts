@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { type StrengthLabel, estimatePasswordStrength } from './password-strength.js';
+import { COMMON_PASSWORDS_EXTRA } from './common-passwords.extra.js';
+import { COMMON_PASSWORDS } from './common-passwords.generated.js';
+import {
+  MIN_PASSWORD_LENGTH,
+  type StrengthLabel,
+  checkPassword,
+  estimatePasswordStrength,
+} from './password-strength.js';
 
 describe('estimatePasswordStrength', () => {
   it('returns 0 bits / Weak for empty input', () => {
@@ -49,5 +56,68 @@ describe('estimatePasswordStrength', () => {
     expect(estimatePasswordStrength('BlueSky42!').score).toBe(1);
     expect(estimatePasswordStrength('Maple7Leaf!x').score).toBe(2);
     expect(estimatePasswordStrength('river-otter-9-lamp').score).toBe(3);
+  });
+});
+
+describe('common-password blocklist', () => {
+  it('demotes listed passwords to Weak / 0 bits', () => {
+    for (const pw of ['password', 'qwerty', '123456']) {
+      const s = estimatePasswordStrength(pw);
+      expect(s.score).toBe(0);
+      expect(s.label).toBe('Weak');
+      expect(s.bits).toBe(0);
+    }
+  });
+
+  it('matches case-insensitively', () => {
+    expect(estimatePasswordStrength('PASSWORD').score).toBe(0);
+    expect(estimatePasswordStrength('Password').score).toBe(0);
+  });
+
+  it('overrides the entropy score — an off-list twin scores higher', () => {
+    // 'usuckballz1' is long + mixed (~35 bits, which would be Fair on entropy
+    // alone), but it's in the breach list, so it must read Weak. Flipping the
+    // last char off-list proves the demotion is the list's doing, not the math.
+    expect(COMMON_PASSWORDS).toContain('usuckballz1');
+    expect(estimatePasswordStrength('usuckballz1').score).toBe(0);
+    expect(COMMON_PASSWORDS).not.toContain('usuckballz2');
+    expect(estimatePasswordStrength('usuckballz2').score).toBeGreaterThan(0);
+  });
+
+  it('ships a normalized, non-trivial list', () => {
+    expect(COMMON_PASSWORDS.length).toBeGreaterThan(900);
+    expect(COMMON_PASSWORDS.every((p) => p === p.toLowerCase())).toBe(true);
+    expect(new Set(COMMON_PASSWORDS).size).toBe(COMMON_PASSWORDS.length);
+  });
+
+  it('blocks every entry on the hand-maintained extra list (case-insensitive)', () => {
+    for (const pw of COMMON_PASSWORDS_EXTRA) {
+      expect(estimatePasswordStrength(pw).score).toBe(0);
+      expect(estimatePasswordStrength(pw.toUpperCase()).score).toBe(0);
+    }
+  });
+});
+
+describe('checkPassword (signup policy)', () => {
+  it('rejects passwords under the minimum length', () => {
+    const r = checkPassword('aB3$xY9'); // 7 chars, otherwise diverse
+    expect(r.ok).toBe(false);
+    expect(r.message).toContain(String(MIN_PASSWORD_LENGTH));
+  });
+
+  it('rejects long-but-weak passwords (score 0)', () => {
+    const r = checkPassword('aaaaaaaaaa'); // 10 chars, 0 bits
+    expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/weak/i);
+  });
+
+  it('rejects a common password reported as weak', () => {
+    // 'usuckballz1' is 11 chars (clears length) but on the breach list -> score 0.
+    expect(checkPassword('usuckballz1').ok).toBe(false);
+  });
+
+  it('accepts a sufficiently long, non-weak password', () => {
+    expect(checkPassword('river-otter-9-lamp')).toEqual({ ok: true, message: '' });
+    expect(checkPassword('Maple7Leaf!x').ok).toBe(true); // 12 chars, Good
   });
 });

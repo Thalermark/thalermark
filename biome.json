@@ -20,6 +20,7 @@
       "**/Pods",
       "**/*.xcassets",
       "**/expo-env.d.ts",
+      "**/*.generated.ts",
       "_archive",
       "genai",
       "spikes"
@@ -57,7 +58,7 @@
   },
   "overrides": [
     {
-      "include": ["apps/api/scripts/**"],
+      "include": ["apps/api/scripts/**", "packages/validation/scripts/**"],
       "linter": {
         "rules": {
           "suspicious": {

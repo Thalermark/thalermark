@@ -6,6 +6,7 @@
   import SocialSignIn from '$lib/components/SocialSignIn.svelte';
   import PasswordStrength from '$lib/components/PasswordStrength.svelte';
   import { COPY } from '@thalermark/brand';
+  import { checkPassword } from '@thalermark/validation';
 
   const apiUrl = env.PUBLIC_API_URL ?? 'http://localhost:3000';
   const inviteToken = $derived(page.url.searchParams.get('invite'));
@@ -61,6 +62,11 @@
   async function onSubmit(event: SubmitEvent) {
     event.preventDefault();
     error = null;
+    const pwCheck = checkPassword(password);
+    if (!pwCheck.ok) {
+      error = pwCheck.message;
+      return;
+    }
     submitting = true;
     const result = await authClient.signUp.email({
       email,
@@ -145,7 +151,7 @@
   </label>
   <label class="block">
     <span class="label block">Password</span>
-    <input type="password" required minlength={8} bind:value={password} class="field-line mt-2" />
+    <input type="password" required minlength={10} bind:value={password} class="field-line mt-2" />
     <PasswordStrength {password} />
   </label>
   {#if error}
