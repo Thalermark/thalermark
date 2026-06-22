@@ -15,6 +15,7 @@
   // each tab's own actions stay authoritative). Tabs without a cap are plain
   // reads (Activity feed, Items catalog, Team roster) open to every role.
   const TABS: { href: string; label: string; cap?: Capability }[] = [
+    { href: '/settings/profile', label: 'Profile' },
     { href: '/settings/activity', label: 'Activity' },
     { href: '/settings/business', label: 'Business', cap: 'settings:manage' },
     { href: '/settings/items', label: 'Items' },
