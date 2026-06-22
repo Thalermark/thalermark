@@ -61,7 +61,7 @@ describe('estimatePasswordStrength', () => {
 
 describe('common-password blocklist', () => {
   it('demotes listed passwords to Weak / 0 bits', () => {
-    for (const pw of ['password', 'qwerty', COMMON_PASSWORDS[0]]) {
+    for (const pw of ['password', 'qwerty', '123456']) {
       const s = estimatePasswordStrength(pw);
       expect(s.score).toBe(0);
       expect(s.label).toBe('Weak');
