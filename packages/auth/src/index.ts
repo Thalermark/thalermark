@@ -17,7 +17,7 @@ import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { APIError, createAuthMiddleware } from 'better-auth/api';
 import { bearer } from 'better-auth/plugins';
-import disposableDomains from 'disposable-email-domains';
+import disposableDomains from 'disposable-email-domains' with { type: 'json' };
 import { and, eq, gt, isNull, sql } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
 
