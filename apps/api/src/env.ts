@@ -121,14 +121,17 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     facebookClientSecret: source.FACEBOOK_CLIENT_SECRET || undefined,
     twitterClientId: source.TWITTER_CLIENT_ID || undefined,
     twitterClientSecret: source.TWITTER_CLIENT_SECRET || undefined,
-    requireEmailVerification:
-      source.REQUIRE_EMAIL_VERIFICATION === undefined
-        ? undefined
-        : parseBool(source.REQUIRE_EMAIL_VERIFICATION),
-    rateLimitEnabled:
-      source.RATE_LIMIT_ENABLED === undefined
-        ? nodeEnv === 'production'
-        : parseBool(source.RATE_LIMIT_ENABLED),
+    // Empty-string env vars (a bare `KEY=` in .env / compose env_file) arrive as
+    // "" not undefined — treat them as unset so the fallbacks below fire. Without
+    // this, `REQUIRE_EMAIL_VERIFICATION=` collapsed to a hard false and defeated
+    // the "mailer configured ⇒ require verification" default (and the same trap
+    // sat under RATE_LIMIT_ENABLED). Explicit true/false/1/0 still parse normally.
+    requireEmailVerification: source.REQUIRE_EMAIL_VERIFICATION
+      ? parseBool(source.REQUIRE_EMAIL_VERIFICATION)
+      : undefined,
+    rateLimitEnabled: source.RATE_LIMIT_ENABLED
+      ? parseBool(source.RATE_LIMIT_ENABLED)
+      : nodeEnv === 'production',
     trustedOrigins: parseOrigins(source.TRUSTED_ORIGINS),
     publicAppUrl: source.PUBLIC_APP_URL ?? '',
     resendApiKey: source.RESEND_API_KEY || undefined,
