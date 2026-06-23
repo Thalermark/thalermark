@@ -117,12 +117,27 @@ const appHandle: Handle = async ({ event, resolve }) => {
   return resolve(event);
 };
 
+// SvelteKit's adapter-node serves pages as bare `text/html` with no charset.
+// Behind a proxy a browser can then fall back to a legacy encoding and render
+// UTF-8 text (em dashes, curly quotes) as mojibake — even though app.html
+// declares <meta charset="utf-8">, since a transport-level charset is read
+// before the meta prescan and isn't always honored otherwise. Stamp it
+// explicitly on every HTML response.
+const charsetHandle: Handle = async ({ event, resolve }) => {
+  const response = await resolve(event);
+  const contentType = response.headers.get('content-type');
+  if (contentType?.startsWith('text/html') && !/;\s*charset=/i.test(contentType)) {
+    response.headers.set('content-type', 'text/html; charset=utf-8');
+  }
+  return response;
+};
+
 // Run Sentry's request handler ahead of the app's only when tracking is on, so
-// SSR errors carry request context. Without a DSN the chain is just appHandle —
-// no wrapper, fully inert.
+// SSR errors carry request context. charsetHandle always runs so the charset is
+// stamped regardless of the tracking config.
 export const handle: Handle = errorTrackingDsn
-  ? sequence(Sentry.sentryHandle(), appHandle)
-  : appHandle;
+  ? sequence(Sentry.sentryHandle(), charsetHandle, appHandle)
+  : sequence(charsetHandle, appHandle);
 
 // Reports unexpected SSR errors to Sentry (a no-op while uninitialised).
 export const handleError = Sentry.handleErrorWithSentry();

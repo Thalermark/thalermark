@@ -80,10 +80,12 @@
       return;
     }
     // Invited signups are auto-verified (the invite already proves email
-    // ownership) → they get a session immediately, so hard-nav into the app.
-    // Everyone else must verify their email before they can sign in → show the
-    // check-your-inbox state.
-    if (inviteToken) {
+    // ownership). And when email verification isn't required (no mailer
+    // configured), Better Auth signs the user in immediately and returns a
+    // session token. In both cases we hard-nav into the app. Only when the
+    // server withholds the session pending verification (no token) do we show
+    // the check-your-inbox state.
+    if (inviteToken || result.data?.token) {
       window.location.assign('/');
     } else {
       awaitingVerification = true;
