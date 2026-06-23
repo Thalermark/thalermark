@@ -11,7 +11,22 @@
 #   - When THALERMARK_DOMAIN is a real hostname, Caddy attempts ACME via
 #     HTTP-01 / TLS-ALPN-01 on ports 80/443. ACME issuance works without a
 #     registered email (anonymous account); operators wanting renewal alerts
-#     can add a global `{ email user@example.com }` block above this site.
+#     can add an `email` line to the global options block below.
+#   - When THALERMARK_DOMAIN is a bare IP (LAN / VM self-host), Caddy serves it
+#     with the internal CA too — but TLS clients send no SNI for a raw IP, so
+#     `default_sni` below is what lets the handshake select a certificate.
+
+# Global options. `default_sni` sets the server name Caddy assumes when a client
+# sends no TLS SNI. Browsers and curl only send SNI for hostnames, so reaching
+# the server by a bare IP address sends none — and with no name to match, Caddy
+# can't select a certificate (behind Docker's port-forward it can't fall back to
+# the destination IP either) and aborts the handshake with a TLS "internal
+# error". Pinning the default SNI to the configured host fixes IP-based access;
+# it's a no-op for the localhost default and real-domain deploys, where SNI is
+# always present.
+{
+	default_sni {$THALERMARK_DOMAIN:localhost}
+}
 
 {$THALERMARK_DOMAIN:localhost} {
 	encode zstd gzip
