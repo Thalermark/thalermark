@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
+  import { findEmailDupe, findNameDupes } from '$lib/customer-dupes';
   import ItemPicker from '$lib/components/ItemPicker.svelte';
   import { defaultPolicyId, lineTax, policyRate } from '$lib/line-tax';
   import { type LineItemType, addMoney, multiplyMoney, sumMoney } from '@thalermark/validation';
@@ -90,6 +91,46 @@
     return (fieldErrors as Record<string, string>)[key];
   }
 
+  // Inline "+ Add new customer" — mirrors /invoices/new. The select can hold a
+  // sentinel that opens an inline create panel; the action creates the customer
+  // first, then the estimate. Dupe hints are computed client-side against the
+  // loaded list (the server re-checks at submit).
+  const NEW_CUSTOMER_SENTINEL = '__new__';
+
+  // 409 recovery: a just-created customer (estimate create then failed) comes
+  // back in form.extraCustomer so the re-render pre-selects them.
+  const customersWithExtra = $derived(
+    form?.extraCustomer
+      ? [form.extraCustomer, ...data.customers.filter((c) => c.id !== form.extraCustomer!.id)]
+      : data.customers,
+  );
+
+  // Bound to the select; drives the inline panel. Default: prior submit's
+  // customerId, else the sentinel when there are no customers yet (zero-state
+  // goes straight to inline-create), else empty so the placeholder shows.
+  let customerId = $state<string>(
+    untrack(() => {
+      const submitted = form?.values?.customerId;
+      if (submitted) return submitted;
+      return data.customers.length === 0 ? NEW_CUSTOMER_SENTINEL : '';
+    }),
+  );
+  const inlineMode = $derived(customerId === NEW_CUSTOMER_SENTINEL);
+
+  const customerErrors = $derived(form?.customerErrors ?? {});
+  function custErr(key: string): string | undefined {
+    return (customerErrors as Record<string, string>)[key];
+  }
+
+  let inlineNewName = $state<string>(untrack(() => form?.values?.newCustomerName ?? ''));
+  let inlineNewEmail = $state<string>(untrack(() => form?.values?.newCustomerEmail ?? ''));
+  const liveEmailDupe = $derived(findEmailDupe(inlineNewEmail, data.customers));
+  const liveNameDupes = $derived(findNameDupes(inlineNewName, data.customers));
+
+  function useExisting(id: string) {
+    customerId = id;
+  }
+
   function addRow() {
     rows.push(blankRow());
   }
@@ -111,12 +152,6 @@
   </div>
 {/if}
 
-{#if data.customers.length === 0}
-  <p class="mt-8 text-fg/70">
-    You need at least one customer before creating an estimate.
-    <a href="/customers/new" class="text-accent hover:underline">Add a customer →</a>
-  </p>
-{:else}
   <form method="post" class="mt-8 space-y-8">
     <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
       <div>
@@ -127,15 +162,114 @@
           id="customerId"
           name="customerId"
           required
+          bind:value={customerId}
           class="field mt-1"
         >
-          <option value="" disabled selected={!values?.customerId}>Select a customer…</option>
-          {#each data.customers as c (c.id)}
-            <option value={c.id} selected={values?.customerId === c.id}>{c.name}</option>
-          {/each}
+          <option value="" disabled>Select a customer…</option>
+          <option value={NEW_CUSTOMER_SENTINEL}>+ Add new customer</option>
+          {#if customersWithExtra.length > 0}
+            <option value="" disabled>──────────</option>
+            {#each customersWithExtra as c (c.id)}
+              <option value={c.id}>{c.name}</option>
+            {/each}
+          {/if}
         </select>
         {#if err('customerId')}
           <p class="mt-1 text-xs text-danger">{err('customerId')}</p>
+        {/if}
+        {#if inlineMode}
+          <div class="mt-3 space-y-3 rounded-sm border border-fg/10 bg-surface-2/60 p-4">
+            <div>
+              <label for="newCustomerName" class="label">
+                Name<span class="text-accent">*</span>
+              </label>
+              <input
+                id="newCustomerName"
+                name="newCustomerName"
+                type="text"
+                maxlength="200"
+                required={inlineMode}
+                bind:value={inlineNewName}
+                class="field mt-1"
+              />
+              {#if custErr('name')}
+                <p class="mt-1 text-xs text-danger">{custErr('name')}</p>
+              {/if}
+              {#if liveNameDupes.length > 0}
+                <div class="mt-2 rounded-sm border border-fg/10 bg-surface p-2 text-xs">
+                  <p class="text-fg/60">
+                    Looks like {liveNameDupes.length === 1 ? 'an existing customer' : 'existing customers'}:
+                  </p>
+                  <ul class="mt-1 space-y-1">
+                    {#each liveNameDupes as dupe (dupe.id)}
+                      <li class="flex items-center justify-between gap-2">
+                        <span class="text-fg">{dupe.name}{#if dupe.email}<span class="text-fg/50"> · {dupe.email}</span>{/if}</span>
+                        <button
+                          type="button"
+                          onclick={() => useExisting(dupe.id)}
+                          class="rounded-sm border border-fg/15 bg-surface-2 px-2 py-1 text-xs uppercase tracking-wider text-fg/70 hover:border-accent hover:text-accent"
+                        >
+                          Use
+                        </button>
+                      </li>
+                    {/each}
+                  </ul>
+                </div>
+              {/if}
+            </div>
+            <div>
+              <label for="newCustomerEmail" class="label">
+                Email
+              </label>
+              <input
+                id="newCustomerEmail"
+                name="newCustomerEmail"
+                type="email"
+                maxlength="320"
+                bind:value={inlineNewEmail}
+                class="field mt-1"
+              />
+              {#if custErr('email') && custErr('email') !== 'email_dupe'}
+                <p class="mt-1 text-xs text-danger">{custErr('email')}</p>
+              {/if}
+              <p class="mt-1 text-xs text-fg/50">
+                Optional, but needed to send the estimate by email.
+              </p>
+            </div>
+            {#if form?.dupeCustomer}
+              <div class="rounded-sm border border-danger/30 bg-danger/5 p-3 text-sm">
+                <p class="text-fg">
+                  <span class="font-medium">{form.dupeCustomer.name}</span> already uses this email.
+                </p>
+                <div class="mt-2 flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    onclick={() => useExisting(form!.dupeCustomer!.id)}
+                    class="rounded-sm bg-inverse px-3 py-1 text-xs uppercase tracking-wider text-on-inverse hover:bg-accent"
+                  >
+                    Use {form.dupeCustomer.name}
+                  </button>
+                  <span class="text-xs text-fg/50">or change the email above to create a different customer.</span>
+                </div>
+              </div>
+            {:else if liveEmailDupe}
+              <div class="rounded-sm border border-accent/30 bg-accent/5 p-3 text-sm">
+                <p class="text-fg">
+                  <span class="font-medium">{liveEmailDupe.name}</span> already uses this email.
+                </p>
+                <button
+                  type="button"
+                  onclick={() => useExisting(liveEmailDupe.id)}
+                  class="mt-2 rounded-sm border border-fg/20 bg-surface-2 px-3 py-1 text-xs uppercase tracking-wider text-fg/70 hover:border-accent hover:text-accent"
+                >
+                  Use {liveEmailDupe.name}
+                </button>
+              </div>
+            {/if}
+            {#if custErr('_')}
+              <p class="text-xs text-danger">{custErr('_')}</p>
+            {/if}
+          </div>
         {/if}
       </div>
 
@@ -235,7 +369,7 @@
                     <option value="product">Product</option>
                   </select>
                 </td>
-                <td class="px-3 py-2">
+                <td class="px-3 py-2 align-top">
                   <input
                     type="text"
                     name="li_quantity"
@@ -245,7 +379,7 @@
                     class="w-full rounded-sm border border-fg/15 bg-surface px-2 py-1 text-right font-mono tabular-nums text-fg focus:border-accent focus:outline-none"
                   />
                 </td>
-                <td class="px-3 py-2">
+                <td class="px-3 py-2 align-top">
                   <input
                     type="text"
                     name="li_unitPrice"
@@ -300,7 +434,7 @@
                     </span>
                   {/if}
                 </td>
-                <td class="px-3 py-2 text-right">
+                <td class="px-3 py-2 text-right align-top">
                   <button
                     type="button"
                     onclick={() => removeRow(i)}
@@ -400,4 +534,3 @@
       <a href="/estimates" class="text-sm text-fg/60 hover:text-fg">Cancel</a>
     </div>
   </form>
-{/if}

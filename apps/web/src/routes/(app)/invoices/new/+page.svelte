@@ -197,6 +197,7 @@
         bind:value={customerId}
         class="field mt-1"
       >
+        <option value="" disabled>Select a customer…</option>
         <option value={NEW_CUSTOMER_SENTINEL}>+ Add new customer</option>
         {#if customersWithExtra.length > 0}
           <option value="" disabled>──────────</option>
@@ -398,7 +399,7 @@
                   <option value="product">Product</option>
                 </select>
               </td>
-              <td class="px-3 py-2">
+              <td class="px-3 py-2 align-top">
                 <input
                   type="text"
                   name="li_quantity"
@@ -408,7 +409,7 @@
                   class="w-full rounded-sm border border-fg/15 bg-surface px-2 py-1 text-right font-mono tabular-nums text-fg focus:border-accent focus:outline-none"
                 />
               </td>
-              <td class="px-3 py-2">
+              <td class="px-3 py-2 align-top">
                 <input
                   type="text"
                   name="li_unitPrice"
@@ -464,7 +465,7 @@
                   </span>
                 {/if}
               </td>
-              <td class="px-3 py-2 text-right">
+              <td class="px-3 py-2 text-right align-top">
                 <button
                   type="button"
                   onclick={() => removeRow(i)}

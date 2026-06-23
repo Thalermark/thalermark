@@ -190,6 +190,22 @@
             >
               Send to a different email…
             </button>
+            {#if canMarkSent}
+              <!-- Retargets the enclosing send form to ?/markSent via formaction
+                   (no nested <form>). Like the Mark paid menu, the POST navigation
+                   dismisses the menu itself, so we must NOT call close() or the
+                   form detaches before submit. formnovalidate skips the optional
+                   `to` email field's constraint check. -->
+              <button
+                type="submit"
+                formaction="?/markSent"
+                formnovalidate
+                role="menuitem"
+                class="block w-full border-t border-fg/10 px-4 py-2 text-left text-sm text-fg/80 transition-colors hover:bg-surface-2 hover:text-fg"
+              >
+                Mark sent without email
+              </button>
+            {/if}
           {/snippet}
         </SplitButton>
       </form>
@@ -240,16 +256,6 @@
       </form>
     {/if}
   </div>
-  {#if canMarkSent}
-    <form method="post" action="?/markSent" class="mt-2">
-      <button
-        type="submit"
-        class="text-xs uppercase tracking-widest text-fg/50 hover:text-accent"
-      >
-        Mark sent without email
-      </button>
-    </form>
-  {/if}
 
   {#if canMarkPaid && showPaidPanel}
     <form
