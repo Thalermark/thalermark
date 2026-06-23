@@ -224,6 +224,15 @@ deploy instead.
 Caddy obtains and renews certificates automatically and does the same-origin
 routing. This is the recommended setup.
 
+**LAN / IP access (no public domain).** For a VM or box you reach by a bare IP
+(e.g. `THALERMARK_DOMAIN=192.168.1.50`) or by `localhost`, Caddy serves TLS with
+its internal CA — the browser warns once, accept and proceed. The bundled
+Caddyfile sets `default_sni` so IP access works at all: TLS clients send no SNI
+for a raw IP, and without a default SNI Caddy can't pick a certificate for the
+handshake (it fails with a TLS "internal error"). Note the **mobile app** needs
+a publicly-trusted certificate, so it won't connect to an IP / internal-CA host
+— that path requires a real domain.
+
 **Behind an existing proxy / load balancer / PaaS.** If something else already
 terminates TLS (a platform router, an upstream nginx/Traefik), you can drop the
 `caddy` service and route to the apps yourself: `/api/*` → `api:3000`,
