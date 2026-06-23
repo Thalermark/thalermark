@@ -16,7 +16,9 @@ const base: NodeJS.ProcessEnv = {
 // silently disabled email verification even with a mailer configured.
 describe('loadEnv — empty-string env vars are treated as unset', () => {
   it('REQUIRE_EMAIL_VERIFICATION="" => undefined (defers to the mailer default)', () => {
-    expect(loadEnv({ ...base, REQUIRE_EMAIL_VERIFICATION: '' }).requireEmailVerification).toBeUndefined();
+    expect(
+      loadEnv({ ...base, REQUIRE_EMAIL_VERIFICATION: '' }).requireEmailVerification,
+    ).toBeUndefined();
   });
 
   it('REQUIRE_EMAIL_VERIFICATION unset => undefined', () => {
@@ -24,16 +26,26 @@ describe('loadEnv — empty-string env vars are treated as unset', () => {
   });
 
   it('REQUIRE_EMAIL_VERIFICATION explicit true/false still parse', () => {
-    expect(loadEnv({ ...base, REQUIRE_EMAIL_VERIFICATION: 'true' }).requireEmailVerification).toBe(true);
-    expect(loadEnv({ ...base, REQUIRE_EMAIL_VERIFICATION: 'false' }).requireEmailVerification).toBe(false);
+    expect(loadEnv({ ...base, REQUIRE_EMAIL_VERIFICATION: 'true' }).requireEmailVerification).toBe(
+      true,
+    );
+    expect(loadEnv({ ...base, REQUIRE_EMAIL_VERIFICATION: 'false' }).requireEmailVerification).toBe(
+      false,
+    );
   });
 
   it('RATE_LIMIT_ENABLED="" => falls back to the NODE_ENV default', () => {
-    expect(loadEnv({ ...base, NODE_ENV: 'production', RATE_LIMIT_ENABLED: '' }).rateLimitEnabled).toBe(true);
-    expect(loadEnv({ ...base, NODE_ENV: 'development', RATE_LIMIT_ENABLED: '' }).rateLimitEnabled).toBe(false);
+    expect(
+      loadEnv({ ...base, NODE_ENV: 'production', RATE_LIMIT_ENABLED: '' }).rateLimitEnabled,
+    ).toBe(true);
+    expect(
+      loadEnv({ ...base, NODE_ENV: 'development', RATE_LIMIT_ENABLED: '' }).rateLimitEnabled,
+    ).toBe(false);
   });
 
   it('RATE_LIMIT_ENABLED="false" disables even in production', () => {
-    expect(loadEnv({ ...base, NODE_ENV: 'production', RATE_LIMIT_ENABLED: 'false' }).rateLimitEnabled).toBe(false);
+    expect(
+      loadEnv({ ...base, NODE_ENV: 'production', RATE_LIMIT_ENABLED: 'false' }).rateLimitEnabled,
+    ).toBe(false);
   });
 });
