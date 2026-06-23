@@ -74,3 +74,80 @@ jobs:
           # the api and web legs clobber each other and tank the hit rate.
           cache-from: type=gha,scope=${{ matrix.app }}
           cache-to: type=gha,scope=${{ matrix.app }},mode=max
+
+  # Boot the freshly built api image against a throwaway Postgres and hit
+  # /health. The build job above only *builds* the image; it never runs it, so a
+  # crash on boot — e.g. an ESM/JSON import that fails only under plain Node in
+  # the compiled image, not under tsx/vitest — sails through every other check
+  # and first surfaces in production. This is the cheap guard for that class.
+  # API only: it has the DB + migrate-on-boot path where boot failures live; the
+  # web image is a static Node server, lower risk.
+  smoke:
+    needs: images
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      # Reuses the api build cache the matrix job just populated, so this is
+      # cache hits + a local load rather than a fresh compile.
+      - name: Build api image (load into local daemon)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          load: true
+          tags: thalermark-api:smoke
+          platforms: linux/amd64
+          cache-from: type=gha,scope=api
+
+      - name: Boot api against Postgres and check /health
+        run: |
+          docker network create smoke
+
+          docker run -d --name pg --network smoke \
+            -e POSTGRES_USER=thalermark \
+            -e POSTGRES_PASSWORD=thalermark \
+            -e POSTGRES_DB=thalermark \
+            pgvector/pgvector:pg17
+
+          echo "waiting for postgres..."
+          for _ in $(seq 1 30); do
+            docker exec pg pg_isready -U thalermark -q && break
+            sleep 2
+          done
+          sleep 2
+
+          docker run -d --name api --network smoke -p 3000:3000 \
+            -e NODE_ENV=production \
+            -e DATABASE_URL=postgres://thalermark:thalermark@pg:5432/thalermark \
+            -e APP_DATABASE_URL=postgres://thalermark_app:thalermark_app@pg:5432/thalermark \
+            -e THALERMARK_APP_PASSWORD=thalermark_app \
+            -e PGBOSS_DATABASE_URL=postgres://thalermark_pgboss:thalermark_pgboss@pg:5432/thalermark \
+            -e THALERMARK_PGBOSS_PASSWORD=thalermark_pgboss \
+            -e MIGRATE_ON_BOOT=true \
+            -e BETTER_AUTH_SECRET=ci-smoke-not-a-real-secret \
+            -e BETTER_AUTH_URL=http://localhost:3000 \
+            -e STORAGE_DRIVER=local \
+            -e STORAGE_LOCAL_PATH=/app/data/storage \
+            thalermark-api:smoke
+
+          echo "waiting for api /health..."
+          for _ in $(seq 1 30); do
+            if curl -fsS http://localhost:3000/health >/dev/null; then
+              healthy=1
+              break
+            fi
+            sleep 2
+          done
+
+          if [ "${healthy:-}" != "1" ]; then
+            echo "::error::api did not pass /health within timeout — boot likely failed"
+            echo "----- api logs -----"
+            docker logs api || true
+            exit 1
+          fi
+          echo "api booted and /health is green"
