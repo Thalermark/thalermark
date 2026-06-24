@@ -40,19 +40,31 @@ The MVP is feature-complete on web and mobile (Phases 0–9 shipped); current wo
 
 ## Self-host
 
-The full stack — postgres + api + web + caddy (TLS-terminating reverse proxy) — runs from a single Docker Compose file:
+The full stack — postgres + api + web + caddy (TLS-terminating reverse proxy) — runs from a single Docker Compose file. The quickest path is the installer: it checks for Docker, generates every secret, walks you through the optional settings (domain/TLS, LLM, email, Stripe), and writes a ready-to-run `.env`.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Thalermark/thalermark/main/install.sh | bash
+```
+
+Docker + the Compose plugin are the only prerequisites (the script links the install docs if either is missing). It sets everything up but **doesn't start the stack** — review the generated `.env`, then run the `docker compose … up -d` command it prints for you.
+
+<details>
+<summary>Prefer manual setup? Clone the repo instead.</summary>
 
 ```bash
 cp .env.example .env
 # At minimum, replace BETTER_AUTH_SECRET (openssl rand -base64 32) and
-# THALERMARK_APP_PASSWORD (any long random string — used as the password
-# for the non-superuser thalermark_app Postgres role the api runs as).
-docker compose -f docker/docker-compose.yml up -d
+# THALERMARK_APP_PASSWORD (any long random string — the password for the
+# non-superuser thalermark_app Postgres role the api runs as).
+docker compose --env-file .env -f docker/docker-compose.yml up -d
 ```
+
+The explicit `--env-file .env` makes Compose apply your values regardless of which directory you invoke it from — some Compose builds otherwise look for the env file next to the compose file and silently fall back to the insecure defaults.
+</details>
 
 Open [https://localhost](https://localhost). Caddy serves with its internal CA on the default `localhost` host; the browser will warn once on first visit — accept and proceed.
 
-For a real domain, set `THALERMARK_DOMAIN=your.host.com` in `.env` before bringing the stack up. Caddy auto-issues a Let's Encrypt cert (requires ports 80 and 443 reachable from the public internet).
+For a real domain, set `THALERMARK_DOMAIN=your.host.com` in `.env` before bringing the stack up (the installer prompts for this). Caddy auto-issues a Let's Encrypt cert (requires ports 80 and 443 reachable from the public internet).
 
 See **[DEPLOYMENT.md](./DEPLOYMENT.md)** for the full guide — the production secrets checklist, storage and database options (local FS vs S3/R2, bundled vs managed Postgres), running behind an existing proxy, backups, and sizing.
 
