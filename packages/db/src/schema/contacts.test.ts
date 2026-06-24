@@ -4,21 +4,21 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { getTestDb, resetDb } from '../../tests/db-test-helper.js';
 import { accounts } from './accounts.js';
 import { companies } from './companies.js';
-import { customers } from './customers.js';
+import { contacts } from './contacts.js';
 
-describe('customers', () => {
+describe('contacts', () => {
   beforeEach(resetDb);
 
-  it('inserts and reads back a customer with FKs to account + company', async () => {
+  it('inserts and reads back a contact with FKs to account + company', async () => {
     const db = getTestDb();
     const accountId = uuidv7();
     const companyId = uuidv7();
-    const customerId = uuidv7();
+    const contactId = uuidv7();
 
     await db.insert(accounts).values({ id: accountId, name: 'Acme' });
     await db.insert(companies).values({ id: companyId, accountId, name: 'Acme Co' });
-    await db.insert(customers).values({
-      id: customerId,
+    await db.insert(contacts).values({
+      id: contactId,
       accountId,
       companyId,
       name: 'Wile E. Coyote',
@@ -28,12 +28,49 @@ describe('customers', () => {
       country: 'US',
     });
 
-    const [row] = await db.select().from(customers).where(eq(customers.id, customerId));
+    const [row] = await db.select().from(contacts).where(eq(contacts.id, contactId));
     expect(row?.name).toBe('Wile E. Coyote');
     expect(row?.email).toBe('wile@example.com');
     expect(row?.phone).toBeNull();
     expect(row?.city).toBe('Tucson');
     expect(row?.createdAt).toBeInstanceOf(Date);
+  });
+
+  it('defaults role flags to customer-only (is_customer true, is_vendor false)', async () => {
+    const db = getTestDb();
+    const accountId = uuidv7();
+    const companyId = uuidv7();
+    const contactId = uuidv7();
+
+    await db.insert(accounts).values({ id: accountId, name: 'Acme' });
+    await db.insert(companies).values({ id: companyId, accountId, name: 'Acme Co' });
+    await db.insert(contacts).values({ id: contactId, accountId, companyId, name: 'Default Roles' });
+
+    const [row] = await db.select().from(contacts).where(eq(contacts.id, contactId));
+    expect(row?.isCustomer).toBe(true);
+    expect(row?.isVendor).toBe(false);
+  });
+
+  it('stores a contact that is both a customer and a vendor', async () => {
+    const db = getTestDb();
+    const accountId = uuidv7();
+    const companyId = uuidv7();
+    const contactId = uuidv7();
+
+    await db.insert(accounts).values({ id: accountId, name: 'Acme' });
+    await db.insert(companies).values({ id: companyId, accountId, name: 'Acme Co' });
+    await db.insert(contacts).values({
+      id: contactId,
+      accountId,
+      companyId,
+      name: 'Both Sides',
+      isCustomer: true,
+      isVendor: true,
+    });
+
+    const [row] = await db.select().from(contacts).where(eq(contacts.id, contactId));
+    expect(row?.isCustomer).toBe(true);
+    expect(row?.isVendor).toBe(true);
   });
 
   it('rejects insert with non-existent account_id (FK constraint)', async () => {
@@ -45,7 +82,7 @@ describe('customers', () => {
     await db.insert(companies).values({ id: companyId, accountId, name: 'Acme Co' });
 
     await expect(
-      db.insert(customers).values({
+      db.insert(contacts).values({
         id: uuidv7(),
         accountId: uuidv7(), // not seeded
         companyId,
@@ -61,7 +98,7 @@ describe('customers', () => {
     await db.insert(accounts).values({ id: accountId, name: 'Acme' });
 
     await expect(
-      db.insert(customers).values({
+      db.insert(contacts).values({
         id: uuidv7(),
         accountId,
         companyId: uuidv7(), // not seeded
@@ -70,39 +107,39 @@ describe('customers', () => {
     ).rejects.toThrow();
   });
 
-  it('cascades delete from accounts → customers', async () => {
+  it('cascades delete from accounts → contacts', async () => {
     const db = getTestDb();
     const accountId = uuidv7();
     const companyId = uuidv7();
-    const customerId = uuidv7();
+    const contactId = uuidv7();
 
     await db.insert(accounts).values({ id: accountId, name: 'Acme' });
     await db.insert(companies).values({ id: companyId, accountId, name: 'Acme Co' });
     await db
-      .insert(customers)
-      .values({ id: customerId, accountId, companyId, name: 'Cascade Target' });
+      .insert(contacts)
+      .values({ id: contactId, accountId, companyId, name: 'Cascade Target' });
 
     await db.delete(accounts).where(eq(accounts.id, accountId));
 
-    const remaining = await db.select().from(customers).where(eq(customers.id, customerId));
+    const remaining = await db.select().from(contacts).where(eq(contacts.id, contactId));
     expect(remaining).toEqual([]);
   });
 
-  it('cascades delete from companies → customers', async () => {
+  it('cascades delete from companies → contacts', async () => {
     const db = getTestDb();
     const accountId = uuidv7();
     const companyId = uuidv7();
-    const customerId = uuidv7();
+    const contactId = uuidv7();
 
     await db.insert(accounts).values({ id: accountId, name: 'Acme' });
     await db.insert(companies).values({ id: companyId, accountId, name: 'Acme Co' });
     await db
-      .insert(customers)
-      .values({ id: customerId, accountId, companyId, name: 'Cascade Target' });
+      .insert(contacts)
+      .values({ id: contactId, accountId, companyId, name: 'Cascade Target' });
 
     await db.delete(companies).where(eq(companies.id, companyId));
 
-    const remaining = await db.select().from(customers).where(eq(customers.id, customerId));
+    const remaining = await db.select().from(contacts).where(eq(contacts.id, contactId));
     expect(remaining).toEqual([]);
   });
 });

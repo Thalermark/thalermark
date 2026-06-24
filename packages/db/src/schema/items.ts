@@ -5,7 +5,7 @@ import { taxPolicies } from './tax_policies.js';
 
 // A per-company catalog of saved line items (products & services) — the
 // reusable source behind the line-item type-ahead and the top-products report.
-// Mirrors customers in shape: company-scoped, account_id denormalized for the
+// Mirrors contacts in shape: company-scoped, account_id denormalized for the
 // standard NULLIF RLS idiom.
 //
 // Picking an item *copies* description / unit_price / default_quantity onto a
@@ -19,7 +19,7 @@ import { taxPolicies } from './tax_policies.js';
 // Items archive, never hard-delete: archived_at drops a row out of the picker
 // (WHERE archived_at IS NULL) while keeping the FK + sales history intact so
 // the top-products report never gets holes punched in it. There is no DELETE
-// endpoint — archive/restore transitions instead. (Contrast customers'
+// endpoint — archive/restore transitions instead. (Contrast contacts'
 // RESTRICT-on-delete; items reach the same "never lose history" end via archive
 // because a delete would orphan the report.)
 //

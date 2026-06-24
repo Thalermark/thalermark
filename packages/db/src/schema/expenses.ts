@@ -2,9 +2,9 @@ import { date, index, jsonb, numeric, pgTable, text, timestamp, uuid } from 'dri
 import { accounts } from './accounts.js';
 import { chartOfAccounts } from './chart_of_accounts.js';
 import { companies } from './companies.js';
-import { customers } from './customers.js';
+import { contacts } from './contacts.js';
 
-// Expenses are the third MVP entity chain (after customers + invoices/estimates),
+// Expenses are the third MVP entity chain (after contacts + invoices/estimates),
 // built ledger-aware from day one — every create/edit/delete posts a balanced
 // journal entry in the same tenant tx (see SCAFFOLDING.md §Phase 8 slice L
 // rationale + the 8.9 chain plan).
@@ -17,10 +17,12 @@ import { customers } from './customers.js';
 //
 // Money column is numeric(15,2) returned as decimal string ([[architecture
 // _money_decimal_strings]]); expense_date is bare date (no TZ, matches the
-// invoice/estimate convention). customer_id is carried nullable from day one
-// even though MVP doesn't expose it — avoids a backfill when job-costing
-// surfaces in v1.x. ON DELETE RESTRICT mirrors invoices: customers with
-// expenses can't be hard-deleted.
+// invoice/estimate convention). customer_contact_id is the job-costing link —
+// which contact (acting as customer) the expense was incurred for. Carried
+// nullable from day one even though MVP doesn't expose it — avoids a backfill
+// when job-costing surfaces in v1.x. ON DELETE RESTRICT mirrors invoices:
+// contacts with expenses can't be hard-deleted. The buy-from side
+// (vendor_contact_id) lands with the expense vendor-link slice.
 //
 // category_account_id and payment_account_id both point at chart_of_accounts.
 // API code validates that category is account_type='expense' and payment is
@@ -33,8 +35,11 @@ import { customers } from './customers.js';
 // hooks for vision-LLM extraction. Both column groups land here so 8.9g/h
 // don't need fresh migrations.
 //
-// merchant is free text in MVP — no vendor entity (bills / accounts payable
-// is deferred v1.2+, per PROJECT.md). memo is the user's note.
+// merchant stays free text: receipt OCR writes the raw string off the receipt
+// with no vendor link required. The optional structured vendor link
+// (vendor_contact_id → contacts where is_vendor) is added with the expense
+// vendor-link slice; bills / accounts payable remain deferred. memo is the
+// user's note.
 export const expenses = pgTable(
   'expenses',
   {
@@ -45,7 +50,9 @@ export const expenses = pgTable(
     companyId: uuid('company_id')
       .notNull()
       .references(() => companies.id, { onDelete: 'cascade' }),
-    customerId: uuid('customer_id').references(() => customers.id, { onDelete: 'restrict' }),
+    customerContactId: uuid('customer_contact_id').references(() => contacts.id, {
+      onDelete: 'restrict',
+    }),
     categoryAccountId: uuid('category_account_id')
       .notNull()
       .references(() => chartOfAccounts.id, { onDelete: 'restrict' }),
@@ -67,7 +74,7 @@ export const expenses = pgTable(
   (table) => ({
     accountIdIdx: index('expenses_account_id_idx').on(table.accountId),
     companyIdIdx: index('expenses_company_id_idx').on(table.companyId),
-    customerIdIdx: index('expenses_customer_id_idx').on(table.customerId),
+    customerContactIdIdx: index('expenses_customer_contact_id_idx').on(table.customerContactId),
     categoryAccountIdIdx: index('expenses_category_account_id_idx').on(table.categoryAccountId),
     paymentAccountIdIdx: index('expenses_payment_account_id_idx').on(table.paymentAccountId),
     expenseDateIdx: index('expenses_expense_date_idx').on(table.expenseDate),

@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { getTestDb, resetDb } from '../../tests/db-test-helper.js';
 import { accounts } from './accounts.js';
 import { companies } from './companies.js';
-import { customers } from './customers.js';
+import { contacts } from './contacts.js';
 import { invoiceLineItems, invoices } from './invoices.js';
 import { taxPolicies } from './tax_policies.js';
 
@@ -116,14 +116,14 @@ describe('tax_policies', () => {
     const db = getTestDb();
     const accountId = uuidv7();
     const companyId = uuidv7();
-    const customerId = uuidv7();
+    const contactId = uuidv7();
     const policyId = uuidv7();
     const invoiceId = uuidv7();
     const lineId = uuidv7();
 
     await db.insert(accounts).values({ id: accountId, name: 'Acme' });
     await db.insert(companies).values({ id: companyId, accountId, name: 'Acme Co' });
-    await db.insert(customers).values({ id: customerId, accountId, companyId, name: 'Coyote' });
+    await db.insert(contacts).values({ id: contactId, accountId, companyId, name: 'Coyote' });
     await db.insert(taxPolicies).values({
       id: policyId,
       accountId,
@@ -135,7 +135,7 @@ describe('tax_policies', () => {
       id: invoiceId,
       accountId,
       companyId,
-      customerId,
+      contactId,
       number: 'INV-1',
       issueDate: '2026-06-14',
       dueDate: '2026-07-14',

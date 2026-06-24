@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { getTestDb, resetDb } from '../../tests/db-test-helper.js';
 import { accounts } from './accounts.js';
 import { companies } from './companies.js';
-import { customers } from './customers.js';
+import { contacts } from './contacts.js';
 import { estimateLineItems, estimates } from './estimates.js';
 import { invoices } from './invoices.js';
 
@@ -12,13 +12,13 @@ async function seedTenant() {
   const db = getTestDb();
   const accountId = uuidv7();
   const companyId = uuidv7();
-  const customerId = uuidv7();
+  const contactId = uuidv7();
   await db.insert(accounts).values({ id: accountId, name: 'Acme' });
   await db.insert(companies).values({ id: companyId, accountId, name: 'Acme Co' });
   await db
-    .insert(customers)
-    .values({ id: customerId, accountId, companyId, name: 'Wile E. Coyote' });
-  return { accountId, companyId, customerId };
+    .insert(contacts)
+    .values({ id: contactId, accountId, companyId, name: 'Wile E. Coyote' });
+  return { accountId, companyId, contactId };
 }
 
 describe('estimates', () => {
@@ -26,14 +26,14 @@ describe('estimates', () => {
 
   it('inserts and reads back an estimate with FKs and default status/currency', async () => {
     const db = getTestDb();
-    const { accountId, companyId, customerId } = await seedTenant();
+    const { accountId, companyId, contactId } = await seedTenant();
     const estimateId = uuidv7();
 
     await db.insert(estimates).values({
       id: estimateId,
       accountId,
       companyId,
-      customerId,
+      contactId,
       number: 'EST-001',
       issueDate: '2026-05-23',
       expiresOn: '2026-06-22',
@@ -62,14 +62,14 @@ describe('estimates', () => {
 
   it('allows expires_on to be null', async () => {
     const db = getTestDb();
-    const { accountId, companyId, customerId } = await seedTenant();
+    const { accountId, companyId, contactId } = await seedTenant();
     const estimateId = uuidv7();
 
     await db.insert(estimates).values({
       id: estimateId,
       accountId,
       companyId,
-      customerId,
+      contactId,
       number: 'EST-NO-EXPIRY',
       issueDate: '2026-05-23',
     });
@@ -78,7 +78,7 @@ describe('estimates', () => {
     expect(row?.expiresOn).toBeNull();
   });
 
-  it('rejects insert with non-existent customer_id (FK constraint)', async () => {
+  it('rejects insert with non-existent contact_id (FK constraint)', async () => {
     const db = getTestDb();
     const { accountId, companyId } = await seedTenant();
 
@@ -87,36 +87,36 @@ describe('estimates', () => {
         id: uuidv7(),
         accountId,
         companyId,
-        customerId: uuidv7(),
+        contactId: uuidv7(),
         number: 'EST-X',
         issueDate: '2026-05-23',
       }),
     ).rejects.toThrow();
   });
 
-  it('blocks delete of a customer who has estimates (RESTRICT)', async () => {
+  it('blocks delete of a contact who has estimates (RESTRICT)', async () => {
     const db = getTestDb();
-    const { accountId, companyId, customerId } = await seedTenant();
+    const { accountId, companyId, contactId } = await seedTenant();
     await db.insert(estimates).values({
       id: uuidv7(),
       accountId,
       companyId,
-      customerId,
+      contactId,
       number: 'EST-001',
       issueDate: '2026-05-23',
     });
 
-    await expect(db.delete(customers).where(eq(customers.id, customerId))).rejects.toThrow();
+    await expect(db.delete(contacts).where(eq(contacts.id, contactId))).rejects.toThrow();
   });
 
   it('enforces (company_id, number) uniqueness', async () => {
     const db = getTestDb();
-    const { accountId, companyId, customerId } = await seedTenant();
+    const { accountId, companyId, contactId } = await seedTenant();
     await db.insert(estimates).values({
       id: uuidv7(),
       accountId,
       companyId,
-      customerId,
+      contactId,
       number: 'EST-001',
       issueDate: '2026-05-23',
     });
@@ -126,7 +126,7 @@ describe('estimates', () => {
         id: uuidv7(),
         accountId,
         companyId,
-        customerId,
+        contactId,
         number: 'EST-001',
         issueDate: '2026-05-23',
       }),
@@ -137,12 +137,12 @@ describe('estimates', () => {
     const db = getTestDb();
     const a = await seedTenant();
     const otherCompanyId = uuidv7();
-    const otherCustomerId = uuidv7();
+    const otherContactId = uuidv7();
     await db
       .insert(companies)
       .values({ id: otherCompanyId, accountId: a.accountId, name: 'Acme Side Hustle' });
-    await db.insert(customers).values({
-      id: otherCustomerId,
+    await db.insert(contacts).values({
+      id: otherContactId,
       accountId: a.accountId,
       companyId: otherCompanyId,
       name: 'Same Coyote',
@@ -152,7 +152,7 @@ describe('estimates', () => {
       id: uuidv7(),
       accountId: a.accountId,
       companyId: a.companyId,
-      customerId: a.customerId,
+      contactId: a.contactId,
       number: 'EST-001',
       issueDate: '2026-05-23',
     });
@@ -162,7 +162,7 @@ describe('estimates', () => {
         id: uuidv7(),
         accountId: a.accountId,
         companyId: otherCompanyId,
-        customerId: otherCustomerId,
+        contactId: otherContactId,
         number: 'EST-001',
         issueDate: '2026-05-23',
       }),
@@ -171,13 +171,13 @@ describe('estimates', () => {
 
   it('allows the same number as an invoice on the same company (separate sequences)', async () => {
     const db = getTestDb();
-    const { accountId, companyId, customerId } = await seedTenant();
+    const { accountId, companyId, contactId } = await seedTenant();
 
     await db.insert(invoices).values({
       id: uuidv7(),
       accountId,
       companyId,
-      customerId,
+      contactId,
       number: '001',
       issueDate: '2026-05-23',
       dueDate: '2026-06-22',
@@ -188,7 +188,7 @@ describe('estimates', () => {
         id: uuidv7(),
         accountId,
         companyId,
-        customerId,
+        contactId,
         number: '001',
         issueDate: '2026-05-23',
       }),
@@ -197,7 +197,7 @@ describe('estimates', () => {
 
   it('sets converted_invoice_id to null when the linked invoice is deleted', async () => {
     const db = getTestDb();
-    const { accountId, companyId, customerId } = await seedTenant();
+    const { accountId, companyId, contactId } = await seedTenant();
     const invoiceId = uuidv7();
     const estimateId = uuidv7();
 
@@ -205,7 +205,7 @@ describe('estimates', () => {
       id: invoiceId,
       accountId,
       companyId,
-      customerId,
+      contactId,
       number: 'INV-FROM-EST',
       issueDate: '2026-05-23',
       dueDate: '2026-06-22',
@@ -214,7 +214,7 @@ describe('estimates', () => {
       id: estimateId,
       accountId,
       companyId,
-      customerId,
+      contactId,
       number: 'EST-CONVERTED',
       issueDate: '2026-05-23',
       convertedInvoiceId: invoiceId,
@@ -228,13 +228,13 @@ describe('estimates', () => {
 
   it('cascades delete from accounts → estimates', async () => {
     const db = getTestDb();
-    const { accountId, companyId, customerId } = await seedTenant();
+    const { accountId, companyId, contactId } = await seedTenant();
     const estimateId = uuidv7();
     await db.insert(estimates).values({
       id: estimateId,
       accountId,
       companyId,
-      customerId,
+      contactId,
       number: 'EST-1',
       issueDate: '2026-05-23',
     });
@@ -251,14 +251,14 @@ describe('estimate_line_items', () => {
 
   it('inserts and reads back line items linked to an estimate', async () => {
     const db = getTestDb();
-    const { accountId, companyId, customerId } = await seedTenant();
+    const { accountId, companyId, contactId } = await seedTenant();
     const estimateId = uuidv7();
     const lineId = uuidv7();
     await db.insert(estimates).values({
       id: estimateId,
       accountId,
       companyId,
-      customerId,
+      contactId,
       number: 'EST-1',
       issueDate: '2026-05-23',
     });
@@ -300,14 +300,14 @@ describe('estimate_line_items', () => {
 
   it('cascades delete from estimates → estimate_line_items', async () => {
     const db = getTestDb();
-    const { accountId, companyId, customerId } = await seedTenant();
+    const { accountId, companyId, contactId } = await seedTenant();
     const estimateId = uuidv7();
     const lineId = uuidv7();
     await db.insert(estimates).values({
       id: estimateId,
       accountId,
       companyId,
-      customerId,
+      contactId,
       number: 'EST-1',
       issueDate: '2026-05-23',
     });

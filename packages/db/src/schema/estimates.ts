@@ -13,7 +13,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import { accounts } from './accounts.js';
 import { companies } from './companies.js';
-import { customers } from './customers.js';
+import { contacts } from './contacts.js';
 import { invoices } from './invoices.js';
 import { items } from './items.js';
 import { taxPolicies } from './tax_policies.js';
@@ -26,7 +26,7 @@ import { taxPolicies } from './tax_policies.js';
 //
 // converted_invoice_id is the link to the invoice created via the "convert"
 // action; ON DELETE SET NULL so deleting an invoice doesn't cascade through
-// the estimate's history. customer_id is RESTRICT to match invoices.
+// the estimate's history. contact_id is RESTRICT to match invoices.
 //
 // public_token gates the unauthed /api/public/estimates/:token route; minted
 // on the draft → sent transition (same 32-byte hex pattern as invoices).
@@ -40,9 +40,9 @@ export const estimates = pgTable(
     companyId: uuid('company_id')
       .notNull()
       .references(() => companies.id, { onDelete: 'cascade' }),
-    customerId: uuid('customer_id')
+    contactId: uuid('contact_id')
       .notNull()
-      .references(() => customers.id, { onDelete: 'restrict' }),
+      .references(() => contacts.id, { onDelete: 'restrict' }),
     number: text('number').notNull(),
     status: text('status').notNull().default('draft'),
     issueDate: date('issue_date', { mode: 'string' }).notNull(),
@@ -75,7 +75,7 @@ export const estimates = pgTable(
   (table) => ({
     accountIdIdx: index('estimates_account_id_idx').on(table.accountId),
     companyIdIdx: index('estimates_company_id_idx').on(table.companyId),
-    customerIdIdx: index('estimates_customer_id_idx').on(table.customerId),
+    contactIdIdx: index('estimates_contact_id_idx').on(table.contactId),
     statusIdx: index('estimates_status_idx').on(table.status),
     // Backs the keyset list query: WHERE account_id ORDER BY created_at DESC, id DESC.
     accountCreatedAtIdx: index('estimates_account_created_at_idx').on(

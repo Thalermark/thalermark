@@ -57,7 +57,7 @@ describe('audit_events — schema', () => {
       id,
       accountId,
       actorUserId: userId,
-      entityType: 'customer',
+      entityType: 'contact',
       entityId: uuidv7(),
       action: 'create',
       after: { name: 'Acme' },

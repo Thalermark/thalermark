@@ -8,7 +8,7 @@ import { auditEvents } from './schema/audit_events.js';
 import { authUser } from './schema/auth.js';
 import { chartOfAccounts } from './schema/chart_of_accounts.js';
 import { companies } from './schema/companies.js';
-import { customers } from './schema/customers.js';
+import { contacts } from './schema/contacts.js';
 import { emailTemplates } from './schema/email_templates.js';
 import { estimateLineItems, estimates } from './schema/estimates.js';
 import { expenses } from './schema/expenses.js';
@@ -681,45 +681,45 @@ describe('RLS — invitations under staff_readonly', () => {
   });
 });
 
-// customers carry both account_id (RLS key) and company_id (FK only). Same
+// contacts carry both account_id (RLS key) and company_id (FK only). Same
 // tenant idiom as the other domain tables; the app role gets full CRUD within
-// its account scope (unlike audit_events) because customers are user-mutable.
+// its account scope (unlike audit_events) because contacts are user-mutable.
 
-async function seedCustomers(): Promise<{ companyAId: string; companyBId: string }> {
+async function seedContacts(): Promise<{ companyAId: string; companyBId: string }> {
   const db = getTestDb();
   const [companyA] = await db.select().from(companies).where(eq(companies.accountId, accountAId));
   const [companyB] = await db.select().from(companies).where(eq(companies.accountId, accountBId));
   if (!companyA || !companyB) throw new Error('seedTwoTenants did not produce one company each');
 
-  await db.insert(customers).values([
-    { id: uuidv7(), accountId: accountAId, companyId: companyA.id, name: 'A Customer' },
-    { id: uuidv7(), accountId: accountBId, companyId: companyB.id, name: 'B Customer' },
+  await db.insert(contacts).values([
+    { id: uuidv7(), accountId: accountAId, companyId: companyA.id, name: 'A Contact' },
+    { id: uuidv7(), accountId: accountBId, companyId: companyB.id, name: 'B Contact' },
   ]);
 
   return { companyAId: companyA.id, companyBId: companyB.id };
 }
 
-describe('RLS — customers account isolation', () => {
+describe('RLS — contacts account isolation', () => {
   let companyAId: string;
   let companyBId: string;
 
   beforeEach(async () => {
     await resetDb();
     await seedTwoTenants();
-    ({ companyAId, companyBId } = await seedCustomers());
+    ({ companyAId, companyBId } = await seedContacts());
   });
 
-  it('sees only its own account customers when context is set', async () => {
+  it('sees only its own account contacts when context is set', async () => {
     const seen = await withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
-      return tx.select().from(customers);
+      return tx.select().from(contacts);
     });
     expect(seen).toHaveLength(1);
     expect(seen[0]?.accountId).toBe(accountAId);
-    expect(seen[0]?.name).toBe('A Customer');
+    expect(seen[0]?.name).toBe('A Contact');
   });
 
   it('sees no rows when no account context is set', async () => {
-    const seen = await getAppDb().select().from(customers);
+    const seen = await getAppDb().select().from(contacts);
     expect(seen).toEqual([]);
   });
 
@@ -727,15 +727,15 @@ describe('RLS — customers account isolation', () => {
     const id = uuidv7();
     await expect(
       withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
-        await tx.insert(customers).values({
+        await tx.insert(contacts).values({
           id,
           accountId: accountAId,
           companyId: companyAId,
-          name: 'A Customer #2',
+          name: 'A Contact #2',
         });
       }),
     ).resolves.not.toThrow();
-    const found = await getTestDb().select().from(customers).where(eq(customers.id, id));
+    const found = await getTestDb().select().from(contacts).where(eq(contacts.id, id));
     expect(found).toHaveLength(1);
   });
 
@@ -743,69 +743,69 @@ describe('RLS — customers account isolation', () => {
     const smuggledId = uuidv7();
     await expect(
       withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
-        await tx.insert(customers).values({
+        await tx.insert(contacts).values({
           id: smuggledId,
           accountId: accountBId,
           companyId: companyBId,
-          name: 'Smuggled B Customer',
+          name: 'Smuggled B Contact',
         });
       }),
     ).rejects.toThrow();
-    const found = await getTestDb().select().from(customers).where(eq(customers.id, smuggledId));
+    const found = await getTestDb().select().from(contacts).where(eq(contacts.id, smuggledId));
     expect(found).toEqual([]);
   });
 
-  it('cannot UPDATE customers in another account', async () => {
+  it('cannot UPDATE contacts in another account', async () => {
     await withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
-      await tx.update(customers).set({ name: 'pwned' }).where(eq(customers.accountId, accountBId));
+      await tx.update(contacts).set({ name: 'pwned' }).where(eq(contacts.accountId, accountBId));
     });
     const bRows = await getTestDb()
       .select()
-      .from(customers)
-      .where(eq(customers.accountId, accountBId));
-    expect(bRows[0]?.name).toBe('B Customer');
+      .from(contacts)
+      .where(eq(contacts.accountId, accountBId));
+    expect(bRows[0]?.name).toBe('B Contact');
   });
 
-  it('cannot DELETE customers in another account', async () => {
+  it('cannot DELETE contacts in another account', async () => {
     await withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
-      await tx.delete(customers).where(eq(customers.accountId, accountBId));
+      await tx.delete(contacts).where(eq(contacts.accountId, accountBId));
     });
     const bRows = await getTestDb()
       .select()
-      .from(customers)
-      .where(eq(customers.accountId, accountBId));
+      .from(contacts)
+      .where(eq(contacts.accountId, accountBId));
     expect(bRows).toHaveLength(1);
   });
 
   it('allows tenant-scoped DELETE within own account', async () => {
     await withAccountContext(getAppDb(), { accountId: accountAId }, async (tx) => {
-      await tx.delete(customers).where(eq(customers.accountId, accountAId));
+      await tx.delete(contacts).where(eq(contacts.accountId, accountAId));
     });
     const aRows = await getTestDb()
       .select()
-      .from(customers)
-      .where(eq(customers.accountId, accountAId));
+      .from(contacts)
+      .where(eq(contacts.accountId, accountAId));
     expect(aRows).toEqual([]);
   });
 });
 
-describe('RLS — customers under staff_readonly', () => {
+describe('RLS — contacts under staff_readonly', () => {
   let companyAId: string;
 
   beforeEach(async () => {
     await resetDb();
     await seedTwoTenants();
-    ({ companyAId } = await seedCustomers());
+    ({ companyAId } = await seedContacts());
   });
 
-  it('reads customers across accounts (BYPASSRLS)', async () => {
-    const seen = await getStaffDb().select().from(customers);
+  it('reads contacts across accounts (BYPASSRLS)', async () => {
+    const seen = await getStaffDb().select().from(contacts);
     expect(seen).toHaveLength(2);
   });
 
   it('cannot INSERT (privilege denied)', async () => {
     await expect(
-      getStaffDb().insert(customers).values({
+      getStaffDb().insert(contacts).values({
         id: uuidv7(),
         accountId: accountAId,
         companyId: companyAId,
@@ -817,20 +817,20 @@ describe('RLS — customers under staff_readonly', () => {
   it('cannot UPDATE (privilege denied)', async () => {
     await expect(
       getStaffDb()
-        .update(customers)
+        .update(contacts)
         .set({ name: 'pwned' })
-        .where(eq(customers.accountId, accountAId)),
+        .where(eq(contacts.accountId, accountAId)),
     ).rejects.toThrow();
   });
 
   it('cannot DELETE (privilege denied)', async () => {
-    await expect(getStaffDb().delete(customers)).rejects.toThrow();
-    const rows = await getTestDb().select().from(customers);
+    await expect(getStaffDb().delete(contacts)).rejects.toThrow();
+    const rows = await getTestDb().select().from(contacts);
     expect(rows).toHaveLength(2);
   });
 });
 
-// items: per-company catalog, same tenant idiom as customers. App role gets
+// items: per-company catalog, same tenant idiom as contacts. App role gets
 // full CRUD within its account (the archive/restore flow is UPDATE under the
 // hood — there is no DELETE endpoint, but the RLS policy is the standard
 // full-CRUD fence); staff_readonly bypasses RLS for SELECT only.
@@ -1101,14 +1101,14 @@ describe('RLS — email_templates under staff_readonly', () => {
 });
 
 // invoices + invoice_line_items: both carry account_id (denormalized for the
-// uniform NULLIF RLS idiom). Same shape as customers — app role gets full CRUD
+// uniform NULLIF RLS idiom). Same shape as contacts — app role gets full CRUD
 // within its tenant; staff_readonly bypasses RLS for SELECT only.
 
 async function seedInvoicesAndLines(): Promise<{
   companyAId: string;
   companyBId: string;
-  customerAId: string;
-  customerBId: string;
+  contactAId: string;
+  contactBId: string;
   invoiceAId: string;
   invoiceBId: string;
 }> {
@@ -1117,11 +1117,11 @@ async function seedInvoicesAndLines(): Promise<{
   const [companyB] = await db.select().from(companies).where(eq(companies.accountId, accountBId));
   if (!companyA || !companyB) throw new Error('seedTwoTenants did not produce one company each');
 
-  const customerAId = uuidv7();
-  const customerBId = uuidv7();
-  await db.insert(customers).values([
-    { id: customerAId, accountId: accountAId, companyId: companyA.id, name: 'A Customer' },
-    { id: customerBId, accountId: accountBId, companyId: companyB.id, name: 'B Customer' },
+  const contactAId = uuidv7();
+  const contactBId = uuidv7();
+  await db.insert(contacts).values([
+    { id: contactAId, accountId: accountAId, companyId: companyA.id, name: 'A Contact' },
+    { id: contactBId, accountId: accountBId, companyId: companyB.id, name: 'B Contact' },
   ]);
 
   const invoiceAId = uuidv7();
@@ -1131,7 +1131,7 @@ async function seedInvoicesAndLines(): Promise<{
       id: invoiceAId,
       accountId: accountAId,
       companyId: companyA.id,
-      customerId: customerAId,
+      contactId: contactAId,
       number: 'INV-A1',
       issueDate: '2026-05-23',
       dueDate: '2026-06-22',
@@ -1141,7 +1141,7 @@ async function seedInvoicesAndLines(): Promise<{
       id: invoiceBId,
       accountId: accountBId,
       companyId: companyB.id,
-      customerId: customerBId,
+      contactId: contactBId,
       number: 'INV-B1',
       issueDate: '2026-05-23',
       dueDate: '2026-06-22',
@@ -1174,8 +1174,8 @@ async function seedInvoicesAndLines(): Promise<{
   return {
     companyAId: companyA.id,
     companyBId: companyB.id,
-    customerAId,
-    customerBId,
+    contactAId,
+    contactBId,
     invoiceAId,
     invoiceBId,
   };
@@ -1184,13 +1184,13 @@ async function seedInvoicesAndLines(): Promise<{
 describe('RLS — invoices account isolation', () => {
   let companyAId: string;
   let companyBId: string;
-  let customerAId: string;
-  let customerBId: string;
+  let contactAId: string;
+  let contactBId: string;
 
   beforeEach(async () => {
     await resetDb();
     await seedTwoTenants();
-    ({ companyAId, companyBId, customerAId, customerBId } = await seedInvoicesAndLines());
+    ({ companyAId, companyBId, contactAId, contactBId } = await seedInvoicesAndLines());
   });
 
   it('sees only its own account invoices when context is set', async () => {
@@ -1215,7 +1215,7 @@ describe('RLS — invoices account isolation', () => {
           id,
           accountId: accountAId,
           companyId: companyAId,
-          customerId: customerAId,
+          contactId: contactAId,
           number: 'INV-A2',
           issueDate: '2026-05-23',
           dueDate: '2026-06-22',
@@ -1234,7 +1234,7 @@ describe('RLS — invoices account isolation', () => {
           id: smuggledId,
           accountId: accountBId,
           companyId: companyBId,
-          customerId: customerBId,
+          contactId: contactBId,
           number: 'INV-SMUGGLED',
           issueDate: '2026-05-23',
           dueDate: '2026-06-22',
@@ -1383,10 +1383,10 @@ describe('RLS — invoices + line items under staff_readonly', () => {
       .select()
       .from(companies)
       .where(eq(companies.accountId, accountAId));
-    const [customerA] = await getTestDb()
+    const [contactA] = await getTestDb()
       .select()
-      .from(customers)
-      .where(eq(customers.accountId, accountAId));
+      .from(contacts)
+      .where(eq(contacts.accountId, accountAId));
     await expect(
       getStaffDb().insert(invoices).values({
         id: uuidv7(),
@@ -1394,7 +1394,7 @@ describe('RLS — invoices + line items under staff_readonly', () => {
         // biome-ignore lint/style/noNonNullAssertion: seeded above
         companyId: companyA!.id,
         // biome-ignore lint/style/noNonNullAssertion: seeded above
-        customerId: customerA!.id,
+        contactId: contactA!.id,
         number: 'INV-STAFF',
         issueDate: '2026-05-23',
         dueDate: '2026-06-22',
@@ -1416,8 +1416,8 @@ describe('RLS — invoices + line items under staff_readonly', () => {
 async function seedEstimatesAndLines(): Promise<{
   companyAId: string;
   companyBId: string;
-  customerAId: string;
-  customerBId: string;
+  contactAId: string;
+  contactBId: string;
   estimateAId: string;
   estimateBId: string;
 }> {
@@ -1426,11 +1426,11 @@ async function seedEstimatesAndLines(): Promise<{
   const [companyB] = await db.select().from(companies).where(eq(companies.accountId, accountBId));
   if (!companyA || !companyB) throw new Error('seedTwoTenants did not produce one company each');
 
-  const customerAId = uuidv7();
-  const customerBId = uuidv7();
-  await db.insert(customers).values([
-    { id: customerAId, accountId: accountAId, companyId: companyA.id, name: 'A Customer' },
-    { id: customerBId, accountId: accountBId, companyId: companyB.id, name: 'B Customer' },
+  const contactAId = uuidv7();
+  const contactBId = uuidv7();
+  await db.insert(contacts).values([
+    { id: contactAId, accountId: accountAId, companyId: companyA.id, name: 'A Contact' },
+    { id: contactBId, accountId: accountBId, companyId: companyB.id, name: 'B Contact' },
   ]);
 
   const estimateAId = uuidv7();
@@ -1440,7 +1440,7 @@ async function seedEstimatesAndLines(): Promise<{
       id: estimateAId,
       accountId: accountAId,
       companyId: companyA.id,
-      customerId: customerAId,
+      contactId: contactAId,
       number: 'EST-A1',
       issueDate: '2026-05-23',
       total: '100.00',
@@ -1449,7 +1449,7 @@ async function seedEstimatesAndLines(): Promise<{
       id: estimateBId,
       accountId: accountBId,
       companyId: companyB.id,
-      customerId: customerBId,
+      contactId: contactBId,
       number: 'EST-B1',
       issueDate: '2026-05-23',
       total: '50.00',
@@ -1481,8 +1481,8 @@ async function seedEstimatesAndLines(): Promise<{
   return {
     companyAId: companyA.id,
     companyBId: companyB.id,
-    customerAId,
-    customerBId,
+    contactAId,
+    contactBId,
     estimateAId,
     estimateBId,
   };
@@ -1491,13 +1491,13 @@ async function seedEstimatesAndLines(): Promise<{
 describe('RLS — estimates account isolation', () => {
   let companyAId: string;
   let companyBId: string;
-  let customerAId: string;
-  let customerBId: string;
+  let contactAId: string;
+  let contactBId: string;
 
   beforeEach(async () => {
     await resetDb();
     await seedTwoTenants();
-    ({ companyAId, companyBId, customerAId, customerBId } = await seedEstimatesAndLines());
+    ({ companyAId, companyBId, contactAId, contactBId } = await seedEstimatesAndLines());
   });
 
   it('sees only its own account estimates when context is set', async () => {
@@ -1522,7 +1522,7 @@ describe('RLS — estimates account isolation', () => {
           id,
           accountId: accountAId,
           companyId: companyAId,
-          customerId: customerAId,
+          contactId: contactAId,
           number: 'EST-A2',
           issueDate: '2026-05-23',
         });
@@ -1540,7 +1540,7 @@ describe('RLS — estimates account isolation', () => {
           id: smuggledId,
           accountId: accountBId,
           companyId: companyBId,
-          customerId: customerBId,
+          contactId: contactBId,
           number: 'EST-SMUGGLED',
           issueDate: '2026-05-23',
         });
@@ -1691,10 +1691,10 @@ describe('RLS — estimates + line items under staff_readonly', () => {
       .select()
       .from(companies)
       .where(eq(companies.accountId, accountAId));
-    const [customerA] = await getTestDb()
+    const [contactA] = await getTestDb()
       .select()
-      .from(customers)
-      .where(eq(customers.accountId, accountAId));
+      .from(contacts)
+      .where(eq(contacts.accountId, accountAId));
     await expect(
       getStaffDb().insert(estimates).values({
         id: uuidv7(),
@@ -1702,7 +1702,7 @@ describe('RLS — estimates + line items under staff_readonly', () => {
         // biome-ignore lint/style/noNonNullAssertion: seeded above
         companyId: companyA!.id,
         // biome-ignore lint/style/noNonNullAssertion: seeded above
-        customerId: customerA!.id,
+        contactId: contactA!.id,
         number: 'EST-STAFF',
         issueDate: '2026-05-23',
       }),
@@ -1717,7 +1717,7 @@ describe('RLS — estimates + line items under staff_readonly', () => {
 });
 
 // expenses: third MVP entity (slice 8.9a). Carries account_id directly; FKs
-// reach chart_of_accounts for both category + payment legs, customer_id
+// reach chart_of_accounts for both category + payment legs, customer_contact_id
 // optional. Same NULLIF tenant-isolation idiom as the rest of the schema.
 
 async function seedExpensesPerAccount(): Promise<{
@@ -1963,8 +1963,8 @@ describe('RLS — expenses under staff_readonly', () => {
 async function seedRecurringAndLines(): Promise<{
   companyAId: string;
   companyBId: string;
-  customerAId: string;
-  customerBId: string;
+  contactAId: string;
+  contactBId: string;
   recurringAId: string;
   recurringBId: string;
 }> {
@@ -1973,11 +1973,11 @@ async function seedRecurringAndLines(): Promise<{
   const [companyB] = await db.select().from(companies).where(eq(companies.accountId, accountBId));
   if (!companyA || !companyB) throw new Error('seedTwoTenants did not produce one company each');
 
-  const customerAId = uuidv7();
-  const customerBId = uuidv7();
-  await db.insert(customers).values([
-    { id: customerAId, accountId: accountAId, companyId: companyA.id, name: 'A Customer' },
-    { id: customerBId, accountId: accountBId, companyId: companyB.id, name: 'B Customer' },
+  const contactAId = uuidv7();
+  const contactBId = uuidv7();
+  await db.insert(contacts).values([
+    { id: contactAId, accountId: accountAId, companyId: companyA.id, name: 'A Contact' },
+    { id: contactBId, accountId: accountBId, companyId: companyB.id, name: 'B Contact' },
   ]);
 
   const recurringAId = uuidv7();
@@ -1987,7 +1987,7 @@ async function seedRecurringAndLines(): Promise<{
       id: recurringAId,
       accountId: accountAId,
       companyId: companyA.id,
-      customerId: customerAId,
+      contactId: contactAId,
       frequency: 'monthly',
       startDate: '2026-06-01',
       nextRunDate: '2026-06-01',
@@ -1997,7 +1997,7 @@ async function seedRecurringAndLines(): Promise<{
       id: recurringBId,
       accountId: accountBId,
       companyId: companyB.id,
-      customerId: customerBId,
+      contactId: contactBId,
       frequency: 'weekly',
       startDate: '2026-06-01',
       nextRunDate: '2026-06-01',
@@ -2030,8 +2030,8 @@ async function seedRecurringAndLines(): Promise<{
   return {
     companyAId: companyA.id,
     companyBId: companyB.id,
-    customerAId,
-    customerBId,
+    contactAId,
+    contactBId,
     recurringAId,
     recurringBId,
   };
@@ -2040,13 +2040,13 @@ async function seedRecurringAndLines(): Promise<{
 describe('RLS — recurring_invoices account isolation', () => {
   let companyAId: string;
   let companyBId: string;
-  let customerAId: string;
-  let customerBId: string;
+  let contactAId: string;
+  let contactBId: string;
 
   beforeEach(async () => {
     await resetDb();
     await seedTwoTenants();
-    ({ companyAId, companyBId, customerAId, customerBId } = await seedRecurringAndLines());
+    ({ companyAId, companyBId, contactAId, contactBId } = await seedRecurringAndLines());
   });
 
   it('sees only its own account schedules when context is set', async () => {
@@ -2071,7 +2071,7 @@ describe('RLS — recurring_invoices account isolation', () => {
           id,
           accountId: accountAId,
           companyId: companyAId,
-          customerId: customerAId,
+          contactId: contactAId,
           frequency: 'yearly',
           startDate: '2026-06-01',
           nextRunDate: '2026-06-01',
@@ -2093,7 +2093,7 @@ describe('RLS — recurring_invoices account isolation', () => {
           id: smuggledId,
           accountId: accountBId,
           companyId: companyBId,
-          customerId: customerBId,
+          contactId: contactBId,
           frequency: 'monthly',
           startDate: '2026-06-01',
           nextRunDate: '2026-06-01',
@@ -2114,7 +2114,7 @@ describe('RLS — recurring_invoices account isolation', () => {
           id: uuidv7(),
           accountId: accountAId,
           companyId: companyAId,
-          customerId: customerAId,
+          contactId: contactAId,
           frequency: 'fortnightly',
           startDate: '2026-06-01',
           nextRunDate: '2026-06-01',
@@ -2266,10 +2266,10 @@ describe('RLS — recurring invoices + line items under staff_readonly', () => {
       .select()
       .from(companies)
       .where(eq(companies.accountId, accountAId));
-    const [customerA] = await getTestDb()
+    const [contactA] = await getTestDb()
       .select()
-      .from(customers)
-      .where(eq(customers.accountId, accountAId));
+      .from(contacts)
+      .where(eq(contacts.accountId, accountAId));
     await expect(
       getStaffDb().insert(recurringInvoices).values({
         id: uuidv7(),
@@ -2277,7 +2277,7 @@ describe('RLS — recurring invoices + line items under staff_readonly', () => {
         // biome-ignore lint/style/noNonNullAssertion: seeded above
         companyId: companyA!.id,
         // biome-ignore lint/style/noNonNullAssertion: seeded above
-        customerId: customerA!.id,
+        contactId: contactA!.id,
         frequency: 'monthly',
         startDate: '2026-06-01',
         nextRunDate: '2026-06-01',
