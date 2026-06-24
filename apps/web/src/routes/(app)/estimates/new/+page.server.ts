@@ -1,5 +1,6 @@
 import { pickActiveCompany } from '$lib/active-company';
 import { serverApiClient } from '$lib/api.server';
+import { findEmailDupe } from '$lib/customer-dupes';
 import { lineTax, policyRate } from '$lib/line-tax';
 import { error, fail, redirect } from '@sveltejs/kit';
 import {
@@ -7,11 +8,18 @@ import {
   type EstimateLineItemInput,
   type LineItemType,
   addMoney,
+  customerCreateSchema,
   estimateCreateSchema,
   multiplyMoney,
   sumMoney,
 } from '@thalermark/validation';
 import type { Actions, PageServerLoad } from './$types';
+
+// Sentinel customerId emitted by the "+ Add new customer" dropdown option. The
+// action branches on it: pull the inline name + email, create the customer
+// first, then use the returned id for the estimate POST. Mirrors +page.svelte
+// (and /invoices/new).
+const NEW_CUSTOMER_SENTINEL = '__new__';
 
 // Line item field names on the form — multi-value inputs, zipped by index
 // on the server. Matches the names emitted by +page.svelte's {#each rows}.
@@ -69,7 +77,7 @@ export const load: PageServerLoad = async (event) => {
       showEmail: company.showEmailOnEstimate,
     },
     customers: customers
-      .map((c) => ({ id: c.id, name: c.name }))
+      .map((c) => ({ id: c.id, name: c.name, email: c.email ?? null }))
       .sort((a, b) => a.name.localeCompare(b.name)),
     taxPolicies: taxPolicies.map((p) => ({
       id: p.id,
@@ -82,6 +90,8 @@ export const load: PageServerLoad = async (event) => {
 
 type FormValues = {
   customerId: string;
+  newCustomerName: string;
+  newCustomerEmail: string;
   number: string;
   issueDate: string;
   expiresOn: string;
@@ -121,6 +131,8 @@ function readForm(data: FormData): FormValues {
   }));
   return {
     customerId: String(data.get('customerId') ?? '').trim(),
+    newCustomerName: String(data.get('newCustomerName') ?? '').trim(),
+    newCustomerEmail: String(data.get('newCustomerEmail') ?? '').trim(),
     number: String(data.get('number') ?? '').trim(),
     issueDate: String(data.get('issueDate') ?? '').trim(),
     expiresOn: String(data.get('expiresOn') ?? '').trim(),
@@ -140,6 +152,53 @@ export const actions: Actions = {
     const data = await event.request.formData();
     const values = readForm(data);
     const companyId = (await loadCompanyId(event)) ?? '';
+
+    // Inline-create branch: validate the customer fields, POST /api/customers,
+    // and swap the returned UUID into customerId before continuing. Mirrors
+    // /invoices/new. On failure, re-render in new-mode with field errors
+    // (values.customerId stays the sentinel so the inline block re-opens).
+    let resolvedCustomerId = values.customerId;
+    let extraCustomer: { id: string; name: string } | undefined;
+    if (values.customerId === NEW_CUSTOMER_SENTINEL) {
+      const parsedCust = customerCreateSchema.safeParse({
+        companyId,
+        name: values.newCustomerName,
+        email: values.newCustomerEmail === '' ? undefined : values.newCustomerEmail,
+      });
+      if (!parsedCust.success) {
+        const customerErrors: Record<string, string> = {};
+        for (const issue of parsedCust.error.issues) {
+          const key = String(issue.path[0] ?? '_');
+          if (!customerErrors[key]) customerErrors[key] = issue.message;
+        }
+        return fail(400, { values, customerErrors });
+      }
+      // HARD BLOCK on email exact match. Re-fetch server-side to close the race
+      // where another tab created the dupe between load() and this POST.
+      const listRes = await client.api.customers.$get({ query: { companyId } });
+      if (listRes.ok) {
+        const { customers: list } = await listRes.json();
+        const emailDupe = findEmailDupe(parsedCust.data.email, list);
+        if (emailDupe) {
+          return fail(409, {
+            values,
+            customerErrors: { email: 'email_dupe' },
+            dupeCustomer: { id: emailDupe.id, name: emailDupe.name },
+          });
+        }
+      }
+      const custRes = await client.api.customers.$post({ json: parsedCust.data });
+      if (!custRes.ok) {
+        const body = (await custRes.json().catch(() => null)) as { error?: string } | null;
+        return fail(custRes.status, {
+          values,
+          customerErrors: { _: body?.error ?? 'customer_create_failed' },
+        });
+      }
+      const createdCustomer = await custRes.json();
+      resolvedCustomerId = createdCustomer.id;
+      extraCustomer = { id: createdCustomer.id, name: createdCustomer.name };
+    }
 
     // Server is authority for money math — same helpers the page uses for
     // live preview, so the form works without JS and the live preview can't
@@ -169,7 +228,7 @@ export const actions: Actions = {
 
     const payload: EstimateCreateInput = {
       companyId,
-      customerId: values.customerId,
+      customerId: resolvedCustomerId,
       number: values.number,
       issueDate: values.issueDate,
       expiresOn: values.expiresOn === '' ? undefined : values.expiresOn,
@@ -191,7 +250,13 @@ export const actions: Actions = {
         const key = top === 'lineItems' ? 'lineItems' : top;
         if (!fieldErrors[key]) fieldErrors[key] = issue.message;
       }
-      return fail(400, { values, fieldErrors });
+      // If we came via inline-create, the customer was already persisted — swap
+      // the sentinel for the real id so the re-render pre-selects them.
+      return fail(400, {
+        values: extraCustomer ? { ...values, customerId: extraCustomer.id } : values,
+        fieldErrors,
+        extraCustomer,
+      });
     }
 
     const res = await client.api.estimates.$post({ json: parsed.data });
@@ -206,7 +271,11 @@ export const actions: Actions = {
             : code === 'customer_not_found'
               ? 'Selected customer no longer exists.'
               : code;
-      return fail(res.status, { values, formError });
+      return fail(res.status, {
+        values: extraCustomer ? { ...values, customerId: extraCustomer.id } : values,
+        formError,
+        extraCustomer,
+      });
     }
     const created = await res.json();
     redirect(303, `/estimates/${created.id}`);
