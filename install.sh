@@ -233,6 +233,11 @@ kv_set "$ENV_FILE" NODE_ENV                 "production"
 kv_set "$ENV_FILE" THALERMARK_VERSION       "$THALERMARK_VERSION"
 kv_set "$ENV_FILE" BETTER_AUTH_SECRET       "$(rand_b64 32)"
 kv_set "$ENV_FILE" STORAGE_URL_SECRET       "$(rand_hex 32)"
+# Self-host serves receipts from the local-FS driver + a persistent volume (the
+# compose api service hardcodes this). Set it here too so the generated .env is
+# honest — .env.example ships the dev MinIO (s3) config, which would otherwise
+# look active even though nothing reads it.
+kv_set "$ENV_FILE" STORAGE_DRIVER           "local"
 kv_set "$ENV_FILE" POSTGRES_PASSWORD        "$(rand_hex 24)"
 kv_set "$ENV_FILE" THALERMARK_APP_PASSWORD  "$(rand_hex 24)"
 kv_set "$ENV_FILE" THALERMARK_PGBOSS_PASSWORD "$(rand_hex 24)"
