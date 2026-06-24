@@ -43,6 +43,7 @@
     'receipt-upload': 'attached a receipt',
     'receipt-delete': 'removed the receipt',
     'receipt-extract': 'auto-filled from the receipt',
+    'dismiss-review': 'dismissed the vendor review',
     pause: 'paused',
     resume: 'resumed',
     end: 'ended',

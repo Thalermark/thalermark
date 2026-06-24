@@ -1,5 +1,6 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
+  import VendorPicker from '$lib/components/VendorPicker.svelte';
   import type { PageProps } from './$types';
 
   let { data, form }: PageProps = $props();
@@ -8,7 +9,7 @@
   const fieldErrors = $derived(form?.fieldErrors ?? {});
   const prefill = $derived(data.prefill ?? {});
 
-  type FieldKey = 'merchant' | 'amount' | 'expenseDate' | 'categoryAccountId' | 'paymentAccountId' | 'memo';
+  type FieldKey = 'merchant' | 'vendorContactId' | 'amount' | 'expenseDate' | 'categoryAccountId' | 'paymentAccountId' | 'memo';
 
   // Priority: a fail()-re-render value (the user just typed it) > a receipt
   // auto-fill suggestion from ?prefill > the loaded expense record. So the
@@ -86,16 +87,13 @@
   <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
     <div>
       <label for="merchant" class="label">
-        Merchant<span class="text-accent">*</span>
+        Vendor<span class="text-accent">*</span>
       </label>
-      <input
-        id="merchant"
-        name="merchant"
-        type="text"
+      <VendorPicker
+        initialMerchant={v('merchant')}
+        initialVendorContactId={v('vendorContactId')}
         required
-        maxlength="200"
-        value={v('merchant')}
-        class="field mt-1"
+        edit
       />
       {#if err('merchant')}
         <p class="mt-1 text-xs text-danger">{err('merchant')}</p>

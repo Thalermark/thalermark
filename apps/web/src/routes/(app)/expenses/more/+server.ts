@@ -24,6 +24,7 @@ export const GET: RequestHandler = async (event) => {
   if (to) query.to = to;
   if (category) query.categoryAccountId = category;
   if (q) query.q = q;
+  if (p.get('needsReview') === 'true') query.needsReview = 'true';
 
   const [expensesRes, accountsRes] = await Promise.all([
     client.api.expenses.$get({ query }),

@@ -11,7 +11,7 @@
   const { filters } = $derived(data);
   const companyId = $derived(data.companyId);
   const hasFilters = $derived(
-    !!(filters.from || filters.to || filters.category || filters.q),
+    !!(filters.from || filters.to || filters.category || filters.q || filters.needsReview),
   );
 
   // See /contacts for the untrack() seed-and-re-seed pattern. The filter form
@@ -42,6 +42,7 @@
         to: filters.to,
         category: filters.category,
         q: filters.q,
+        needsReview: filters.needsReview ? 'true' : '',
       });
       rows = [...rows, ...page.rows];
       cursor = page.nextCursor;
@@ -108,7 +109,7 @@
     </select>
   </label>
   <label class="flex flex-col gap-1 text-xs uppercase tracking-widest text-fg/50">
-    Merchant
+    Vendor
     <input
       type="search"
       name="q"
@@ -126,6 +127,19 @@
     </button>
     <a href="/expenses" class="text-sm text-fg/60 hover:text-fg">Clear</a>
   </div>
+  <!-- Needs-review: receipt-backed expenses with no vendor linked yet. Auto-
+       submits so toggling it re-runs the list with a fresh page 1. -->
+  <label class="flex items-center gap-2 py-1.5 text-sm text-fg sm:col-span-5">
+    <input
+      type="checkbox"
+      name="needsReview"
+      value="true"
+      checked={filters.needsReview}
+      onchange={(ev) => ev.currentTarget.form?.requestSubmit()}
+      class="rounded-sm border-fg/30 text-accent focus:ring-accent"
+    />
+    Needs review (no vendor on a receipt)
+  </label>
 </form>
 
 {#if rows.length === 0}
@@ -138,7 +152,7 @@
       <thead class="bg-surface">
         <tr class="label">
           <th class="px-5 py-3">Date</th>
-          <th class="px-5 py-3">Merchant</th>
+          <th class="px-5 py-3">Vendor</th>
           <th class="px-5 py-3">Category</th>
           <th class="px-5 py-3 text-right">Amount</th>
         </tr>
@@ -153,6 +167,14 @@
               </a>
               {#if exp.hasReceipt}
                 <span class="ml-2 align-middle text-xs text-fg/40" title="Receipt attached">▣</span>
+              {/if}
+              {#if exp.needsReview}
+                <span
+                  class="ml-2 rounded-sm bg-warning/15 px-1.5 py-0.5 align-middle text-[10px] font-medium uppercase tracking-wide text-warning"
+                  title="Receipt with no vendor linked"
+                >
+                  Needs review
+                </span>
               {/if}
             </td>
             <td class="px-5 py-4 text-fg/80">{exp.categoryName}</td>

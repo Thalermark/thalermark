@@ -9,6 +9,7 @@ type ApiExpense = {
   amount: string;
   categoryAccountId: string | null;
   receiptStorageKey: string | null;
+  vendorReview: string | null;
 };
 
 export type ExpenseRow = {
@@ -18,6 +19,7 @@ export type ExpenseRow = {
   amount: string;
   categoryName: string;
   hasReceipt: boolean;
+  needsReview: boolean;
 };
 
 export function mapExpenseRows(
@@ -31,5 +33,6 @@ export function mapExpenseRows(
     amount: e.amount,
     categoryName: (e.categoryAccountId && categoryNameById.get(e.categoryAccountId)) || '—',
     hasReceipt: e.receiptStorageKey != null,
+    needsReview: e.vendorReview === 'needs_review',
   }));
 }

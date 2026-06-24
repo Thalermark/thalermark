@@ -61,6 +61,37 @@
     {form.extractError}
   </div>
 {/if}
+{#if form?.reviewError}
+  <div class="mt-4 rounded-sm border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
+    {form.reviewError}
+  </div>
+{/if}
+
+<!-- Needs-review: a receipt landed with no vendor linked. Link one (via edit's
+     Vendor field) or dismiss the flag (no contact created). -->
+{#if e.vendorReview === 'needs_review' && canWrite}
+  <div
+    class="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-sm border border-warning/30 bg-warning/5 px-4 py-3 text-sm text-fg/80"
+  >
+    <span>This expense has a receipt but no vendor linked yet.</span>
+    <div class="flex items-center gap-4">
+      <a
+        href="/expenses/{e.id}/edit"
+        class="rounded-sm border border-warning/40 px-3 py-1 font-mono text-xs uppercase tracking-widest text-warning hover:bg-warning/10"
+      >
+        Link a vendor
+      </a>
+      <form method="post" action="?/dismissReview">
+        <button
+          type="submit"
+          class="font-mono text-xs uppercase tracking-widest text-fg/50 hover:text-fg"
+        >
+          Dismiss
+        </button>
+      </form>
+    </div>
+  </div>
+{/if}
 
 <dl class="mt-8 grid grid-cols-1 gap-x-12 gap-y-6 sm:grid-cols-2">
   <div>
