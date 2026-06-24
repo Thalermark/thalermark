@@ -16,12 +16,17 @@ import { isoDateString, moneyString } from './money.js';
 //
 // amount is a decimal string ([[architecture_money_decimal_strings]]);
 // expenseDate is a bare YYYY-MM-DD calendar date matching the
-// `date({ mode: 'string' })` column. merchant is free text — receipt OCR writes
-// the raw string with no vendor link required; the optional structured vendor
-// link lands with the expense vendor-link slice. memo is the user's note.
+// `date({ mode: 'string' })` column. merchant is free text — the single
+// on-screen "Vendor" field's display name; receipt OCR writes the raw string
+// with no link required. vendorContactId is the optional structured buy-from
+// link (a contact, acting as vendor): nullable so the edit form can clear it
+// back to free-text. The needs-review flag itself is server-managed (set when
+// a receipt-backed expense has no vendor, cleared on link-or-dismiss), so it is
+// not a client-supplied field. memo is the user's note.
 export const expenseCreateSchema = z.object({
   companyId: z.string().uuid(),
   customerContactId: z.string().uuid().optional(),
+  vendorContactId: z.string().uuid().nullable().optional(),
   categoryAccountId: z.string().uuid(),
   paymentAccountId: z.string().uuid(),
   amount: moneyString,
