@@ -2,11 +2,13 @@ import {
   authUser,
   chartOfAccounts,
   companies,
+  contacts,
   expenses,
   journalEntries,
   journalLines,
   memberships,
 } from '@thalermark/db';
+import { v7 as uuidv7 } from 'uuid';
 import { and, eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
@@ -478,6 +480,215 @@ describe('expenses — CRUD + ledger', () => {
       });
       const bRows = ((await listB.json()) as { expenses: { id: string }[] }).expenses;
       expect(bRows.find((e) => e.id === id)).toBeUndefined();
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+});
+
+describe('expenses — vendor link + needs-review', () => {
+  beforeEach(resetDb);
+
+  async function seedContact(
+    accountId: string,
+    companyId: string,
+    name: string,
+    isVendor = false,
+  ): Promise<string> {
+    const db = getTestDb();
+    const id = uuidv7();
+    await db.insert(contacts).values({ id, accountId, companyId, name, isVendor });
+    return id;
+  }
+
+  async function patchExpense(
+    app: ReturnType<typeof createApp>,
+    cookie: string,
+    accountId: string,
+    id: string,
+    body: Record<string, unknown>,
+  ): Promise<Response> {
+    return app.request(`/api/expenses/${id}`, {
+      method: 'PATCH',
+      headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  }
+
+  type ExpenseRow = {
+    id: string;
+    merchant: string;
+    vendorContactId: string | null;
+    vendorReview: string | null;
+  };
+
+  it('linking a vendor on create mirrors merchant, flips is_vendor, no review', async () => {
+    const ctx = buildApp();
+    try {
+      const cookie = await signUp(ctx.app, 'vend-create@example.com');
+      const { accountId, companyId } = await userContext('vend-create@example.com');
+      const category = await coaId(companyId, '6000');
+      const payment = await coaId(companyId, '1000');
+      // Seeded as a customer-only contact — linking it as a vendor should flip
+      // is_vendor (the buy-from half of the unified relationship).
+      const vendorId = await seedContact(accountId, companyId, 'Acme Supply');
+
+      const res = await createExpense(
+        ctx.app,
+        cookie,
+        accountId,
+        expenseBody({
+          companyId,
+          categoryAccountId: category,
+          paymentAccountId: payment,
+          merchant: 'typed-over',
+          vendorContactId: vendorId,
+        }),
+      );
+      expect(res.status).toBe(201);
+      const row = (await res.json()) as ExpenseRow;
+      expect(row.vendorContactId).toBe(vendorId);
+      expect(row.merchant).toBe('Acme Supply'); // mirrored from the contact, not 'typed-over'
+      expect(row.vendorReview).toBeNull();
+
+      const db = getTestDb();
+      const [linked] = await db.select().from(contacts).where(eq(contacts.id, vendorId));
+      expect(linked?.isVendor).toBe(true);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('linking a vendor via PATCH clears the review flag and mirrors merchant', async () => {
+    const ctx = buildApp();
+    try {
+      const cookie = await signUp(ctx.app, 'vend-link@example.com');
+      const { accountId, companyId } = await userContext('vend-link@example.com');
+      const category = await coaId(companyId, '6000');
+      const payment = await coaId(companyId, '1000');
+      const vendorId = await seedContact(accountId, companyId, 'Home Depot', true);
+
+      const create = await createExpense(
+        ctx.app,
+        cookie,
+        accountId,
+        expenseBody({ companyId, categoryAccountId: category, paymentAccountId: payment, merchant: 'HD #4412' }),
+      );
+      const { id } = (await create.json()) as { id: string };
+      // Simulate a scanned-but-unlinked expense (receipt + needs_review).
+      const db = getTestDb();
+      await db
+        .update(expenses)
+        .set({ receiptStorageKey: 'fake-key', vendorReview: 'needs_review' })
+        .where(eq(expenses.id, id));
+
+      const res = await patchExpense(ctx.app, cookie, accountId, id, { vendorContactId: vendorId });
+      expect(res.status).toBe(200);
+      const row = (await res.json()) as ExpenseRow;
+      expect(row.vendorContactId).toBe(vendorId);
+      expect(row.merchant).toBe('Home Depot');
+      expect(row.vendorReview).toBeNull();
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('unlinking a vendor via PATCH re-flags when a receipt is attached', async () => {
+    const ctx = buildApp();
+    try {
+      const cookie = await signUp(ctx.app, 'vend-unlink@example.com');
+      const { accountId, companyId } = await userContext('vend-unlink@example.com');
+      const category = await coaId(companyId, '6000');
+      const payment = await coaId(companyId, '1000');
+      const vendorId = await seedContact(accountId, companyId, 'Office Depot', true);
+
+      const create = await createExpense(
+        ctx.app,
+        cookie,
+        accountId,
+        expenseBody({
+          companyId,
+          categoryAccountId: category,
+          paymentAccountId: payment,
+          vendorContactId: vendorId,
+        }),
+      );
+      const { id } = (await create.json()) as { id: string };
+      const db = getTestDb();
+      await db.update(expenses).set({ receiptStorageKey: 'fake-key' }).where(eq(expenses.id, id));
+
+      const res = await patchExpense(ctx.app, cookie, accountId, id, {
+        vendorContactId: null,
+        merchant: 'OFFICE DEPOT #91',
+      });
+      expect(res.status).toBe(200);
+      const row = (await res.json()) as ExpenseRow;
+      expect(row.vendorContactId).toBeNull();
+      expect(row.merchant).toBe('OFFICE DEPOT #91');
+      expect(row.vendorReview).toBe('needs_review');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('dismiss-review clears the flag without creating a contact', async () => {
+    const ctx = buildApp();
+    try {
+      const cookie = await signUp(ctx.app, 'vend-dismiss@example.com');
+      const { accountId, companyId } = await userContext('vend-dismiss@example.com');
+      const category = await coaId(companyId, '6000');
+      const payment = await coaId(companyId, '1000');
+      const create = await createExpense(
+        ctx.app,
+        cookie,
+        accountId,
+        expenseBody({ companyId, categoryAccountId: category, paymentAccountId: payment }),
+      );
+      const { id } = (await create.json()) as { id: string };
+      const db = getTestDb();
+      await db.update(expenses).set({ vendorReview: 'needs_review' }).where(eq(expenses.id, id));
+      const before = await db.select().from(contacts).where(eq(contacts.accountId, accountId));
+
+      const res = await ctx.app.request(`/api/expenses/${id}/dismiss-review`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as ExpenseRow).vendorReview).toBeNull();
+
+      const after = await db.select().from(contacts).where(eq(contacts.accountId, accountId));
+      expect(after.length).toBe(before.length); // no contact created
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('?needsReview=true returns only the flagged expenses', async () => {
+    const ctx = buildApp();
+    try {
+      const cookie = await signUp(ctx.app, 'vend-filter@example.com');
+      const { accountId, companyId } = await userContext('vend-filter@example.com');
+      const category = await coaId(companyId, '6000');
+      const payment = await coaId(companyId, '1000');
+      const body = { companyId, categoryAccountId: category, paymentAccountId: payment };
+      const flagged = (await (
+        await createExpense(ctx.app, cookie, accountId, expenseBody({ ...body, merchant: 'Flag me' }))
+      ).json()) as { id: string };
+      await createExpense(ctx.app, cookie, accountId, expenseBody({ ...body, merchant: 'Leave me' }));
+      const db = getTestDb();
+      await db
+        .update(expenses)
+        .set({ vendorReview: 'needs_review' })
+        .where(eq(expenses.id, flagged.id));
+
+      const res = await ctx.app.request(
+        `/api/expenses?companyId=${companyId}&needsReview=true`,
+        { headers: { cookie, 'x-account-id': accountId } },
+      );
+      expect(res.status).toBe(200);
+      const rows = ((await res.json()) as { expenses: ExpenseRow[] }).expenses;
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.id).toBe(flagged.id);
     } finally {
       await ctx.handle.close();
     }

@@ -173,6 +173,8 @@ describe('receipt capture', () => {
       const [row] = await db.select().from(expenses).where(eq(expenses.id, expenseId));
       expect(row?.receiptStorageKey).toBe(upBody.receiptStorageKey);
       expect(row?.receiptUploadedAt).not.toBeNull();
+      // Scan-and-forget: a receipt on a vendor-less expense queues for review.
+      expect(row?.vendorReview).toBe('needs_review');
       const onDisk = await readLocalObject(storageDir, upBody.receiptStorageKey);
       expect(new Uint8Array(onDisk)).toEqual(bytes);
 

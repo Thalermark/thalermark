@@ -279,6 +279,36 @@ async function resolveCoaAccounts(
   return new Map(rows.map((r) => [r.id, { code: r.code, accountType: r.accountType }]));
 }
 
+// Resolve an expense's optional buy-from vendor link (shared by create +
+// update). Returns null when nothing to link; an {error,status} pair for a bad
+// link; otherwise the resolved {id,name} after marking the contact is_vendor.
+// Marking is_vendor on link is how an existing customer-only contact becomes a
+// vendor too — the buy-from half of the unified-contact relationship view.
+// Callers mirror the returned name into expenses.merchant so the single
+// on-screen "Vendor" field stays the display string.
+async function resolveVendorLink(
+  tx: Transaction,
+  accountId: string,
+  companyId: string,
+  vendorContactId: string | null | undefined,
+): Promise<{ id: string; name: string } | { error: string; status: 400 | 404 } | null> {
+  if (!vendorContactId) return null;
+  const [vendor] = await tx
+    .select({ id: contacts.id, companyId: contacts.companyId, name: contacts.name, isVendor: contacts.isVendor })
+    .from(contacts)
+    .where(and(eq(contacts.id, vendorContactId), eq(contacts.accountId, accountId)))
+    .limit(1);
+  if (!vendor) return { error: 'contact_not_found', status: 404 };
+  if (vendor.companyId !== companyId) return { error: 'vendor_company_mismatch', status: 400 };
+  if (!vendor.isVendor) {
+    await tx
+      .update(contacts)
+      .set({ isVendor: true, updatedAt: new Date() })
+      .where(and(eq(contacts.id, vendorContactId), eq(contacts.accountId, accountId)));
+  }
+  return { id: vendor.id, name: vendor.name };
+}
+
 // Offline-payment columns projected for the company PATCH's audit before/after
 // and response. Keeps those call sites in lockstep; accepts any row carrying
 // the fields (the full company select or the PATCH's returning()).
@@ -5350,7 +5380,7 @@ export function createApp(deps: AppDeps) {
 
         const tx = c.get('tx');
         const accountId = c.get('accountId');
-        const { companyId, customerContactId, categoryAccountId, paymentAccountId, ...rest } = parsed.data;
+        const { companyId, customerContactId, vendorContactId, categoryAccountId, paymentAccountId, ...rest } = parsed.data;
 
         const [company] = await tx
           .select({ id: companies.id })
@@ -5374,6 +5404,17 @@ export function createApp(deps: AppDeps) {
           }
         }
 
+        // vendorContactId is the optional buy-from link (same account+company
+        // invariant). Linking resolves the single on-screen "Vendor" field:
+        // merchant is mirrored from the contact's name (the always-present
+        // display string) and the contact is marked is_vendor so it shows on
+        // the buy-from side of the relationship. The needs-review flag is left
+        // null (a linked expense needs no review).
+        let merchant = rest.merchant;
+        const vendor = await resolveVendorLink(tx, accountId, companyId, vendorContactId);
+        if (vendor && 'error' in vendor) return c.json({ error: vendor.error }, vendor.status);
+        if (vendor) merchant = vendor.name;
+
         const coa = await resolveCoaAccounts(tx, accountId, companyId, [
           categoryAccountId,
           paymentAccountId,
@@ -5395,11 +5436,12 @@ export function createApp(deps: AppDeps) {
             accountId,
             companyId,
             customerContactId: customerContactId ?? null,
+            vendorContactId: vendorContactId ?? null,
             categoryAccountId,
             paymentAccountId,
             amount: rest.amount,
             expenseDate: rest.expenseDate,
-            merchant: rest.merchant,
+            merchant,
             memo: rest.memo ?? null,
           })
           .returning();
@@ -5413,7 +5455,7 @@ export function createApp(deps: AppDeps) {
         });
 
         await postExpenseCreate(tx, {
-          expense: { id: expenseId, merchant: rest.merchant, amount: rest.amount },
+          expense: { id: expenseId, merchant, amount: rest.amount },
           categoryCode: category.code,
           paymentCode: payment.code,
           accountId,
@@ -5512,6 +5554,7 @@ export function createApp(deps: AppDeps) {
         const to = c.req.query('to');
         const categoryAccountId = c.req.query('categoryAccountId');
         const q = c.req.query('q');
+        const needsReview = c.req.query('needsReview');
 
         // from/to are inclusive YYYY-MM-DD bounds on expense_date. Validate the
         // shape so a malformed value returns a clean 400 rather than letting
@@ -5539,6 +5582,9 @@ export function createApp(deps: AppDeps) {
         if (from) conditions.push(gte(expenses.expenseDate, from));
         if (to) conditions.push(lte(expenses.expenseDate, to));
         if (categoryAccountId) conditions.push(eq(expenses.categoryAccountId, categoryAccountId));
+        // "Needs review" filter: receipt-backed expenses whose vendor isn't
+        // linked yet (backed by the partial index expenses_vendor_review_idx).
+        if (needsReview === 'true') conditions.push(eq(expenses.vendorReview, 'needs_review'));
         // Merchant contains-search. escapeLike neutralises %/_ so a literal
         // "50%" search doesn't turn into a wildcard.
         if (q) conditions.push(ilike(expenses.merchant, `%${escapeLike(q)}%`));
@@ -5596,6 +5642,7 @@ export function createApp(deps: AppDeps) {
           // between companies and orphan its company-scoped ledger accounts.
           const next = {
             customerContactId: data.customerContactId !== undefined ? data.customerContactId : current.customerContactId,
+            vendorContactId: data.vendorContactId !== undefined ? data.vendorContactId : current.vendorContactId,
             categoryAccountId: data.categoryAccountId ?? current.categoryAccountId,
             paymentAccountId: data.paymentAccountId ?? current.paymentAccountId,
             amount: data.amount ?? current.amount,
@@ -5613,6 +5660,24 @@ export function createApp(deps: AppDeps) {
             if (!customer) return c.json({ error: 'contact_not_found' }, 404);
             if (customer.companyId !== current.companyId) {
               return c.json({ error: 'customer_company_mismatch' }, 400);
+            }
+          }
+
+          // Vendor link: only (re)validated when the field is touched. Linking
+          // mirrors the contact's name into merchant and clears the review flag;
+          // an explicit unlink re-flags iff a receipt is attached (otherwise
+          // there's nothing to review). When untouched, vendor_review is left
+          // as-is so an edit to some other field never resurrects a dismissed
+          // flag.
+          let vendorReview = current.vendorReview;
+          if (data.vendorContactId !== undefined) {
+            const vendor = await resolveVendorLink(tx, accountId, current.companyId, data.vendorContactId);
+            if (vendor && 'error' in vendor) return c.json({ error: vendor.error }, vendor.status);
+            if (vendor) {
+              next.merchant = vendor.name;
+              vendorReview = null;
+            } else {
+              vendorReview = current.receiptStorageKey ? 'needs_review' : null;
             }
           }
 
@@ -5660,12 +5725,14 @@ export function createApp(deps: AppDeps) {
             .update(expenses)
             .set({
               customerContactId: next.customerContactId ?? null,
+              vendorContactId: next.vendorContactId ?? null,
               categoryAccountId: next.categoryAccountId,
               paymentAccountId: next.paymentAccountId,
               amount: next.amount,
               expenseDate: next.expenseDate,
               merchant: next.merchant,
               memo: next.memo ?? null,
+              vendorReview,
               updatedAt: now,
             })
             .where(and(eq(expenses.id, id), eq(expenses.accountId, accountId)))
@@ -5788,9 +5855,14 @@ export function createApp(deps: AppDeps) {
         const key = `accounts/${accountId}/companies/${expense.companyId}/expenses/${id}/${uuidv7()}.${ext}`;
         const now = new Date();
 
+        // Scan-and-forget review flag: a freshly-attached receipt with no vendor
+        // link goes to the "Needs review" queue so a human can link/create/
+        // dismiss the vendor later. A receipt on an already-linked expense needs
+        // no review.
+        const vendorReview = expense.vendorContactId ? null : 'needs_review';
         const [updated] = await tx
           .update(expenses)
-          .set({ receiptStorageKey: key, receiptUploadedAt: now, updatedAt: now })
+          .set({ receiptStorageKey: key, receiptUploadedAt: now, vendorReview, updatedAt: now })
           .where(and(eq(expenses.id, id), eq(expenses.accountId, accountId)))
           .returning();
         if (!updated) return c.json({ error: 'expense_not_found' }, 404);
@@ -5810,6 +5882,39 @@ export function createApp(deps: AppDeps) {
         await deps.storage.putObject({ key, body: bytes, contentType: file.type });
 
         return c.json({ id, receiptStorageKey: key, receiptUploadedAt: now }, 201);
+      })
+      // Dismiss the needs-review flag without linking a vendor — the one-off
+      // "I'm not tracking this merchant as a contact" path. Clears the flag
+      // (vendor_review → null); never creates a contact. Idempotent.
+      .post('/api/expenses/:id/dismiss-review', requireCapability('expenses:write'), async (c) => {
+        const id = c.req.param('id');
+        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+        const [expense] = await tx
+          .select()
+          .from(expenses)
+          .where(and(eq(expenses.id, id), eq(expenses.accountId, accountId)))
+          .limit(1);
+        if (!expense || expense.deletedAt) return c.json({ error: 'expense_not_found' }, 404);
+
+        if (expense.vendorReview !== null) {
+          const [updated] = await tx
+            .update(expenses)
+            .set({ vendorReview: null, updatedAt: new Date() })
+            .where(and(eq(expenses.id, id), eq(expenses.accountId, accountId)))
+            .returning();
+          await c.var.audit({
+            entityType: 'expense',
+            entityId: id,
+            action: 'dismiss-review',
+            before: { vendorReview: expense.vendorReview },
+            after: { vendorReview: null },
+            companyId: expense.companyId,
+          });
+          return c.json(updated);
+        }
+        return c.json(expense);
       })
       // 1-hour signed download URL. For s3 it's a presigned object-store URL
       // the browser fetches directly; for local-FS it's a relative
