@@ -4,7 +4,7 @@ import {
   auditEvents,
   authUser,
   companies,
-  customers,
+  contacts,
   invoices,
   journalEntries,
   journalLines,
@@ -81,7 +81,7 @@ async function seedSentInvoice(): Promise<{
   const userId = uuidv7();
   const accountId = uuidv7();
   const companyId = uuidv7();
-  const customerId = uuidv7();
+  const contactId = uuidv7();
   const invoiceId = uuidv7();
   await db
     .insert(authUser)
@@ -89,12 +89,12 @@ async function seedSentInvoice(): Promise<{
   await db.insert(accounts).values({ id: accountId, name: 'Test Acc' });
   await db.insert(memberships).values({ id: uuidv7(), accountId, userId });
   await db.insert(companies).values({ id: companyId, accountId, name: 'Test Co' });
-  await db.insert(customers).values({ id: customerId, accountId, companyId, name: 'Bob' });
+  await db.insert(contacts).values({ id: contactId, accountId, companyId, name: 'Bob' });
   await db.insert(invoices).values({
     id: invoiceId,
     accountId,
     companyId,
-    customerId,
+    contactId,
     number: 'INV-1',
     status: 'sent',
     issueDate: '2026-05-25',

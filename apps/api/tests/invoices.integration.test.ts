@@ -98,7 +98,7 @@ function buildApp(opts: { mailer?: import('../src/lib/mailer.js').Mailer } = {})
 
 type CtxApp = { app: ReturnType<typeof createApp>; handle: { close: () => Promise<void> } };
 
-async function createCustomer(
+async function createContact(
   { app }: CtxApp,
   cookie: string,
   accountId: string,
@@ -106,7 +106,7 @@ async function createCustomer(
   name = 'Wile E. Coyote',
   email?: string,
 ): Promise<string> {
-  const res = await app.request('/api/customers', {
+  const res = await app.request('/api/contacts', {
     method: 'POST',
     headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
     body: JSON.stringify(email ? { companyId, name, email } : { companyId, name }),
@@ -116,10 +116,10 @@ async function createCustomer(
   return body.id;
 }
 
-function invoiceBody(companyId: string, customerId: string, number = 'INV-001') {
+function invoiceBody(companyId: string, contactId: string, number = 'INV-001') {
   return {
     companyId,
-    customerId,
+    contactId,
     number,
     issueDate: '2026-05-23',
     dueDate: '2026-06-22',
@@ -146,12 +146,12 @@ describe('POST /api/invoices', () => {
     try {
       const cookie = await signUp(ctx.app, 'biller@example.com');
       const { accountId, companyId } = await userContext('biller@example.com');
-      const customerId = await createCustomer(ctx, cookie, accountId, companyId);
+      const contactId = await createContact(ctx, cookie, accountId, companyId);
 
       const res = await ctx.app.request('/api/invoices', {
         method: 'POST',
         headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
-        body: JSON.stringify(invoiceBody(companyId, customerId)),
+        body: JSON.stringify(invoiceBody(companyId, contactId)),
       });
       expect(res.status).toBe(201);
       const body = (await res.json()) as { id: string };
@@ -183,19 +183,19 @@ describe('POST /api/invoices', () => {
     try {
       const cookie = await signUp(ctx.app, 'dup@example.com');
       const { accountId, companyId } = await userContext('dup@example.com');
-      const customerId = await createCustomer(ctx, cookie, accountId, companyId);
+      const contactId = await createContact(ctx, cookie, accountId, companyId);
 
       const first = await ctx.app.request('/api/invoices', {
         method: 'POST',
         headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
-        body: JSON.stringify(invoiceBody(companyId, customerId, 'INV-DUP')),
+        body: JSON.stringify(invoiceBody(companyId, contactId, 'INV-DUP')),
       });
       expect(first.status).toBe(201);
 
       const second = await ctx.app.request('/api/invoices', {
         method: 'POST',
         headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
-        body: JSON.stringify(invoiceBody(companyId, customerId, 'INV-DUP')),
+        body: JSON.stringify(invoiceBody(companyId, contactId, 'INV-DUP')),
       });
       expect(second.status).toBe(409);
     } finally {
@@ -203,12 +203,12 @@ describe('POST /api/invoices', () => {
     }
   });
 
-  it('rejects a customerId from a different account with 404', async () => {
+  it('rejects a contactId from a different account with 404', async () => {
     const ctx = buildApp();
     try {
       const aCookie = await signUp(ctx.app, 'alice-i@example.com');
       const aCtx = await userContext('alice-i@example.com');
-      const aCustId = await createCustomer(ctx, aCookie, aCtx.accountId, aCtx.companyId);
+      const aCustId = await createContact(ctx, aCookie, aCtx.accountId, aCtx.companyId);
 
       const bCookie = await signUp(ctx.app, 'bob-i@example.com');
       const bCtx = await userContext('bob-i@example.com');
@@ -228,12 +228,12 @@ describe('POST /api/invoices', () => {
     }
   });
 
-  it('rejects a customerId that does not match the requested companyId', async () => {
+  it('rejects a contactId that does not match the requested companyId', async () => {
     const ctx = buildApp();
     try {
       const cookie = await signUp(ctx.app, 'mismatch@example.com');
       const { accountId, companyId, userId } = await userContext('mismatch@example.com');
-      const customerId = await createCustomer(ctx, cookie, accountId, companyId);
+      const contactId = await createContact(ctx, cookie, accountId, companyId);
 
       // Insert a second company in the same account (no API yet — direct seed)
       const otherCompanyId = await (async () => {
@@ -245,7 +245,7 @@ describe('POST /api/invoices', () => {
       const res = await ctx.app.request('/api/invoices', {
         method: 'POST',
         headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
-        body: JSON.stringify(invoiceBody(otherCompanyId, customerId)),
+        body: JSON.stringify(invoiceBody(otherCompanyId, contactId)),
       });
       expect(res.status).toBe(400);
       expect(userId).toBeDefined();
@@ -259,8 +259,8 @@ describe('POST /api/invoices', () => {
     try {
       const cookie = await signUp(ctx.app, 'bad@example.com');
       const { accountId, companyId } = await userContext('bad@example.com');
-      const customerId = await createCustomer(ctx, cookie, accountId, companyId);
-      const body = invoiceBody(companyId, customerId);
+      const contactId = await createContact(ctx, cookie, accountId, companyId);
+      const body = invoiceBody(companyId, contactId);
       const res = await ctx.app.request('/api/invoices', {
         method: 'POST',
         headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
@@ -281,12 +281,12 @@ describe('GET /api/invoices and /api/invoices/:id', () => {
     try {
       const cookie = await signUp(ctx.app, 'reader@example.com');
       const { accountId, companyId } = await userContext('reader@example.com');
-      const customerId = await createCustomer(ctx, cookie, accountId, companyId);
+      const contactId = await createContact(ctx, cookie, accountId, companyId);
 
       const create = await ctx.app.request('/api/invoices', {
         method: 'POST',
         headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
-        body: JSON.stringify(invoiceBody(companyId, customerId)),
+        body: JSON.stringify(invoiceBody(companyId, contactId)),
       });
       const { id } = (await create.json()) as { id: string };
 
@@ -318,11 +318,11 @@ describe('GET /api/invoices and /api/invoices/:id', () => {
     try {
       const cookie = await signUp(ctx.app, 'statuser@example.com');
       const { accountId, companyId } = await userContext('statuser@example.com');
-      const customerId = await createCustomer(ctx, cookie, accountId, companyId);
+      const contactId = await createContact(ctx, cookie, accountId, companyId);
       await ctx.app.request('/api/invoices', {
         method: 'POST',
         headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
-        body: JSON.stringify(invoiceBody(companyId, customerId, 'S-1')),
+        body: JSON.stringify(invoiceBody(companyId, contactId, 'S-1')),
       });
 
       const sent = await ctx.app.request('/api/invoices?status=sent', {
@@ -346,7 +346,7 @@ describe('GET /api/invoices and /api/invoices/:id', () => {
     try {
       const aCookie = await signUp(ctx.app, 'oa@example.com');
       const aCtx = await userContext('oa@example.com');
-      const aCust = await createCustomer(ctx, aCookie, aCtx.accountId, aCtx.companyId);
+      const aCust = await createContact(ctx, aCookie, aCtx.accountId, aCtx.companyId);
       const create = await ctx.app.request('/api/invoices', {
         method: 'POST',
         headers: {
@@ -393,7 +393,7 @@ describe('GET /api/invoices/next-number', () => {
     try {
       const cookie = await signUp(ctx.app, 'inc@example.com');
       const { accountId, companyId } = await userContext('inc@example.com');
-      const customer = await createCustomer(ctx, cookie, accountId, companyId);
+      const customer = await createContact(ctx, cookie, accountId, companyId);
       for (const number of ['INV-0041', 'INV-0042']) {
         const post = await ctx.app.request('/api/invoices', {
           method: 'POST',
@@ -416,7 +416,7 @@ describe('GET /api/invoices/next-number', () => {
     try {
       const cookie = await signUp(ctx.app, 'alt@example.com');
       const { accountId, companyId } = await userContext('alt@example.com');
-      const customer = await createCustomer(ctx, cookie, accountId, companyId);
+      const customer = await createContact(ctx, cookie, accountId, companyId);
 
       const post1 = await ctx.app.request('/api/invoices', {
         method: 'POST',
@@ -490,32 +490,32 @@ describe('PATCH /api/invoices/:id', () => {
     cookie: string;
     accountId: string;
     companyId: string;
-    customerId: string;
+    contactId: string;
     invoiceId: string;
   }> {
     const cookie = await signUp(ctx.app, email);
     const { accountId, companyId } = await userContext(email);
-    const customerId = await createCustomer(ctx, cookie, accountId, companyId);
+    const contactId = await createContact(ctx, cookie, accountId, companyId);
     const create = await ctx.app.request('/api/invoices', {
       method: 'POST',
       headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
-      body: JSON.stringify(invoiceBody(companyId, customerId)),
+      body: JSON.stringify(invoiceBody(companyId, contactId)),
     });
     if (create.status !== 201) throw new Error(`seed invoice failed: ${create.status}`);
     const { id } = (await create.json()) as { id: string };
-    return { cookie, accountId, companyId, customerId, invoiceId: id };
+    return { cookie, accountId, companyId, contactId, invoiceId: id };
   }
 
   it('replaces header + line items in one tx and writes an update audit', async () => {
     const ctx = buildApp();
     try {
-      const { cookie, accountId, companyId, customerId, invoiceId } = await seedDraftInvoice(
+      const { cookie, accountId, companyId, contactId, invoiceId } = await seedDraftInvoice(
         ctx,
         'invedit@example.com',
       );
 
       const newBody = {
-        customerId,
+        contactId,
         number: 'INV-002',
         issueDate: '2026-06-01',
         dueDate: '2026-07-01',
@@ -578,7 +578,7 @@ describe('PATCH /api/invoices/:id', () => {
   it('rejects edits on a sent invoice with 409 not_editable', async () => {
     const ctx = buildApp();
     try {
-      const { cookie, accountId, customerId, invoiceId } = await seedDraftInvoice(
+      const { cookie, accountId, contactId, invoiceId } = await seedDraftInvoice(
         ctx,
         'locked@example.com',
       );
@@ -592,7 +592,7 @@ describe('PATCH /api/invoices/:id', () => {
         method: 'PATCH',
         headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
         body: JSON.stringify({
-          customerId,
+          contactId,
           number: 'INV-002',
           issueDate: '2026-06-01',
           dueDate: '2026-07-01',
@@ -616,7 +616,7 @@ describe('PATCH /api/invoices/:id', () => {
   it('returns 409 if the new number collides with another invoice in the same company', async () => {
     const ctx = buildApp();
     try {
-      const { cookie, accountId, companyId, customerId, invoiceId } = await seedDraftInvoice(
+      const { cookie, accountId, companyId, contactId, invoiceId } = await seedDraftInvoice(
         ctx,
         'collide@example.com',
       );
@@ -624,7 +624,7 @@ describe('PATCH /api/invoices/:id', () => {
       const second = await ctx.app.request('/api/invoices', {
         method: 'POST',
         headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
-        body: JSON.stringify(invoiceBody(companyId, customerId, 'INV-002')),
+        body: JSON.stringify(invoiceBody(companyId, contactId, 'INV-002')),
       });
       expect(second.status).toBe(201);
 
@@ -632,7 +632,7 @@ describe('PATCH /api/invoices/:id', () => {
         method: 'PATCH',
         headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
         body: JSON.stringify({
-          ...invoiceBody(companyId, customerId, 'INV-002'),
+          ...invoiceBody(companyId, contactId, 'INV-002'),
           companyId: undefined,
         }),
       });
@@ -644,7 +644,7 @@ describe('PATCH /api/invoices/:id', () => {
     }
   });
 
-  it('rejects a customerId from a different company in the same account with 400', async () => {
+  it('rejects a contactId from a different company in the same account with 400', async () => {
     const ctx = buildApp();
     try {
       const { cookie, accountId, companyId, invoiceId } = await seedDraftInvoice(
@@ -656,7 +656,7 @@ describe('PATCH /api/invoices/:id', () => {
       await getTestDb()
         .insert(companies)
         .values({ id: otherCompanyId, accountId, name: 'Side Hustle' });
-      const otherCustomerId = await createCustomer(
+      const otherCustomerId = await createContact(
         ctx,
         cookie,
         accountId,
@@ -669,7 +669,7 @@ describe('PATCH /api/invoices/:id', () => {
         method: 'PATCH',
         headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
         body: JSON.stringify({
-          customerId: otherCustomerId,
+          contactId: otherCustomerId,
           number: 'INV-001',
           issueDate: '2026-05-23',
           dueDate: '2026-06-22',
@@ -703,7 +703,7 @@ describe('PATCH /api/invoices/:id', () => {
           'content-type': 'application/json',
         },
         body: JSON.stringify({
-          customerId: a.customerId,
+          contactId: a.contactId,
           number: 'INV-XX',
           issueDate: '2026-05-23',
           dueDate: '2026-06-22',
@@ -731,11 +731,11 @@ describe('invoice status transitions', () => {
   ): Promise<{ cookie: string; accountId: string; invoiceId: string }> {
     const cookie = await signUp(ctx.app, email);
     const { accountId, companyId } = await userContext(email);
-    const customerId = await createCustomer(ctx, cookie, accountId, companyId);
+    const contactId = await createContact(ctx, cookie, accountId, companyId);
     const create = await ctx.app.request('/api/invoices', {
       method: 'POST',
       headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
-      body: JSON.stringify(invoiceBody(companyId, customerId)),
+      body: JSON.stringify(invoiceBody(companyId, contactId)),
     });
     if (create.status !== 201) throw new Error(`seed invoice failed: ${create.status}`);
     const { id } = (await create.json()) as { id: string };
@@ -1007,11 +1007,11 @@ describe('public invoice view', () => {
   ): Promise<{ cookie: string; accountId: string; invoiceId: string }> {
     const cookie = await signUp(ctx.app, email);
     const { accountId, companyId } = await userContext(email);
-    const customerId = await createCustomer(ctx, cookie, accountId, companyId);
+    const contactId = await createContact(ctx, cookie, accountId, companyId);
     const create = await ctx.app.request('/api/invoices', {
       method: 'POST',
       headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
-      body: JSON.stringify(invoiceBody(companyId, customerId)),
+      body: JSON.stringify(invoiceBody(companyId, contactId)),
     });
     if (create.status !== 201) throw new Error(`seed invoice failed: ${create.status}`);
     const { id } = (await create.json()) as { id: string };
@@ -1088,7 +1088,7 @@ describe('public invoice view', () => {
     try {
       const cookie = await signUp(ctx.app, 'from-flags@example.com');
       const { accountId, companyId } = await userContext('from-flags@example.com');
-      const customerId = await createCustomer(ctx, cookie, accountId, companyId);
+      const contactId = await createContact(ctx, cookie, accountId, companyId);
 
       // Fill the company's contact identity.
       const patched = await ctx.app.request(`/api/companies/${companyId}`, {
@@ -1107,7 +1107,7 @@ describe('public invoice view', () => {
         method: 'POST',
         headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
         body: JSON.stringify({
-          ...invoiceBody(companyId, customerId),
+          ...invoiceBody(companyId, contactId),
           showAddress: true,
           showPhone: false,
           showEmail: true,
@@ -1143,7 +1143,7 @@ describe('public invoice view', () => {
     try {
       const cookie = await signUp(ctx.app, 'from-seed@example.com');
       const { accountId, companyId } = await userContext('from-seed@example.com');
-      const customerId = await createCustomer(ctx, cookie, accountId, companyId);
+      const contactId = await createContact(ctx, cookie, accountId, companyId);
 
       // Turn the email default off at the company level.
       const patched = await ctx.app.request(`/api/companies/${companyId}`, {
@@ -1157,7 +1157,7 @@ describe('public invoice view', () => {
       const create = await ctx.app.request('/api/invoices', {
         method: 'POST',
         headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
-        body: JSON.stringify(invoiceBody(companyId, customerId)),
+        body: JSON.stringify(invoiceBody(companyId, contactId)),
       });
       expect(create.status).toBe(201);
       const { id } = (await create.json()) as { id: string };
@@ -1230,10 +1230,10 @@ describe('POST /api/invoices/:id/send', () => {
     ctx: CtxApp,
     signupEmail: string,
     customerEmail: string | null = 'wile@acme.test',
-  ): Promise<{ cookie: string; accountId: string; invoiceId: string; customerId: string }> {
+  ): Promise<{ cookie: string; accountId: string; invoiceId: string; contactId: string }> {
     const cookie = await signUp(ctx.app, signupEmail);
     const { accountId, companyId } = await userContext(signupEmail);
-    const customerId = await createCustomer(
+    const contactId = await createContact(
       ctx,
       cookie,
       accountId,
@@ -1244,11 +1244,11 @@ describe('POST /api/invoices/:id/send', () => {
     const create = await ctx.app.request('/api/invoices', {
       method: 'POST',
       headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
-      body: JSON.stringify(invoiceBody(companyId, customerId)),
+      body: JSON.stringify(invoiceBody(companyId, contactId)),
     });
     if (create.status !== 201) throw new Error(`seed invoice failed: ${create.status}`);
     const { id } = (await create.json()) as { id: string };
-    return { cookie, accountId, invoiceId: id, customerId };
+    return { cookie, accountId, invoiceId: id, contactId };
   }
 
   it('first send transitions draft → sent, emails the customer, writes both audit rows', async () => {

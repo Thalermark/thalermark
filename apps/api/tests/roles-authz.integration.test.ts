@@ -167,10 +167,10 @@ describe('capability gate — create routes', () => {
   // Each route names the roles that MAY call it; everyone else is gated at 403.
   const routes: { name: string; path: string; allow: AnyRole[] }[] = [
     { name: 'POST /api/invoices', path: '/api/invoices', allow: ['owner', 'admin', 'member'] },
-    { name: 'POST /api/customers', path: '/api/customers', allow: ['owner', 'admin', 'member'] },
+    { name: 'POST /api/contacts', path: '/api/contacts', allow: ['owner', 'admin', 'member'] },
     {
-      name: 'POST /api/customers/import',
-      path: '/api/customers/import',
+      name: 'POST /api/contacts/import',
+      path: '/api/contacts/import',
       allow: ['owner', 'admin', 'member'],
     },
     {
@@ -217,7 +217,7 @@ describe('capability gate — create routes', () => {
     try {
       const { accountId, cookies } = await workspaceWithRoles(app);
       const companyId = await companyIdFor(accountId);
-      const res = await req(app, 'POST', '/api/customers', {
+      const res = await req(app, 'POST', '/api/contacts', {
         cookie: cookies.member,
         accountId,
         body: { companyId, name: 'Acme LLC' },
@@ -290,11 +290,11 @@ describe('capability gate — settings, reports, workspace', () => {
 describe('reads are ungated (viewer can GET)', () => {
   beforeEach(resetDb);
 
-  it('viewer reads customers, invoices, and the team list', async () => {
+  it('viewer reads contacts, invoices, and the team list', async () => {
     const { app, handle } = buildApp();
     try {
       const { accountId, cookies } = await workspaceWithRoles(app);
-      for (const path of ['/api/customers', '/api/invoices', '/api/team']) {
+      for (const path of ['/api/contacts', '/api/invoices', '/api/team']) {
         const res = await req(app, 'GET', path, { cookie: cookies.viewer, accountId });
         expect(res.status, path).toBe(200);
       }

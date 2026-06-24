@@ -126,12 +126,12 @@ function headers(ctx: Ctx) {
   return { cookie: ctx.cookie, 'x-account-id': ctx.accountId, 'content-type': 'application/json' };
 }
 
-async function createCustomer(
+async function createContact(
   ctx: Ctx,
   name = 'Acme',
   email: string | null = 'acme@example.com',
 ): Promise<string> {
-  const res = await ctx.app.request('/api/customers', {
+  const res = await ctx.app.request('/api/contacts', {
     method: 'POST',
     headers: headers(ctx),
     body: JSON.stringify(
@@ -144,7 +144,7 @@ async function createCustomer(
 
 async function createInvoice(
   ctx: Ctx,
-  customerId: string,
+  contactId: string,
   opts: { number: string; issueDate: string; total: string },
 ): Promise<string> {
   const res = await ctx.app.request('/api/invoices', {
@@ -152,7 +152,7 @@ async function createInvoice(
     headers: headers(ctx),
     body: JSON.stringify({
       companyId: ctx.companyId,
-      customerId,
+      contactId,
       number: opts.number,
       issueDate: opts.issueDate,
       dueDate: opts.issueDate,
@@ -200,13 +200,13 @@ type Statement = {
   balanceDue: string;
 };
 
-describe('GET /api/customers/:id/statement', () => {
+describe('GET /api/contacts/:id/statement', () => {
   beforeEach(resetDb);
 
   it('builds a charge/payment ledger ending in the balance due', async () => {
     const { ctx, close } = await setup('stmt@example.com');
     try {
-      const cust = await createCustomer(ctx);
+      const cust = await createContact(ctx);
       // INV-2 issued earlier (01-05), sent + paid → charge then payment, net 0.
       const inv2 = await createInvoice(ctx, cust, {
         number: 'INV-2',
@@ -236,7 +236,7 @@ describe('GET /api/customers/:id/statement', () => {
       await post(ctx, `/api/invoices/${voided}/mark-sent`);
       await post(ctx, `/api/invoices/${voided}/void`);
 
-      const res = await ctx.app.request(`/api/customers/${cust}/statement`, {
+      const res = await ctx.app.request(`/api/contacts/${cust}/statement`, {
         headers: headers(ctx),
       });
       expect(res.status).toBe(200);
@@ -276,8 +276,8 @@ describe('GET /api/customers/:id/statement', () => {
   it('returns an empty ledger + zero balance for a customer with no billed invoices', async () => {
     const { ctx, close } = await setup('stmt-empty@example.com');
     try {
-      const cust = await createCustomer(ctx);
-      const res = await ctx.app.request(`/api/customers/${cust}/statement`, {
+      const cust = await createContact(ctx);
+      const res = await ctx.app.request(`/api/contacts/${cust}/statement`, {
         headers: headers(ctx),
       });
       const body = (await res.json()) as Statement;
@@ -291,10 +291,10 @@ describe('GET /api/customers/:id/statement', () => {
   it('404s a customer in another account', async () => {
     const { ctx, close } = await setup('stmt-a@example.com');
     try {
-      const cust = await createCustomer(ctx);
+      const cust = await createContact(ctx);
       const bCookie = await signUp(ctx.app, 'stmt-b@example.com');
       const b = await userContext('stmt-b@example.com');
-      const res = await ctx.app.request(`/api/customers/${cust}/statement`, {
+      const res = await ctx.app.request(`/api/contacts/${cust}/statement`, {
         headers: { cookie: bCookie, 'x-account-id': b.accountId },
       });
       expect(res.status).toBe(404);
@@ -304,14 +304,14 @@ describe('GET /api/customers/:id/statement', () => {
   });
 });
 
-describe('POST /api/customers/:id/statement/send', () => {
+describe('POST /api/contacts/:id/statement/send', () => {
   beforeEach(resetDb);
 
   it('emails the statement to the customer and records the send', async () => {
     const rec = makeRecorder();
     const { ctx, close } = await setup('send@example.com', { mailer: rec.mailer });
     try {
-      const cust = await createCustomer(ctx, 'Acme', 'billing@acme.test');
+      const cust = await createContact(ctx, 'Acme', 'billing@acme.test');
       const inv = await createInvoice(ctx, cust, {
         number: 'A',
         issueDate: '2026-01-10',
@@ -319,7 +319,7 @@ describe('POST /api/customers/:id/statement/send', () => {
       });
       await post(ctx, `/api/invoices/${inv}/mark-sent`);
 
-      const res = await ctx.app.request(`/api/customers/${cust}/statement/send`, {
+      const res = await ctx.app.request(`/api/contacts/${cust}/statement/send`, {
         method: 'POST',
         headers: headers(ctx),
         body: JSON.stringify({}),
@@ -339,8 +339,8 @@ describe('POST /api/customers/:id/statement/send', () => {
     const rec = makeRecorder();
     const { ctx, close } = await setup('send-ov@example.com', { mailer: rec.mailer });
     try {
-      const cust = await createCustomer(ctx, 'Acme', 'billing@acme.test');
-      const res = await ctx.app.request(`/api/customers/${cust}/statement/send`, {
+      const cust = await createContact(ctx, 'Acme', 'billing@acme.test');
+      const res = await ctx.app.request(`/api/contacts/${cust}/statement/send`, {
         method: 'POST',
         headers: headers(ctx),
         body: JSON.stringify({ to: 'ap@acme.test' }),
@@ -355,8 +355,8 @@ describe('POST /api/customers/:id/statement/send', () => {
   it('500s when no mailer is configured', async () => {
     const { ctx, close } = await setup('send-nomail@example.com');
     try {
-      const cust = await createCustomer(ctx);
-      const res = await ctx.app.request(`/api/customers/${cust}/statement/send`, {
+      const cust = await createContact(ctx);
+      const res = await ctx.app.request(`/api/contacts/${cust}/statement/send`, {
         method: 'POST',
         headers: headers(ctx),
         body: JSON.stringify({}),
@@ -371,8 +371,8 @@ describe('POST /api/customers/:id/statement/send', () => {
     const rec = makeRecorder();
     const { ctx, close } = await setup('send-noemail@example.com', { mailer: rec.mailer });
     try {
-      const cust = await createCustomer(ctx, 'No Email', null);
-      const res = await ctx.app.request(`/api/customers/${cust}/statement/send`, {
+      const cust = await createContact(ctx, 'No Email', null);
+      const res = await ctx.app.request(`/api/contacts/${cust}/statement/send`, {
         method: 'POST',
         headers: headers(ctx),
         body: JSON.stringify({}),

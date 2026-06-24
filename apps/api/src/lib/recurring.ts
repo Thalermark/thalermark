@@ -5,7 +5,7 @@ import {
   SYSTEM_USER_ID,
   type Transaction,
   companies,
-  customers,
+  contacts,
   invoiceLineItems,
   invoices,
   recurringInvoiceLineItems,
@@ -141,7 +141,7 @@ export async function generateOnce(
     id: invoiceId,
     accountId,
     companyId: schedule.companyId,
-    customerId: schedule.customerId,
+    contactId: schedule.contactId,
     number,
     status: 'sent',
     issueDate,
@@ -192,7 +192,7 @@ export async function generateOnce(
     after: {
       id: invoiceId,
       companyId: schedule.companyId,
-      customerId: schedule.customerId,
+      contactId: schedule.contactId,
       number,
       status: 'sent',
       issueDate,
@@ -225,9 +225,9 @@ export async function generateOnce(
   let emailed = false;
   if (mail.mailer) {
     const [customer] = await tx
-      .select({ name: customers.name, email: customers.email })
-      .from(customers)
-      .where(and(eq(customers.id, schedule.customerId), eq(customers.accountId, accountId)))
+      .select({ name: contacts.name, email: contacts.email })
+      .from(contacts)
+      .where(and(eq(contacts.id, schedule.contactId), eq(contacts.accountId, accountId)))
       .limit(1);
     const [company] = await tx
       .select({ name: companies.name, replyToEmail: companies.replyToEmail })

@@ -8,8 +8,8 @@ import { createApiDatabase } from '../src/lib/db.js';
 import { appDatabaseUrl, getTestDb, resetDb } from './test-helper.js';
 
 // Covers the list-filter query params added alongside the web/mobile filter
-// bars: q / from / to / customerId on invoices + estimates, and q /
-// openInvoices on customers. The status filter is exercised by the existing
+// bars: q / from / to / contactId on invoices + estimates, and q /
+// openInvoices on contacts. The status filter is exercised by the existing
 // invoices + estimates suites; these tests are about the new params.
 
 const testEnv: Env = {
@@ -103,8 +103,8 @@ function authHeaders(ctx: Ctx) {
   return { cookie: ctx.cookie, 'x-account-id': ctx.accountId, 'content-type': 'application/json' };
 }
 
-async function createCustomer(ctx: Ctx, name: string, email?: string): Promise<string> {
-  const res = await ctx.app.request('/api/customers', {
+async function createContact(ctx: Ctx, name: string, email?: string): Promise<string> {
+  const res = await ctx.app.request('/api/contacts', {
     method: 'POST',
     headers: authHeaders(ctx),
     body: JSON.stringify(
@@ -117,7 +117,7 @@ async function createCustomer(ctx: Ctx, name: string, email?: string): Promise<s
 
 async function createInvoice(
   ctx: Ctx,
-  customerId: string,
+  contactId: string,
   opts: { number: string; issueDate: string },
 ): Promise<string> {
   const res = await ctx.app.request('/api/invoices', {
@@ -125,7 +125,7 @@ async function createInvoice(
     headers: authHeaders(ctx),
     body: JSON.stringify({
       companyId: ctx.companyId,
-      customerId,
+      contactId,
       number: opts.number,
       issueDate: opts.issueDate,
       dueDate: opts.issueDate,
@@ -150,7 +150,7 @@ async function createInvoice(
 
 async function createEstimate(
   ctx: Ctx,
-  customerId: string,
+  contactId: string,
   opts: { number: string; issueDate: string },
 ): Promise<string> {
   const res = await ctx.app.request('/api/estimates', {
@@ -158,7 +158,7 @@ async function createEstimate(
     headers: authHeaders(ctx),
     body: JSON.stringify({
       companyId: ctx.companyId,
-      customerId,
+      contactId,
       number: opts.number,
       issueDate: opts.issueDate,
       expiresOn: opts.issueDate,
@@ -190,20 +190,20 @@ async function listEstimateNumbers(ctx: Ctx, query: string): Promise<string[]> {
 }
 
 async function listCustomerNames(ctx: Ctx, query: string): Promise<string[]> {
-  const res = await ctx.app.request(`/api/customers${query}`, { headers: authHeaders(ctx) });
+  const res = await ctx.app.request(`/api/contacts${query}`, { headers: authHeaders(ctx) });
   expect(res.status).toBe(200);
-  const body = (await res.json()) as { customers: { name: string }[] };
-  return body.customers.map((c) => c.name).sort();
+  const body = (await res.json()) as { contacts: { name: string }[] };
+  return body.contacts.map((c) => c.name).sort();
 }
 
 describe('GET /api/invoices filters', () => {
   beforeEach(resetDb);
 
-  it('filters by q (number), q (customer name), date range, and customerId', async () => {
+  it('filters by q (number), q (customer name), date range, and contactId', async () => {
     const { ctx, close } = await setup('inv-filter@example.com');
     try {
-      const acme = await createCustomer(ctx, 'Acme Landscaping');
-      const globex = await createCustomer(ctx, 'Globex Hauling');
+      const acme = await createContact(ctx, 'Acme Landscaping');
+      const globex = await createContact(ctx, 'Globex Hauling');
       await createInvoice(ctx, acme, { number: 'INV-100', issueDate: '2026-01-15' });
       await createInvoice(ctx, globex, { number: 'INV-200', issueDate: '2026-03-20' });
 
@@ -219,20 +219,20 @@ describe('GET /api/invoices filters', () => {
         'INV-200',
       ]);
       // Single-customer narrowing.
-      expect(await listInvoiceNumbers(ctx, `?customerId=${acme}`)).toEqual(['INV-100']);
+      expect(await listInvoiceNumbers(ctx, `?contactId=${acme}`)).toEqual(['INV-100']);
     } finally {
       await close();
     }
   });
 
-  it('400s on a malformed from / customerId', async () => {
+  it('400s on a malformed from / contactId', async () => {
     const { ctx, close } = await setup('inv-bad@example.com');
     try {
       const banana = await ctx.app.request('/api/invoices?from=banana', {
         headers: authHeaders(ctx),
       });
       expect(banana.status).toBe(400);
-      const badId = await ctx.app.request('/api/invoices?customerId=not-a-uuid', {
+      const badId = await ctx.app.request('/api/invoices?contactId=not-a-uuid', {
         headers: authHeaders(ctx),
       });
       expect(badId.status).toBe(400);
@@ -248,29 +248,29 @@ describe('GET /api/estimates filters', () => {
   it('filters by q and date range', async () => {
     const { ctx, close } = await setup('est-filter@example.com');
     try {
-      const acme = await createCustomer(ctx, 'Acme Landscaping');
-      const globex = await createCustomer(ctx, 'Globex Hauling');
+      const acme = await createContact(ctx, 'Acme Landscaping');
+      const globex = await createContact(ctx, 'Globex Hauling');
       await createEstimate(ctx, acme, { number: 'EST-100', issueDate: '2026-01-15' });
       await createEstimate(ctx, globex, { number: 'EST-200', issueDate: '2026-03-20' });
 
       expect(await listEstimateNumbers(ctx, '?q=EST-200')).toEqual(['EST-200']);
       expect(await listEstimateNumbers(ctx, '?q=acme')).toEqual(['EST-100']);
       expect(await listEstimateNumbers(ctx, '?to=2026-02-01')).toEqual(['EST-100']);
-      expect(await listEstimateNumbers(ctx, `?customerId=${globex}`)).toEqual(['EST-200']);
+      expect(await listEstimateNumbers(ctx, `?contactId=${globex}`)).toEqual(['EST-200']);
     } finally {
       await close();
     }
   });
 });
 
-describe('GET /api/customers filters', () => {
+describe('GET /api/contacts filters', () => {
   beforeEach(resetDb);
 
   it('filters by q (name OR email)', async () => {
     const { ctx, close } = await setup('cust-filter@example.com');
     try {
-      await createCustomer(ctx, 'Acme Landscaping', 'billing@acme.test');
-      await createCustomer(ctx, 'Globex Hauling', 'ar@globex.test');
+      await createContact(ctx, 'Acme Landscaping', 'billing@acme.test');
+      await createContact(ctx, 'Globex Hauling', 'ar@globex.test');
 
       expect(await listCustomerNames(ctx, '?q=acme')).toEqual(['Acme Landscaping']);
       // Match against the email column.
@@ -282,12 +282,12 @@ describe('GET /api/customers filters', () => {
     }
   });
 
-  it('openInvoices returns only customers with an issued (sent) unpaid invoice', async () => {
+  it('openInvoices returns only contacts with an issued (sent) unpaid invoice', async () => {
     const { ctx, close } = await setup('cust-open@example.com');
     try {
-      const owing = await createCustomer(ctx, 'Owing Co');
-      await createCustomer(ctx, 'Clear Co');
-      const draftCust = await createCustomer(ctx, 'Draft Co');
+      const owing = await createContact(ctx, 'Owing Co');
+      await createContact(ctx, 'Clear Co');
+      const draftCust = await createContact(ctx, 'Draft Co');
 
       // Owing Co: invoice marked sent → open.
       const sentInv = await createInvoice(ctx, owing, {
@@ -304,7 +304,7 @@ describe('GET /api/customers filters', () => {
       await createInvoice(ctx, draftCust, { number: 'INV-DRAFT', issueDate: '2026-02-01' });
 
       expect(await listCustomerNames(ctx, '?openInvoices=true')).toEqual(['Owing Co']);
-      // Without the flag, all three customers list.
+      // Without the flag, all three contacts list.
       expect(await listCustomerNames(ctx, '')).toEqual(['Clear Co', 'Draft Co', 'Owing Co']);
     } finally {
       await close();

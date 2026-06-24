@@ -86,14 +86,14 @@ function buildApp() {
   return { app, handle };
 }
 
-async function createCustomer(
+async function createContact(
   app: ReturnType<typeof createApp>,
   cookie: string,
   accountId: string,
   companyId: string,
   name = 'Wile E. Coyote',
 ): Promise<string> {
-  const res = await app.request('/api/customers', {
+  const res = await app.request('/api/contacts', {
     method: 'POST',
     headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
     body: JSON.stringify({ companyId, name }),
@@ -111,10 +111,10 @@ describe('GET /api/audit-events', () => {
     try {
       const cookie = await signUp(ctx.app, 'audithist@example.com');
       const { userId, accountId, companyId } = await userContext('audithist@example.com');
-      const customerId = await createCustomer(ctx.app, cookie, accountId, companyId);
+      const contactId = await createContact(ctx.app, cookie, accountId, companyId);
 
       // Trigger an update so the customer has 2 audit rows (create + update).
-      const patchRes = await ctx.app.request(`/api/customers/${customerId}`, {
+      const patchRes = await ctx.app.request(`/api/contacts/${contactId}`, {
         method: 'PATCH',
         headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
         body: JSON.stringify({ companyId, name: 'Wile E. Coyote Jr.' }),
@@ -122,7 +122,7 @@ describe('GET /api/audit-events', () => {
       expect(patchRes.status).toBe(200);
 
       const res = await ctx.app.request(
-        `/api/audit-events?entityType=customer&entityId=${customerId}`,
+        `/api/audit-events?entityType=contact&entityId=${contactId}`,
         { headers: { cookie, 'x-account-id': accountId } },
       );
       expect(res.status).toBe(200);
@@ -154,7 +154,7 @@ describe('GET /api/audit-events', () => {
     try {
       const cookie = await signUp(ctx.app, 'auditsys@example.com');
       const { accountId, companyId } = await userContext('auditsys@example.com');
-      const customerId = await createCustomer(ctx.app, cookie, accountId, companyId);
+      const contactId = await createContact(ctx.app, cookie, accountId, companyId);
 
       // Insert a system-attributed audit row directly — same pattern Stripe
       // webhook + public estimate accept/decline use in production.
@@ -164,14 +164,14 @@ describe('GET /api/audit-events', () => {
         accountId,
         companyId,
         actorUserId: SYSTEM_USER_ID,
-        entityType: 'customer',
-        entityId: customerId,
+        entityType: 'contact',
+        entityId: contactId,
         action: 'stripe-paid',
         after: { status: 'paid' },
       });
 
       const res = await ctx.app.request(
-        `/api/audit-events?entityType=customer&entityId=${customerId}`,
+        `/api/audit-events?entityType=contact&entityId=${contactId}`,
         { headers: { cookie, 'x-account-id': accountId } },
       );
       expect(res.status).toBe(200);
@@ -191,13 +191,13 @@ describe('GET /api/audit-events', () => {
       // Account A creates a customer
       const aCookie = await signUp(ctx.app, 'auditxa@example.com');
       const aCtx = await userContext('auditxa@example.com');
-      const aCustomer = await createCustomer(ctx.app, aCookie, aCtx.accountId, aCtx.companyId);
+      const aCustomer = await createContact(ctx.app, aCookie, aCtx.accountId, aCtx.companyId);
 
       // Account B queries A's customer id → empty events list, not a leak
       const bCookie = await signUp(ctx.app, 'auditxb@example.com');
       const bCtx = await userContext('auditxb@example.com');
       const res = await ctx.app.request(
-        `/api/audit-events?entityType=customer&entityId=${aCustomer}`,
+        `/api/audit-events?entityType=contact&entityId=${aCustomer}`,
         { headers: { cookie: bCookie, 'x-account-id': bCtx.accountId } },
       );
       expect(res.status).toBe(200);
@@ -286,7 +286,7 @@ describe('GET /api/audit-events — feed mode (no entity filter)', () => {
     cookie: string,
     accountId: string,
     companyId: string,
-    customerId: string,
+    contactId: string,
     number = 'INV-001',
   ): Promise<string> {
     const res = await app.request('/api/invoices', {
@@ -294,7 +294,7 @@ describe('GET /api/audit-events — feed mode (no entity filter)', () => {
       headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
       body: JSON.stringify({
         companyId,
-        customerId,
+        contactId,
         number,
         issueDate: '2026-05-23',
         dueDate: '2026-06-22',
@@ -321,13 +321,13 @@ describe('GET /api/audit-events — feed mode (no entity filter)', () => {
     try {
       const cookie = await signUp(ctx.app, 'feed@example.com');
       const { accountId, companyId } = await userContext('feed@example.com');
-      const customerId = await createCustomer(ctx.app, cookie, accountId, companyId, 'Acme Co.');
+      const contactId = await createContact(ctx.app, cookie, accountId, companyId, 'Acme Co.');
       const invoiceId = await createInvoice(
         ctx.app,
         cookie,
         accountId,
         companyId,
-        customerId,
+        contactId,
         'INV-042',
       );
 
@@ -352,7 +352,7 @@ describe('GET /api/audit-events — feed mode (no entity filter)', () => {
       expect(invEvent?.entityLabel).toBe('INV-042');
       expect(invEvent?.action).toBe('create');
       const custEvent = body.events.find(
-        (e) => e.entityType === 'customer' && e.entityId === customerId,
+        (e) => e.entityType === 'contact' && e.entityId === contactId,
       );
       expect(custEvent?.entityLabel).toBe('Acme Co.');
     } finally {
@@ -365,10 +365,10 @@ describe('GET /api/audit-events — feed mode (no entity filter)', () => {
     try {
       const cookie = await signUp(ctx.app, 'feedlim@example.com');
       const { accountId, companyId } = await userContext('feedlim@example.com');
-      // Three customers → three create rows
-      await createCustomer(ctx.app, cookie, accountId, companyId, 'A');
-      await createCustomer(ctx.app, cookie, accountId, companyId, 'B');
-      await createCustomer(ctx.app, cookie, accountId, companyId, 'C');
+      // Three contacts → three create rows
+      await createContact(ctx.app, cookie, accountId, companyId, 'A');
+      await createContact(ctx.app, cookie, accountId, companyId, 'B');
+      await createContact(ctx.app, cookie, accountId, companyId, 'C');
 
       const limited = await ctx.app.request('/api/audit-events?limit=2', {
         headers: { cookie, 'x-account-id': accountId },
@@ -402,11 +402,11 @@ describe('GET /api/audit-events — feed mode (no entity filter)', () => {
     try {
       const aCookie = await signUp(ctx.app, 'feedxa@example.com');
       const aCtx = await userContext('feedxa@example.com');
-      await createCustomer(ctx.app, aCookie, aCtx.accountId, aCtx.companyId, 'A-only');
+      await createContact(ctx.app, aCookie, aCtx.accountId, aCtx.companyId, 'A-only');
 
       const bCookie = await signUp(ctx.app, 'feedxb@example.com');
       const bCtx = await userContext('feedxb@example.com');
-      await createCustomer(ctx.app, bCookie, bCtx.accountId, bCtx.companyId, 'B-only');
+      await createContact(ctx.app, bCookie, bCtx.accountId, bCtx.companyId, 'B-only');
 
       const res = await ctx.app.request('/api/audit-events', {
         headers: { cookie: bCookie, 'x-account-id': bCtx.accountId },

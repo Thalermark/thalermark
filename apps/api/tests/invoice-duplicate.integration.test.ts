@@ -95,8 +95,8 @@ function headers(auth: Auth) {
   };
 }
 
-async function createCustomer(app: ReturnType<typeof createApp>, auth: Auth, companyId: string) {
-  const res = await app.request('/api/customers', {
+async function createContact(app: ReturnType<typeof createApp>, auth: Auth, companyId: string) {
+  const res = await app.request('/api/contacts', {
     method: 'POST',
     headers: headers(auth),
     body: JSON.stringify({ companyId, name: 'Wile E. Coyote' }),
@@ -109,14 +109,14 @@ async function createInvoice(
   app: ReturnType<typeof createApp>,
   auth: Auth,
   companyId: string,
-  customerId: string,
+  contactId: string,
 ) {
   const res = await app.request('/api/invoices', {
     method: 'POST',
     headers: headers(auth),
     body: JSON.stringify({
       companyId,
-      customerId,
+      contactId,
       number: 'INV-0001',
       issueDate: '2026-01-01',
       dueDate: '2026-02-01',
@@ -142,7 +142,7 @@ type Invoice = {
   id: string;
   number: string;
   status: string;
-  customerId: string;
+  contactId: string;
   total: string;
   subtotal: string;
   sentAt: string | null;
@@ -171,8 +171,8 @@ describe('invoice duplicate-as-template', () => {
       const cookie = await signUp(ctx.app, 'dup@example.com');
       const { accountId, companyId } = await userContext('dup@example.com');
       const auth: Auth = { cookie, accountId };
-      const customerId = await createCustomer(ctx.app, auth, companyId);
-      const sourceId = await createInvoice(ctx.app, auth, companyId, customerId);
+      const contactId = await createContact(ctx.app, auth, companyId);
+      const sourceId = await createInvoice(ctx.app, auth, companyId, contactId);
 
       // Send it so the source carries a number, status, sent stamp + token —
       // none of which should leak into the duplicate.
@@ -193,7 +193,7 @@ describe('invoice duplicate-as-template', () => {
       expect(dup.sentAt).toBeNull();
       expect(dup.publicToken).toBeNull();
       // Copied: customer, amounts, line items.
-      expect(dup.customerId).toBe(customerId);
+      expect(dup.contactId).toBe(contactId);
       expect(dup.total).toBe('100.00');
       expect(dup.subtotal).toBe('100.00');
       expect(dup.lineItems).toHaveLength(1);
@@ -210,8 +210,8 @@ describe('invoice duplicate-as-template', () => {
       const cookie = await signUp(ctx.app, 'dup-rep@example.com');
       const { accountId, companyId } = await userContext('dup-rep@example.com');
       const auth: Auth = { cookie, accountId };
-      const customerId = await createCustomer(ctx.app, auth, companyId);
-      const sourceId = await createInvoice(ctx.app, auth, companyId, customerId);
+      const contactId = await createContact(ctx.app, auth, companyId);
+      const sourceId = await createInvoice(ctx.app, auth, companyId, contactId);
 
       const first = (await (await duplicate(ctx.app, auth, sourceId)).json()) as { id: string };
       const second = (await (await duplicate(ctx.app, auth, sourceId)).json()) as { id: string };
@@ -230,7 +230,7 @@ describe('invoice duplicate-as-template', () => {
       const cookieA = await signUp(ctx.app, 'dup-a@example.com');
       const a = await userContext('dup-a@example.com');
       const authA: Auth = { cookie: cookieA, accountId: a.accountId };
-      const customerA = await createCustomer(ctx.app, authA, a.companyId);
+      const customerA = await createContact(ctx.app, authA, a.companyId);
       const sourceId = await createInvoice(ctx.app, authA, a.companyId, customerA);
 
       const cookieB = await signUp(ctx.app, 'dup-b@example.com');

@@ -85,13 +85,13 @@ async function userContext(email: string) {
   return { accountId: m.accountId, companyId: company.id };
 }
 
-async function createCustomer(
+async function createContact(
   app: ReturnType<typeof createApp>,
   cookie: string,
   accountId: string,
   companyId: string,
 ): Promise<string> {
-  const res = await app.request('/api/customers', {
+  const res = await app.request('/api/contacts', {
     method: 'POST',
     headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
     body: JSON.stringify({ companyId, name: 'Bob' }),
@@ -100,10 +100,10 @@ async function createCustomer(
   return ((await res.json()) as { id: string }).id;
 }
 
-function invoiceBody(companyId: string, customerId: string, number: string) {
+function invoiceBody(companyId: string, contactId: string, number: string) {
   return {
     companyId,
-    customerId,
+    contactId,
     number,
     issueDate: '2026-05-28',
     dueDate: '2026-06-27',
@@ -121,13 +121,13 @@ async function createInvoice(
   cookie: string,
   accountId: string,
   companyId: string,
-  customerId: string,
+  contactId: string,
   number: string,
 ): Promise<string> {
   const res = await app.request('/api/invoices', {
     method: 'POST',
     headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
-    body: JSON.stringify(invoiceBody(companyId, customerId, number)),
+    body: JSON.stringify(invoiceBody(companyId, contactId, number)),
   });
   if (res.status !== 201) throw new Error(`invoice create failed: ${res.status}`);
   return ((await res.json()) as { id: string }).id;
@@ -170,9 +170,9 @@ describe('GET /api/companies/:id/ledger/export — JSON', () => {
     try {
       const cookie = await signUp(app, 'exporter@example.com');
       const { accountId, companyId } = await userContext('exporter@example.com');
-      const customerId = await createCustomer(app, cookie, accountId, companyId);
-      const a = await createInvoice(app, cookie, accountId, companyId, customerId, 'EXP-1');
-      const b = await createInvoice(app, cookie, accountId, companyId, customerId, 'EXP-2');
+      const contactId = await createContact(app, cookie, accountId, companyId);
+      const a = await createInvoice(app, cookie, accountId, companyId, contactId, 'EXP-1');
+      const b = await createInvoice(app, cookie, accountId, companyId, contactId, 'EXP-2');
 
       await app.request(`/api/invoices/${a}/mark-sent`, {
         method: 'POST',
@@ -216,8 +216,8 @@ describe('GET /api/companies/:id/ledger/export — JSON', () => {
     try {
       const cookie = await signUp(app, 'ranger@example.com');
       const { accountId, companyId } = await userContext('ranger@example.com');
-      const customerId = await createCustomer(app, cookie, accountId, companyId);
-      const inv = await createInvoice(app, cookie, accountId, companyId, customerId, 'RNG-1');
+      const contactId = await createContact(app, cookie, accountId, companyId);
+      const inv = await createInvoice(app, cookie, accountId, companyId, contactId, 'RNG-1');
       await app.request(`/api/invoices/${inv}/mark-sent`, {
         method: 'POST',
         headers: { cookie, 'x-account-id': accountId },
@@ -317,8 +317,8 @@ describe('GET /api/companies/:id/ledger/export — CSV', () => {
     try {
       const cookie = await signUp(app, 'csver@example.com');
       const { accountId, companyId } = await userContext('csver@example.com');
-      const customerId = await createCustomer(app, cookie, accountId, companyId);
-      const inv = await createInvoice(app, cookie, accountId, companyId, customerId, 'CSV-1');
+      const contactId = await createContact(app, cookie, accountId, companyId);
+      const inv = await createInvoice(app, cookie, accountId, companyId, contactId, 'CSV-1');
       await app.request(`/api/invoices/${inv}/mark-sent`, {
         method: 'POST',
         headers: { cookie, 'x-account-id': accountId },

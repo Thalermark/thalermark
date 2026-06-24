@@ -93,18 +93,18 @@ function hdr(ctx: Ctx) {
 
 async function setup(
   email: string,
-): Promise<{ ctx: Ctx; handle: ReturnType<typeof createApiDatabase>; customerId: string }> {
+): Promise<{ ctx: Ctx; handle: ReturnType<typeof createApiDatabase>; contactId: string }> {
   const { app, handle } = buildApp();
   const cookie = await signUp(app, email);
   const { accountId, companyId } = await userContext(email);
   const ctx: Ctx = { app, cookie, accountId, companyId };
-  const cust = await app.request('/api/customers', {
+  const cust = await app.request('/api/contacts', {
     method: 'POST',
     headers: hdr(ctx),
     body: JSON.stringify({ companyId, name: 'Wile E. Coyote' }),
   });
-  const customerId = ((await cust.json()) as { id: string }).id;
-  return { ctx, handle, customerId };
+  const contactId = ((await cust.json()) as { id: string }).id;
+  return { ctx, handle, contactId };
 }
 
 // One taxable part line (8.25% of 120 = 9.90) + one non-taxable labor line.
@@ -137,14 +137,14 @@ describe('per-line tax — invoices', () => {
   beforeEach(resetDb);
 
   it('round-trips per-line tax and the derived header tax', async () => {
-    const { ctx, handle, customerId } = await setup('tax-inv@example.com');
+    const { ctx, handle, contactId } = await setup('tax-inv@example.com');
     try {
       const create = await ctx.app.request('/api/invoices', {
         method: 'POST',
         headers: hdr(ctx),
         body: JSON.stringify({
           companyId: ctx.companyId,
-          customerId,
+          contactId,
           number: 'INV-T1',
           issueDate: '2026-06-14',
           dueDate: '2026-07-14',
@@ -172,14 +172,14 @@ describe('per-line tax — invoices', () => {
   });
 
   it('duplicate-as-template carries the line tax snapshot', async () => {
-    const { ctx, handle, customerId } = await setup('tax-dup@example.com');
+    const { ctx, handle, contactId } = await setup('tax-dup@example.com');
     try {
       const create = await ctx.app.request('/api/invoices', {
         method: 'POST',
         headers: hdr(ctx),
         body: JSON.stringify({
           companyId: ctx.companyId,
-          customerId,
+          contactId,
           number: 'INV-T2',
           issueDate: '2026-06-14',
           dueDate: '2026-07-14',
@@ -213,14 +213,14 @@ describe('per-line tax — estimate convert', () => {
   beforeEach(resetDb);
 
   it('carries the estimate line tax snapshot onto the converted invoice', async () => {
-    const { ctx, handle, customerId } = await setup('tax-conv@example.com');
+    const { ctx, handle, contactId } = await setup('tax-conv@example.com');
     try {
       const create = await ctx.app.request('/api/estimates', {
         method: 'POST',
         headers: hdr(ctx),
         body: JSON.stringify({
           companyId: ctx.companyId,
-          customerId,
+          contactId,
           number: 'EST-T1',
           issueDate: '2026-06-14',
           subtotal: '200.00',

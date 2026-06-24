@@ -8,7 +8,7 @@ import { createApiDatabase } from '../src/lib/db.js';
 import { appDatabaseUrl, getTestDb, resetDb } from './test-helper.js';
 
 // Late-payer detection (deterministic). Exercises
-// GET /api/customers/:id/payment-reliability: late vs on-time counts from paid
+// GET /api/contacts/:id/payment-reliability: late vs on-time counts from paid
 // invoices, overdue tally, the empty-history shape, and tenant isolation.
 // "Late" = paid after the due date; we control lateness with the due date
 // (past → late once paid today; far-future → on time).
@@ -88,12 +88,12 @@ async function userContext(email: string) {
 
 type Auth = { cookie: string; accountId: string };
 
-async function createCustomer(
+async function createContact(
   app: ReturnType<typeof createApp>,
   auth: Auth,
   companyId: string,
 ): Promise<string> {
-  const res = await app.request('/api/customers', {
+  const res = await app.request('/api/contacts', {
     method: 'POST',
     headers: {
       cookie: auth.cookie,
@@ -112,7 +112,7 @@ async function invoice(
   app: ReturnType<typeof createApp>,
   auth: Auth,
   companyId: string,
-  customerId: string,
+  contactId: string,
   opts: { number: string; dueDate: string; total: string; to: 'sent' | 'paid' },
 ) {
   const headers = {
@@ -125,7 +125,7 @@ async function invoice(
     headers,
     body: JSON.stringify({
       companyId,
-      customerId,
+      contactId,
       number: opts.number,
       issueDate: '2026-01-01',
       dueDate: opts.dueDate,
@@ -158,8 +158,8 @@ async function invoice(
   return id;
 }
 
-function reliability(app: ReturnType<typeof createApp>, auth: Auth, customerId: string) {
-  return app.request(`/api/customers/${customerId}/payment-reliability`, {
+function reliability(app: ReturnType<typeof createApp>, auth: Auth, contactId: string) {
+  return app.request(`/api/contacts/${contactId}/payment-reliability`, {
     headers: { cookie: auth.cookie, 'x-account-id': auth.accountId },
   });
 }
@@ -183,36 +183,36 @@ describe('payment reliability', () => {
       const cookie = await signUp(ctx.app, 'pay@example.com');
       const { accountId, companyId } = await userContext('pay@example.com');
       const auth: Auth = { cookie, accountId };
-      const customerId = await createCustomer(ctx.app, auth, companyId);
+      const contactId = await createContact(ctx.app, auth, companyId);
 
       // Two paid late (due in the past), one paid on time (due far in future).
-      await invoice(ctx.app, auth, companyId, customerId, {
+      await invoice(ctx.app, auth, companyId, contactId, {
         number: 'INV-1',
         dueDate: '2026-01-01',
         total: '100.00',
         to: 'paid',
       });
-      await invoice(ctx.app, auth, companyId, customerId, {
+      await invoice(ctx.app, auth, companyId, contactId, {
         number: 'INV-2',
         dueDate: '2026-01-02',
         total: '100.00',
         to: 'paid',
       });
-      await invoice(ctx.app, auth, companyId, customerId, {
+      await invoice(ctx.app, auth, companyId, contactId, {
         number: 'INV-3',
         dueDate: '2099-01-01',
         total: '100.00',
         to: 'paid',
       });
       // One sent + unpaid + past due → overdue now.
-      await invoice(ctx.app, auth, companyId, customerId, {
+      await invoice(ctx.app, auth, companyId, contactId, {
         number: 'INV-4',
         dueDate: '2026-01-03',
         total: '150.00',
         to: 'sent',
       });
 
-      const res = await reliability(ctx.app, auth, customerId);
+      const res = await reliability(ctx.app, auth, contactId);
       expect(res.status).toBe(200);
       const body = (await res.json()) as Reliability;
       expect(body.paidCount).toBe(3);
@@ -234,9 +234,9 @@ describe('payment reliability', () => {
       const cookie = await signUp(ctx.app, 'pay-empty@example.com');
       const { accountId, companyId } = await userContext('pay-empty@example.com');
       const auth: Auth = { cookie, accountId };
-      const customerId = await createCustomer(ctx.app, auth, companyId);
+      const contactId = await createContact(ctx.app, auth, companyId);
 
-      const body = (await (await reliability(ctx.app, auth, customerId)).json()) as Reliability;
+      const body = (await (await reliability(ctx.app, auth, contactId)).json()) as Reliability;
       expect(body).toMatchObject({
         paidCount: 0,
         lateCount: 0,
@@ -256,7 +256,7 @@ describe('payment reliability', () => {
     try {
       const cookieA = await signUp(ctx.app, 'pay-a@example.com');
       const a = await userContext('pay-a@example.com');
-      const customerA = await createCustomer(
+      const customerA = await createContact(
         ctx.app,
         { cookie: cookieA, accountId: a.accountId },
         a.companyId,

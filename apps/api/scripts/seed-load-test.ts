@@ -27,7 +27,7 @@
  * Flags (all optional except the target + --yes):
  *   --email <addr> | --company <uuid>   target (else: first company, warns)
  *   --invoices N    (default 50000)     --expenses N   (default 20000)
- *   --estimates N   (default 5000)      --customers N  (default 500)
+ *   --estimates N   (default 5000)      --contacts N  (default 500)
  *   --items N       (default 100)       --months N     (date spread, default 24)
  *   --yes                               required to actually write
  */
@@ -42,7 +42,7 @@ import {
   chartOfAccounts,
   companies,
   createDatabase,
-  customers,
+  contacts,
   estimateLineItems,
   estimates,
   expenses,
@@ -76,7 +76,7 @@ const cfg = {
   invoices: num('invoices', 50_000),
   expenses: num('expenses', 20_000),
   estimates: num('estimates', 5_000),
-  customers: num('customers', 500),
+  contacts: num('contacts', 500),
   items: num('items', 100),
   months: num('months', 24),
   confirmed: flag('yes'),
@@ -224,7 +224,7 @@ async function main() {
   console.log(`  company   ${company.name} (${company.id})`);
   console.log(`  actor     ${actorUserId}`);
   console.log(
-    `  plan      ${cfg.customers} customers · ${cfg.items} items · ${cfg.invoices} invoices · ${cfg.expenses} expenses · ${cfg.estimates} estimates · dates over ${cfg.months}mo`,
+    `  plan      ${cfg.contacts} contacts · ${cfg.items} items · ${cfg.invoices} invoices · ${cfg.expenses} expenses · ${cfg.estimates} estimates · dates over ${cfg.months}mo`,
   );
   if (!cfg.confirmed) {
     console.log('\nDry run — pass --yes to write. Nothing inserted.');
@@ -235,11 +235,11 @@ async function main() {
 
   const scope = { accountId: company.accountId, companyId: company.id };
 
-  // ---- customers + items (created first; invoices/expenses reference them) ----
-  const customerIds: string[] = [];
-  const customerRows = Array.from({ length: cfg.customers }, () => {
+  // ---- contacts + items (created first; invoices/expenses reference them) ----
+  const contactIds: string[] = [];
+  const customerRows = Array.from({ length: cfg.contacts }, () => {
     const id = uuidv7();
-    customerIds.push(id);
+    contactIds.push(id);
     const created = spreadDate(cfg.months);
     const name = `${pick(FIRST)} ${pick(LAST)}`;
     return {
@@ -276,10 +276,10 @@ async function main() {
   });
 
   await db.transaction(async (tx) => {
-    await bulkInsert(tx, customers, customerRows);
+    await bulkInsert(tx, contacts, customerRows);
     await bulkInsert(tx, items, itemRows);
   });
-  console.log(`  ✓ ${cfg.customers} customers, ${cfg.items} items`);
+  console.log(`  ✓ ${cfg.contacts} contacts, ${cfg.items} items`);
 
   // ---- invoices (+ line items + ledger + audit) ----
   // Per-company invoice numbers must be unique (invoices_company_number_uq);
@@ -342,7 +342,7 @@ async function main() {
       inv.push({
         id,
         ...scope,
-        customerId: pick(customerIds),
+        contactId: pick(contactIds),
         number,
         status,
         issueDate: isoDay(issued),
@@ -500,7 +500,7 @@ async function main() {
       est.push({
         id,
         ...scope,
-        customerId: pick(customerIds),
+        contactId: pick(contactIds),
         number,
         status,
         issueDate: isoDay(issued),

@@ -95,13 +95,13 @@ async function coaId(companyId: string, code: string): Promise<string> {
   return row.id;
 }
 
-async function createCustomer(
+async function createContact(
   app: ReturnType<typeof createApp>,
   cookie: string,
   accountId: string,
   companyId: string,
 ): Promise<string> {
-  const res = await app.request('/api/customers', {
+  const res = await app.request('/api/contacts', {
     method: 'POST',
     headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
     body: JSON.stringify({ companyId, name: 'Wile E. Coyote' }),
@@ -115,7 +115,7 @@ async function createInvoice(
   cookie: string,
   accountId: string,
   companyId: string,
-  customerId: string,
+  contactId: string,
   number: string,
 ): Promise<string> {
   // Untaxed, total 100, so the cash/AR math is round.
@@ -124,7 +124,7 @@ async function createInvoice(
     headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
     body: JSON.stringify({
       companyId,
-      customerId,
+      contactId,
       number,
       issueDate: '2026-06-01',
       dueDate: '2026-07-01',
@@ -214,15 +214,15 @@ describe('position dashboard', () => {
     try {
       const cookie = await signUp(ctx.app, 'dash@example.com');
       const { accountId, companyId } = await userContext('dash@example.com');
-      const customerId = await createCustomer(ctx.app, cookie, accountId, companyId);
+      const contactId = await createContact(ctx.app, cookie, accountId, companyId);
 
       // Invoice A: sent then paid → Cash +100 (money in), AR nets to 0.
-      const a = await createInvoice(ctx.app, cookie, accountId, companyId, customerId, 'INV-0001');
+      const a = await createInvoice(ctx.app, cookie, accountId, companyId, contactId, 'INV-0001');
       await transition(ctx.app, cookie, accountId, a, 'mark-sent');
       await transition(ctx.app, cookie, accountId, a, 'mark-paid');
 
       // Invoice B: sent, unpaid → AR +100 (owed).
-      const b = await createInvoice(ctx.app, cookie, accountId, companyId, customerId, 'INV-0002');
+      const b = await createInvoice(ctx.app, cookie, accountId, companyId, contactId, 'INV-0002');
       await transition(ctx.app, cookie, accountId, b, 'mark-sent');
 
       // Expense: Cr Cash 40 (money out).

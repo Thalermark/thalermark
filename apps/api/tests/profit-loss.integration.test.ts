@@ -113,8 +113,8 @@ async function coaId(companyId: string, code: string): Promise<string> {
   return row.id;
 }
 
-async function createCustomer(ctx: Ctx): Promise<string> {
-  const res = await ctx.app.request('/api/customers', {
+async function createContact(ctx: Ctx): Promise<string> {
+  const res = await ctx.app.request('/api/contacts', {
     method: 'POST',
     headers: headers(ctx),
     body: JSON.stringify({ companyId: ctx.companyId, name: 'Acme' }),
@@ -125,7 +125,7 @@ async function createCustomer(ctx: Ctx): Promise<string> {
 
 async function createInvoice(
   ctx: Ctx,
-  customerId: string,
+  contactId: string,
   opts: { number: string; subtotal: string; tax: string; total: string },
 ): Promise<string> {
   const res = await ctx.app.request('/api/invoices', {
@@ -133,7 +133,7 @@ async function createInvoice(
     headers: headers(ctx),
     body: JSON.stringify({
       companyId: ctx.companyId,
-      customerId,
+      contactId,
       number: opts.number,
       issueDate: '2026-05-23',
       dueDate: '2026-06-22',
@@ -211,7 +211,7 @@ describe('GET /api/companies/:id/profit-loss', () => {
     const { ctx, close } = await setup('pl@example.com');
     try {
       const today = new Date().toISOString().slice(0, 10);
-      const cust = await createCustomer(ctx);
+      const cust = await createContact(ctx);
 
       // A: sent only → Service Revenue 100 (tax 8.25 goes to a liability, not P&L).
       const a = await createInvoice(ctx, cust, {
@@ -269,7 +269,7 @@ describe('GET /api/companies/:id/profit-loss', () => {
   it('honors the date window — a past range excludes current activity', async () => {
     const { ctx, close } = await setup('pl-window@example.com');
     try {
-      const cust = await createCustomer(ctx);
+      const cust = await createContact(ctx);
       const a = await createInvoice(ctx, cust, {
         number: 'A',
         subtotal: '100.00',

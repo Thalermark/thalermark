@@ -129,7 +129,7 @@ describe('telemetry consent + server emit', () => {
       });
 
       // A server mutation now stages its event.
-      const customer = await ctx.app.request('/api/customers', {
+      const customer = await ctx.app.request('/api/contacts', {
         method: 'POST',
         headers,
         body: JSON.stringify({ companyId, name: 'Acme' }),
@@ -160,7 +160,7 @@ describe('telemetry consent + server emit', () => {
     try {
       const cookie = await signUp(ctx.app, 'tel-off@example.com');
       const { accountId, companyId } = await userContext('tel-off@example.com');
-      const res = await ctx.app.request('/api/customers', {
+      const res = await ctx.app.request('/api/contacts', {
         method: 'POST',
         headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
         body: JSON.stringify({ companyId, name: 'Nobody' }),
@@ -196,7 +196,7 @@ describe('telemetry consent + server emit', () => {
         disabled: true,
       });
 
-      await ctx.app.request('/api/customers', {
+      await ctx.app.request('/api/contacts', {
         method: 'POST',
         headers,
         body: JSON.stringify({ companyId, name: 'Acme' }),

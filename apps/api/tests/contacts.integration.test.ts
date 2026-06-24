@@ -1,4 +1,4 @@
-import { auditEvents, authUser, companies, customers, memberships } from '@thalermark/db';
+import { auditEvents, authUser, companies, contacts, memberships } from '@thalermark/db';
 import { eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
@@ -221,7 +221,7 @@ describe('PATCH /api/companies/:id', () => {
   });
 });
 
-describe('POST /api/customers', () => {
+describe('POST /api/contacts', () => {
   beforeEach(resetDb);
 
   it('creates a customer and writes an audit row', async () => {
@@ -230,7 +230,7 @@ describe('POST /api/customers', () => {
       const cookie = await signUp(app, 'bob@example.com');
       const { accountId, companyId } = await userContext('bob@example.com');
 
-      const res = await app.request('/api/customers', {
+      const res = await app.request('/api/contacts', {
         method: 'POST',
         headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
         body: JSON.stringify({
@@ -247,7 +247,7 @@ describe('POST /api/customers', () => {
       expect(body.companyId).toBe(companyId);
 
       const db = getTestDb();
-      const rows = await db.select().from(customers).where(eq(customers.id, body.id));
+      const rows = await db.select().from(contacts).where(eq(contacts.id, body.id));
       expect(rows).toHaveLength(1);
       expect(rows[0]?.accountId).toBe(accountId);
       expect(rows[0]?.email).toBe('wile@example.com');
@@ -261,7 +261,7 @@ describe('POST /api/customers', () => {
     try {
       const cookie = await signUp(app, 'carol@example.com');
       const { accountId, companyId } = await userContext('carol@example.com');
-      const res = await app.request('/api/customers', {
+      const res = await app.request('/api/contacts', {
         method: 'POST',
         headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
         body: JSON.stringify({ companyId, name: '' }),
@@ -280,7 +280,7 @@ describe('POST /api/customers', () => {
       const ericCookie = await signUp(app, 'eric@example.com');
       const ericCtx = await userContext('eric@example.com');
 
-      const res = await app.request('/api/customers', {
+      const res = await app.request('/api/contacts', {
         method: 'POST',
         headers: {
           cookie: ericCookie,
@@ -298,7 +298,7 @@ describe('POST /api/customers', () => {
   it('refuses unauthed requests', async () => {
     const { app, handle } = buildApp();
     try {
-      const res = await app.request('/api/customers', {
+      const res = await app.request('/api/contacts', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ companyId: 'x', name: 'y' }),
@@ -310,10 +310,54 @@ describe('POST /api/customers', () => {
   });
 });
 
-describe('GET /api/customers', () => {
+describe('GET /api/contacts — role filter', () => {
   beforeEach(resetDb);
 
-  it('lists only the active account customers (RLS)', async () => {
+  it('filters by ?role=customer | vendor via the is_customer/is_vendor flags', async () => {
+    const { app, handle } = buildApp();
+    try {
+      const cookie = await signUp(app, 'roles@example.com');
+      const { accountId, companyId } = await userContext('roles@example.com');
+      const hdrs = { cookie, 'x-account-id': accountId, 'content-type': 'application/json' };
+
+      // Customer-only (defaults), vendor-only, and a both-sides contact.
+      await app.request('/api/contacts', {
+        method: 'POST',
+        headers: hdrs,
+        body: JSON.stringify({ companyId, name: 'Sell-To' }),
+      });
+      await app.request('/api/contacts', {
+        method: 'POST',
+        headers: hdrs,
+        body: JSON.stringify({ companyId, name: 'Buy-From', isCustomer: false, isVendor: true }),
+      });
+      await app.request('/api/contacts', {
+        method: 'POST',
+        headers: hdrs,
+        body: JSON.stringify({ companyId, name: 'Both', isCustomer: true, isVendor: true }),
+      });
+
+      const names = async (role: string) => {
+        const res = await app.request(`/api/contacts?role=${role}`, {
+          headers: { cookie, 'x-account-id': accountId },
+        });
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as { contacts: { name: string }[] };
+        return body.contacts.map((c) => c.name).sort();
+      };
+
+      expect(await names('customer')).toEqual(['Both', 'Sell-To']);
+      expect(await names('vendor')).toEqual(['Both', 'Buy-From']);
+    } finally {
+      await handle.close();
+    }
+  });
+});
+
+describe('GET /api/contacts', () => {
+  beforeEach(resetDb);
+
+  it('lists only the active account contacts (RLS)', async () => {
     const { app, handle } = buildApp();
     try {
       const aCookie = await signUp(app, 'alice-a@example.com');
@@ -321,7 +365,7 @@ describe('GET /api/customers', () => {
       const bCookie = await signUp(app, 'bob-b@example.com');
       const bCtx = await userContext('bob-b@example.com');
 
-      await app.request('/api/customers', {
+      await app.request('/api/contacts', {
         method: 'POST',
         headers: {
           cookie: aCookie,
@@ -330,7 +374,7 @@ describe('GET /api/customers', () => {
         },
         body: JSON.stringify({ companyId: aCtx.companyId, name: 'A Customer' }),
       });
-      await app.request('/api/customers', {
+      await app.request('/api/contacts', {
         method: 'POST',
         headers: {
           cookie: bCookie,
@@ -340,19 +384,19 @@ describe('GET /api/customers', () => {
         body: JSON.stringify({ companyId: bCtx.companyId, name: 'B Customer' }),
       });
 
-      const res = await app.request('/api/customers', {
+      const res = await app.request('/api/contacts', {
         headers: { cookie: aCookie, 'x-account-id': aCtx.accountId },
       });
-      const body = (await res.json()) as { customers: { name: string }[] };
-      expect(body.customers).toHaveLength(1);
-      expect(body.customers[0]?.name).toBe('A Customer');
+      const body = (await res.json()) as { contacts: { name: string }[] };
+      expect(body.contacts).toHaveLength(1);
+      expect(body.contacts[0]?.name).toBe('A Customer');
     } finally {
       await handle.close();
     }
   });
 });
 
-describe('GET /api/customers/:id', () => {
+describe('GET /api/contacts/:id', () => {
   beforeEach(resetDb);
 
   it('returns 404 for a customer in another account', async () => {
@@ -363,7 +407,7 @@ describe('GET /api/customers/:id', () => {
       const bCookie = await signUp(app, 'bob2@example.com');
       const bCtx = await userContext('bob2@example.com');
 
-      const create = await app.request('/api/customers', {
+      const create = await app.request('/api/contacts', {
         method: 'POST',
         headers: {
           cookie: aCookie,
@@ -374,7 +418,7 @@ describe('GET /api/customers/:id', () => {
       });
       const { id } = (await create.json()) as { id: string };
 
-      const res = await app.request(`/api/customers/${id}`, {
+      const res = await app.request(`/api/contacts/${id}`, {
         headers: { cookie: bCookie, 'x-account-id': bCtx.accountId },
       });
       expect(res.status).toBe(404);
@@ -388,7 +432,7 @@ describe('GET /api/customers/:id', () => {
     try {
       const cookie = await signUp(app, 'frank@example.com');
       const { accountId } = await userContext('frank@example.com');
-      const res = await app.request('/api/customers/not-a-uuid', {
+      const res = await app.request('/api/contacts/not-a-uuid', {
         headers: { cookie, 'x-account-id': accountId },
       });
       expect(res.status).toBe(400);
@@ -398,16 +442,16 @@ describe('GET /api/customers/:id', () => {
   });
 });
 
-describe('PATCH /api/customers/:id', () => {
+describe('PATCH /api/contacts/:id', () => {
   beforeEach(resetDb);
 
   async function seedCustomer(
     app: ReturnType<typeof createApp>,
     email: string,
-  ): Promise<{ cookie: string; accountId: string; companyId: string; customerId: string }> {
+  ): Promise<{ cookie: string; accountId: string; companyId: string; contactId: string }> {
     const cookie = await signUp(app, email);
     const { accountId, companyId } = await userContext(email);
-    const create = await app.request('/api/customers', {
+    const create = await app.request('/api/contacts', {
       method: 'POST',
       headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -419,17 +463,17 @@ describe('PATCH /api/customers/:id', () => {
     });
     if (create.status !== 201) throw new Error(`seed customer failed: ${create.status}`);
     const { id } = (await create.json()) as { id: string };
-    return { cookie, accountId, companyId, customerId: id };
+    return { cookie, accountId, companyId, contactId: id };
   }
 
   it('replaces fields and writes an update audit row', async () => {
     const { app, handle } = buildApp();
     try {
-      const { cookie, accountId, companyId, customerId } = await seedCustomer(
+      const { cookie, accountId, companyId, contactId } = await seedCustomer(
         app,
         'patcher@example.com',
       );
-      const res = await app.request(`/api/customers/${customerId}`, {
+      const res = await app.request(`/api/contacts/${contactId}`, {
         method: 'PATCH',
         headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
         body: JSON.stringify({
@@ -458,7 +502,7 @@ describe('PATCH /api/customers/:id', () => {
       const audits = await db
         .select()
         .from(auditEvents)
-        .where(eq(auditEvents.entityId, customerId));
+        .where(eq(auditEvents.entityId, contactId));
       expect(audits.map((a) => a.action).sort()).toEqual(['create', 'update']);
       const update = audits.find((a) => a.action === 'update');
       expect(update?.before).toMatchObject({ name: 'Original Name' });
@@ -471,8 +515,8 @@ describe('PATCH /api/customers/:id', () => {
   it('clears optional fields when omitted on the next submit', async () => {
     const { app, handle } = buildApp();
     try {
-      const { cookie, accountId, customerId } = await seedCustomer(app, 'clear@example.com');
-      const res = await app.request(`/api/customers/${customerId}`, {
+      const { cookie, accountId, contactId } = await seedCustomer(app, 'clear@example.com');
+      const res = await app.request(`/api/contacts/${contactId}`, {
         method: 'PATCH',
         headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
         body: JSON.stringify({ name: 'Only Name' }),
@@ -489,8 +533,8 @@ describe('PATCH /api/customers/:id', () => {
   it('rejects a malformed body with 400', async () => {
     const { app, handle } = buildApp();
     try {
-      const { cookie, accountId, customerId } = await seedCustomer(app, 'bad@example.com');
-      const res = await app.request(`/api/customers/${customerId}`, {
+      const { cookie, accountId, contactId } = await seedCustomer(app, 'bad@example.com');
+      const res = await app.request(`/api/contacts/${contactId}`, {
         method: 'PATCH',
         headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
         body: JSON.stringify({ name: '' }),
@@ -507,7 +551,7 @@ describe('PATCH /api/customers/:id', () => {
       const a = await seedCustomer(app, 'tenant-a@example.com');
       const bCookie = await signUp(app, 'tenant-b@example.com');
       const bCtx = await userContext('tenant-b@example.com');
-      const res = await app.request(`/api/customers/${a.customerId}`, {
+      const res = await app.request(`/api/contacts/${a.contactId}`, {
         method: 'PATCH',
         headers: {
           cookie: bCookie,

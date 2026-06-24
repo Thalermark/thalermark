@@ -9,7 +9,7 @@ import { appDatabaseUrl, getTestDb, resetDb } from './test-helper.js';
 
 // Keyset cursor pagination is implemented once in src/lib/pagination.ts and
 // applied uniformly across the list endpoints, so we exercise the contract
-// against two representative shapes: customers (newest-first, createdAt+id
+// against two representative shapes: contacts (newest-first, createdAt+id
 // desc) and items (alphabetical, name+id asc). The remaining endpoints reuse
 // the same helpers and are covered for behavior in their own suites.
 
@@ -94,8 +94,8 @@ async function setup(app: ReturnType<typeof createApp>, email: string): Promise<
   return { cookie, accountId, companyId };
 }
 
-function createCustomer(app: ReturnType<typeof createApp>, ctx: Ctx, name: string) {
-  return app.request('/api/customers', {
+function createContact(app: ReturnType<typeof createApp>, ctx: Ctx, name: string) {
+  return app.request('/api/contacts', {
     method: 'POST',
     headers: {
       cookie: ctx.cookie,
@@ -107,12 +107,12 @@ function createCustomer(app: ReturnType<typeof createApp>, ctx: Ctx, name: strin
 }
 
 function getCustomers(app: ReturnType<typeof createApp>, ctx: Ctx, query: string) {
-  return app.request(`/api/customers${query}`, {
+  return app.request(`/api/contacts${query}`, {
     headers: { cookie: ctx.cookie, 'x-account-id': ctx.accountId },
   });
 }
 
-describe('GET /api/customers — keyset pagination (newest-first)', () => {
+describe('GET /api/contacts — keyset pagination (newest-first)', () => {
   beforeEach(resetDb);
 
   it('walks pages newest-first, round-trips the cursor, ends with null', async () => {
@@ -121,15 +121,15 @@ describe('GET /api/customers — keyset pagination (newest-first)', () => {
       const ctx = await setup(app, 'pager@example.com');
       // Created oldest -> newest; the list returns newest first.
       for (const n of ['C1', 'C2', 'C3', 'C4', 'C5']) {
-        const r = await createCustomer(app, ctx, n);
+        const r = await createContact(app, ctx, n);
         expect(r.status).toBe(201);
       }
 
       const page1 = (await (await getCustomers(app, ctx, '?limit=2')).json()) as {
-        customers: { name: string }[];
+        contacts: { name: string }[];
         nextCursor: string | null;
       };
-      expect(page1.customers.map((c) => c.name)).toEqual(['C5', 'C4']);
+      expect(page1.contacts.map((c) => c.name)).toEqual(['C5', 'C4']);
       expect(page1.nextCursor).toBeTruthy();
 
       const page2 = (await (
@@ -138,8 +138,8 @@ describe('GET /api/customers — keyset pagination (newest-first)', () => {
           ctx,
           `?limit=2&cursor=${encodeURIComponent(page1.nextCursor ?? '')}`,
         )
-      ).json()) as { customers: { name: string }[]; nextCursor: string | null };
-      expect(page2.customers.map((c) => c.name)).toEqual(['C3', 'C2']);
+      ).json()) as { contacts: { name: string }[]; nextCursor: string | null };
+      expect(page2.contacts.map((c) => c.name)).toEqual(['C3', 'C2']);
       expect(page2.nextCursor).toBeTruthy();
 
       const page3 = (await (
@@ -148,8 +148,8 @@ describe('GET /api/customers — keyset pagination (newest-first)', () => {
           ctx,
           `?limit=2&cursor=${encodeURIComponent(page2.nextCursor ?? '')}`,
         )
-      ).json()) as { customers: { name: string }[]; nextCursor: string | null };
-      expect(page3.customers.map((c) => c.name)).toEqual(['C1']);
+      ).json()) as { contacts: { name: string }[]; nextCursor: string | null };
+      expect(page3.contacts.map((c) => c.name)).toEqual(['C1']);
       expect(page3.nextCursor).toBeNull();
     } finally {
       await handle.close();
@@ -161,18 +161,18 @@ describe('GET /api/customers — keyset pagination (newest-first)', () => {
     try {
       const ctx = await setup(app, 'stable@example.com');
       for (const n of ['C1', 'C2', 'C3', 'C4', 'C5']) {
-        expect((await createCustomer(app, ctx, n)).status).toBe(201);
+        expect((await createContact(app, ctx, n)).status).toBe(201);
       }
 
       const page1 = (await (await getCustomers(app, ctx, '?limit=2')).json()) as {
-        customers: { name: string }[];
+        contacts: { name: string }[];
         nextCursor: string | null;
       };
-      expect(page1.customers.map((c) => c.name)).toEqual(['C5', 'C4']);
+      expect(page1.contacts.map((c) => c.name)).toEqual(['C5', 'C4']);
 
       // Insert a brand-new row after page 1 was read. Because the cursor is
       // anchored to C4, C6 (newer) must not appear and nothing is skipped.
-      expect((await createCustomer(app, ctx, 'C6')).status).toBe(201);
+      expect((await createContact(app, ctx, 'C6')).status).toBe(201);
 
       const page2 = (await (
         await getCustomers(
@@ -180,8 +180,8 @@ describe('GET /api/customers — keyset pagination (newest-first)', () => {
           ctx,
           `?limit=2&cursor=${encodeURIComponent(page1.nextCursor ?? '')}`,
         )
-      ).json()) as { customers: { name: string }[] };
-      expect(page2.customers.map((c) => c.name)).toEqual(['C3', 'C2']);
+      ).json()) as { contacts: { name: string }[] };
+      expect(page2.contacts.map((c) => c.name)).toEqual(['C3', 'C2']);
     } finally {
       await handle.close();
     }

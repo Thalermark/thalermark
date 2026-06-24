@@ -94,8 +94,8 @@ function headers(auth: Auth) {
   };
 }
 
-async function createCustomer(app: ReturnType<typeof createApp>, auth: Auth, companyId: string) {
-  const res = await app.request('/api/customers', {
+async function createContact(app: ReturnType<typeof createApp>, auth: Auth, companyId: string) {
+  const res = await app.request('/api/contacts', {
     method: 'POST',
     headers: headers(auth),
     body: JSON.stringify({ companyId, name: 'Wile E. Coyote' }),
@@ -108,14 +108,14 @@ async function createEstimate(
   app: ReturnType<typeof createApp>,
   auth: Auth,
   companyId: string,
-  customerId: string,
+  contactId: string,
 ) {
   const res = await app.request('/api/estimates', {
     method: 'POST',
     headers: headers(auth),
     body: JSON.stringify({
       companyId,
-      customerId,
+      contactId,
       number: 'EST-0001',
       issueDate: '2026-01-01',
       expiresOn: '2026-02-01',
@@ -141,7 +141,7 @@ type Estimate = {
   id: string;
   number: string;
   status: string;
-  customerId: string;
+  contactId: string;
   total: string;
   sentAt: string | null;
   publicToken: string | null;
@@ -170,8 +170,8 @@ describe('estimate duplicate-as-template', () => {
       const cookie = await signUp(ctx.app, 'edup@example.com');
       const { accountId, companyId } = await userContext('edup@example.com');
       const auth: Auth = { cookie, accountId };
-      const customerId = await createCustomer(ctx.app, auth, companyId);
-      const sourceId = await createEstimate(ctx.app, auth, companyId, customerId);
+      const contactId = await createContact(ctx.app, auth, companyId);
+      const sourceId = await createEstimate(ctx.app, auth, companyId, contactId);
 
       const sent = await ctx.app.request(`/api/estimates/${sourceId}/mark-sent`, {
         method: 'POST',
@@ -190,7 +190,7 @@ describe('estimate duplicate-as-template', () => {
       expect(dup.sentAt).toBeNull();
       expect(dup.publicToken).toBeNull();
       expect(dup.convertedInvoiceId).toBeNull();
-      expect(dup.customerId).toBe(customerId);
+      expect(dup.contactId).toBe(contactId);
       expect(dup.total).toBe('200.00');
       expect(dup.lineItems).toHaveLength(1);
       expect(dup.lineItems[0]?.description).toBe('Deck rebuild');
@@ -205,8 +205,8 @@ describe('estimate duplicate-as-template', () => {
       const cookie = await signUp(ctx.app, 'edup-rep@example.com');
       const { accountId, companyId } = await userContext('edup-rep@example.com');
       const auth: Auth = { cookie, accountId };
-      const customerId = await createCustomer(ctx.app, auth, companyId);
-      const sourceId = await createEstimate(ctx.app, auth, companyId, customerId);
+      const contactId = await createContact(ctx.app, auth, companyId);
+      const sourceId = await createEstimate(ctx.app, auth, companyId, contactId);
 
       const first = (await (await duplicate(ctx.app, auth, sourceId)).json()) as { id: string };
       const second = (await (await duplicate(ctx.app, auth, sourceId)).json()) as { id: string };
@@ -225,7 +225,7 @@ describe('estimate duplicate-as-template', () => {
       const cookieA = await signUp(ctx.app, 'edup-a@example.com');
       const a = await userContext('edup-a@example.com');
       const authA: Auth = { cookie: cookieA, accountId: a.accountId };
-      const customerA = await createCustomer(ctx.app, authA, a.companyId);
+      const customerA = await createContact(ctx.app, authA, a.companyId);
       const sourceId = await createEstimate(ctx.app, authA, a.companyId, customerA);
 
       const cookieB = await signUp(ctx.app, 'edup-b@example.com');

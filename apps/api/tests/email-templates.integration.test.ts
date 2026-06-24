@@ -221,12 +221,12 @@ describe('email templates', () => {
     try {
       const { companyId, accountId, h } = await setup(ctx, 'e@acme.test');
 
-      const cust = await ctx.app.request('/api/customers', {
+      const cust = await ctx.app.request('/api/contacts', {
         method: 'POST',
         headers: h(),
         body: JSON.stringify({ companyId, name: 'Wile E. Coyote', email: 'wile@acme.test' }),
       });
-      const customerId = ((await cust.json()) as { id: string }).id;
+      const contactId = ((await cust.json()) as { id: string }).id;
 
       const mkInvoice = async (number: string) => {
         const r = await ctx.app.request('/api/invoices', {
@@ -234,7 +234,7 @@ describe('email templates', () => {
           headers: h(),
           body: JSON.stringify({
             companyId,
-            customerId,
+            contactId,
             number,
             issueDate: '2026-05-23',
             dueDate: '2026-06-22',

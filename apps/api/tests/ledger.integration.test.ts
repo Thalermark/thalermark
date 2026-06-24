@@ -92,13 +92,13 @@ async function userContext(email: string) {
   return { accountId: m.accountId, companyId: company.id };
 }
 
-async function createCustomer(
+async function createContact(
   app: ReturnType<typeof createApp>,
   cookie: string,
   accountId: string,
   companyId: string,
 ): Promise<string> {
-  const res = await app.request('/api/customers', {
+  const res = await app.request('/api/contacts', {
     method: 'POST',
     headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
     body: JSON.stringify({ companyId, name: 'Wile E. Coyote' }),
@@ -107,10 +107,10 @@ async function createCustomer(
   return ((await res.json()) as { id: string }).id;
 }
 
-function invoiceBody(companyId: string, customerId: string, number: string, withTax = true) {
+function invoiceBody(companyId: string, contactId: string, number: string, withTax = true) {
   return {
     companyId,
-    customerId,
+    contactId,
     number,
     issueDate: '2026-05-28',
     dueDate: '2026-06-27',
@@ -134,14 +134,14 @@ async function createInvoice(
   cookie: string,
   accountId: string,
   companyId: string,
-  customerId: string,
+  contactId: string,
   number: string,
   withTax = true,
 ): Promise<string> {
   const res = await app.request('/api/invoices', {
     method: 'POST',
     headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
-    body: JSON.stringify(invoiceBody(companyId, customerId, number, withTax)),
+    body: JSON.stringify(invoiceBody(companyId, contactId, number, withTax)),
   });
   if (res.status !== 201) throw new Error(`invoice create failed: ${res.status}`);
   return ((await res.json()) as { id: string }).id;
@@ -175,13 +175,13 @@ describe('ledger postings — invoice transitions', () => {
     try {
       const cookie = await signUp(ctx.app, 'sender-tax@example.com');
       const { accountId, companyId } = await userContext('sender-tax@example.com');
-      const customerId = await createCustomer(ctx.app, cookie, accountId, companyId);
+      const contactId = await createContact(ctx.app, cookie, accountId, companyId);
       const invoiceId = await createInvoice(
         ctx.app,
         cookie,
         accountId,
         companyId,
-        customerId,
+        contactId,
         'L-1',
         true,
       );
@@ -210,13 +210,13 @@ describe('ledger postings — invoice transitions', () => {
     try {
       const cookie = await signUp(ctx.app, 'sender-notax@example.com');
       const { accountId, companyId } = await userContext('sender-notax@example.com');
-      const customerId = await createCustomer(ctx.app, cookie, accountId, companyId);
+      const contactId = await createContact(ctx.app, cookie, accountId, companyId);
       const invoiceId = await createInvoice(
         ctx.app,
         cookie,
         accountId,
         companyId,
-        customerId,
+        contactId,
         'L-2',
         false,
       );
@@ -241,13 +241,13 @@ describe('ledger postings — invoice transitions', () => {
     try {
       const cookie = await signUp(ctx.app, 'splitter@example.com');
       const { accountId, companyId } = await userContext('splitter@example.com');
-      const customerId = await createCustomer(ctx.app, cookie, accountId, companyId);
+      const contactId = await createContact(ctx.app, cookie, accountId, companyId);
       const res = await ctx.app.request('/api/invoices', {
         method: 'POST',
         headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
         body: JSON.stringify({
           companyId,
-          customerId,
+          contactId,
           number: 'L-SPLIT',
           issueDate: '2026-05-28',
           dueDate: '2026-06-27',
@@ -302,13 +302,13 @@ describe('ledger postings — invoice transitions', () => {
     try {
       const cookie = await signUp(ctx.app, 'payer-sent@example.com');
       const { accountId, companyId } = await userContext('payer-sent@example.com');
-      const customerId = await createCustomer(ctx.app, cookie, accountId, companyId);
+      const contactId = await createContact(ctx.app, cookie, accountId, companyId);
       const invoiceId = await createInvoice(
         ctx.app,
         cookie,
         accountId,
         companyId,
-        customerId,
+        contactId,
         'L-3',
         true,
       );
@@ -342,13 +342,13 @@ describe('ledger postings — invoice transitions', () => {
     try {
       const cookie = await signUp(ctx.app, 'payer-direct@example.com');
       const { accountId, companyId } = await userContext('payer-direct@example.com');
-      const customerId = await createCustomer(ctx.app, cookie, accountId, companyId);
+      const contactId = await createContact(ctx.app, cookie, accountId, companyId);
       const invoiceId = await createInvoice(
         ctx.app,
         cookie,
         accountId,
         companyId,
-        customerId,
+        contactId,
         'L-4',
         true,
       );
@@ -378,13 +378,13 @@ describe('ledger postings — invoice transitions', () => {
     try {
       const cookie = await signUp(ctx.app, 'voider-sent@example.com');
       const { accountId, companyId } = await userContext('voider-sent@example.com');
-      const customerId = await createCustomer(ctx.app, cookie, accountId, companyId);
+      const contactId = await createContact(ctx.app, cookie, accountId, companyId);
       const invoiceId = await createInvoice(
         ctx.app,
         cookie,
         accountId,
         companyId,
-        customerId,
+        contactId,
         'L-5',
         true,
       );
@@ -416,13 +416,13 @@ describe('ledger postings — invoice transitions', () => {
     try {
       const cookie = await signUp(ctx.app, 'voider-draft@example.com');
       const { accountId, companyId } = await userContext('voider-draft@example.com');
-      const customerId = await createCustomer(ctx.app, cookie, accountId, companyId);
+      const contactId = await createContact(ctx.app, cookie, accountId, companyId);
       const invoiceId = await createInvoice(
         ctx.app,
         cookie,
         accountId,
         companyId,
-        customerId,
+        contactId,
         'L-6',
         true,
       );
@@ -445,12 +445,12 @@ describe('ledger postings — invoice transitions', () => {
     try {
       const cookie = await signUp(ctx.app, 'tb@example.com');
       const { accountId, companyId } = await userContext('tb@example.com');
-      const customerId = await createCustomer(ctx.app, cookie, accountId, companyId);
+      const contactId = await createContact(ctx.app, cookie, accountId, companyId);
 
       // Three invoices: one sent+paid, one sent+voided, one paid-from-draft.
-      const a = await createInvoice(ctx.app, cookie, accountId, companyId, customerId, 'TB-1');
-      const b = await createInvoice(ctx.app, cookie, accountId, companyId, customerId, 'TB-2');
-      const c = await createInvoice(ctx.app, cookie, accountId, companyId, customerId, 'TB-3');
+      const a = await createInvoice(ctx.app, cookie, accountId, companyId, contactId, 'TB-1');
+      const b = await createInvoice(ctx.app, cookie, accountId, companyId, contactId, 'TB-2');
+      const c = await createInvoice(ctx.app, cookie, accountId, companyId, contactId, 'TB-3');
 
       for (const id of [a, b]) {
         await ctx.app.request(`/api/invoices/${id}/mark-sent`, {
@@ -495,7 +495,7 @@ describe('ledger postings — invoice transitions', () => {
     try {
       const aCookie = await signUp(ctx.app, 'alice-l@example.com');
       const aCtx = await userContext('alice-l@example.com');
-      const aCust = await createCustomer(ctx.app, aCookie, aCtx.accountId, aCtx.companyId);
+      const aCust = await createContact(ctx.app, aCookie, aCtx.accountId, aCtx.companyId);
       const aInvoice = await createInvoice(
         ctx.app,
         aCookie,
