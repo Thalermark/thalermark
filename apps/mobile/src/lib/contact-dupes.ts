@@ -1,7 +1,7 @@
-// Pure dupe-detection helpers for the customer create paths (the standalone
-// /customers/new screen and, later, inline-create-during-invoicing). Ported
-// verbatim from apps/web/src/lib/customer-dupes.ts — framework-free, no deps.
-// Both signals are computed client-side against the already-loaded customer
+// Pure dupe-detection helpers for the contact create paths (the standalone
+// /contacts/new screen and, later, inline-create-during-invoicing). Ported
+// verbatim from apps/web/src/lib/contact-dupes.ts — framework-free, no deps.
+// Both signals are computed client-side against the already-loaded contact
 // list (no extra fetch, no new API surface); there is no server-side dupe
 // endpoint, so the email HARD BLOCK is enforced here on the client.
 //

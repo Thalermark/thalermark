@@ -119,13 +119,13 @@ const SETTINGS_ENTRIES: Entry[] = [
     href: '/more/payments',
     icon: 'card-outline',
     title: 'Payments',
-    subtitle: 'Connect Stripe and list the other ways customers can pay you.',
+    subtitle: 'Connect Stripe and list the other ways contacts can pay you.',
   },
   {
     href: '/more/email',
     icon: 'mail-outline',
     title: 'Email templates',
-    subtitle: 'Customize the subject and message your customers receive.',
+    subtitle: 'Customize the subject and message your contacts receive.',
   },
   {
     href: '/more/privacy',

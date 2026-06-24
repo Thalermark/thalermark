@@ -14,8 +14,8 @@ import { fmt, ytdWindow } from '../../../../lib/report-periods';
 import { useReport } from '../../../../lib/use-report';
 
 // Mirror of web's /reports/sales-by-customer — pre-tax sales (sent or paid),
-// top 25 customers by revenue, each with its share of the total. Rows link to
-// the customer.
+// top 25 contacts by revenue, each with its share of the total. Rows link to
+// the contact.
 export default function SalesByCustomerReport() {
   const router = useRouter();
   const [{ from, to }, setWindow] = useState(ytdWindow());
@@ -29,24 +29,24 @@ export default function SalesByCustomerReport() {
 
   return (
     <ReportScaffold
-      title="Sales by customer"
+      title="Sales by contact"
       selector={
         <PeriodSelector from={from} to={to} onChange={(f, t) => setWindow({ from: f, to: t })} />
       }
-      note={`${from} → ${to}. Pre-tax sales from sent or paid invoices, top 25 customers by revenue.`}
+      note={`${from} → ${to}. Pre-tax sales from sent or paid invoices, top 25 contacts by revenue.`}
     >
       <ReportBody data={data} error={error}>
         {(d) => {
           const total = Number(d.totalSales);
-          if (d.customers.length === 0) {
+          if (d.contacts.length === 0) {
             return <Text className="mt-8 text-ink/70">No sales in this period.</Text>;
           }
           return (
             <ReportCard>
-              {d.customers.map((c) => (
+              {d.contacts.map((c) => (
                 <Pressable
-                  key={c.customerId}
-                  onPress={() => router.push(`/customers/${c.customerId}`)}
+                  key={c.contactId}
+                  onPress={() => router.push(`/contacts/${c.contactId}`)}
                   className="border-t border-ink/10 px-4 py-3 active:bg-cream"
                 >
                   <View className="flex-row items-center justify-between">

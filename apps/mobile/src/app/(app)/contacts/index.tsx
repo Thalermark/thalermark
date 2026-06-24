@@ -6,17 +6,17 @@ import { api } from '../../../lib/api';
 import { useMay } from '../../../lib/role';
 import { pageQuery, usePaginatedList } from '../../../lib/use-paginated-list';
 
-// Mirror of apps/web's /customers list. Account-scoped via x-account-id (the
+// Mirror of apps/web's /contacts list. Account-scoped via x-account-id (the
 // API filters by accountId); keyset-paginated with onEndReached infinite scroll.
-// usePaginatedList refetches page 1 on focus so a customer created on
-// /customers/new shows when we navigate back, and reloads whenever a filter
+// usePaginatedList refetches page 1 on focus so a contact created on
+// /contacts/new shows when we navigate back, and reloads whenever a filter
 // flips (fetchPage identity changes). Filters: search (q, name OR email) and
-// an "Open invoices" toggle (customers with an issued-but-unpaid invoice).
-type CustomerRow = { id: string; name: string; email: string | null };
+// an "Open invoices" toggle (contacts with an issued-but-unpaid invoice).
+type ContactRow = { id: string; name: string; email: string | null };
 
-export default function CustomersList() {
+export default function ContactsList() {
   const router = useRouter();
-  const canCreate = useMay('customers:write');
+  const canCreate = useMay('contacts:write');
 
   const [q, setQ] = useState('');
   const [appliedQ, setAppliedQ] = useState('');
@@ -34,12 +34,12 @@ export default function CustomersList() {
       const query: Record<string, string> = pageQuery(cursor);
       if (appliedQ) query.q = appliedQ;
       if (openInvoices) query.openInvoices = 'true';
-      const res = await api.api.customers.$get({ query });
+      const res = await api.api.contacts.$get({ query });
       if (!res.ok) return null;
-      const { customers, nextCursor } = await res.json();
+      const { contacts, nextCursor } = await res.json();
       return {
-        rows: customers.map(
-          (c): CustomerRow => ({ id: c.id, name: c.name, email: c.email ?? null }),
+        rows: contacts.map(
+          (c): ContactRow => ({ id: c.id, name: c.name, email: c.email ?? null }),
         ),
         nextCursor,
       };
@@ -54,13 +54,13 @@ export default function CustomersList() {
       <View className="flex-row items-end justify-between px-6 pt-6">
         <View>
           <Text className="font-mono text-xs uppercase tracking-widest text-gold-deep">
-            Customers
+            Contacts
           </Text>
-          <Text className="mt-2 font-serif text-3xl font-light text-ink">All customers</Text>
+          <Text className="mt-2 font-serif text-3xl font-light text-ink">All contacts</Text>
         </View>
         {canCreate ? (
           <Pressable
-            onPress={() => router.push('/customers/new')}
+            onPress={() => router.push('/contacts/new')}
             className="rounded-sm bg-ink px-4 py-2 active:bg-gold-deep"
           >
             <Text className="text-sm font-medium text-cream">+ New</Text>
@@ -97,10 +97,10 @@ export default function CustomersList() {
           <ActivityIndicator color="#0f1626" />
         </View>
       ) : list.state === 'error' ? (
-        <Text className="mt-8 px-6 text-sm text-oxblood">Couldn't load customers.</Text>
+        <Text className="mt-8 px-6 text-sm text-oxblood">Couldn't load contacts.</Text>
       ) : list.rows.length === 0 ? (
         <Text className="mt-8 px-6 text-ink/70">
-          {anyFilter ? 'No customers match these filters.' : 'No customers yet.'}
+          {anyFilter ? 'No contacts match these filters.' : 'No contacts yet.'}
         </Text>
       ) : (
         <FlatList
@@ -121,7 +121,7 @@ export default function CustomersList() {
           }
           renderItem={({ item }) => (
             <Pressable
-              onPress={() => router.push(`/customers/${item.id}`)}
+              onPress={() => router.push(`/contacts/${item.id}`)}
               className="flex-row items-center justify-between bg-cream-warm px-5 py-4 active:bg-cream"
             >
               <Text className="font-serif text-lg text-ink">{item.name}</Text>

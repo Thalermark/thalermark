@@ -56,7 +56,7 @@ const ROLE_LABELS: Record<string, string> = {
 // of the capability bundles in @thalermark/validation.
 const ROLE_BLURBS: Record<InviteRole, string> = {
   admin: 'Everything except billing and ownership.',
-  member: 'Invoices, estimates, customers, expenses.',
+  member: 'Invoices, estimates, contacts, expenses.',
   accountant: 'Expenses and exports — for your bookkeeper.',
   viewer: 'Read-only access.',
 };

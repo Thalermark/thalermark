@@ -113,7 +113,7 @@ export default function WelcomeBrand() {
             </Text>
             <Text className="mt-3 font-serif text-3xl font-light text-ink">Make it yours.</Text>
             <Text className="mt-3 text-sm text-ink/70">
-              Add a logo and it'll appear on every invoice and estimate your customers see. Optional
+              Add a logo and it'll appear on every invoice and estimate your contacts see. Optional
               — you can always add one later from Settings.
             </Text>
 

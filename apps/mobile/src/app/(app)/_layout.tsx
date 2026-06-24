@@ -172,9 +172,9 @@ export default function AppLayout() {
           }}
         />
         <Tabs.Screen
-          name="customers"
+          name="contacts"
           options={{
-            title: 'Customers',
+            title: 'Contacts',
             tabBarIcon: ({ color, size, focused }) => (
               <Ionicons name={focused ? 'people' : 'people-outline'} size={size} color={color} />
             ),

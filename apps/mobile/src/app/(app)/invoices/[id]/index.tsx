@@ -32,7 +32,7 @@ type LineItem = {
 type Invoice = {
   status: string;
   number: string;
-  customerId: string;
+  contactId: string;
   issueDate: string;
   dueDate: string;
   currency: string;
@@ -48,7 +48,7 @@ type Invoice = {
 };
 type DetailState =
   | { state: 'loading' }
-  | { state: 'ready'; invoice: Invoice; customerName: string | null; customerEmail: string | null }
+  | { state: 'ready'; invoice: Invoice; customerName: string | null; contactEmail: string | null }
   | { state: 'error' };
 
 const PAYMENT_METHOD_LABELS: Record<string, string> = {
@@ -63,9 +63,9 @@ const PAID_METHODS = ['cash', 'check', 'venmo', 'zelle', 'other'] as const;
 
 const TRANSITION_ERRORS: Record<string, string> = {
   invalid_transition: 'This invoice can no longer be changed.',
-  invalid_recipient: 'Add a customer email or enter one to send.',
+  invalid_recipient: 'Add a contact email or enter one to send.',
   email_not_configured: "Email isn't configured on this server.",
-  customer_not_found: 'The customer for this invoice no longer exists.',
+  contact_not_found: 'The contact for this invoice no longer exists.',
 };
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
@@ -96,21 +96,21 @@ export default function InvoiceDetail() {
     }
     const inv = await res.json();
     let customerName: string | null = null;
-    let customerEmail: string | null = null;
-    const custRes = await api.api.customers[':id'].$get({ param: { id: inv.customerId } });
+    let contactEmail: string | null = null;
+    const custRes = await api.api.contacts[':id'].$get({ param: { id: inv.contactId } });
     if (custRes.ok) {
       const c = await custRes.json();
       customerName = c.name;
-      customerEmail = c.email ?? null;
+      contactEmail = c.email ?? null;
     }
     setDetail({
       state: 'ready',
       customerName,
-      customerEmail,
+      contactEmail,
       invoice: {
         status: inv.status,
         number: inv.number,
-        customerId: inv.customerId,
+        contactId: inv.contactId,
         issueDate: inv.issueDate,
         dueDate: inv.dueDate,
         currency: inv.currency,
@@ -189,7 +189,7 @@ export default function InvoiceDetail() {
 
   function onSend() {
     const to = showOverride ? overrideEmail.trim() : '';
-    const recipient = to || (detail.state === 'ready' ? detail.customerEmail : null);
+    const recipient = to || (detail.state === 'ready' ? detail.contactEmail : null);
     act(
       () => api.api.invoices[':id'].send.$post({ param: { id }, json: to ? { to } : {} }),
       () => {
@@ -318,7 +318,7 @@ export default function InvoiceDetail() {
                       <TextInput
                         value={overrideEmail}
                         onChangeText={setOverrideEmail}
-                        placeholder={detail.customerEmail ?? 'recipient@example.com'}
+                        placeholder={detail.contactEmail ?? 'recipient@example.com'}
                         keyboardType="email-address"
                         autoCapitalize="none"
                         className="mb-2 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink"
@@ -443,7 +443,7 @@ export default function InvoiceDetail() {
 
             {/* Meta */}
             <View className="mt-8 space-y-2">
-              <Meta label="Customer" value={detail.customerName ?? '—'} />
+              <Meta label="Contact" value={detail.customerName ?? '—'} />
               <Meta label="Issued" value={inv.issueDate} />
               <Meta label="Due" value={inv.dueDate} />
               {paidVia ? (

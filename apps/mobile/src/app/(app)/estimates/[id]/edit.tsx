@@ -34,7 +34,7 @@ import { type TaxPolicyLite, lineTax, policyRate, resolvePolicyId } from '../../
 // (estimateUpdateSchema = create minus companyId). Each line carries its
 // sourceItemId through unchanged so editing a draft doesn't null the
 // top-products breadcrumb (see apps/mobile/CLAUDE.md).
-type Customer = { id: string; name: string; email: string | null };
+type Contact = { id: string; name: string; email: string | null };
 type Row = {
   description: string;
   quantity: string;
@@ -54,7 +54,7 @@ const blankRow = (): Row => ({
   taxPolicyId: '',
 });
 type Seed = {
-  customerId: string;
+  contactId: string;
   number: string;
   issueDate: string;
   expiresOn: string;
@@ -67,8 +67,8 @@ type Seed = {
 
 const FRIENDLY: Record<string, string> = {
   estimate_number_taken: 'Estimate number already used for this company. Try another.',
-  customer_company_mismatch: 'Selected customer does not belong to this company.',
-  customer_not_found: 'Selected customer no longer exists.',
+  customer_company_mismatch: 'Selected contact does not belong to this company.',
+  contact_not_found: 'Selected contact no longer exists.',
   invalid_transition: 'This estimate can no longer be edited.',
 };
 
@@ -76,7 +76,7 @@ export default function EditEstimate() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [seed, setSeed] = useState<Seed | null>(null);
-  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [contacts, setContacts] = useState<Contact[]>([]);
   const [taxPolicies, setTaxPolicies] = useState<TaxPolicyLite[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -90,12 +90,12 @@ export default function EditEstimate() {
       (async () => {
         const [estRes, custRes] = await Promise.all([
           api.api.estimates[':id'].$get({ param: { id } }),
-          api.api.customers.$get(),
+          api.api.contacts.$get(),
         ]);
         if (!active) return;
         if (custRes.ok) {
-          const { customers: rows } = await custRes.json();
-          setCustomers(rows.map((c) => ({ id: c.id, name: c.name, email: c.email ?? null })));
+          const { contacts: rows } = await custRes.json();
+          setContacts(rows.map((c) => ({ id: c.id, name: c.name, email: c.email ?? null })));
         }
         if (!estRes.ok) {
           setFormError('load_failed');
@@ -103,7 +103,7 @@ export default function EditEstimate() {
         }
         const est = await estRes.json();
         setSeed({
-          customerId: est.customerId,
+          contactId: est.contactId,
           number: est.number,
           issueDate: est.issueDate,
           expiresOn: est.expiresOn ?? '',
@@ -198,7 +198,7 @@ export default function EditEstimate() {
   const total = useMemo(() => addMoney(subtotal, taxTotal), [subtotal, taxTotal]);
 
   const selectedName = seed
-    ? (customers.find((c) => c.id === seed.customerId)?.name ?? null)
+    ? (contacts.find((c) => c.id === seed.contactId)?.name ?? null)
     : null;
 
   async function onSubmit() {
@@ -226,7 +226,7 @@ export default function EditEstimate() {
     const sub = sumMoney(lineItems.map((li) => li.amount));
     const taxVal = sumMoney(lineItems.map((li) => li.taxAmount ?? '0'));
     const payload = {
-      customerId: seed.customerId,
+      contactId: seed.contactId,
       number: seed.number.trim(),
       issueDate: seed.issueDate.trim(),
       expiresOn: seed.expiresOn.trim() === '' ? undefined : seed.expiresOn.trim(),
@@ -283,7 +283,7 @@ export default function EditEstimate() {
     );
   }
 
-  const canSubmit = !submitting && seed.customerId !== '' && seed.number.trim().length > 0;
+  const canSubmit = !submitting && seed.contactId !== '' && seed.number.trim().length > 0;
 
   return (
     <SafeAreaView className="flex-1 bg-cream" edges={['top']}>
@@ -308,14 +308,14 @@ export default function EditEstimate() {
           <View className="mt-8 space-y-5">
             <View>
               <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
-                Customer *
+                Contact *
               </Text>
               <Pressable
                 onPress={() => setPickerOpen(true)}
                 className="mt-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-3"
               >
                 <Text className={selectedName ? 'text-ink' : 'text-ink/40'}>
-                  {selectedName ?? 'Select a customer'}
+                  {selectedName ?? 'Select a contact'}
                 </Text>
               </Pressable>
             </View>
@@ -423,13 +423,13 @@ export default function EditEstimate() {
             className="max-h-[70%] rounded-t-lg bg-cream px-6 pb-10 pt-5"
             onPress={() => {}}
           >
-            <Text className="font-serif text-xl text-ink">Choose customer</Text>
+            <Text className="font-serif text-xl text-ink">Choose contact</Text>
             <ScrollView className="mt-4">
-              {customers.map((c) => (
+              {contacts.map((c) => (
                 <Pressable
                   key={c.id}
                   onPress={() => {
-                    set('customerId', c.id);
+                    set('contactId', c.id);
                     setPickerOpen(false);
                   }}
                   className="border-b border-ink/10 py-3"

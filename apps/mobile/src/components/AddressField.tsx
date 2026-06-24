@@ -8,7 +8,7 @@ import { api } from '../lib/api';
 // rewrites the Street line and fans the rest out to the city / region /
 // postalCode / country fields the parent owns. Prefilling the parent's
 // addressLine1 (edit form) does NOT trigger a search — only on-device typing
-// (onChangeText) does — so loading an existing customer doesn't auto-search.
+// (onChangeText) does — so loading an existing contact doesn't auto-search.
 export type AddressSuggestion = {
   label: string;
   addressLine1: string;

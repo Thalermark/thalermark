@@ -3,9 +3,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
-  CustomerFilterField,
-  type SelectedCustomer,
-} from '../../../components/CustomerFilterField';
+  ContactFilterField,
+  type SelectedContact,
+} from '../../../components/ContactFilterField';
 import { DateField } from '../../../components/DateField';
 import { FilterChips } from '../../../components/FilterChips';
 import { api } from '../../../lib/api';
@@ -14,7 +14,7 @@ import { pageQuery, usePaginatedList } from '../../../lib/use-paginated-list';
 
 // Mirror of apps/web's /estimates list. customerName is LEFT JOINed by the API
 // (#195); keyset infinite scroll via usePaginatedList. Filters mirror the web
-// filter bar: search (q), status, date range (issueDate), single customer.
+// filter bar: search (q), status, date range (issueDate), single contact.
 type EstimateRow = {
   id: string;
   number: string;
@@ -43,7 +43,7 @@ export default function EstimatesList() {
   const [status, setStatus] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
-  const [customer, setCustomer] = useState<SelectedCustomer | null>(null);
+  const [contact, setContact] = useState<SelectedContact | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   useEffect(() => {
@@ -51,7 +51,7 @@ export default function EstimatesList() {
     return () => clearTimeout(t);
   }, [q]);
 
-  const advancedActive = Boolean(from || to || customer);
+  const advancedActive = Boolean(from || to || contact);
   const anyFilter = Boolean(appliedQ || status || advancedActive);
 
   const fetchPage = useCallback(
@@ -61,7 +61,7 @@ export default function EstimatesList() {
       if (status) query.status = status;
       if (from) query.from = from;
       if (to) query.to = to;
-      if (customer) query.customerId = customer.id;
+      if (contact) query.contactId = contact.id;
       const res = await api.api.estimates.$get({ query });
       if (!res.ok) return null;
       const { estimates, nextCursor } = await res.json();
@@ -80,7 +80,7 @@ export default function EstimatesList() {
         nextCursor,
       };
     },
-    [appliedQ, status, from, to, customer],
+    [appliedQ, status, from, to, contact],
   );
 
   const { list, loadingMore, loadMore } = usePaginatedList(fetchPage);
@@ -108,7 +108,7 @@ export default function EstimatesList() {
         <TextInput
           value={q}
           onChangeText={setQ}
-          placeholder="Search number or customer"
+          placeholder="Search number or contact"
           returnKeyType="search"
           className="flex-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2.5 text-ink"
         />
@@ -144,10 +144,10 @@ export default function EstimatesList() {
           </View>
           <View>
             <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
-              Customer
+              Contact
             </Text>
             <View className="mt-1">
-              <CustomerFilterField selected={customer} onChange={setCustomer} />
+              <ContactFilterField selected={contact} onChange={setContact} />
             </View>
           </View>
         </View>

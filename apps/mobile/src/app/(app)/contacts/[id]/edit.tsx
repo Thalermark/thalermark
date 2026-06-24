@@ -1,6 +1,6 @@
-import { customerCreateSchema } from '@thalermark/validation';
-import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { contactUpdateSchema } from '@thalermark/validation';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -12,15 +12,13 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { AddressField, type AddressSuggestion } from '../../../components/AddressField';
-import { pickActiveCompany } from '../../../lib/active-company';
-import { api } from '../../../lib/api';
-import { type DupeCandidate, findEmailDupe, findNameDupes } from '../../../lib/customer-dupes';
+import { AddressField, type AddressSuggestion } from '../../../../components/AddressField';
+import { api } from '../../../../lib/api';
 
-// Mirror of apps/web's /customers/new (+page.svelte + its server action),
-// client-side. The API has no dupe endpoint and doesn't auto-pick a company,
-// so this screen does both: load the customer list for live dupe hints, grab
-// companies[0] for the required companyId, hard-block on an exact email dupe.
+// Edit half of apps/web's /contacts/[id]/edit. Seeds from the loaded contact,
+// then PATCHes with full-replacement semantics — undefined optionals clear the
+// column (mirror of contacts/new minus the dupe detection, which only matters
+// when creating). companyId is immutable, so it's not in the schema.
 type OptionalKey =
   | 'email'
   | 'phone'
@@ -45,98 +43,84 @@ const OPTIONAL_FIELDS: OptionalKey[] = [
 ];
 
 type FieldKey = 'name' | OptionalKey;
+type Values = Record<FieldKey, string>;
 
-export default function NewCustomer() {
+export default function EditContact() {
   const router = useRouter();
-
-  const [values, setValues] = useState<Record<FieldKey, string>>({
-    name: '',
-    email: '',
-    phone: '',
-    addressLine1: '',
-    addressLine2: '',
-    city: '',
-    region: '',
-    postalCode: '',
-    country: '',
-    notes: '',
-  });
-  const [companyId, setCompanyId] = useState<string | null>(null);
-  const [bootstrapped, setBootstrapped] = useState(false);
-  const [customers, setCustomers] = useState<DupeCandidate[]>([]);
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const [values, setValues] = useState<Values | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<FieldKey, string>>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // Load companies (for companyId) + the customer list (for dupe hints) once.
+  // Seed once from the loaded contact; don't clobber edits on a focus regain.
   useFocusEffect(
     useCallback(() => {
-      if (bootstrapped) return;
+      if (values) return;
       let active = true;
-      Promise.all([api.api.companies.$get(), api.api.customers.$get()])
-        .then(async ([companiesRes, customersRes]) => {
+      api.api.contacts[':id']
+        .$get({ param: { id } })
+        .then(async (res) => {
           if (!active) return;
-          if (companiesRes.ok) {
-            const { companies } = await companiesRes.json();
-            const company = await pickActiveCompany(companies);
-            setCompanyId(company?.id ?? null);
+          if (!res.ok) {
+            setFormError('load_failed');
+            return;
           }
-          if (customersRes.ok) {
-            const { customers: rows } = await customersRes.json();
-            setCustomers(rows.map((c) => ({ id: c.id, name: c.name, email: c.email ?? null })));
-          }
-          setBootstrapped(true);
+          const c = await res.json();
+          setValues({
+            name: c.name,
+            email: c.email ?? '',
+            phone: c.phone ?? '',
+            addressLine1: c.addressLine1 ?? '',
+            addressLine2: c.addressLine2 ?? '',
+            city: c.city ?? '',
+            region: c.region ?? '',
+            postalCode: c.postalCode ?? '',
+            country: c.country ?? '',
+            notes: c.notes ?? '',
+          });
         })
         .catch(() => {
-          if (active) setBootstrapped(true);
+          if (active) setFormError('load_failed');
         });
       return () => {
         active = false;
       };
-    }, [bootstrapped]),
+    }, [id, values]),
   );
 
-  const set = (key: FieldKey, val: string) => setValues((v) => ({ ...v, [key]: val }));
+  const set = (key: FieldKey, val: string) => setValues((v) => (v ? { ...v, [key]: val } : v));
 
   // Picking an address suggestion rewrites Street + fans the rest into the
-  // sibling city / region / postalCode / country fields (a programmatic write,
-  // so it doesn't re-trigger the type-ahead).
+  // sibling fields (a programmatic write, so it doesn't re-trigger the search).
   const applyAddress = (s: AddressSuggestion) =>
-    setValues((v) => ({
-      ...v,
-      addressLine1: s.addressLine1,
-      city: s.city,
-      region: s.region,
-      postalCode: s.postalCode,
-      country: s.country,
-    }));
-
-  const emailDupe = useMemo(
-    () => findEmailDupe(values.email, customers),
-    [values.email, customers],
-  );
-  const nameDupes = useMemo(() => findNameDupes(values.name, customers), [values.name, customers]);
-
-  const noCompany = bootstrapped && companyId === null;
-  const canSubmit = !submitting && !emailDupe && !noCompany && values.name.trim().length > 0;
+    setValues((v) =>
+      v
+        ? {
+            ...v,
+            addressLine1: s.addressLine1,
+            city: s.city,
+            region: s.region,
+            postalCode: s.postalCode,
+            country: s.country,
+          }
+        : v,
+    );
 
   async function onSubmit() {
-    if (!companyId) {
-      setFormError('No company in this workspace.');
-      return;
-    }
+    if (!values) return;
     setFormError(null);
     setFieldErrors({});
 
     // Trim; omit empty optionals so undefined (not '') reaches the schema —
-    // '' would fail .email()/.max(). Matches web's readForm().
-    const body: Record<string, string> = { companyId, name: values.name.trim() };
+    // full-replacement on the API clears the column. Matches contacts/new.
+    const body: Record<string, string> = { name: values.name.trim() };
     for (const k of OPTIONAL_FIELDS) {
       const trimmed = values[k].trim();
       if (trimmed !== '') body[k] = trimmed;
     }
 
-    const parsed = customerCreateSchema.safeParse(body);
+    const parsed = contactUpdateSchema.safeParse(body);
     if (!parsed.success) {
       const errs: Partial<Record<FieldKey, string>> = {};
       for (const issue of parsed.error.issues) {
@@ -149,19 +133,32 @@ export default function NewCustomer() {
 
     setSubmitting(true);
     try {
-      const res = await api.api.customers.$post({ json: parsed.data });
+      const res = await api.api.contacts[':id'].$patch({ param: { id }, json: parsed.data });
       if (!res.ok) {
         const errBody = (await res.json().catch(() => null)) as { error?: string } | null;
-        setFormError(errBody?.error ?? 'create_failed');
+        setFormError(errBody?.error ?? 'save_failed');
         return;
       }
-      const created = await res.json();
-      router.replace(`/customers/${created.id}`);
+      router.replace(`/contacts/${id}`);
     } catch {
-      setFormError('create_failed');
+      setFormError('save_failed');
     } finally {
       setSubmitting(false);
     }
+  }
+
+  if (!values) {
+    return (
+      <SafeAreaView className="flex-1 bg-cream" edges={['top']}>
+        {formError ? (
+          <Text className="mt-12 px-6 text-sm text-oxblood">Couldn't load this contact.</Text>
+        ) : (
+          <View className="mt-12 items-center">
+            <ActivityIndicator color="#0f1626" />
+          </View>
+        )}
+      </SafeAreaView>
+    );
   }
 
   return (
@@ -173,10 +170,10 @@ export default function NewCustomer() {
         <ScrollView contentContainerClassName="px-6 pt-6 pb-16" keyboardShouldPersistTaps="handled">
           <Pressable onPress={() => router.back()}>
             <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
-              ← Customers
+              ← {values.name || 'Contact'}
             </Text>
           </Pressable>
-          <Text className="mt-3 font-serif text-3xl font-light text-ink">New customer</Text>
+          <Text className="mt-3 font-serif text-3xl font-light text-ink">Edit contact</Text>
 
           {formError ? (
             <View className="mt-6 rounded-sm border border-oxblood/30 bg-oxblood/5 px-4 py-3">
@@ -191,30 +188,6 @@ export default function NewCustomer() {
               onChangeText={(t) => set('name', t)}
               error={fieldErrors.name}
             />
-            {nameDupes.length > 0 ? (
-              <View className="rounded-sm border border-ink/10 bg-cream-warm/60 p-3">
-                <Text className="text-xs text-ink/60">
-                  Looks like{' '}
-                  {nameDupes.length === 1 ? 'an existing customer' : 'existing customers'}:
-                </Text>
-                {nameDupes.map((d) => (
-                  <Pressable
-                    key={d.id}
-                    onPress={() => router.push(`/customers/${d.id}`)}
-                    className="mt-1 flex-row items-center justify-between"
-                  >
-                    <Text className="text-sm text-ink">
-                      {d.name}
-                      {d.email ? <Text className="text-ink/50"> · {d.email}</Text> : null}
-                    </Text>
-                    <Text className="font-mono text-xs uppercase tracking-wider text-gold-deep">
-                      Open
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-            ) : null}
-
             <Field
               label="Email"
               value={values.email}
@@ -223,25 +196,6 @@ export default function NewCustomer() {
               keyboardType="email-address"
               autoCapitalize="none"
             />
-            {emailDupe ? (
-              <View className="rounded-sm border border-oxblood/30 bg-oxblood/5 p-3">
-                <Text className="text-sm text-ink">
-                  <Text className="font-medium">{emailDupe.name}</Text> already uses this email.
-                </Text>
-                <Pressable
-                  onPress={() => router.push(`/customers/${emailDupe.id}`)}
-                  className="mt-2"
-                >
-                  <Text className="font-mono text-xs uppercase tracking-wider text-gold-deep">
-                    Open {emailDupe.name}
-                  </Text>
-                </Pressable>
-                <Text className="mt-1 text-xs text-ink/50">
-                  or change the email to create a different customer.
-                </Text>
-              </View>
-            ) : null}
-
             <Field
               label="Phone"
               value={values.phone}
@@ -284,19 +238,15 @@ export default function NewCustomer() {
               multiline
             />
 
-            {noCompany ? (
-              <Text className="text-xs text-oxblood">No company in this workspace.</Text>
-            ) : null}
-
             <Pressable
               onPress={onSubmit}
-              disabled={!canSubmit}
+              disabled={submitting || values.name.trim().length === 0}
               className="mt-2 rounded-sm bg-ink px-4 py-3 active:bg-gold-deep disabled:opacity-50"
             >
               {submitting ? (
                 <ActivityIndicator color="#f4ede0" />
               ) : (
-                <Text className="text-center text-sm font-medium text-cream">Create customer</Text>
+                <Text className="text-center text-sm font-medium text-cream">Save changes</Text>
               )}
             </Pressable>
           </View>
@@ -306,7 +256,7 @@ export default function NewCustomer() {
   );
 }
 
-// Small labelled TextInput matching the (auth) screens' field idiom.
+// Matches the field idiom in contacts/new.
 function Field({
   label,
   value,

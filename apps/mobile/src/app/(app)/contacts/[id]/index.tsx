@@ -6,11 +6,11 @@ import { type AuditEvent, AuditHistory } from '../../../../components/AuditHisto
 import { api } from '../../../../lib/api';
 import { useMay } from '../../../../lib/role';
 
-// Mirror of the basic-fields half of apps/web's /customers/[id], plus the
+// Mirror of the basic-fields half of apps/web's /contacts/[id], plus the
 // per-entity audit trail (M11e) and the late-payer "payment reliability"
 // sidebar (the same deterministic API figures + headline/tone the web page
 // derives — no LLM).
-type Customer = {
+type Contact = {
   name: string;
   email: string | null;
   phone: string | null;
@@ -33,14 +33,14 @@ type Reliability = {
 };
 type DetailState =
   | { state: 'loading' }
-  | { state: 'ready'; customer: Customer }
+  | { state: 'ready'; contact: Contact }
   | { state: 'error' };
 
 const fmt = (s: string) =>
   Number(s).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 
 // Headline + tone from the reliability figures, ported verbatim from web's
-// /customers/[id]. Needs >= 2 paid invoices to state a pattern; below that we
+// /contacts/[id]. Needs >= 2 paid invoices to state a pattern; below that we
 // only surface a live overdue warning, if any.
 function deriveReliability(
   r: Reliability | null,
@@ -73,7 +73,7 @@ const toneClass = (tone: 'warning' | 'good' | 'info') =>
       ? 'border-gold-deep/30 bg-gold-deep/5'
       : 'border-ink/15 bg-cream-warm';
 
-export default function CustomerDetail() {
+export default function ContactDetail() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [detail, setDetail] = useState<DetailState>({ state: 'loading' });
@@ -83,7 +83,7 @@ export default function CustomerDetail() {
   useFocusEffect(
     useCallback(() => {
       let active = true;
-      api.api.customers[':id']
+      api.api.contacts[':id']
         .$get({ param: { id } })
         .then(async (res) => {
           if (!active) return;
@@ -94,7 +94,7 @@ export default function CustomerDetail() {
           const c = await res.json();
           setDetail({
             state: 'ready',
-            customer: {
+            contact: {
               name: c.name,
               email: c.email ?? null,
               phone: c.phone ?? null,
@@ -114,13 +114,13 @@ export default function CustomerDetail() {
       // Audit trail — best-effort sidebar; a non-OK response degrades to an
       // empty list rather than failing the screen.
       api.api['audit-events']
-        .$get({ query: { entityType: 'customer', entityId: id } })
+        .$get({ query: { entityType: 'contact', entityId: id } })
         .then(async (res) => {
           if (active && res.ok) setAuditEvents((await res.json()).events);
         })
         .catch(() => {});
       // Payment reliability — best-effort, same degrade-to-null contract.
-      api.api.customers[':id']['payment-reliability']
+      api.api.contacts[':id']['payment-reliability']
         .$get({ param: { id } })
         .then(async (res) => {
           if (active && res.ok) setReliability(await res.json());
@@ -132,10 +132,10 @@ export default function CustomerDetail() {
     }, [id]),
   );
 
-  // Role gate (UX only — the API is authoritative). Editing a customer is
-  // `customers:write`.
-  const canWrite = useMay('customers:write');
-  const c = detail.state === 'ready' ? detail.customer : null;
+  // Role gate (UX only — the API is authoritative). Editing a contact is
+  // `contacts:write`.
+  const canWrite = useMay('contacts:write');
+  const c = detail.state === 'ready' ? detail.contact : null;
   const reliabilityView = deriveReliability(reliability);
   const addressLines = c
     ? [
@@ -150,10 +150,10 @@ export default function CustomerDetail() {
     <SafeAreaView className="flex-1 bg-cream" edges={['top']}>
       <ScrollView contentContainerClassName="px-6 pt-6 pb-16">
         <Text
-          onPress={() => router.push('/customers')}
+          onPress={() => router.push('/contacts')}
           className="font-mono text-xs uppercase tracking-widest text-ink/60"
         >
-          ← Customers
+          ← Contacts
         </Text>
 
         {detail.state === 'loading' ? (
@@ -161,14 +161,14 @@ export default function CustomerDetail() {
             <ActivityIndicator color="#0f1626" />
           </View>
         ) : detail.state === 'error' || !c ? (
-          <Text className="mt-8 text-sm text-oxblood">Couldn't load this customer.</Text>
+          <Text className="mt-8 text-sm text-oxblood">Couldn't load this contact.</Text>
         ) : (
           <>
             <View className="mt-3 flex-row items-start justify-between gap-3">
               <Text className="flex-1 font-serif text-3xl font-light text-ink">{c.name}</Text>
               {canWrite ? (
                 <Pressable
-                  onPress={() => router.push(`/customers/${id}/edit`)}
+                  onPress={() => router.push(`/contacts/${id}/edit`)}
                   className="mt-1 rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep"
                 >
                   <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">

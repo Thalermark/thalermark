@@ -23,7 +23,7 @@ type LineItem = {
 type Estimate = {
   status: string;
   number: string;
-  customerId: string;
+  contactId: string;
   issueDate: string;
   expiresOn: string | null;
   currency: string;
@@ -41,15 +41,15 @@ type DetailState =
       state: 'ready';
       estimate: Estimate;
       customerName: string | null;
-      customerEmail: string | null;
+      contactEmail: string | null;
     }
   | { state: 'error' };
 
 const TRANSITION_ERRORS: Record<string, string> = {
   invalid_transition: 'This estimate can no longer be changed.',
-  invalid_recipient: 'Add a customer email or enter one to send.',
+  invalid_recipient: 'Add a contact email or enter one to send.',
   email_not_configured: "Email isn't configured on this server.",
-  customer_not_found: 'The customer for this estimate no longer exists.',
+  contact_not_found: 'The contact for this estimate no longer exists.',
 };
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
@@ -74,21 +74,21 @@ export default function EstimateDetail() {
     }
     const est = await res.json();
     let customerName: string | null = null;
-    let customerEmail: string | null = null;
-    const custRes = await api.api.customers[':id'].$get({ param: { id: est.customerId } });
+    let contactEmail: string | null = null;
+    const custRes = await api.api.contacts[':id'].$get({ param: { id: est.contactId } });
     if (custRes.ok) {
       const c = await custRes.json();
       customerName = c.name;
-      customerEmail = c.email ?? null;
+      contactEmail = c.email ?? null;
     }
     setDetail({
       state: 'ready',
       customerName,
-      customerEmail,
+      contactEmail,
       estimate: {
         status: est.status,
         number: est.number,
-        customerId: est.customerId,
+        contactId: est.contactId,
         issueDate: est.issueDate,
         expiresOn: est.expiresOn ?? null,
         currency: est.currency,
@@ -166,7 +166,7 @@ export default function EstimateDetail() {
 
   function onSend() {
     const to = showOverride ? overrideEmail.trim() : '';
-    const recipient = to || (detail.state === 'ready' ? detail.customerEmail : null);
+    const recipient = to || (detail.state === 'ready' ? detail.contactEmail : null);
     act(
       () => api.api.estimates[':id'].send.$post({ param: { id }, json: to ? { to } : {} }),
       () => {
@@ -286,7 +286,7 @@ export default function EstimateDetail() {
                       <TextInput
                         value={overrideEmail}
                         onChangeText={setOverrideEmail}
-                        placeholder={detail.customerEmail ?? 'recipient@example.com'}
+                        placeholder={detail.contactEmail ?? 'recipient@example.com'}
                         keyboardType="email-address"
                         autoCapitalize="none"
                         className="mb-2 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink"
@@ -401,7 +401,7 @@ export default function EstimateDetail() {
 
             {/* Meta */}
             <View className="mt-8 space-y-2">
-              <Meta label="Customer" value={detail.customerName ?? '—'} />
+              <Meta label="Contact" value={detail.customerName ?? '—'} />
               <Meta label="Issued" value={est.issueDate} />
               {est.expiresOn ? <Meta label="Valid until" value={est.expiresOn} /> : null}
             </View>

@@ -245,7 +245,7 @@ export default function BusinessSettings() {
               </Text>
               <Text className="mt-2 font-serif text-lg text-ink">{company.name}</Text>
               <Text className="mt-3 text-sm text-ink/70">
-                These show in the "from" block on the invoices and estimates your customers see,
+                These show in the "from" block on the invoices and estimates your contacts see,
                 under your business name. The checkboxes set the default for new documents — you can
                 still change it on any individual invoice or estimate. Leave a field blank to omit
                 it entirely.
@@ -371,7 +371,7 @@ export default function BusinessSettings() {
               <Text className="mt-2 font-serif text-lg text-ink">{company.name}</Text>
               <Text className="mt-3 text-sm text-ink/70">
                 Invoices and estimates go out under your business name, but from Thalermark's
-                sending address. Set a reply-to so when a customer hits "reply," it reaches you.
+                sending address. Set a reply-to so when a contact hits "reply," it reaches you.
                 Leave it blank to send with no reply-to.
               </Text>
 
@@ -410,7 +410,7 @@ export default function BusinessSettings() {
             <View className="mt-8 rounded-sm border border-ink/15 bg-cream-warm p-6">
               <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">Logo</Text>
               <Text className="mt-2 text-sm text-ink/70">
-                Shown on the invoices and estimates your customers see. PNG, JPEG, or WebP, up to 2
+                Shown on the invoices and estimates your contacts see. PNG, JPEG, or WebP, up to 2
                 MB.
               </Text>
 

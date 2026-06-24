@@ -107,7 +107,7 @@ export default function EmailSettings() {
         </Text>
         <Text className="mt-3 font-serif text-3xl font-light text-ink">Email templates</Text>
         <Text className="mt-3 text-sm text-ink/70">
-          Customize the wording your customers see. The Thalermark layout, buttons, and footer stay
+          Customize the wording your contacts see. The Thalermark layout, buttons, and footer stay
           the same — you edit the subject and message.
         </Text>
 

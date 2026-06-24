@@ -101,7 +101,7 @@ export default function SwitchAccount() {
         </Pressable>
         <Text className="mt-3 font-serif text-3xl font-light text-ink">Switch workspace</Text>
         <Text className="mt-3 text-sm text-ink/60">
-          Pick which workspace to work in. Everything — invoices, customers, the dashboard —
+          Pick which workspace to work in. Everything — invoices, contacts, the dashboard —
           re-scopes to your choice.
         </Text>
 

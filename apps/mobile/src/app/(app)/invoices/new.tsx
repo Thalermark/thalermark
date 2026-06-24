@@ -2,7 +2,7 @@ import {
   type InvoiceLineItemInput,
   type LineItemType,
   addMoney,
-  customerCreateSchema,
+  contactCreateSchema,
   invoiceCreateSchema,
   multiplyMoney,
   sumMoney,
@@ -28,14 +28,14 @@ import { TaxRow } from '../../../components/TaxRow';
 import { TypeRow } from '../../../components/TypeRow';
 import { pickActiveCompany } from '../../../lib/active-company';
 import { api } from '../../../lib/api';
-import { type DupeCandidate, findEmailDupe, findNameDupes } from '../../../lib/customer-dupes';
+import { type DupeCandidate, findEmailDupe, findNameDupes } from '../../../lib/contact-dupes';
 import { type TaxPolicyLite, lineTax, policyRate, resolvePolicyId } from '../../../lib/line-tax';
 
 // Mirror of apps/web's /invoices/new (+page.svelte + server action), client-
-// side. Two-step create when adding a customer inline; money math done with
+// side. Two-step create when adding a contact inline; money math done with
 // the shared helpers (server is authority but must agree); sourceItemId rides
 // each line via ItemPickerField. See the slice plan / apps/mobile/CLAUDE.md.
-const NEW_CUSTOMER = '__new__';
+const NEW_CONTACT = '__new__';
 
 type Row = {
   description: string;
@@ -67,18 +67,18 @@ function plusDaysIso(days: number): string {
 
 const FRIENDLY: Record<string, string> = {
   invoice_number_taken: 'Invoice number already used for this company. Try another.',
-  customer_company_mismatch: 'Selected customer does not belong to this company.',
-  customer_not_found: 'Selected customer no longer exists.',
+  customer_company_mismatch: 'Selected contact does not belong to this company.',
+  contact_not_found: 'Selected contact no longer exists.',
 };
 
 export default function NewInvoice() {
   const router = useRouter();
 
   const [companyId, setCompanyId] = useState<string | null>(null);
-  const [customers, setCustomers] = useState<DupeCandidate[]>([]);
+  const [contacts, setContacts] = useState<DupeCandidate[]>([]);
   const [bootstrapped, setBootstrapped] = useState(false);
 
-  const [customerId, setCustomerId] = useState('');
+  const [contactId, setContactId] = useState('');
   const [newName, setNewName] = useState('');
   const [newEmail, setNewEmail] = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -112,12 +112,12 @@ export default function NewInvoice() {
       (async () => {
         const [compRes, custRes] = await Promise.all([
           api.api.companies.$get(),
-          api.api.customers.$get(),
+          api.api.contacts.$get(),
         ]);
         if (!active) return;
         if (custRes.ok) {
-          const { customers: rowsC } = await custRes.json();
-          setCustomers(rowsC.map((c) => ({ id: c.id, name: c.name, email: c.email ?? null })));
+          const { contacts: rowsC } = await custRes.json();
+          setContacts(rowsC.map((c) => ({ id: c.id, name: c.name, email: c.email ?? null })));
         }
         if (compRes.ok) {
           const { companies } = await compRes.json();
@@ -157,17 +157,17 @@ export default function NewInvoice() {
     }, []),
   );
 
-  const inlineMode = customerId === NEW_CUSTOMER;
+  const inlineMode = contactId === NEW_CONTACT;
   const selectedName =
-    customerId && !inlineMode ? customers.find((c) => c.id === customerId)?.name : null;
+    contactId && !inlineMode ? contacts.find((c) => c.id === contactId)?.name : null;
 
   const emailDupe = useMemo(
-    () => (inlineMode ? findEmailDupe(newEmail, customers) : undefined),
-    [inlineMode, newEmail, customers],
+    () => (inlineMode ? findEmailDupe(newEmail, contacts) : undefined),
+    [inlineMode, newEmail, contacts],
   );
   const nameDupes = useMemo(
-    () => (inlineMode ? findNameDupes(newName, customers) : []),
-    [inlineMode, newName, customers],
+    () => (inlineMode ? findNameDupes(newName, contacts) : []),
+    [inlineMode, newName, contacts],
   );
 
   const computedRows = useMemo(
@@ -218,8 +218,8 @@ export default function NewInvoice() {
   };
 
   const noCompany = bootstrapped && companyId === null;
-  const hasCustomer = inlineMode ? newName.trim().length > 0 : customerId !== '';
-  const canSubmit = !submitting && !noCompany && !emailDupe && hasCustomer;
+  const hasContact = inlineMode ? newName.trim().length > 0 : contactId !== '';
+  const canSubmit = !submitting && !noCompany && !emailDupe && hasContact;
 
   async function onSubmit() {
     if (!companyId) {
@@ -229,47 +229,47 @@ export default function NewInvoice() {
     setFormError(null);
     setFieldErrors({});
 
-    // Step 1: resolve the customer (create inline if needed).
-    let resolvedCustomerId = customerId;
+    // Step 1: resolve the contact (create inline if needed).
+    let resolvedContactId = contactId;
     if (inlineMode) {
       const custInput = {
         companyId,
         name: newName.trim(),
         email: newEmail.trim() === '' ? undefined : newEmail.trim(),
       };
-      const parsedCust = customerCreateSchema.safeParse(custInput);
+      const parsedCust = contactCreateSchema.safeParse(custInput);
       if (!parsedCust.success) {
         const errs: Record<string, string> = {};
         for (const issue of parsedCust.error.issues) {
-          const key = `customer_${String(issue.path[0] ?? '_')}`;
+          const key = `contact_${String(issue.path[0] ?? '_')}`;
           if (!errs[key]) errs[key] = issue.message;
         }
         setFieldErrors(errs);
         return;
       }
-      if (findEmailDupe(parsedCust.data.email, customers)) return; // hard block (submit already disabled)
+      if (findEmailDupe(parsedCust.data.email, contacts)) return; // hard block (submit already disabled)
 
       setSubmitting(true);
       try {
-        const custRes = await api.api.customers.$post({ json: parsedCust.data });
+        const custRes = await api.api.contacts.$post({ json: parsedCust.data });
         if (!custRes.ok) {
           const body = (await custRes.json().catch(() => null)) as { error?: string } | null;
-          setFormError(body?.error ?? 'customer_create_failed');
+          setFormError(body?.error ?? 'contact_create_failed');
           return;
         }
         const created = await custRes.json();
-        resolvedCustomerId = created.id;
-        // Recovery: keep the created customer selected so a retry (e.g. after a
+        resolvedContactId = created.id;
+        // Recovery: keep the created contact selected so a retry (e.g. after a
         // number collision) doesn't create a second one.
-        setCustomers((cs) => [
+        setContacts((cs) => [
           { id: created.id, name: created.name, email: newEmail.trim() || null },
           ...cs,
         ]);
-        setCustomerId(created.id);
+        setContactId(created.id);
         setNewName('');
         setNewEmail('');
       } catch {
-        setFormError('customer_create_failed');
+        setFormError('contact_create_failed');
         setSubmitting(false);
         return;
       }
@@ -298,7 +298,7 @@ export default function NewInvoice() {
     const taxVal = sumMoney(lineItems.map((li) => li.taxAmount ?? '0'));
     const payload = {
       companyId,
-      customerId: resolvedCustomerId,
+      contactId: resolvedContactId,
       number: number.trim(),
       issueDate: issueDate.trim(),
       dueDate: dueDate.trim(),
@@ -364,21 +364,21 @@ export default function NewInvoice() {
           ) : null}
 
           <View className="mt-8 space-y-5">
-            {/* Customer */}
+            {/* Contact */}
             <View>
               <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
-                Customer *
+                Contact *
               </Text>
               <Pressable
                 onPress={() => setPickerOpen(true)}
                 className="mt-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-3"
               >
                 <Text className={selectedName || inlineMode ? 'text-ink' : 'text-ink/40'}>
-                  {inlineMode ? '+ New customer' : (selectedName ?? 'Select a customer')}
+                  {inlineMode ? '+ New contact' : (selectedName ?? 'Select a contact')}
                 </Text>
               </Pressable>
-              {fieldErrors.customerId ? (
-                <Text className="mt-1 text-xs text-oxblood">{fieldErrors.customerId}</Text>
+              {fieldErrors.contactId ? (
+                <Text className="mt-1 text-xs text-oxblood">{fieldErrors.contactId}</Text>
               ) : null}
             </View>
 
@@ -393,17 +393,17 @@ export default function NewInvoice() {
                     onChangeText={setNewName}
                     className="mt-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink"
                   />
-                  {fieldErrors.customer_name ? (
-                    <Text className="mt-1 text-xs text-oxblood">{fieldErrors.customer_name}</Text>
+                  {fieldErrors.contact_name ? (
+                    <Text className="mt-1 text-xs text-oxblood">{fieldErrors.contact_name}</Text>
                   ) : null}
                   {nameDupes.length > 0 ? (
                     <View className="mt-2 rounded-sm border border-ink/10 bg-cream p-2">
-                      <Text className="text-xs text-ink/60">Looks like an existing customer:</Text>
+                      <Text className="text-xs text-ink/60">Looks like an existing contact:</Text>
                       {nameDupes.map((d) => (
                         <Pressable
                           key={d.id}
                           onPress={() => {
-                            setCustomerId(d.id);
+                            setContactId(d.id);
                             setPickerOpen(false);
                           }}
                           className="mt-1 flex-row items-center justify-between"
@@ -437,7 +437,7 @@ export default function NewInvoice() {
                     <Text className="text-sm text-ink">
                       <Text className="font-medium">{emailDupe.name}</Text> already uses this email.
                     </Text>
-                    <Pressable onPress={() => setCustomerId(emailDupe.id)} className="mt-2">
+                    <Pressable onPress={() => setContactId(emailDupe.id)} className="mt-2">
                       <Text className="font-mono text-xs uppercase tracking-wider text-gold-deep">
                         Use {emailDupe.name}
                       </Text>
@@ -606,7 +606,7 @@ export default function NewInvoice() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* Customer picker */}
+      {/* Contact picker */}
       <Modal
         visible={pickerOpen}
         animationType="slide"
@@ -618,22 +618,22 @@ export default function NewInvoice() {
             className="max-h-[70%] rounded-t-lg bg-cream px-6 pb-10 pt-5"
             onPress={() => {}}
           >
-            <Text className="font-serif text-xl text-ink">Choose customer</Text>
+            <Text className="font-serif text-xl text-ink">Choose contact</Text>
             <ScrollView className="mt-4">
               <Pressable
                 onPress={() => {
-                  setCustomerId(NEW_CUSTOMER);
+                  setContactId(NEW_CONTACT);
                   setPickerOpen(false);
                 }}
                 className="border-b border-ink/10 py-3"
               >
-                <Text className="font-medium text-gold-deep">+ New customer</Text>
+                <Text className="font-medium text-gold-deep">+ New contact</Text>
               </Pressable>
-              {customers.map((c) => (
+              {contacts.map((c) => (
                 <Pressable
                   key={c.id}
                   onPress={() => {
-                    setCustomerId(c.id);
+                    setContactId(c.id);
                     setPickerOpen(false);
                   }}
                   className="border-b border-ink/10 py-3"

@@ -44,8 +44,8 @@ const REPORTS: { href: ReportHref; title: string; blurb: string }[] = [
   },
   {
     href: '/more/reports/sales-by-customer',
-    title: 'Sales by customer',
-    blurb: 'Your best customers by revenue over a period.',
+    title: 'Sales by contact',
+    blurb: 'Your best contacts by revenue over a period.',
   },
   {
     href: '/more/reports/revenue-over-time',

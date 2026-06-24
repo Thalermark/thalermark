@@ -35,7 +35,7 @@ import {
 // Edit half of apps/web's /recurring/[id]/edit — the missing mobile editor that
 // closed the 5-vs-6 doc-form parity gap. PATCHes the whole schedule
 // (recurringInvoiceUpdateSchema = create minus companyId), so the form re-sends
-// every field + line. Like invoices/[id]/edit it re-picks an existing customer
+// every field + line. Like invoices/[id]/edit it re-picks an existing contact
 // (no inline create) and carries each line's sourceItemId through unchanged, or
 // editing would null the top-products breadcrumb (see apps/mobile/CLAUDE.md).
 // An ended schedule is terminal: the API rejects the PATCH, so we guard on load.
@@ -46,7 +46,7 @@ const FREQ_LABELS: Record<string, string> = {
   yearly: 'Yearly',
 };
 
-type Customer = { id: string; name: string; email: string | null };
+type Contact = { id: string; name: string; email: string | null };
 type Row = {
   description: string;
   quantity: string;
@@ -67,7 +67,7 @@ const blankRow = (): Row => ({
 });
 type Seed = {
   status: string;
-  customerId: string;
+  contactId: string;
   frequency: (typeof FREQUENCIES)[number];
   intervalCount: string;
   startDate: string;
@@ -79,8 +79,8 @@ type Seed = {
 };
 
 const FRIENDLY: Record<string, string> = {
-  customer_company_mismatch: 'Selected customer does not belong to this company.',
-  customer_not_found: 'Selected customer no longer exists.',
+  customer_company_mismatch: 'Selected contact does not belong to this company.',
+  contact_not_found: 'Selected contact no longer exists.',
   not_editable: 'This schedule has ended and cannot be edited.',
 };
 
@@ -88,14 +88,14 @@ export default function EditRecurring() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [seed, setSeed] = useState<Seed | null>(null);
-  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [contacts, setContacts] = useState<Contact[]>([]);
   const [taxPolicies, setTaxPolicies] = useState<TaxPolicyLite[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // Seed once from the schedule + customer list; don't clobber edits on refocus.
+  // Seed once from the schedule + contact list; don't clobber edits on refocus.
   useFocusEffect(
     useCallback(() => {
       if (seed) return;
@@ -103,12 +103,12 @@ export default function EditRecurring() {
       (async () => {
         const [schedRes, custRes] = await Promise.all([
           api.api['recurring-invoices'][':id'].$get({ param: { id } }),
-          api.api.customers.$get(),
+          api.api.contacts.$get(),
         ]);
         if (!active) return;
         if (custRes.ok) {
-          const { customers: rows } = await custRes.json();
-          setCustomers(rows.map((c) => ({ id: c.id, name: c.name, email: c.email ?? null })));
+          const { contacts: rows } = await custRes.json();
+          setContacts(rows.map((c) => ({ id: c.id, name: c.name, email: c.email ?? null })));
         }
         if (!schedRes.ok) {
           setFormError('load_failed');
@@ -117,7 +117,7 @@ export default function EditRecurring() {
         const s = await schedRes.json();
         setSeed({
           status: s.status,
-          customerId: s.customerId,
+          contactId: s.contactId,
           frequency: s.frequency as Seed['frequency'],
           intervalCount: String(s.intervalCount),
           startDate: s.startDate,
@@ -215,7 +215,7 @@ export default function EditRecurring() {
   const total = useMemo(() => addMoney(subtotal, taxTotal), [subtotal, taxTotal]);
 
   const selectedName = seed
-    ? (customers.find((c) => c.id === seed.customerId)?.name ?? null)
+    ? (contacts.find((c) => c.id === seed.contactId)?.name ?? null)
     : null;
 
   // Parse a counter TextInput → a non-negative integer, or undefined when blank.
@@ -249,7 +249,7 @@ export default function EditRecurring() {
     const sub = sumMoney(lineItems.map((li) => li.amount));
     const taxVal = sumMoney(lineItems.map((li) => li.taxAmount ?? '0'));
     const payload = {
-      customerId: seed.customerId,
+      contactId: seed.contactId,
       frequency: seed.frequency,
       intervalCount: toInt(seed.intervalCount) ?? 1,
       startDate: seed.startDate.trim(),
@@ -327,7 +327,7 @@ export default function EditRecurring() {
     );
   }
 
-  const canSubmit = !submitting && seed.customerId !== '';
+  const canSubmit = !submitting && seed.contactId !== '';
 
   return (
     <SafeAreaView className="flex-1 bg-cream" edges={['top']}>
@@ -350,17 +350,17 @@ export default function EditRecurring() {
           ) : null}
 
           <View className="mt-8 space-y-5">
-            {/* Customer */}
+            {/* Contact */}
             <View>
               <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
-                Customer *
+                Contact *
               </Text>
               <Pressable
                 onPress={() => setPickerOpen(true)}
                 className="mt-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-3"
               >
                 <Text className={selectedName ? 'text-ink' : 'text-ink/40'}>
-                  {selectedName ?? 'Select a customer'}
+                  {selectedName ?? 'Select a contact'}
                 </Text>
               </Pressable>
             </View>
@@ -479,13 +479,13 @@ export default function EditRecurring() {
             className="max-h-[70%] rounded-t-lg bg-cream px-6 pb-10 pt-5"
             onPress={() => {}}
           >
-            <Text className="font-serif text-xl text-ink">Choose customer</Text>
+            <Text className="font-serif text-xl text-ink">Choose contact</Text>
             <ScrollView className="mt-4">
-              {customers.map((c) => (
+              {contacts.map((c) => (
                 <Pressable
                   key={c.id}
                   onPress={() => {
-                    set('customerId', c.id);
+                    set('contactId', c.id);
                     setPickerOpen(false);
                   }}
                   className="border-b border-ink/10 py-3"

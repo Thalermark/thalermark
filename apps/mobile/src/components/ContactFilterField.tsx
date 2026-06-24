@@ -2,25 +2,25 @@ import { useEffect, useRef, useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import { api } from '../lib/api';
 
-// Customer type-ahead for the invoice / estimate list filters — the RN
-// counterpart of the web customer <select>. A <select> of every customer is
+// Contact type-ahead for the invoice / estimate list filters — the RN
+// counterpart of the web contact <select>. A <select> of every contact is
 // fine on web, but a phone wants a search box, so this queries
-// GET /api/customers?q= (ILIKE on name/email) and lets the user pick one. The
-// selected {id,name} feeds customerId into the list query; Clear resets it.
-export type SelectedCustomer = { id: string; name: string };
+// GET /api/contacts?q= (ILIKE on name/email) and lets the user pick one. The
+// selected {id,name} feeds contactId into the list query; Clear resets it.
+export type SelectedContact = { id: string; name: string };
 
 const DEBOUNCE_MS = 200;
 const MIN_QUERY = 2;
 
-export function CustomerFilterField({
+export function ContactFilterField({
   selected,
   onChange,
 }: {
-  selected: SelectedCustomer | null;
-  onChange: (c: SelectedCustomer | null) => void;
+  selected: SelectedContact | null;
+  onChange: (c: SelectedContact | null) => void;
 }) {
   const [text, setText] = useState('');
-  const [results, setResults] = useState<SelectedCustomer[]>([]);
+  const [results, setResults] = useState<SelectedContact[]>([]);
   const [open, setOpen] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abort = useRef<AbortController | null>(null);
@@ -46,7 +46,7 @@ export function CustomerFilterField({
     abort.current?.abort();
     abort.current = new AbortController();
     try {
-      const res = await api.api.customers.$get(
+      const res = await api.api.contacts.$get(
         { query: { q, limit: '20' } },
         { init: { signal: abort.current.signal } },
       );
@@ -55,8 +55,8 @@ export function CustomerFilterField({
         setOpen(false);
         return;
       }
-      const { customers } = await res.json();
-      const rows = customers.map((c): SelectedCustomer => ({ id: c.id, name: c.name }));
+      const { contacts } = await res.json();
+      const rows = contacts.map((c): SelectedContact => ({ id: c.id, name: c.name }));
       setResults(rows);
       setOpen(rows.length > 0);
     } catch (err) {
@@ -93,7 +93,7 @@ export function CustomerFilterField({
           setText(t);
           schedule(t);
         }}
-        placeholder="Any customer"
+        placeholder="Any contact"
         className="rounded-sm border border-ink/15 bg-cream px-3 py-2.5 text-ink"
       />
       {open && results.length > 0 ? (

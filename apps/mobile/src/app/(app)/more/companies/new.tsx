@@ -67,7 +67,7 @@ export default function NewCompany() {
         </Pressable>
         <Text className="mt-3 font-serif text-3xl font-light text-ink">Add a company</Text>
         <Text className="mt-3 text-sm text-ink/60">
-          Run a second business out of this workspace — its books, invoices, and customers stay
+          Run a second business out of this workspace — its books, invoices, and contacts stay
           separate. You can switch between companies anytime.
         </Text>
 
