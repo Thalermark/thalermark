@@ -43,7 +43,7 @@ export type RecurringFrequency = z.infer<typeof recurringFrequencySchema>;
 // to Net-30 server-side when omitted.
 export const recurringInvoiceCreateSchema = z.object({
   companyId: z.string().uuid(),
-  customerId: z.string().uuid(),
+  contactId: z.string().uuid(),
   frequency: recurringFrequencySchema,
   intervalCount: z.number().int().min(1).max(365),
   startDate: isoDateString,

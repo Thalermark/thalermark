@@ -35,7 +35,7 @@ export type EstimateLineItemInput = z.infer<typeof estimateLineItemInputSchema>;
 // from invoices carries over.
 export const estimateCreateSchema = z.object({
   companyId: z.string().uuid(),
-  customerId: z.string().uuid(),
+  contactId: z.string().uuid(),
   number: z.string().min(1).max(50),
   issueDate: isoDateString,
   expiresOn: isoDateString.optional(),
@@ -58,7 +58,7 @@ export type EstimateCreateInput = z.infer<typeof estimateCreateSchema>;
 
 // PATCH /api/estimates/:id. Same pattern as invoiceUpdateSchema — companyId
 // is intentionally immutable (the (company_id, number) uniqueness scope and
-// customer↔company invariant would break on a move). customerId stays
+// contact↔company invariant would break on a move). contactId stays
 // mutable so a draft can be reassigned within the company.
 export const estimateUpdateSchema = estimateCreateSchema.omit({ companyId: true });
 
@@ -66,7 +66,7 @@ export type EstimateUpdateInput = z.infer<typeof estimateUpdateSchema>;
 
 // Input schema for POST /api/estimates/:id/send. Mirrors invoiceSendSchema —
 // `to` is an optional recipient override; absent body defaults to the
-// customer's email server-side.
+// contact's email server-side.
 export const estimateSendSchema = z.object({
   to: z.string().email().optional(),
 });

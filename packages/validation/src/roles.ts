@@ -11,7 +11,7 @@ import { z } from 'zod';
 //                 or leave); exactly one per workspace.
 //   admin       — all operational work + team management. NOT billing, delete,
 //                 or transfer.
-//   member      — day-to-day: invoices/estimates/recurring, customers, expenses.
+//   member      — day-to-day: invoices/estimates/recurring, contacts, expenses.
 //                 Views reports but can't export the raw GL or touch settings.
 //   accountant  — the "give my CPA access at tax time" persona: manage/categorize
 //                 expenses + export the GL/tax data. NOT invoicing, settings, or
@@ -34,7 +34,7 @@ export type InviteRole = (typeof INVITE_ROLES)[number];
 // them; the api applies `can(role, capability)` per mutating route.
 export const CAPABILITIES = [
   'sales:write', // invoices, estimates, recurring, items catalog + their state actions
-  'customers:write',
+  'contacts:write',
   'expenses:write', // create/edit/delete, receipts, categorize
   'reports:export', // GL / ledger export
   'settings:manage', // company profile, logo, email, payments, Stripe Connect
@@ -50,13 +50,13 @@ export const ROLE_CAPABILITIES: Record<Role, readonly Capability[]> = {
   owner: [...CAPABILITIES],
   admin: [
     'sales:write',
-    'customers:write',
+    'contacts:write',
     'expenses:write',
     'reports:export',
     'settings:manage',
     'team:manage',
   ],
-  member: ['sales:write', 'customers:write', 'expenses:write'],
+  member: ['sales:write', 'contacts:write', 'expenses:write'],
   accountant: ['expenses:write', 'reports:export'],
   viewer: [],
 };

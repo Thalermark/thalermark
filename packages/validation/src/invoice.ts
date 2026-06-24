@@ -46,7 +46,7 @@ export type InvoiceLineItemInput = z.infer<typeof invoiceLineItemInputSchema>;
 // drift between client display and DB-stored values.
 export const invoiceCreateSchema = z.object({
   companyId: z.string().uuid(),
-  customerId: z.string().uuid(),
+  contactId: z.string().uuid(),
   number: z.string().min(1).max(50),
   issueDate: isoDateString,
   dueDate: isoDateString,
@@ -71,9 +71,9 @@ export type InvoiceCreateInput = z.infer<typeof invoiceCreateSchema>;
 // Input schema for PATCH /api/invoices/:id. Same shape as create minus
 // companyId — an invoice cannot move between companies (the
 // (company_id, number) uniqueness is scoped to that company, and the
-// customer↔company invariant the create endpoint enforces would break).
-// customerId stays mutable: a user can reassign a draft invoice to a
-// different customer in the same company. line items submitted on PATCH
+// contact↔company invariant the create endpoint enforces would break).
+// contactId stays mutable: a user can reassign a draft invoice to a
+// different contact in the same company. line items submitted on PATCH
 // replace the existing set wholesale (delete + insert in one tx); the
 // schema mirrors create rather than supporting partial line-item edits,
 // because partial-line-item semantics get hairy fast (renumber? merge?
@@ -83,7 +83,7 @@ export const invoiceUpdateSchema = invoiceCreateSchema.omit({ companyId: true })
 export type InvoiceUpdateInput = z.infer<typeof invoiceUpdateSchema>;
 
 // Input schema for POST /api/invoices/:id/send. `to` is an optional
-// recipient override — defaults to the customer's email server-side. Empty
+// recipient override — defaults to the contact's email server-side. Empty
 // body (no override) is valid and the schema reflects that with an
 // optional everything object.
 export const invoiceSendSchema = z.object({

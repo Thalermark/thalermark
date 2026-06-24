@@ -1,5 +1,5 @@
 export * from './company.js';
-export * from './customer.js';
+export * from './contact.js';
 export * from './email-template.js';
 export * from './estimate.js';
 export * from './expense.js';
