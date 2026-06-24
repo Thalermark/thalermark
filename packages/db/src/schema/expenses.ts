@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import { date, index, jsonb, numeric, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { accounts } from './accounts.js';
 import { chartOfAccounts } from './chart_of_accounts.js';
@@ -21,8 +22,16 @@ import { contacts } from './contacts.js';
 // which contact (acting as customer) the expense was incurred for. Carried
 // nullable from day one even though MVP doesn't expose it — avoids a backfill
 // when job-costing surfaces in v1.x. ON DELETE RESTRICT mirrors invoices:
-// contacts with expenses can't be hard-deleted. The buy-from side
-// (vendor_contact_id) lands with the expense vendor-link slice.
+// contacts with expenses can't be hard-deleted.
+//
+// vendor_contact_id is the buy-from link — which contact (acting as vendor) the
+// expense was paid to. Optional + nullable: the on-screen "Vendor" field shows
+// the free-text merchant as its display name and only stamps this link when the
+// vendor resolves to a contact, so receipt OCR can scan-and-forget without
+// forcing a contact per receipt. Also ON DELETE RESTRICT. vendor_review is a
+// nullable status ('needs_review' | null) — set when a receipt-backed expense
+// has no vendor link, cleared on link-or-dismiss; it drives the "Needs review"
+// list filter (partial-indexed).
 //
 // category_account_id and payment_account_id both point at chart_of_accounts.
 // API code validates that category is account_type='expense' and payment is
@@ -53,6 +62,9 @@ export const expenses = pgTable(
     customerContactId: uuid('customer_contact_id').references(() => contacts.id, {
       onDelete: 'restrict',
     }),
+    vendorContactId: uuid('vendor_contact_id').references(() => contacts.id, {
+      onDelete: 'restrict',
+    }),
     categoryAccountId: uuid('category_account_id')
       .notNull()
       .references(() => chartOfAccounts.id, { onDelete: 'restrict' }),
@@ -67,6 +79,7 @@ export const expenses = pgTable(
     receiptUploadedAt: timestamp('receipt_uploaded_at', { withTimezone: true }),
     extractionStatus: text('extraction_status').notNull().default('none'),
     extractionPayload: jsonb('extraction_payload'),
+    vendorReview: text('vendor_review'),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -75,6 +88,12 @@ export const expenses = pgTable(
     accountIdIdx: index('expenses_account_id_idx').on(table.accountId),
     companyIdIdx: index('expenses_company_id_idx').on(table.companyId),
     customerContactIdIdx: index('expenses_customer_contact_id_idx').on(table.customerContactId),
+    vendorContactIdIdx: index('expenses_vendor_contact_id_idx').on(table.vendorContactId),
+    // Partial index backing the "Needs review" list filter (WHERE
+    // vendor_review = 'needs_review' scoped to account + company).
+    vendorReviewIdx: index('expenses_vendor_review_idx')
+      .on(table.accountId, table.companyId)
+      .where(sql`${table.vendorReview} = 'needs_review'`),
     categoryAccountIdIdx: index('expenses_category_account_id_idx').on(table.categoryAccountId),
     paymentAccountIdIdx: index('expenses_payment_account_id_idx').on(table.paymentAccountId),
     expenseDateIdx: index('expenses_expense_date_idx').on(table.expenseDate),

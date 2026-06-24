@@ -50,6 +50,8 @@ describe('expenses', () => {
     expect(row?.amount).toBe('25.00');
     expect(row?.expenseDate).toBe('2026-05-30');
     expect(row?.customerContactId).toBeNull();
+    expect(row?.vendorContactId).toBeNull();
+    expect(row?.vendorReview).toBeNull();
     expect(row?.memo).toBeNull();
     expect(row?.receiptStorageKey).toBeNull();
     expect(row?.receiptUploadedAt).toBeNull();
@@ -208,6 +210,54 @@ describe('expenses', () => {
     });
 
     await expect(db.delete(contacts).where(eq(contacts.id, contactId))).rejects.toThrow();
+  });
+
+  it('links a vendor contact and stores the review flag', async () => {
+    const db = getTestDb();
+    const { accountId, companyId, cashAccountId, suppliesAccountId } = await seedTenant();
+    const vendorId = uuidv7();
+    await db
+      .insert(contacts)
+      .values({ id: vendorId, accountId, companyId, name: 'Home Depot', isVendor: true });
+    const expenseId = uuidv7();
+    await db.insert(expenses).values({
+      id: expenseId,
+      accountId,
+      companyId,
+      vendorContactId: vendorId,
+      categoryAccountId: suppliesAccountId,
+      paymentAccountId: cashAccountId,
+      amount: '25.00',
+      expenseDate: '2026-05-30',
+      merchant: 'Home Depot',
+      vendorReview: 'needs_review',
+    });
+
+    const [row] = await db.select().from(expenses).where(eq(expenses.id, expenseId));
+    expect(row?.vendorContactId).toBe(vendorId);
+    expect(row?.vendorReview).toBe('needs_review');
+  });
+
+  it('blocks delete of a contact referenced as an expense vendor (RESTRICT)', async () => {
+    const db = getTestDb();
+    const { accountId, companyId, cashAccountId, suppliesAccountId } = await seedTenant();
+    const vendorId = uuidv7();
+    await db
+      .insert(contacts)
+      .values({ id: vendorId, accountId, companyId, name: 'Acme Supply', isVendor: true });
+    await db.insert(expenses).values({
+      id: uuidv7(),
+      accountId,
+      companyId,
+      vendorContactId: vendorId,
+      categoryAccountId: suppliesAccountId,
+      paymentAccountId: cashAccountId,
+      amount: '10.00',
+      expenseDate: '2026-05-30',
+      merchant: 'Acme Supply',
+    });
+
+    await expect(db.delete(contacts).where(eq(contacts.id, vendorId))).rejects.toThrow();
   });
 
   it('allows nullable customer_contact_id (MVP does not expose it)', async () => {
