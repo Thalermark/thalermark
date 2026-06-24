@@ -71,7 +71,7 @@
     href="/settings/business"
     class="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-sm border border-accent/30 bg-accent/5 px-4 py-3 text-sm text-fg transition-colors hover:bg-accent/10"
   >
-    <span>Add your business address so it shows on the invoices your customers see.</span>
+    <span>Add your business address so it shows on the invoices your contacts see.</span>
     <span class="font-mono text-xs uppercase tracking-widest text-accent">Add details →</span>
   </a>
 {/if}

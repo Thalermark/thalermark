@@ -34,8 +34,8 @@
     },
     {
       href: '/reports/sales-by-customer',
-      title: 'Sales by customer',
-      blurb: 'Your best customers by revenue over a period.',
+      title: 'Sales by contact',
+      blurb: 'Your best contacts by revenue over a period.',
     },
     {
       href: '/reports/revenue-over-time',

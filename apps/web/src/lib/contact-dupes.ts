@@ -1,6 +1,6 @@
-// Pure dupe-detection helpers for the customer create paths (inline on
-// /invoices/new and the standalone /customers/new). Both signals are
-// computed client-side against the already-loaded customer list — no extra
+// Pure dupe-detection helpers for the contact create paths (inline on
+// /invoices/new and the standalone /contacts/new). Both signals are
+// computed client-side against the already-loaded contact list — no extra
 // fetch, no new API surface. The server re-runs the same check at submit
 // time so the live hint and the hard block stay in lock-step.
 //

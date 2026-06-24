@@ -30,7 +30,7 @@
     Add a company<span class="text-accent">.</span>
   </h1>
   <p class="mt-4 text-fg/70">
-    Run a second business out of this workspace — its books, invoices, and customers stay separate.
+    Run a second business out of this workspace — its books, invoices, and contacts stay separate.
     You can switch between companies anytime from the menu.
   </p>
 

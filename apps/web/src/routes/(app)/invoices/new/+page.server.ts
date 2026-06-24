@@ -1,6 +1,6 @@
 import { pickActiveCompany } from '$lib/active-company';
 import { serverApiClient } from '$lib/api.server';
-import { findEmailDupe } from '$lib/customer-dupes';
+import { findEmailDupe } from '$lib/contact-dupes';
 import { lineTax, policyRate } from '$lib/line-tax';
 import { error, fail, redirect } from '@sveltejs/kit';
 import {
@@ -8,19 +8,19 @@ import {
   type InvoiceLineItemInput,
   type LineItemType,
   addMoney,
-  customerCreateSchema,
+  contactCreateSchema,
   invoiceCreateSchema,
   multiplyMoney,
   sumMoney,
 } from '@thalermark/validation';
 import type { Actions, PageServerLoad } from './$types';
 
-// Sentinel customerId value emitted by the "+ Add new customer" option in
+// Sentinel contactId value emitted by the "+ Add new contact" option in
 // the invoice form's dropdown. The action branches on it: instead of
 // treating the value as a UUID, it pulls the inline name + email fields
-// and creates the customer first, then uses the returned id for the
+// and creates the contact first, then uses the returned id for the
 // invoice POST. Mirrors the literal in +page.svelte.
-const NEW_CUSTOMER_SENTINEL = '__new__';
+const NEW_CONTACT_SENTINEL = '__new__';
 
 // Line item field names on the form. Each is a multi-value input (one per
 // row); the server zips them by index. Matches the names emitted by
@@ -43,18 +43,18 @@ const LINE_FIELD_TAX_POLICY_ID = 'li_taxPolicyId';
 
 export const load: PageServerLoad = async (event) => {
   const client = serverApiClient(event);
-  // Scope the customer dropdown to the active company (the nav switcher's pick).
+  // Scope the contact dropdown to the active company (the nav switcher's pick).
   const { activeCompanyId } = await event.parent();
   const custQuery: Record<string, string> = {};
   if (activeCompanyId) custQuery.companyId = activeCompanyId;
-  const [companiesRes, customersRes] = await Promise.all([
+  const [companiesRes, contactsRes] = await Promise.all([
     client.api.companies.$get(),
-    client.api.customers.$get({ query: custQuery }),
+    client.api.contacts.$get({ query: custQuery }),
   ]);
   if (!companiesRes.ok) throw error(companiesRes.status, 'failed to load companies');
-  if (!customersRes.ok) throw error(customersRes.status, 'failed to load customers');
+  if (!contactsRes.ok) throw error(contactsRes.status, 'failed to load contacts');
   const { companies } = await companiesRes.json();
-  const { customers } = await customersRes.json();
+  const { contacts } = await contactsRes.json();
   const company = pickActiveCompany(event.cookies, companies);
   if (!company) throw error(500, 'no company in this workspace');
 
@@ -91,7 +91,7 @@ export const load: PageServerLoad = async (event) => {
     // email is loaded alongside name so the dupe-detection helper (8.6b)
     // can match against it client-side without an extra round-trip. The
     // dropdown render only uses {id, name}; the rest is opaque to the UI.
-    customers: customers
+    contacts: contacts
       .map((c) => ({ id: c.id, name: c.name, email: c.email ?? null }))
       .sort((a, b) => a.name.localeCompare(b.name)),
     // Active policies for the per-line tax picker; pared to what the UI needs.
@@ -105,9 +105,9 @@ export const load: PageServerLoad = async (event) => {
 };
 
 type FormValues = {
-  customerId: string;
-  newCustomerName: string;
-  newCustomerEmail: string;
+  contactId: string;
+  newContactName: string;
+  newContactEmail: string;
   number: string;
   issueDate: string;
   dueDate: string;
@@ -149,9 +149,9 @@ function readForm(data: FormData): FormValues {
     taxPolicyId: (taxPolicyIds[i] ?? '').trim() || undefined,
   }));
   return {
-    customerId: String(data.get('customerId') ?? '').trim(),
-    newCustomerName: String(data.get('newCustomerName') ?? '').trim(),
-    newCustomerEmail: String(data.get('newCustomerEmail') ?? '').trim(),
+    contactId: String(data.get('contactId') ?? '').trim(),
+    newContactName: String(data.get('newContactName') ?? '').trim(),
+    newContactEmail: String(data.get('newContactEmail') ?? '').trim(),
     number: String(data.get('number') ?? '').trim(),
     issueDate: String(data.get('issueDate') ?? '').trim(),
     dueDate: String(data.get('dueDate') ?? '').trim(),
@@ -172,58 +172,58 @@ export const actions: Actions = {
     const values = readForm(data);
     const companyId = (await loadCompanyId(event)) ?? '';
 
-    // Inline-create branch: validate the customer fields, POST /api/customers,
-    // and swap the returned UUID into `customerId` before continuing to the
-    // invoice POST. Schema reuses customerCreateSchema (same shape as the
-    // standalone /customers/new form, just with fewer fields surfaced).
+    // Inline-create branch: validate the contact fields, POST /api/contacts,
+    // and swap the returned UUID into `contactId` before continuing to the
+    // invoice POST. Schema reuses contactCreateSchema (same shape as the
+    // standalone /contacts/new form, just with fewer fields surfaced).
     // On failure, render the form back in new-mode with field errors —
-    // values.customerId stays as the sentinel so the inline block re-opens.
-    let resolvedCustomerId = values.customerId;
-    let extraCustomer: { id: string; name: string } | undefined;
-    if (values.customerId === NEW_CUSTOMER_SENTINEL) {
-      const customerInput = {
+    // values.contactId stays as the sentinel so the inline block re-opens.
+    let resolvedContactId = values.contactId;
+    let extraContact: { id: string; name: string } | undefined;
+    if (values.contactId === NEW_CONTACT_SENTINEL) {
+      const contactInput = {
         companyId,
-        name: values.newCustomerName,
-        email: values.newCustomerEmail === '' ? undefined : values.newCustomerEmail,
+        name: values.newContactName,
+        email: values.newContactEmail === '' ? undefined : values.newContactEmail,
       };
-      const parsedCust = customerCreateSchema.safeParse(customerInput);
+      const parsedCust = contactCreateSchema.safeParse(contactInput);
       if (!parsedCust.success) {
-        const customerErrors: Record<string, string> = {};
+        const contactErrors: Record<string, string> = {};
         for (const issue of parsedCust.error.issues) {
           const key = String(issue.path[0] ?? '_');
-          if (!customerErrors[key]) customerErrors[key] = issue.message;
+          if (!contactErrors[key]) contactErrors[key] = issue.message;
         }
-        return fail(400, { values, customerErrors });
+        return fail(400, { values, contactErrors });
       }
 
       // Dupe-detect: HARD BLOCK on email exact match. Re-fetch the list
       // server-side to close the race where another tab created the dupe
       // between load() and this POST. Name fuzzy match stays advisory and
       // is handled client-side only (live hint, no submit block).
-      const listRes = await client.api.customers.$get({ query: { companyId } });
+      const listRes = await client.api.contacts.$get({ query: { companyId } });
       if (listRes.ok) {
-        const { customers: list } = await listRes.json();
+        const { contacts: list } = await listRes.json();
         const emailDupe = findEmailDupe(parsedCust.data.email, list);
         if (emailDupe) {
           return fail(409, {
             values,
-            customerErrors: { email: 'email_dupe' },
-            dupeCustomer: { id: emailDupe.id, name: emailDupe.name },
+            contactErrors: { email: 'email_dupe' },
+            dupeContact: { id: emailDupe.id, name: emailDupe.name },
           });
         }
       }
 
-      const custRes = await client.api.customers.$post({ json: parsedCust.data });
+      const custRes = await client.api.contacts.$post({ json: parsedCust.data });
       if (!custRes.ok) {
         const body = (await custRes.json().catch(() => null)) as { error?: string } | null;
         return fail(custRes.status, {
           values,
-          customerErrors: { _: body?.error ?? 'customer_create_failed' },
+          contactErrors: { _: body?.error ?? 'contact_create_failed' },
         });
       }
-      const createdCustomer = await custRes.json();
-      resolvedCustomerId = createdCustomer.id;
-      extraCustomer = { id: createdCustomer.id, name: createdCustomer.name };
+      const createdContact = await custRes.json();
+      resolvedContactId = createdContact.id;
+      extraContact = { id: createdContact.id, name: createdContact.name };
     }
 
     // Server is authority for money math — same helpers the page uses for
@@ -255,7 +255,7 @@ export const actions: Actions = {
 
     const payload: InvoiceCreateInput = {
       companyId,
-      customerId: resolvedCustomerId,
+      contactId: resolvedContactId,
       number: values.number,
       issueDate: values.issueDate,
       dueDate: values.dueDate,
@@ -279,13 +279,13 @@ export const actions: Actions = {
         const key = top === 'lineItems' ? 'lineItems' : top;
         if (!fieldErrors[key]) fieldErrors[key] = issue.message;
       }
-      // If we got here via the inline-create branch, the customer was already
+      // If we got here via the inline-create branch, the contact was already
       // persisted — swap the sentinel for the real id so the re-render
-      // pre-selects them and surfaces extraCustomer in the dropdown.
+      // pre-selects them and surfaces extraContact in the dropdown.
       return fail(400, {
-        values: extraCustomer ? { ...values, customerId: extraCustomer.id } : values,
+        values: extraContact ? { ...values, contactId: extraContact.id } : values,
         fieldErrors,
-        extraCustomer,
+        extraContact,
       });
     }
 
@@ -297,17 +297,17 @@ export const actions: Actions = {
         code === 'invoice_number_taken'
           ? 'Invoice number already used for this company. Try another.'
           : code === 'customer_company_mismatch'
-            ? 'Selected customer does not belong to this company.'
-            : code === 'customer_not_found'
-              ? 'Selected customer no longer exists.'
+            ? 'Selected contact does not belong to this company.'
+            : code === 'contact_not_found'
+              ? 'Selected contact no longer exists.'
               : code;
-      // Same recovery as schema fail above: if a customer was just created,
+      // Same recovery as schema fail above: if a contact was just created,
       // pre-select them on the re-render so the user doesn't lose them or
       // accidentally duplicate via a second sentinel pick.
       return fail(res.status, {
-        values: extraCustomer ? { ...values, customerId: extraCustomer.id } : values,
+        values: extraContact ? { ...values, contactId: extraContact.id } : values,
         formError,
-        extraCustomer,
+        extraContact,
       });
     }
     const created = await res.json();

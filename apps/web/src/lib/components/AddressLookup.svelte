@@ -45,7 +45,7 @@
   // Debounce keeps us under provider rate limits and feels instant (200ms is
   // the sweet spot). Search fires only on real keystrokes (oninput) — NOT on a
   // programmatic pick or an edit-form prefill — so picking a suggestion doesn't
-  // immediately reopen the dropdown, and loading an existing customer's address
+  // immediately reopen the dropdown, and loading an existing contact's address
   // doesn't auto-search on mount.
   const DEBOUNCE_MS = 200;
   const MIN_QUERY = 3;

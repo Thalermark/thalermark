@@ -6,7 +6,7 @@
   // The three states the page distinguishes:
   //   notStarted  — no stripe_connect_account_id yet, Connect button kicks off Express onboarding
   //   submitted   — details_submitted but not yet charges_enabled, Stripe is reviewing
-  //   enabled     — charges_enabled, customers can pay this company
+  //   enabled     — charges_enabled, contacts can pay this company
   // stripeNotConfigured is a separate state: the operator hasn't wired
   // STRIPE_* env vars (self-host without payments), nothing to do here.
   const stripeConfigured = $derived(data.status.stripeConfigured);
@@ -59,7 +59,7 @@
       <div>
         {#if stage === 'notStarted'}
           <p class="text-sm text-fg/70">
-            Connect a Stripe account so customers can pay your invoices online. Stripe runs the
+            Connect a Stripe account so contacts can pay your invoices online. Stripe runs the
             onboarding — bank, ID, the lot. Takes a few minutes.
           </p>
         {:else if stage === 'submitted'}
@@ -69,7 +69,7 @@
           </p>
         {:else}
           <p class="text-sm text-fg/70">
-            Payments are live. Customers can pay invoices using the pay link on the public invoice
+            Payments are live. Contacts can pay invoices using the pay link on the public invoice
             page.
           </p>
         {/if}

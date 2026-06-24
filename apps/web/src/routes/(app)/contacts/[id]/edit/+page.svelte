@@ -5,11 +5,11 @@
 
   let { data, form }: PageProps = $props();
 
-  // On first render, seed values from the loaded customer. On a fail()
+  // On first render, seed values from the loaded contact. On a fail()
   // re-render the user's just-submitted values win so they don't lose
   // their typing — same shape as the create form, just with a different
   // initial source.
-  const seed = $derived(form?.values ?? data.customer);
+  const seed = $derived(form?.values ?? data.contact);
   const fieldErrors = $derived(form?.fieldErrors ?? {});
 
   type FieldKey =
@@ -34,7 +34,7 @@
 
   // Address fields move from uncontrolled value={...} to bind:value so the
   // AddressLookup component can write a picked suggestion across all five.
-  // v() already encodes the form?.values → data.customer precedence; reading
+  // v() already encodes the form?.values → data.contact precedence; reading
   // it via untrack() at $state init captures the SSR-time value without
   // re-triggering on subsequent form prop changes.
   let addressLine1 = $state<string>(untrack(() => v('addressLine1')));
@@ -45,9 +45,9 @@
   let country = $state<string>(untrack(() => v('country')));
 </script>
 
-<a href="/customers/{data.customer.id}" class="eyebrow text-fg/60 hover:text-fg">← {data.customer.name}</a>
+<a href="/contacts/{data.contact.id}" class="eyebrow text-fg/60 hover:text-fg">← {data.contact.name}</a>
 <h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-fg">
-  Edit customer<span class="text-accent">.</span>
+  Edit contact<span class="text-accent">.</span>
 </h1>
 
 {#if form?.formError}
@@ -178,6 +178,6 @@
     >
       Save changes
     </button>
-    <a href="/customers/{data.customer.id}" class="text-sm text-fg/60 hover:text-fg">Cancel</a>
+    <a href="/contacts/{data.contact.id}" class="text-sm text-fg/60 hover:text-fg">Cancel</a>
   </div>
 </form>

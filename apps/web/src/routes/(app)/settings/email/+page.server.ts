@@ -31,7 +31,7 @@ export const load: PageServerLoad = async (event) => {
 };
 
 export const actions: Actions = {
-  // Render the EFFECTIVE template (saved override or default) as the customer
+  // Render the EFFECTIVE template (saved override or default) as the contact
   // would see it, so a user can peek at the wording without entering the editor.
   // Re-renders through the same preview endpoint the editor uses (sample data),
   // off the stored subject/body — never client-supplied text.

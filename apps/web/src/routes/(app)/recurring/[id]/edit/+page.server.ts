@@ -23,24 +23,24 @@ const LINE_FIELD_TAX_POLICY_ID = 'li_taxPolicyId';
 
 export const load: PageServerLoad = async (event) => {
   const client = serverApiClient(event);
-  // Scope the customer dropdown to the active company (the nav switcher's pick).
+  // Scope the contact dropdown to the active company (the nav switcher's pick).
   const { activeCompanyId } = await event.parent();
   const custQuery: Record<string, string> = {};
   if (activeCompanyId) custQuery.companyId = activeCompanyId;
-  const [scheduleRes, customersRes] = await Promise.all([
+  const [scheduleRes, contactsRes] = await Promise.all([
     client.api['recurring-invoices'][':id'].$get({ param: { id: event.params.id } }),
-    client.api.customers.$get({ query: custQuery }),
+    client.api.contacts.$get({ query: custQuery }),
   ]);
   if (scheduleRes.status === 404) throw error(404, 'recurring schedule not found');
   if (!scheduleRes.ok) throw error(scheduleRes.status, 'failed to load recurring schedule');
-  if (!customersRes.ok) throw error(customersRes.status, 'failed to load customers');
+  if (!contactsRes.ok) throw error(contactsRes.status, 'failed to load contacts');
   const schedule = await scheduleRes.json();
   // Edit is blocked once ended (terminal) on the API side — surface the same
   // boundary at load so a stale tab gets a clean 409, not a post-submit one.
   if (schedule.status === 'ended') {
     throw error(409, 'this schedule has ended and can no longer be edited');
   }
-  const { customers } = await customersRes.json();
+  const { contacts } = await contactsRes.json();
 
   const polRes = await client.api['tax-policies'].$get({
     query: { companyId: schedule.companyId, limit: '100' },
@@ -49,7 +49,7 @@ export const load: PageServerLoad = async (event) => {
 
   return {
     schedule,
-    customers: customers
+    contacts: contacts
       .map((c) => ({ id: c.id, name: c.name }))
       .sort((a, b) => a.name.localeCompare(b.name)),
     taxPolicies: taxPolicies.map((p) => ({
@@ -62,7 +62,7 @@ export const load: PageServerLoad = async (event) => {
 };
 
 type FormValues = {
-  customerId: string;
+  contactId: string;
   frequency: string;
   intervalCount: string;
   startDate: string;
@@ -101,7 +101,7 @@ function readForm(data: FormData): FormValues {
     taxPolicyId: (taxPolicyIds[i] ?? '').trim() || undefined,
   }));
   return {
-    customerId: String(data.get('customerId') ?? '').trim(),
+    contactId: String(data.get('contactId') ?? '').trim(),
     frequency: String(data.get('frequency') ?? '').trim(),
     intervalCount: String(data.get('intervalCount') ?? '').trim(),
     startDate: String(data.get('startDate') ?? '').trim(),
@@ -165,7 +165,7 @@ export const actions: Actions = {
     const total = addMoney(subtotal, tax);
 
     const payload: RecurringInvoiceUpdateInput = {
-      customerId: values.customerId,
+      contactId: values.contactId,
       frequency: values.frequency as RecurringInvoiceUpdateInput['frequency'],
       intervalCount: toNumber(values.intervalCount) ?? 1,
       startDate: values.startDate,
@@ -200,9 +200,9 @@ export const actions: Actions = {
       const code = body?.error ?? 'update_failed';
       const formError =
         code === 'customer_company_mismatch'
-          ? 'Selected customer does not belong to this company.'
-          : code === 'customer_not_found'
-            ? 'Selected customer no longer exists.'
+          ? 'Selected contact does not belong to this company.'
+          : code === 'contact_not_found'
+            ? 'Selected contact no longer exists.'
             : code === 'not_editable'
               ? 'This schedule has ended and cannot be edited.'
               : code;

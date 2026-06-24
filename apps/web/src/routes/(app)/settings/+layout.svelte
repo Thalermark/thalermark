@@ -23,7 +23,7 @@
     { href: '/settings/payments', label: 'Payments', cap: 'settings:manage' },
     { href: '/settings/email', label: 'Email templates', cap: 'settings:manage' },
     { href: '/settings/team', label: 'Team' },
-    { href: '/settings/import', label: 'Import', cap: 'customers:write' },
+    { href: '/settings/import', label: 'Import', cap: 'contacts:write' },
     { href: '/settings/activity', label: 'Activity' },
     { href: '/settings/privacy', label: 'Privacy', cap: 'settings:manage' },
   ];

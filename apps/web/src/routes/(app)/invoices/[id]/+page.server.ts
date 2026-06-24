@@ -10,14 +10,14 @@ export const load: PageServerLoad = async (event) => {
   if (!invoiceRes.ok) throw error(invoiceRes.status, 'failed to load invoice');
   const invoice = await invoiceRes.json();
 
-  const customerRes = await client.api.customers[':id'].$get({
-    param: { id: invoice.customerId },
+  const contactRes = await client.api.contacts[':id'].$get({
+    param: { id: invoice.contactId },
   });
-  const customer = customerRes.ok ? await customerRes.json() : null;
+  const contact = contactRes.ok ? await contactRes.json() : null;
 
   // Just-in-time prompt: a draft invoice is the moment a missing business
   // address actually costs the user something (it won't show on what the
-  // customer sees). State-driven like the dashboard nudge — surfaces while
+  // contact sees). State-driven like the dashboard nudge — surfaces while
   // the address is unset, resolves itself once filled. Best-effort: a failed
   // companies fetch just drops the prompt rather than blocking the page.
   const companiesRes = await client.api.companies.$get();
@@ -49,7 +49,7 @@ export const load: PageServerLoad = async (event) => {
   // panel can render the full absolute URL the user copies.
   return {
     invoice,
-    customer,
+    contact,
     origin: event.url.origin,
     sentTo,
     auditEvents,

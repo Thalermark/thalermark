@@ -9,10 +9,10 @@ export const load: PageServerLoad = async (event) => {
   if (!estimateRes.ok) throw error(estimateRes.status, 'failed to load estimate');
   const estimate = await estimateRes.json();
 
-  const customerRes = await client.api.customers[':id'].$get({
-    param: { id: estimate.customerId },
+  const contactRes = await client.api.contacts[':id'].$get({
+    param: { id: estimate.contactId },
   });
-  const customer = customerRes.ok ? await customerRes.json() : null;
+  const contact = contactRes.ok ? await contactRes.json() : null;
 
   // After a successful send, the action redirects back with ?sent=<email>
   // so the success banner survives the post/redirect without a session
@@ -30,7 +30,7 @@ export const load: PageServerLoad = async (event) => {
 
   // origin derives from the incoming request so the share URL works behind
   // any proxy. Same pattern as the invoice detail page (8.5a).
-  return { estimate, customer, origin: event.url.origin, sentTo, auditEvents };
+  return { estimate, contact, origin: event.url.origin, sentTo, auditEvents };
 };
 
 type AuditEvent = {
@@ -65,7 +65,7 @@ async function runTransition(
   redirect(303, `/estimates/${id}`);
 }
 
-// /send is the primary CTA for getting an estimate in front of the customer:
+// /send is the primary CTA for getting an estimate in front of the contact:
 // it transitions draft → sent AND emails the recipient with the public
 // /e/<token> link. /mark-sent stays for the "delivered out-of-band" case
 // (handed off in person). Plain HTML POST with an optional `to` override.

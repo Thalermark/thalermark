@@ -7,7 +7,7 @@
 
   let { data, form }: PageProps = $props();
   const inv = $derived(data.invoice);
-  const customer = $derived(data.customer);
+  const contact = $derived(data.contact);
 
   // Role gate (UX only — the API is authoritative). All invoice writes and
   // state actions are `sales:write`; the inline "add business address" shortcut
@@ -36,7 +36,7 @@
   const publicUrl = $derived(inv.publicToken ? `${data.origin}/i/${inv.publicToken}` : null);
 
   // Send-form state: collapsed `to` override field, opens on a click.
-  // Default `to` mirrors the customer's email when available.
+  // Default `to` mirrors the contact's email when available.
   let showOverride = $state(false);
   const sendLabel = $derived(inv.status === 'sent' ? 'Resend invoice' : 'Send invoice');
 
@@ -165,7 +165,7 @@
           <input
             type="email"
             name="to"
-            placeholder={customer?.email ?? 'recipient@example.com'}
+            placeholder={contact?.email ?? 'recipient@example.com'}
             class="rounded-sm border border-fg/20 bg-surface-2 px-3 py-2 text-sm text-fg placeholder:text-fg/40 focus:border-accent focus:outline-none"
           />
         {/if}
@@ -346,10 +346,10 @@
 
 <dl class="mt-8 grid grid-cols-1 gap-x-12 gap-y-6 sm:grid-cols-3">
   <div>
-    <dt class="label">Customer</dt>
+    <dt class="label">Contact</dt>
     <dd class="mt-1 text-fg">
-      {#if customer}
-        <a href="/customers/{customer.id}" class="hover:text-accent">{customer.name}</a>
+      {#if contact}
+        <a href="/contacts/{contact.id}" class="hover:text-accent">{contact.name}</a>
       {:else}
         —
       {/if}

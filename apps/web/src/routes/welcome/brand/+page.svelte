@@ -9,7 +9,7 @@
   Make it yours<span class="text-accent">.</span>
 </h1>
 <p class="mt-4 text-fg/70">
-  Add a logo and it'll appear on every invoice and estimate your customers see. Optional — you can
+  Add a logo and it'll appear on every invoice and estimate your contacts see. Optional — you can
   always add one later from Settings.
 </p>
 

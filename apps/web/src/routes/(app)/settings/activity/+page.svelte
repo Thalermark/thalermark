@@ -7,7 +7,7 @@
 
   let { data }: PageProps = $props();
 
-  // See /customers for the untrack() seed-and-re-seed pattern.
+  // See /contacts for the untrack() seed-and-re-seed pattern.
   type Event = (typeof data.events)[number];
   let events = $state<Event[]>(untrack(() => data.events));
   let cursor = $state<string | null>(untrack(() => data.nextCursor));

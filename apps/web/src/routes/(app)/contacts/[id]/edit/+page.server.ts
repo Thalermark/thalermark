@@ -1,9 +1,9 @@
 import { serverApiClient } from '$lib/api.server';
 import { error, fail, redirect } from '@sveltejs/kit';
-import { customerUpdateSchema } from '@thalermark/validation';
+import { contactUpdateSchema } from '@thalermark/validation';
 import type { Actions, PageServerLoad } from './$types';
 
-// Same set as /customers/new — optional fields whose empty string we collapse
+// Same set as /contacts/new — optional fields whose empty string we collapse
 // to undefined before zod parsing so .email() / .max() don't trip on a blank
 // input the user left empty rather than cleared meaningfully. PATCH semantics
 // then turn undefined into null in the API to clear the column.
@@ -31,11 +31,11 @@ function readForm(data: FormData): Record<string, string | undefined> {
 
 export const load: PageServerLoad = async (event) => {
   const client = serverApiClient(event);
-  const res = await client.api.customers[':id'].$get({ param: { id: event.params.id } });
-  if (res.status === 404) throw error(404, 'customer not found');
-  if (!res.ok) throw error(res.status, 'failed to load customer');
-  const customer = await res.json();
-  return { customer };
+  const res = await client.api.contacts[':id'].$get({ param: { id: event.params.id } });
+  if (res.status === 404) throw error(404, 'contact not found');
+  if (!res.ok) throw error(res.status, 'failed to load contact');
+  const contact = await res.json();
+  return { contact };
 };
 
 export const actions: Actions = {
@@ -44,7 +44,7 @@ export const actions: Actions = {
     const data = await event.request.formData();
     const values = readForm(data);
 
-    const parsed = customerUpdateSchema.safeParse(values);
+    const parsed = contactUpdateSchema.safeParse(values);
     if (!parsed.success) {
       const fieldErrors: Record<string, string> = {};
       for (const issue of parsed.error.issues) {
@@ -54,15 +54,15 @@ export const actions: Actions = {
       return fail(400, { values, fieldErrors });
     }
 
-    const res = await client.api.customers[':id'].$patch({
+    const res = await client.api.contacts[':id'].$patch({
       param: { id: event.params.id },
       json: parsed.data,
     });
-    if (res.status === 404) throw error(404, 'customer not found');
+    if (res.status === 404) throw error(404, 'contact not found');
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
       return fail(res.status, { values, formError: body?.error ?? 'update_failed' });
     }
-    redirect(303, `/customers/${event.params.id}`);
+    redirect(303, `/contacts/${event.params.id}`);
   },
 };

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import AddressLookup from '$lib/components/AddressLookup.svelte';
-  import { findEmailDupe, findNameDupes } from '$lib/customer-dupes';
+  import { findEmailDupe, findNameDupes } from '$lib/contact-dupes';
   import type { PageProps } from './$types';
 
   let { data, form }: PageProps = $props();
@@ -30,12 +30,12 @@
 
   // Live dupe-hints (mirrors the inline-create path on /invoices/new).
   // Name match is advisory — shown as a suggestion list with a link to the
-  // existing customer; user can ignore and create anyway. Email match is
+  // existing contact; user can ignore and create anyway. Email match is
   // also enforced server-side as a hard block.
   let nameInput = $state<string>(untrack(() => v('name')));
   let emailInput = $state<string>(untrack(() => v('email')));
-  const liveEmailDupe = $derived(findEmailDupe(emailInput, data.customers));
-  const liveNameDupes = $derived(findNameDupes(nameInput, data.customers));
+  const liveEmailDupe = $derived(findEmailDupe(emailInput, data.contacts));
+  const liveNameDupes = $derived(findNameDupes(nameInput, data.contacts));
 
   // Address fields move from uncontrolled value={...} to bind:value so the
   // AddressLookup component can write a picked suggestion across all five.
@@ -50,9 +50,9 @@
   let country = $state<string>(untrack(() => v('country')));
 </script>
 
-<a href="/customers" class="eyebrow text-fg/60 hover:text-fg">← Customers</a>
+<a href="/contacts" class="eyebrow text-fg/60 hover:text-fg">← Contacts</a>
 <h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-fg">
-  New customer<span class="text-accent">.</span>
+  New contact<span class="text-accent">.</span>
 </h1>
 
 {#if form?.formError}
@@ -81,14 +81,14 @@
     {#if liveNameDupes.length > 0}
       <div class="mt-2 rounded-sm border border-fg/10 bg-surface-2/60 p-2 text-xs">
         <p class="text-fg/60">
-          Looks like {liveNameDupes.length === 1 ? 'an existing customer' : 'existing customers'}:
+          Looks like {liveNameDupes.length === 1 ? 'an existing contact' : 'existing contacts'}:
         </p>
         <ul class="mt-1 space-y-1">
           {#each liveNameDupes as dupe (dupe.id)}
             <li class="flex items-center justify-between gap-2">
               <span class="text-fg">{dupe.name}{#if dupe.email}<span class="text-fg/50"> · {dupe.email}</span>{/if}</span>
               <a
-                href="/customers/{dupe.id}"
+                href="/contacts/{dupe.id}"
                 class="rounded-sm border border-fg/15 bg-surface-2 px-2 py-1 text-xs uppercase tracking-wider text-fg/70 hover:border-accent hover:text-accent"
               >
                 Open
@@ -114,19 +114,19 @@
       {#if err('email') && err('email') !== 'email_dupe'}
         <p class="mt-1 text-xs text-danger">{err('email')}</p>
       {/if}
-      {#if form?.dupeCustomer}
+      {#if form?.dupeContact}
         <div class="mt-2 rounded-sm border border-danger/30 bg-danger/5 p-3 text-sm">
           <p class="text-fg">
-            <span class="font-medium">{form.dupeCustomer.name}</span> already uses this email.
+            <span class="font-medium">{form.dupeContact.name}</span> already uses this email.
           </p>
           <div class="mt-2 flex flex-wrap items-center gap-3">
             <a
-              href="/customers/{form.dupeCustomer.id}"
+              href="/contacts/{form.dupeContact.id}"
               class="rounded-sm bg-inverse px-3 py-1 text-xs uppercase tracking-wider text-on-inverse hover:bg-accent"
             >
-              Open {form.dupeCustomer.name}
+              Open {form.dupeContact.name}
             </a>
-            <span class="text-xs text-fg/50">or change the email to create a different customer.</span>
+            <span class="text-xs text-fg/50">or change the email to create a different contact.</span>
           </div>
         </div>
       {:else if liveEmailDupe}
@@ -135,7 +135,7 @@
             <span class="font-medium">{liveEmailDupe.name}</span> already uses this email.
           </p>
           <a
-            href="/customers/{liveEmailDupe.id}"
+            href="/contacts/{liveEmailDupe.id}"
             class="mt-2 inline-block rounded-sm border border-fg/20 bg-surface-2 px-3 py-1 text-xs uppercase tracking-wider text-fg/70 hover:border-accent hover:text-accent"
           >
             Open {liveEmailDupe.name}
@@ -229,8 +229,8 @@
       type="submit"
       class="btn"
     >
-      Create customer
+      Create contact
     </button>
-    <a href="/customers" class="text-sm text-fg/60 hover:text-fg">Cancel</a>
+    <a href="/contacts" class="text-sm text-fg/60 hover:text-fg">Cancel</a>
   </div>
 </form>

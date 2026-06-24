@@ -14,7 +14,7 @@
     !!(filters.from || filters.to || filters.category || filters.q),
   );
 
-  // See /customers for the untrack() seed-and-re-seed pattern. The filter form
+  // See /contacts for the untrack() seed-and-re-seed pattern. The filter form
   // is a GET, so applying/clearing filters navigates here, re-runs load(), and
   // the $effect re-seeds with the new filter set's page 1.
   let rows = $state<ExpenseRow[]>(untrack(() => data.rows));

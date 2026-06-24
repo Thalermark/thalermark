@@ -9,7 +9,7 @@
 
   const showArchived = $derived(data.showArchived);
 
-  // See /customers for the untrack() seed-and-re-seed pattern. Here load()
+  // See /contacts for the untrack() seed-and-re-seed pattern. Here load()
   // re-runs on both the archived-toggle nav and the archive/restore POST
   // (which redirects back), so the $effect keeps the list in sync.
   type Row = (typeof data.items)[number];

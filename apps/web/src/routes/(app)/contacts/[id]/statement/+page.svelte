@@ -23,14 +23,14 @@
 
 <!-- Toolbar — hidden when printing. -->
 <div class="flex flex-wrap items-center justify-between gap-3 print:hidden">
-  <a href="/customers/{s.customer.id}" class="eyebrow text-fg/60 hover:text-fg">← {s.customer.name}</a>
+  <a href="/contacts/{s.customer.id}" class="eyebrow text-fg/60 hover:text-fg">← {s.customer.name}</a>
   <div class="flex flex-wrap items-center gap-2">
     <form method="POST" action="?/email" class="flex items-center gap-2">
       <input
         name="to"
         type="email"
         value={s.customer.email ?? ''}
-        placeholder="customer@email.com"
+        placeholder="contact@email.com"
         class="w-48 rounded-sm border border-fg/15 bg-surface-2 px-2 py-1.5 text-sm text-fg"
       />
       <button
@@ -56,7 +56,7 @@
 {:else if emailError}
   <p class="mt-3 rounded-sm border border-danger/30 bg-danger/5 px-4 py-2 text-sm text-danger print:hidden">
     {emailError === 'invalid_recipient'
-      ? 'No valid email — add the customer’s email or type one above.'
+      ? 'No valid email — add the contact’s email or type one above.'
       : emailError === 'email_not_configured'
         ? 'Email isn’t configured on this server.'
         : 'Could not send the statement. Please try again.'}
@@ -91,7 +91,7 @@
   </div>
 
   {#if s.lines.length === 0}
-    <p class="mt-8 text-fg/70">No invoices on file for this customer.</p>
+    <p class="mt-8 text-fg/70">No invoices on file for this contact.</p>
   {:else}
     <table class="mt-8 w-full text-left text-sm">
       <thead>

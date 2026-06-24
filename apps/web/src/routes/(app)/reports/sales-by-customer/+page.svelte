@@ -12,14 +12,14 @@
 
   const total = $derived(Number(report.totalSales));
   const rows = $derived(
-    report.customers.map((c) => ({
+    report.contacts.map((c) => ({
       ...c,
       share: total > 0 ? (Number(c.sales) / total) * 100 : 0,
     })),
   );
 
   const csvRows = $derived<CsvCell[][]>([
-    ['Customer', 'Invoices', 'Sales', 'Share %'],
+    ['Contact', 'Invoices', 'Sales', 'Share %'],
     ...rows.map(
       (c) => [c.name ?? '', c.invoiceCount, c.sales, c.share.toFixed(1)] as CsvCell[],
     ),
@@ -31,7 +31,7 @@
   <div>
     <a href="/reports" class="eyebrow text-fg/60 hover:text-fg">← Reports</a>
     <h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-fg">
-      Sales by customer<span class="text-accent">.</span>
+      Sales by contact<span class="text-accent">.</span>
     </h1>
   </div>
   <ExportCsvButton
@@ -44,7 +44,7 @@
 <PeriodSelector {presets} {activeKey} from={report.from} to={report.to} />
 
 <p class="mt-4 text-sm text-fg/60">
-  {report.from} → {report.to}. Pre-tax sales from sent or paid invoices, top 25 customers by
+  {report.from} → {report.to}. Pre-tax sales from sent or paid invoices, top 25 contacts by
   revenue.
 </p>
 
@@ -55,17 +55,17 @@
     <table class="w-full text-left text-sm">
       <thead class="bg-surface">
         <tr class="label">
-          <th class="px-5 py-3">Customer</th>
+          <th class="px-5 py-3">Contact</th>
           <th class="w-1/3 px-5 py-3">Share</th>
           <th class="w-20 px-5 py-3 text-right">Invoices</th>
           <th class="w-36 px-5 py-3 text-right">Sales</th>
         </tr>
       </thead>
       <tbody class="divide-y divide-fg/10">
-        {#each rows as c (c.customerId)}
+        {#each rows as c (c.contactId)}
           <tr>
             <td class="px-5 py-3">
-              <a href="/customers/{c.customerId}" class="text-fg hover:text-accent">
+              <a href="/contacts/{c.contactId}" class="text-fg hover:text-accent">
                 {c.name ?? '—'}
               </a>
             </td>

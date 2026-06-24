@@ -13,14 +13,14 @@
   // Seed local state from page 1; untrack() so Svelte doesn't fire the
   // state_referenced_locally warning — capturing the initial value is exactly
   // what we want, and the $effect below re-seeds when load() re-runs.
-  type Row = (typeof data.customers)[number];
-  let rows = $state<Row[]>(untrack(() => data.customers));
+  type Row = (typeof data.contacts)[number];
+  let rows = $state<Row[]>(untrack(() => data.contacts));
   let cursor = $state<string | null>(untrack(() => data.nextCursor));
   let loading = $state(false);
   let loadError = $state(false);
 
   $effect(() => {
-    const nextRows = data.customers;
+    const nextRows = data.contacts;
     const next = data.nextCursor;
     untrack(() => {
       rows = nextRows;
@@ -33,7 +33,7 @@
     loading = true;
     loadError = false;
     try {
-      const page = await fetchMore<Row>('/customers/more', cursor, {
+      const page = await fetchMore<Row>('/contacts/more', cursor, {
         q: filters.q,
         openInvoices: filters.openInvoices ? 'true' : '',
       });
@@ -49,17 +49,17 @@
 
 <div class="flex items-baseline justify-between gap-6">
   <div>
-    <span class="eyebrow">Customers</span>
+    <span class="eyebrow">Contacts</span>
     <h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-fg">
-      All customers<span class="text-accent">.</span>
+      All contacts<span class="text-accent">.</span>
     </h1>
   </div>
-  {#if may(data.role, 'customers:write')}
+  {#if may(data.role, 'contacts:write')}
     <a
-      href="/customers/new"
+      href="/contacts/new"
       class="btn"
     >
-      + New customer
+      + New contact
     </a>
   {/if}
 </div>
@@ -98,20 +98,20 @@
     Filter
   </button>
   {#if anyFilter}
-    <a href="/customers" class="text-sm text-fg/60 hover:text-fg">Clear</a>
+    <a href="/contacts" class="text-sm text-fg/60 hover:text-fg">Clear</a>
   {/if}
 </form>
 
 {#if rows.length === 0}
   <p class="mt-8 text-fg/70">
-    {anyFilter ? 'No customers match these filters.' : 'No customers yet.'}
+    {anyFilter ? 'No contacts match these filters.' : 'No contacts yet.'}
   </p>
 {:else}
   <ul class="mt-8 divide-y divide-fg/10 rounded-sm border border-fg/10 bg-surface-2">
     {#each rows as c (c.id)}
       <li>
         <a
-          href="/customers/{c.id}"
+          href="/contacts/{c.id}"
           class="flex items-center justify-between px-5 py-4 transition-colors hover:bg-surface"
         >
           <span class="font-serif text-lg text-fg">{c.name}</span>

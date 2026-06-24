@@ -4,11 +4,11 @@
   import type { PageProps } from './$types';
 
   let { data }: PageProps = $props();
-  const c = $derived(data.customer);
+  const c = $derived(data.contact);
 
-  // Role gate (UX only — the API is authoritative). Editing a customer is
-  // `customers:write`; the statement is a read and stays open to every role.
-  const canWrite = $derived(may(data.role, 'customers:write'));
+  // Role gate (UX only — the API is authoritative). Editing a contact is
+  // `contacts:write`; the statement is a read and stays open to every role.
+  const canWrite = $derived(may(data.role, 'contacts:write'));
 
   const addressLines = $derived(
     [
@@ -56,21 +56,21 @@
         : 'border-fg/15 bg-surface-2';
 </script>
 
-<a href="/customers" class="eyebrow text-fg/60 hover:text-fg">← Customers</a>
+<a href="/contacts" class="eyebrow text-fg/60 hover:text-fg">← Contacts</a>
 <div class="mt-3 flex items-baseline justify-between gap-6">
   <h1 class="font-serif text-4xl font-light leading-none tracking-tight text-fg">
     {c.name}<span class="text-accent">.</span>
   </h1>
   <div class="flex items-center gap-2">
     <a
-      href="/customers/{c.id}/statement"
+      href="/contacts/{c.id}/statement"
       class="rounded-sm border border-fg/20 px-3 py-1 font-mono text-xs uppercase tracking-widest text-fg/70 hover:border-accent hover:text-accent"
     >
       Statement
     </a>
     {#if canWrite}
       <a
-        href="/customers/{c.id}/edit"
+        href="/contacts/{c.id}/edit"
         class="rounded-sm border border-fg/20 px-3 py-1 font-mono text-xs uppercase tracking-widest text-fg/70 hover:border-accent hover:text-accent"
       >
         Edit

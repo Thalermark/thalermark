@@ -6,7 +6,7 @@
 
   let { data, form }: PageProps = $props();
   const s = $derived(data.schedule);
-  const customer = $derived(data.customer);
+  const contact = $derived(data.contact);
 
   // Role gate (UX only — the API is authoritative). Recurring writes and state
   // actions are `sales:write`; each status gate is ANDed with it.
@@ -111,10 +111,10 @@
 
 <dl class="mt-8 grid grid-cols-1 gap-x-12 gap-y-6 sm:grid-cols-3">
   <div>
-    <dt class="label">Customer</dt>
+    <dt class="label">Contact</dt>
     <dd class="mt-1 text-fg">
-      {#if customer}
-        <a href="/customers/{customer.id}" class="hover:text-accent">{customer.name}</a>
+      {#if contact}
+        <a href="/contacts/{contact.id}" class="hover:text-accent">{contact.name}</a>
       {:else}
         —
       {/if}

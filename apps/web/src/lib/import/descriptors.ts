@@ -1,4 +1,4 @@
-import { type Capability, customerCreateSchema, itemCreateSchema } from '@thalermark/validation';
+import { type Capability, contactCreateSchema, itemCreateSchema } from '@thalermark/validation';
 
 // Drives the generic CSV importer (Settings → Import). One descriptor per
 // importable entity; the import page is entirely parameterized by these, so
@@ -6,7 +6,7 @@ import { type Capability, customerCreateSchema, itemCreateSchema } from '@thaler
 // entities live here for the alpha — anything that posts journal entries is out
 // of scope (see the import plan).
 
-export type ImportEntityKey = 'customers' | 'items';
+export type ImportEntityKey = 'contacts' | 'items';
 
 export type ImportField = {
   key: string;
@@ -30,7 +30,7 @@ export type ImportEntity = {
   key: ImportEntityKey;
   label: string;
   // Hides the entity for roles that can't create it (UX only — the API gate is
-  // authoritative). customers:write and sales:write both resolve to
+  // authoritative). contacts:write and sales:write both resolve to
   // owner/admin/member, so the two entities surface together.
   cap: Capability;
   href: string;
@@ -72,7 +72,7 @@ const boolish = (raw: string): boolean | undefined => {
   return ['1', 'true', 'yes', 'y', 't', 'x', 'taxable'].includes(s);
 };
 
-const customerRowSchema = customerCreateSchema.omit({ companyId: true });
+const contactRowSchema = contactCreateSchema.omit({ companyId: true });
 const itemRowSchema = itemCreateSchema.omit({ companyId: true });
 
 type ZodIssue = { path: PropertyKey[]; message: string };
@@ -90,13 +90,13 @@ const nameDupeKey = (row: Record<string, unknown>): string | null => {
 
 export const IMPORT_ENTITIES: ImportEntity[] = [
   {
-    key: 'customers',
-    label: 'Customers',
-    cap: 'customers:write',
-    href: '/customers',
+    key: 'contacts',
+    label: 'Contacts',
+    cap: 'contacts:write',
+    href: '/contacts',
     dupeKey: nameDupeKey,
     validateRow: (row) => {
-      const res = customerRowSchema.safeParse(row);
+      const res = contactRowSchema.safeParse(row);
       return res.success
         ? { ok: true, value: res.data }
         : { ok: false, error: firstIssue(res.error.issues) };
@@ -108,6 +108,8 @@ export const IMPORT_ENTITIES: ImportEntity[] = [
         required: true,
         synonyms: [
           'name',
+          'contact',
+          'contactname',
           'customer',
           'customername',
           'client',
@@ -116,7 +118,6 @@ export const IMPORT_ENTITIES: ImportEntity[] = [
           'companyname',
           'fullname',
           'displayname',
-          'contact',
         ],
         coerce: text,
       },

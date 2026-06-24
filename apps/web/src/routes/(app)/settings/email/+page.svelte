@@ -21,7 +21,7 @@
   Email templates<span class="text-accent">.</span>
 </h1>
 <p class="mt-4 max-w-prose text-sm leading-relaxed text-fg/70">
-  Customize the wording your customers see. The Thalermark layout, buttons, and footer stay the same
+  Customize the wording your contacts see. The Thalermark layout, buttons, and footer stay the same
   — you edit the subject and message.
 </p>
 

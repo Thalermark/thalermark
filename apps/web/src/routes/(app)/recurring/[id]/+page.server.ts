@@ -11,10 +11,10 @@ export const load: PageServerLoad = async (event) => {
   if (!scheduleRes.ok) throw error(scheduleRes.status, 'failed to load recurring schedule');
   const schedule = await scheduleRes.json();
 
-  const customerRes = await client.api.customers[':id'].$get({
-    param: { id: schedule.customerId },
+  const contactRes = await client.api.contacts[':id'].$get({
+    param: { id: schedule.contactId },
   });
-  const customer = customerRes.ok ? await customerRes.json() : null;
+  const contact = contactRes.ok ? await contactRes.json() : null;
 
   // After run-now, the action redirects back with ?ran=<invoiceId> so the
   // success banner survives the post/redirect (same pattern as invoice ?sent).
@@ -28,7 +28,7 @@ export const load: PageServerLoad = async (event) => {
     ? ((await auditRes.json()) as { events: AuditEvent[] }).events
     : [];
 
-  return { schedule, customer, ranInvoiceId, auditEvents };
+  return { schedule, contact, ranInvoiceId, auditEvents };
 };
 
 type AuditEvent = {

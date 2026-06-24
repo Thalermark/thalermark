@@ -6,7 +6,7 @@ import type { RequestHandler } from './$types';
 
 // "Load more" proxy for the estimates list. customerName arrives joined. The
 // active filters ride along so "Load more" stays within the filtered set.
-const FILTER_KEYS = ['status', 'q', 'from', 'to', 'customerId'] as const;
+const FILTER_KEYS = ['status', 'q', 'from', 'to', 'contactId'] as const;
 
 export const GET: RequestHandler = async (event) => {
   const sp = event.url.searchParams;

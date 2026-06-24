@@ -24,17 +24,17 @@ const LINE_FIELD_TAX_POLICY_ID = 'li_taxPolicyId';
 
 export const load: PageServerLoad = async (event) => {
   const client = serverApiClient(event);
-  // Scope the customer dropdown to the active company (the nav switcher's pick).
+  // Scope the contact dropdown to the active company (the nav switcher's pick).
   const { activeCompanyId } = await event.parent();
   const custQuery: Record<string, string> = {};
   if (activeCompanyId) custQuery.companyId = activeCompanyId;
-  const [invoiceRes, customersRes] = await Promise.all([
+  const [invoiceRes, contactsRes] = await Promise.all([
     client.api.invoices[':id'].$get({ param: { id: event.params.id } }),
-    client.api.customers.$get({ query: custQuery }),
+    client.api.contacts.$get({ query: custQuery }),
   ]);
   if (invoiceRes.status === 404) throw error(404, 'invoice not found');
   if (!invoiceRes.ok) throw error(invoiceRes.status, 'failed to load invoice');
-  if (!customersRes.ok) throw error(customersRes.status, 'failed to load customers');
+  if (!contactsRes.ok) throw error(contactsRes.status, 'failed to load contacts');
   const invoice = await invoiceRes.json();
   // Edit is draft-only on the API side — surface the same boundary here so
   // a stale tab that lands on /edit after a status flip gets a clean 404
@@ -42,7 +42,7 @@ export const load: PageServerLoad = async (event) => {
   if (invoice.status !== 'draft') {
     throw error(409, 'this invoice is no longer editable');
   }
-  const { customers } = await customersRes.json();
+  const { contacts } = await contactsRes.json();
 
   // Active tax policies for the per-line tax picker (scoped to the invoice's
   // company). A line already tied to an archived policy still renders its rate
@@ -54,7 +54,7 @@ export const load: PageServerLoad = async (event) => {
 
   return {
     invoice,
-    customers: customers
+    contacts: contacts
       .map((c) => ({ id: c.id, name: c.name }))
       .sort((a, b) => a.name.localeCompare(b.name)),
     taxPolicies: taxPolicies.map((p) => ({
@@ -67,7 +67,7 @@ export const load: PageServerLoad = async (event) => {
 };
 
 type FormValues = {
-  customerId: string;
+  contactId: string;
   number: string;
   issueDate: string;
   dueDate: string;
@@ -106,7 +106,7 @@ function readForm(data: FormData): FormValues {
     taxPolicyId: (taxPolicyIds[i] ?? '').trim() || undefined,
   }));
   return {
-    customerId: String(data.get('customerId') ?? '').trim(),
+    contactId: String(data.get('contactId') ?? '').trim(),
     number: String(data.get('number') ?? '').trim(),
     issueDate: String(data.get('issueDate') ?? '').trim(),
     dueDate: String(data.get('dueDate') ?? '').trim(),
@@ -172,7 +172,7 @@ export const actions: Actions = {
     const total = addMoney(subtotal, tax);
 
     const payload: InvoiceUpdateInput = {
-      customerId: values.customerId,
+      contactId: values.contactId,
       number: values.number,
       issueDate: values.issueDate,
       dueDate: values.dueDate,
@@ -209,9 +209,9 @@ export const actions: Actions = {
         code === 'invoice_number_taken'
           ? 'Invoice number already used for this company. Try another.'
           : code === 'customer_company_mismatch'
-            ? 'Selected customer does not belong to this company.'
-            : code === 'customer_not_found'
-              ? 'Selected customer no longer exists.'
+            ? 'Selected contact does not belong to this company.'
+            : code === 'contact_not_found'
+              ? 'Selected contact no longer exists.'
               : code === 'not_editable'
                 ? 'This invoice is no longer in draft and cannot be edited.'
                 : code;

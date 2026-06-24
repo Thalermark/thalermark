@@ -13,7 +13,7 @@ export const PAGE_SIZE = 25;
 export type Page<T> = { rows: T[]; nextCursor: string | null };
 
 // Fetch the next page from a route's `/more` proxy. `path` is the proxy URL
-// (e.g. '/customers/more'); `params` carries the cursor plus any active
+// (e.g. '/contacts/more'); `params` carries the cursor plus any active
 // filters the proxy needs to reproduce the current result set.
 export async function fetchMore<T>(
   path: string,

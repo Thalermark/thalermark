@@ -7,14 +7,14 @@
 
   let { data }: PageProps = $props();
 
-  const { filters, customers } = $derived(data);
+  const { filters, contacts } = $derived(data);
   const STATUSES = ['draft', 'sent', 'paid', 'voided'];
   // Any filter active → show the "Clear" affordance + the "none match" empty copy.
   const anyFilter = $derived(
-    Boolean(filters.status || filters.q || filters.from || filters.to || filters.customerId),
+    Boolean(filters.status || filters.q || filters.from || filters.to || filters.contactId),
   );
 
-  // See /customers for the untrack() seed-and-re-seed pattern.
+  // See /contacts for the untrack() seed-and-re-seed pattern.
   type Row = (typeof data.invoices)[number];
   let rows = $state<Row[]>(untrack(() => data.invoices));
   let cursor = $state<string | null>(untrack(() => data.nextCursor));
@@ -40,7 +40,7 @@
         q: filters.q,
         from: filters.from,
         to: filters.to,
-        customerId: filters.customerId,
+        contactId: filters.contactId,
       });
       rows = [...rows, ...page.rows];
       cursor = page.nextCursor;
@@ -81,7 +81,7 @@
       type="search"
       name="q"
       value={filters.q}
-      placeholder="Number or customer"
+      placeholder="Number or contact"
       class="min-w-40 rounded-sm border border-fg/15 bg-surface px-2 py-1.5 text-sm normal-case tracking-normal text-fg"
     />
   </label>
@@ -99,15 +99,15 @@
     </select>
   </label>
   <label class="flex flex-col gap-1 text-xs uppercase tracking-widest text-fg/50">
-    Customer
+    Contact
     <select
-      name="customerId"
+      name="contactId"
       onchange={(e) => e.currentTarget.form?.requestSubmit()}
       class="rounded-sm border border-fg/15 bg-surface px-2 py-1.5 text-sm normal-case tracking-normal text-fg"
     >
-      <option value="" selected={filters.customerId === ''}>All</option>
-      {#each customers as c (c.id)}
-        <option value={c.id} selected={filters.customerId === c.id}>{c.name}</option>
+      <option value="" selected={filters.contactId === ''}>All</option>
+      {#each contacts as c (c.id)}
+        <option value={c.id} selected={filters.contactId === c.id}>{c.name}</option>
       {/each}
     </select>
   </label>
@@ -150,7 +150,7 @@
       <thead class="bg-surface">
         <tr class="label">
           <th class="px-5 py-3">Number</th>
-          <th class="px-5 py-3">Customer</th>
+          <th class="px-5 py-3">Contact</th>
           <th class="px-5 py-3">Status</th>
           <th class="px-5 py-3">Due</th>
           <th class="px-5 py-3 text-right">Total</th>
