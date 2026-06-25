@@ -38,6 +38,29 @@ export function enabledSocialProviders(env: Env): string[] {
   return Object.keys(socialCreds(env));
 }
 
+// Better Auth builds the verification link from baseURL (the API origin) and
+// embeds a `callbackURL` it redirects to AFTER marking the address verified —
+// defaulting to `/`, which resolves against the API origin. When web + API are
+// separate origins (dev, or any split deploy) that redirect lands on the API,
+// which has no UI → a 404 right after a *successful* verify. Resolve a relative
+// callbackURL against the web app (publicAppUrl) so it lands on the app instead.
+// An absolute callbackURL (e.g. a mobile deep link) is left untouched. In a
+// single-origin prod deploy (Caddy) publicAppUrl == the API origin, so this is a
+// no-op there. Mirrors how password reset already targets the web app.
+// Exported for unit testing (verification is off in the integration env).
+export function verifyUrlWithAppCallback(url: string, appUrl: string): string {
+  try {
+    const u = new URL(url);
+    const cb = u.searchParams.get('callbackURL') ?? '/';
+    if (cb.startsWith('/')) {
+      u.searchParams.set('callbackURL', new URL(cb, appUrl).toString());
+    }
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
+
 // Thin wrapper around @thalermark/auth's createAuth: pulls config out of the
 // loaded env. server.ts holds the resulting handle and passes it into the
 // Hono factory.
@@ -45,7 +68,13 @@ export function createApiAuth(db: Database, env: Env, mailer?: Mailer) {
   return createAuth(db, {
     secret: env.betterAuthSecret,
     baseURL: env.betterAuthUrl,
-    trustedOrigins: env.trustedOrigins,
+    // The verification callbackURL (below) is the web-app origin; BA only honors
+    // a callbackURL whose origin it trusts. publicAppUrl is usually already here
+    // via TRUSTED_ORIGINS (and is the same origin as baseURL in single-origin
+    // prod), but fold it in so the redirect can't be silently rejected.
+    trustedOrigins: env.publicAppUrl
+      ? Array.from(new Set([...env.trustedOrigins, env.publicAppUrl]))
+      : env.trustedOrigins,
     rateLimitEnabled: env.rateLimitEnabled,
     ...socialCreds(env),
     // Require email verification when there's a real way to deliver the email,
@@ -60,7 +89,14 @@ export function createApiAuth(db: Database, env: Env, mailer?: Mailer) {
     // sender is a no-op, which is fine since verification is off there anyway.
     sendVerificationEmail: mailer
       ? async ({ user, url }) => {
-          const { subject, html, text } = verificationEmail({ name: user.name, url });
+          if (!env.publicAppUrl) {
+            log.warn(
+              'PUBLIC_APP_URL is unset; the email-verification link will redirect to the API origin',
+            );
+          }
+          // Land the post-verify redirect on the web app, not the API origin.
+          const link = env.publicAppUrl ? verifyUrlWithAppCallback(url, env.publicAppUrl) : url;
+          const { subject, html, text } = verificationEmail({ name: user.name, url: link });
           await mailer.send({ to: user.email, subject, html, text });
         }
       : undefined,
