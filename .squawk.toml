@@ -58,4 +58,16 @@ excluded_rules = [
   # Same concern as constraint-missing-not-valid, just a different
   # rule name for the FK-specific case. Same reasoning to exclude.
   "adding-foreign-key-constraint",
+
+  # The collapsed baseline (0000_baseline.sql) is a schema-only pg_dump of
+  # the fully-migrated database, which emits PRIMARY KEY and UNIQUE
+  # constraints as separate `ALTER TABLE ... ADD CONSTRAINT` statements.
+  # (drizzle-kit's generated migrations inline these in CREATE TABLE, which
+  # is why the old 0000-0054 chain never tripped them.) Both rules warn
+  # about the ACCESS EXCLUSIVE lock held while the constraint's index
+  # builds — which only matters against a populated production table. The
+  # baseline builds these on freshly-created, empty tables, so the lock is
+  # instantaneous. Same pre-launch rationale as the rules above.
+  "adding-serial-primary-key-field",
+  "disallowed-unique-constraint",
 ]

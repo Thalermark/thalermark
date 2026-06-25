@@ -1,2 +1,0 @@
-ALTER TABLE "auth_user" ADD COLUMN "last_account_id" uuid;--> statement-breakpoint
-ALTER TABLE "auth_user" ADD CONSTRAINT "auth_user_last_account_id_accounts_id_fk" FOREIGN KEY ("last_account_id") REFERENCES "public"."accounts"("id") ON DELETE set null ON UPDATE no action;
