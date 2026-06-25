@@ -23,6 +23,12 @@ export type DupeCandidate = {
   email: string | null;
 };
 
+// Posted in the hidden contactId field when the user picks "+ Add new contact"
+// in the ContactPicker type-ahead. The invoice/estimate/recurring server
+// actions branch on this exact string to run the inline-create flow instead of
+// treating the value as a UUID.
+export const NEW_CONTACT_SENTINEL = '__new__';
+
 function normalizeEmail(s: string): string {
   return s.trim().toLowerCase();
 }

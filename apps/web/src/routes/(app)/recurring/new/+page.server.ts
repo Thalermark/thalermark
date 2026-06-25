@@ -1,6 +1,6 @@
 import { pickActiveCompany } from '$lib/active-company';
 import { serverApiClient } from '$lib/api.server';
-import { findEmailDupe } from '$lib/contact-dupes';
+import { NEW_CONTACT_SENTINEL, findEmailDupe } from '$lib/contact-dupes';
 import { lineTax, policyRate } from '$lib/line-tax';
 import { error, fail, redirect } from '@sveltejs/kit';
 import {
@@ -15,11 +15,9 @@ import {
 } from '@thalermark/validation';
 import type { Actions, PageServerLoad } from './$types';
 
-// Sentinel contactId emitted by the "+ Add new contact" dropdown option. The
-// action branches on it: pull the inline name + email, create the contact
-// first, then use the returned id for the recurring-invoice POST. Mirrors
-// +page.svelte (and /invoices/new).
-const NEW_CONTACT_SENTINEL = '__new__';
+// The ContactPicker posts `contactId` as the sentinel for "+ Add new
+// contact": pull the inline name + email, create the contact first, then use
+// the returned id for the recurring-invoice POST. Mirrors /invoices/new.
 
 // Multi-value line-item field names, zipped by index on the server. Same shape
 // as /invoices/new and /estimates/new.
@@ -34,18 +32,11 @@ const LINE_FIELD_TAX_POLICY_ID = 'li_taxPolicyId';
 
 export const load: PageServerLoad = async (event) => {
   const client = serverApiClient(event);
-  // Scope the contact dropdown to the active company (the nav switcher's pick).
-  const { activeCompanyId } = await event.parent();
-  const custQuery: Record<string, string> = {};
-  if (activeCompanyId) custQuery.companyId = activeCompanyId;
-  const [companiesRes, contactsRes] = await Promise.all([
-    client.api.companies.$get(),
-    client.api.contacts.$get({ query: custQuery }),
-  ]);
+  // The contact selector is a type-ahead (ContactPicker) searching
+  // /contacts/search on demand, so the page no longer ships the full list.
+  const companiesRes = await client.api.companies.$get();
   if (!companiesRes.ok) throw error(companiesRes.status, 'failed to load companies');
-  if (!contactsRes.ok) throw error(contactsRes.status, 'failed to load contacts');
   const { companies } = await companiesRes.json();
-  const { contacts } = await contactsRes.json();
   const company = pickActiveCompany(event.cookies, companies);
   if (!company) throw error(500, 'no company in this workspace');
 
@@ -56,9 +47,6 @@ export const load: PageServerLoad = async (event) => {
 
   return {
     companyId: company.id,
-    contacts: contacts
-      .map((c) => ({ id: c.id, name: c.name, email: c.email ?? null }))
-      .sort((a, b) => a.name.localeCompare(b.name)),
     taxPolicies: taxPolicies.map((p) => ({
       id: p.id,
       name: p.name,
@@ -70,6 +58,9 @@ export const load: PageServerLoad = async (event) => {
 
 type FormValues = {
   contactId: string;
+  // Round-trips the ContactPicker's visible search text so a fail() re-render
+  // re-shows the picked/typed contact name.
+  contactName: string;
   newContactName: string;
   newContactEmail: string;
   frequency: string;
@@ -111,6 +102,7 @@ function readForm(data: FormData): FormValues {
   }));
   return {
     contactId: String(data.get('contactId') ?? '').trim(),
+    contactName: String(data.get('contactName') ?? '').trim(),
     newContactName: String(data.get('newContactName') ?? '').trim(),
     newContactEmail: String(data.get('newContactEmail') ?? '').trim(),
     frequency: String(data.get('frequency') ?? '').trim(),
@@ -145,7 +137,9 @@ export const actions: Actions = {
     // /invoices/new. On failure, re-render in new-mode with field errors
     // (values.contactId stays the sentinel so the inline block re-opens).
     let resolvedContactId = values.contactId;
-    let extraContact: { id: string; name: string } | undefined;
+    // On inline-create recovery the picker re-seeds from values.contactId +
+    // values.contactName so it shows the new contact linked, not the sentinel.
+    let createdName: string | undefined;
     if (values.contactId === NEW_CONTACT_SENTINEL) {
       const parsedCust = contactCreateSchema.safeParse({
         companyId,
@@ -160,18 +154,23 @@ export const actions: Actions = {
         }
         return fail(400, { values, contactErrors });
       }
-      // HARD BLOCK on email exact match. Re-fetch server-side to close the race
-      // where another tab created the dupe between load() and this POST.
-      const listRes = await client.api.contacts.$get({ query: { companyId } });
-      if (listRes.ok) {
-        const { contacts: list } = await listRes.json();
-        const emailDupe = findEmailDupe(parsedCust.data.email, list);
-        if (emailDupe) {
-          return fail(409, {
-            values,
-            contactErrors: { email: 'email_dupe' },
-            dupeContact: { id: emailDupe.id, name: emailDupe.name },
-          });
+      // HARD BLOCK on email exact match. Search by the email server-side (q
+      // matches name OR email) so the check is correct at any contact count and
+      // closes the race where another tab created the dupe between load() and POST.
+      if (parsedCust.data.email) {
+        const listRes = await client.api.contacts.$get({
+          query: { companyId, q: parsedCust.data.email },
+        });
+        if (listRes.ok) {
+          const { contacts: list } = await listRes.json();
+          const emailDupe = findEmailDupe(parsedCust.data.email, list);
+          if (emailDupe) {
+            return fail(409, {
+              values,
+              contactErrors: { email: 'email_dupe' },
+              dupeContact: { id: emailDupe.id, name: emailDupe.name },
+            });
+          }
         }
       }
       const custRes = await client.api.contacts.$post({ json: parsedCust.data });
@@ -184,7 +183,7 @@ export const actions: Actions = {
       }
       const createdContact = await custRes.json();
       resolvedContactId = createdContact.id;
-      extraContact = { id: createdContact.id, name: createdContact.name };
+      createdName = createdContact.name;
     }
 
     const policies = await loadPolicyRates(event, companyId);
@@ -234,11 +233,12 @@ export const actions: Actions = {
         if (!fieldErrors[key]) fieldErrors[key] = issue.message;
       }
       // If we came via inline-create, the contact was already persisted — swap
-      // the sentinel for the real id so the re-render pre-selects them.
+      // the sentinel for the real id + name so the picker shows them linked.
       return fail(400, {
-        values: extraContact ? { ...values, contactId: extraContact.id } : values,
+        values: createdName
+          ? { ...values, contactId: resolvedContactId, contactName: createdName }
+          : values,
         fieldErrors,
-        extraContact,
       });
     }
 
@@ -253,9 +253,10 @@ export const actions: Actions = {
             ? 'Selected contact no longer exists.'
             : code;
       return fail(res.status, {
-        values: extraContact ? { ...values, contactId: extraContact.id } : values,
+        values: createdName
+          ? { ...values, contactId: resolvedContactId, contactName: createdName }
+          : values,
         formError,
-        extraContact,
       });
     }
     const created = await res.json();

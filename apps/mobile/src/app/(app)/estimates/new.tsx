@@ -12,7 +12,6 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -22,19 +21,20 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Checkbox } from '../../../components/Checkbox';
+import { ContactField } from '../../../components/ContactField';
 import { DateField } from '../../../components/DateField';
 import { type ItemPatch, ItemPickerField } from '../../../components/ItemPickerField';
 import { TaxRow } from '../../../components/TaxRow';
 import { TypeRow } from '../../../components/TypeRow';
 import { pickActiveCompany } from '../../../lib/active-company';
 import { api } from '../../../lib/api';
-import { type DupeCandidate, findEmailDupe, findNameDupes } from '../../../lib/contact-dupes';
+import { NEW_CONTACT, findEmailDupe } from '../../../lib/contact-dupes';
 import { type TaxPolicyLite, lineTax, policyRate, resolvePolicyId } from '../../../lib/line-tax';
 
 // Mirror of apps/web's /estimates/new — the invoice create form minus dueDate,
-// plus an optional expiresOn (quote validity). Two-step create with inline
-// contact; decimal-string money; sourceItemId via ItemPickerField.
-const NEW_CONTACT = '__new__';
+// plus an optional expiresOn (quote validity). Contact via the ContactField
+// type-ahead; two-step create with inline contact; decimal-string money;
+// sourceItemId via ItemPickerField.
 
 type Row = {
   description: string;
@@ -69,13 +69,12 @@ export default function NewEstimate() {
   const router = useRouter();
 
   const [companyId, setCompanyId] = useState<string | null>(null);
-  const [contacts, setContacts] = useState<DupeCandidate[]>([]);
   const [bootstrapped, setBootstrapped] = useState(false);
 
   const [contactId, setContactId] = useState('');
+  const [contactName, setContactName] = useState('');
   const [newName, setNewName] = useState('');
   const [newEmail, setNewEmail] = useState('');
-  const [pickerOpen, setPickerOpen] = useState(false);
 
   const [number, setNumber] = useState('');
   const [issueDate, setIssueDate] = useState(todayIso());
@@ -103,15 +102,8 @@ export default function NewEstimate() {
       didBootstrap.current = true;
       let active = true;
       (async () => {
-        const [compRes, custRes] = await Promise.all([
-          api.api.companies.$get(),
-          api.api.contacts.$get(),
-        ]);
+        const compRes = await api.api.companies.$get();
         if (!active) return;
-        if (custRes.ok) {
-          const { contacts: rowsC } = await custRes.json();
-          setContacts(rowsC.map((c) => ({ id: c.id, name: c.name, email: c.email ?? null })));
-        }
         if (compRes.ok) {
           const { companies } = await compRes.json();
           const company = await pickActiveCompany(companies);
@@ -151,17 +143,6 @@ export default function NewEstimate() {
   );
 
   const inlineMode = contactId === NEW_CONTACT;
-  const selectedName =
-    contactId && !inlineMode ? contacts.find((c) => c.id === contactId)?.name : null;
-
-  const emailDupe = useMemo(
-    () => (inlineMode ? findEmailDupe(newEmail, contacts) : undefined),
-    [inlineMode, newEmail, contacts],
-  );
-  const nameDupes = useMemo(
-    () => (inlineMode ? findNameDupes(newName, contacts) : []),
-    [inlineMode, newName, contacts],
-  );
 
   const computedRows = useMemo(
     () =>
@@ -209,7 +190,7 @@ export default function NewEstimate() {
 
   const noCompany = bootstrapped && companyId === null;
   const hasContact = inlineMode ? newName.trim().length > 0 : contactId !== '';
-  const canSubmit = !submitting && !noCompany && !emailDupe && hasContact;
+  const canSubmit = !submitting && !noCompany && hasContact;
 
   async function onSubmit() {
     if (!companyId) {
@@ -236,10 +217,27 @@ export default function NewEstimate() {
         setFieldErrors(errs);
         return;
       }
-      if (findEmailDupe(parsedCust.data.email, contacts)) return;
-
       setSubmitting(true);
       try {
+        // HARD BLOCK on email exact match (the API doesn't dedupe). Search by
+        // the email so the check is correct at any contact count.
+        if (parsedCust.data.email) {
+          const dres = await api.api.contacts.$get({
+            query: { q: parsedCust.data.email, companyId },
+          });
+          if (dres.ok) {
+            const { contacts: list } = await dres.json();
+            const dupe = findEmailDupe(
+              parsedCust.data.email,
+              list.map((c) => ({ id: c.id, name: c.name, email: c.email ?? null })),
+            );
+            if (dupe) {
+              setFieldErrors({ contact_email: `${dupe.name} already uses this email.` });
+              setSubmitting(false);
+              return;
+            }
+          }
+        }
         const custRes = await api.api.contacts.$post({ json: parsedCust.data });
         if (!custRes.ok) {
           const body = (await custRes.json().catch(() => null)) as { error?: string } | null;
@@ -248,10 +246,7 @@ export default function NewEstimate() {
         }
         const created = await custRes.json();
         resolvedContactId = created.id;
-        setContacts((cs) => [
-          { id: created.id, name: created.name, email: newEmail.trim() || null },
-          ...cs,
-        ]);
+        setContactName(created.name);
         setContactId(created.id);
         setNewName('');
         setNewEmail('');
@@ -349,79 +344,21 @@ export default function NewEstimate() {
           ) : null}
 
           <View className="mt-8 space-y-5">
-            {/* Contact */}
-            <View>
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
-                Contact *
-              </Text>
-              <Pressable
-                onPress={() => setPickerOpen(true)}
-                className="mt-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-3"
-              >
-                <Text className={selectedName || inlineMode ? 'text-ink' : 'text-ink/40'}>
-                  {inlineMode ? '+ New contact' : (selectedName ?? 'Select a contact')}
-                </Text>
-              </Pressable>
-            </View>
-
-            {inlineMode ? (
-              <View className="space-y-3 rounded-sm border border-ink/10 bg-cream-warm/60 p-4">
-                <View>
-                  <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
-                    Name *
-                  </Text>
-                  <TextInput
-                    value={newName}
-                    onChangeText={setNewName}
-                    className="mt-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink"
-                  />
-                  {fieldErrors.contact_name ? (
-                    <Text className="mt-1 text-xs text-oxblood">{fieldErrors.contact_name}</Text>
-                  ) : null}
-                  {nameDupes.length > 0 ? (
-                    <View className="mt-2 rounded-sm border border-ink/10 bg-cream p-2">
-                      <Text className="text-xs text-ink/60">Looks like an existing contact:</Text>
-                      {nameDupes.map((d) => (
-                        <Pressable
-                          key={d.id}
-                          onPress={() => setContactId(d.id)}
-                          className="mt-1 flex-row items-center justify-between"
-                        >
-                          <Text className="text-sm text-ink">{d.name}</Text>
-                          <Text className="font-mono text-xs uppercase tracking-wider text-gold-deep">
-                            Use
-                          </Text>
-                        </Pressable>
-                      ))}
-                    </View>
-                  ) : null}
-                </View>
-                <View>
-                  <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
-                    Email
-                  </Text>
-                  <TextInput
-                    value={newEmail}
-                    onChangeText={setNewEmail}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                    className="mt-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink"
-                  />
-                </View>
-                {emailDupe ? (
-                  <View className="rounded-sm border border-oxblood/30 bg-oxblood/5 p-3">
-                    <Text className="text-sm text-ink">
-                      <Text className="font-medium">{emailDupe.name}</Text> already uses this email.
-                    </Text>
-                    <Pressable onPress={() => setContactId(emailDupe.id)} className="mt-2">
-                      <Text className="font-mono text-xs uppercase tracking-wider text-gold-deep">
-                        Use {emailDupe.name}
-                      </Text>
-                    </Pressable>
-                  </View>
-                ) : null}
-              </View>
-            ) : null}
+            <ContactField
+              label="Contact *"
+              companyId={companyId}
+              contactName={contactName}
+              setContactName={setContactName}
+              contactId={contactId}
+              setContactId={setContactId}
+              error={fieldErrors.contactId}
+              newName={newName}
+              setNewName={setNewName}
+              newEmail={newEmail}
+              setNewEmail={setNewEmail}
+              nameError={fieldErrors.contact_name}
+              emailError={fieldErrors.contact_email}
+            />
 
             <LabeledInput
               label="Number *"
@@ -578,46 +515,6 @@ export default function NewEstimate() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
-
-      <Modal
-        visible={pickerOpen}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setPickerOpen(false)}
-      >
-        <Pressable className="flex-1 justify-end bg-ink/40" onPress={() => setPickerOpen(false)}>
-          <Pressable
-            className="max-h-[70%] rounded-t-lg bg-cream px-6 pb-10 pt-5"
-            onPress={() => {}}
-          >
-            <Text className="font-serif text-xl text-ink">Choose contact</Text>
-            <ScrollView className="mt-4">
-              <Pressable
-                onPress={() => {
-                  setContactId(NEW_CONTACT);
-                  setPickerOpen(false);
-                }}
-                className="border-b border-ink/10 py-3"
-              >
-                <Text className="font-medium text-gold-deep">+ New contact</Text>
-              </Pressable>
-              {contacts.map((c) => (
-                <Pressable
-                  key={c.id}
-                  onPress={() => {
-                    setContactId(c.id);
-                    setPickerOpen(false);
-                  }}
-                  className="border-b border-ink/10 py-3"
-                >
-                  <Text className="text-ink">{c.name}</Text>
-                  {c.email ? <Text className="text-xs text-ink/50">{c.email}</Text> : null}
-                </Pressable>
-              ))}
-            </ScrollView>
-          </Pressable>
-        </Pressable>
-      </Modal>
     </SafeAreaView>
   );
 }

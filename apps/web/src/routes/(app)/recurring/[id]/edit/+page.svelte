@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
+  import ContactPicker from '$lib/components/ContactPicker.svelte';
   import ItemPicker from '$lib/components/ItemPicker.svelte';
   import { defaultPolicyId, lineTax, policyRate } from '$lib/line-tax';
   import { type LineItemType, addMoney, multiplyMoney, sumMoney } from '@thalermark/validation';
@@ -80,7 +81,6 @@
   }
 
   // Defaults fall back to the loaded schedule when there's no prior submission.
-  const contactId = $derived(values?.contactId ?? schedule.contactId);
   const frequency = $derived(values?.frequency ?? schedule.frequency);
   const intervalCount = $derived(values?.intervalCount ?? String(schedule.intervalCount));
   const startDate = $derived(values?.startDate ?? schedule.startDate);
@@ -106,22 +106,15 @@
 <form method="post" class="mt-8 space-y-8">
   <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
     <div>
-      <label for="contactId" class="label">
+      <label for="contactName" class="label">
         Contact<span class="text-accent">*</span>
       </label>
-      <select
-        id="contactId"
-        name="contactId"
-        required
-        class="field mt-1"
-      >
-        {#each data.contacts as c (c.id)}
-          <option value={c.id} selected={contactId === c.id}>{c.name}</option>
-        {/each}
-      </select>
-      {#if err('contactId')}
-        <p class="mt-1 text-xs text-danger">{err('contactId')}</p>
-      {/if}
+      <ContactPicker
+        allowCreate={false}
+        initialContactId={values?.contactId ?? schedule.contactId}
+        initialContactName={values?.contactName ?? data.initialContact?.name ?? ''}
+        fieldError={err('contactId')}
+      />
     </div>
 
     <div>

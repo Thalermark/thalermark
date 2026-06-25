@@ -3,15 +3,16 @@ import { serverApiClient } from '$lib/api.server';
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
 
-// Same-origin browser proxy for the expense Vendor type-ahead (VendorPicker).
-// Mirrors items/search: Caddy routes /api/* to the Hono api, auth is already
-// gated by hooks.server.ts, and serverApiClient forwards the session cookie +
+// Same-origin browser proxy for the contact type-aheads (VendorPicker on
+// expenses, ContactPicker on invoices/estimates/recurring). Mirrors
+// items/search: Caddy routes /api/* to the Hono api, auth is already gated by
+// hooks.server.ts, and serverApiClient forwards the session cookie +
 // x-account-id so the underlying GET /api/contacts stays tenant- + RLS-scoped.
 //
 // Searches ALL contacts (no role filter) on purpose: linking an expense to an
 // existing customer is how that contact also becomes a vendor — the buy-from
-// half of the unified relationship. The picker only surfaces {id, name} for the
-// suggestion list.
+// half of the unified relationship. Surfaces {id, name, email}: name drives the
+// suggestion list, email lets ContactPicker run its inline-create dupe hints.
 export const GET: RequestHandler = async (event) => {
   const q = event.url.searchParams.get('q')?.trim();
   if (!q) return json({ contacts: [] });
@@ -27,6 +28,6 @@ export const GET: RequestHandler = async (event) => {
   const { contacts } = await res.json();
 
   return json({
-    contacts: contacts.map((c) => ({ id: c.id, name: c.name })),
+    contacts: contacts.map((c) => ({ id: c.id, name: c.name, email: c.email ?? null })),
   });
 };
