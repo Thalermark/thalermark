@@ -86,6 +86,12 @@ describe('validateRow', () => {
     expect(res.ok).toBe(true);
   });
 
+  it('keeps the import-only archived flag through item validation', () => {
+    const res = items.validateRow({ name: 'Old Service', archived: true });
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.value.archived).toBe(true);
+  });
+
   it('rejects a row missing the required name', () => {
     const res = contacts.validateRow({ email: 'a@b.example' });
     expect(res.ok).toBe(false);

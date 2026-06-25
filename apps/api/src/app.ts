@@ -3613,7 +3613,16 @@ export function createApp(deps: AppDeps) {
           .limit(1);
         if (!company) return c.json({ error: 'company_not_found' }, 404);
 
-        const rows = parsed.data.rows.map((r) => ({ id: uuidv7(), accountId, companyId, ...r }));
+        // `archived` is an import-only boolean (the catalog round-trips its
+        // archived state); translate it to the archived_at timestamp the table
+        // actually stores. Omitted/false → null (active).
+        const rows = parsed.data.rows.map(({ archived, ...r }) => ({
+          id: uuidv7(),
+          accountId,
+          companyId,
+          ...r,
+          archivedAt: archived ? new Date() : null,
+        }));
         await tx.insert(items).values(rows);
         for (const row of rows) {
           await c.var.audit({

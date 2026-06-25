@@ -28,12 +28,21 @@ export const contactImportSchema = z.object({
 
 export type ContactImportInput = z.infer<typeof contactImportSchema>;
 
+// Item import rows reuse the create schema (minus companyId) plus one
+// import-only field: `archived`. The create/update endpoints deliberately keep
+// archived_at off their schemas (archive/restore are dedicated transitions), but
+// import round-trips the catalog as it stands — an exported CSV carries each
+// item's archived state, so re-import must be able to set it. Optional: an
+// absent/empty cell leaves the item active. The handler maps it to archived_at.
+export const itemImportRowSchema = itemCreateSchema
+  .omit({ companyId: true })
+  .extend({ archived: z.boolean().optional() });
+
+export type ItemImportRowInput = z.infer<typeof itemImportRowSchema>;
+
 export const itemImportSchema = z.object({
   companyId: z.string().uuid(),
-  rows: z
-    .array(itemCreateSchema.omit({ companyId: true }))
-    .min(1)
-    .max(MAX_IMPORT_ROWS),
+  rows: z.array(itemImportRowSchema).min(1).max(MAX_IMPORT_ROWS),
 });
 
 export type ItemImportInput = z.infer<typeof itemImportSchema>;
