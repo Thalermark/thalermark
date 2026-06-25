@@ -24,17 +24,9 @@ const LINE_FIELD_TAX_POLICY_ID = 'li_taxPolicyId';
 
 export const load: PageServerLoad = async (event) => {
   const client = serverApiClient(event);
-  // Scope the contact dropdown to the active company (the nav switcher's pick).
-  const { activeCompanyId } = await event.parent();
-  const custQuery: Record<string, string> = {};
-  if (activeCompanyId) custQuery.companyId = activeCompanyId;
-  const [estimateRes, contactsRes] = await Promise.all([
-    client.api.estimates[':id'].$get({ param: { id: event.params.id } }),
-    client.api.contacts.$get({ query: custQuery }),
-  ]);
+  const estimateRes = await client.api.estimates[':id'].$get({ param: { id: event.params.id } });
   if (estimateRes.status === 404) throw error(404, 'estimate not found');
   if (!estimateRes.ok) throw error(estimateRes.status, 'failed to load estimate');
-  if (!contactsRes.ok) throw error(contactsRes.status, 'failed to load contacts');
   const estimate = await estimateRes.json();
   // Edit is draft-only on the API side — surface the same boundary at load
   // so a stale tab landing on /edit after a status flip gets a clean 409
@@ -42,7 +34,18 @@ export const load: PageServerLoad = async (event) => {
   if (estimate.status !== 'draft') {
     throw error(409, 'this estimate is no longer editable');
   }
-  const { contacts } = await contactsRes.json();
+
+  // The contact selector is a type-ahead (ContactPicker, allowCreate=false)
+  // that searches /contacts/search on demand, so we only need the currently
+  // linked contact's name to seed the field — not the whole list.
+  let initialContact: { id: string; name: string } | null = null;
+  const contactRes = await client.api.contacts[':id'].$get({
+    param: { id: estimate.contactId },
+  });
+  if (contactRes.ok) {
+    const c = await contactRes.json();
+    initialContact = { id: c.id, name: c.name };
+  }
 
   const polRes = await client.api['tax-policies'].$get({
     query: { companyId: estimate.companyId, limit: '100' },
@@ -51,9 +54,7 @@ export const load: PageServerLoad = async (event) => {
 
   return {
     estimate,
-    contacts: contacts
-      .map((c) => ({ id: c.id, name: c.name }))
-      .sort((a, b) => a.name.localeCompare(b.name)),
+    initialContact,
     taxPolicies: taxPolicies.map((p) => ({
       id: p.id,
       name: p.name,
@@ -65,6 +66,9 @@ export const load: PageServerLoad = async (event) => {
 
 type FormValues = {
   contactId: string;
+  // Round-trips the ContactPicker's visible search text so a fail() re-render
+  // re-shows the selected contact name (read but not sent to the API).
+  contactName: string;
   number: string;
   issueDate: string;
   expiresOn: string;
@@ -104,6 +108,7 @@ function readForm(data: FormData): FormValues {
   }));
   return {
     contactId: String(data.get('contactId') ?? '').trim(),
+    contactName: String(data.get('contactName') ?? '').trim(),
     number: String(data.get('number') ?? '').trim(),
     issueDate: String(data.get('issueDate') ?? '').trim(),
     expiresOn: String(data.get('expiresOn') ?? '').trim(),

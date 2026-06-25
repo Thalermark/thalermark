@@ -24,17 +24,9 @@ const LINE_FIELD_TAX_POLICY_ID = 'li_taxPolicyId';
 
 export const load: PageServerLoad = async (event) => {
   const client = serverApiClient(event);
-  // Scope the contact dropdown to the active company (the nav switcher's pick).
-  const { activeCompanyId } = await event.parent();
-  const custQuery: Record<string, string> = {};
-  if (activeCompanyId) custQuery.companyId = activeCompanyId;
-  const [invoiceRes, contactsRes] = await Promise.all([
-    client.api.invoices[':id'].$get({ param: { id: event.params.id } }),
-    client.api.contacts.$get({ query: custQuery }),
-  ]);
+  const invoiceRes = await client.api.invoices[':id'].$get({ param: { id: event.params.id } });
   if (invoiceRes.status === 404) throw error(404, 'invoice not found');
   if (!invoiceRes.ok) throw error(invoiceRes.status, 'failed to load invoice');
-  if (!contactsRes.ok) throw error(contactsRes.status, 'failed to load contacts');
   const invoice = await invoiceRes.json();
   // Edit is draft-only on the API side — surface the same boundary here so
   // a stale tab that lands on /edit after a status flip gets a clean 404
@@ -42,7 +34,18 @@ export const load: PageServerLoad = async (event) => {
   if (invoice.status !== 'draft') {
     throw error(409, 'this invoice is no longer editable');
   }
-  const { contacts } = await contactsRes.json();
+
+  // The contact selector is a type-ahead (ContactPicker, allowCreate=false)
+  // that searches /contacts/search on demand, so we only need the currently
+  // linked contact's name to seed the field — not the whole list.
+  let initialContact: { id: string; name: string } | null = null;
+  const contactRes = await client.api.contacts[':id'].$get({
+    param: { id: invoice.contactId },
+  });
+  if (contactRes.ok) {
+    const c = await contactRes.json();
+    initialContact = { id: c.id, name: c.name };
+  }
 
   // Active tax policies for the per-line tax picker (scoped to the invoice's
   // company). A line already tied to an archived policy still renders its rate
@@ -54,9 +57,7 @@ export const load: PageServerLoad = async (event) => {
 
   return {
     invoice,
-    contacts: contacts
-      .map((c) => ({ id: c.id, name: c.name }))
-      .sort((a, b) => a.name.localeCompare(b.name)),
+    initialContact,
     taxPolicies: taxPolicies.map((p) => ({
       id: p.id,
       name: p.name,
@@ -68,6 +69,9 @@ export const load: PageServerLoad = async (event) => {
 
 type FormValues = {
   contactId: string;
+  // Round-trips the ContactPicker's visible search text so a fail() re-render
+  // re-shows the selected contact name (read but not sent to the API).
+  contactName: string;
   number: string;
   issueDate: string;
   dueDate: string;
@@ -107,6 +111,7 @@ function readForm(data: FormData): FormValues {
   }));
   return {
     contactId: String(data.get('contactId') ?? '').trim(),
+    contactName: String(data.get('contactName') ?? '').trim(),
     number: String(data.get('number') ?? '').trim(),
     issueDate: String(data.get('issueDate') ?? '').trim(),
     dueDate: String(data.get('dueDate') ?? '').trim(),

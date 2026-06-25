@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { findEmailDupe, findNameDupes } from '$lib/contact-dupes';
+  import ContactPicker from '$lib/components/ContactPicker.svelte';
   import ItemPicker from '$lib/components/ItemPicker.svelte';
   import { defaultPolicyId, lineTax, policyRate } from '$lib/line-tax';
   import { type LineItemType, addMoney, multiplyMoney, sumMoney } from '@thalermark/validation';
@@ -121,56 +121,6 @@
     if (rows.length <= 1) return;
     rows.splice(index, 1);
   }
-
-  // Sentinel for the "+ Add new contact" option. Server reads `contactId`
-  // and branches on this exact string (matches the literal in +page.server.ts).
-  // Inline mode opens whenever the contact select holds this value.
-  const NEW_CONTACT_SENTINEL = '__new__';
-
-  // 409 recovery: when the new-contact create succeeded but the invoice
-  // create failed (e.g. number taken), the server returns the just-created
-  // contact in form.extraContact + values.contactId = its id. Merge it
-  // into the dropdown so the re-render can pre-select them instead of
-  // dropping the user back into the sentinel.
-  const contactsWithExtra = $derived(
-    form?.extraContact
-      ? [form.extraContact, ...data.contacts.filter((c) => c.id !== form.extraContact!.id)]
-      : data.contacts,
-  );
-
-  // Bound to the select; drives the inline-fields toggle. Default: prior
-  // submit's contactId, else the sentinel when no existing contacts
-  // (zero-state goes straight into inline-create instead of bouncing out),
-  // else empty so the placeholder shows.
-  let contactId = $state<string>(
-    untrack(() => {
-      const submitted = form?.values?.contactId;
-      if (submitted) return submitted;
-      return data.contacts.length === 0 ? NEW_CONTACT_SENTINEL : '';
-    }),
-  );
-  const inlineMode = $derived(contactId === NEW_CONTACT_SENTINEL);
-
-  const contactErrors = $derived(form?.contactErrors ?? {});
-  function custErr(key: string): string | undefined {
-    return (contactErrors as Record<string, string>)[key];
-  }
-
-  // Live dupe-hints in inline mode. As the user types name/email, find
-  // matches against the already-loaded contact list. Email match is the
-  // strong signal (also enforced server-side as a hard block); name match
-  // is advisory. Bound to inputs via $state so the suggestions reactively
-  // narrow. Initial values seed from form?.values to survive a fail()
-  // re-render — server may have just rejected the submit, and re-showing
-  // the warning helps the user understand why.
-  let inlineNewName = $state<string>(untrack(() => form?.values?.newContactName ?? ''));
-  let inlineNewEmail = $state<string>(untrack(() => form?.values?.newContactEmail ?? ''));
-  const liveEmailDupe = $derived(findEmailDupe(inlineNewEmail, data.contacts));
-  const liveNameDupes = $derived(findNameDupes(inlineNewName, data.contacts));
-
-  function useExisting(id: string) {
-    contactId = id;
-  }
 </script>
 
 <a href="/invoices" class="eyebrow text-fg/60 hover:text-fg">← Invoices</a>
@@ -187,122 +137,18 @@
 <form method="post" class="mt-8 space-y-8">
   <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
     <div>
-      <label for="contactId" class="label">
+      <label for="contactName" class="label">
         Contact<span class="text-accent">*</span>
       </label>
-      <select
-        id="contactId"
-        name="contactId"
-        required
-        bind:value={contactId}
-        class="field mt-1"
-      >
-        <option value="" disabled>Select a contact…</option>
-        <option value={NEW_CONTACT_SENTINEL}>+ Add new contact</option>
-        {#if contactsWithExtra.length > 0}
-          <option value="" disabled>──────────</option>
-          {#each contactsWithExtra as c (c.id)}
-            <option value={c.id}>{c.name}</option>
-          {/each}
-        {/if}
-      </select>
-      {#if err('contactId')}
-        <p class="mt-1 text-xs text-danger">{err('contactId')}</p>
-      {/if}
-      {#if inlineMode}
-        <div class="mt-3 space-y-3 rounded-sm border border-fg/10 bg-surface-2/60 p-4">
-          <div>
-            <label for="newContactName" class="label">
-              Name<span class="text-accent">*</span>
-            </label>
-            <input
-              id="newContactName"
-              name="newContactName"
-              type="text"
-              maxlength="200"
-              required={inlineMode}
-              bind:value={inlineNewName}
-              class="field mt-1"
-            />
-            {#if custErr('name')}
-              <p class="mt-1 text-xs text-danger">{custErr('name')}</p>
-            {/if}
-            {#if liveNameDupes.length > 0}
-              <div class="mt-2 rounded-sm border border-fg/10 bg-surface p-2 text-xs">
-                <p class="text-fg/60">
-                  Looks like {liveNameDupes.length === 1 ? 'an existing contact' : 'existing contacts'}:
-                </p>
-                <ul class="mt-1 space-y-1">
-                  {#each liveNameDupes as dupe (dupe.id)}
-                    <li class="flex items-center justify-between gap-2">
-                      <span class="text-fg">{dupe.name}{#if dupe.email}<span class="text-fg/50"> · {dupe.email}</span>{/if}</span>
-                      <button
-                        type="button"
-                        onclick={() => useExisting(dupe.id)}
-                        class="rounded-sm border border-fg/15 bg-surface-2 px-2 py-1 text-xs uppercase tracking-wider text-fg/70 hover:border-accent hover:text-accent"
-                      >
-                        Use
-                      </button>
-                    </li>
-                  {/each}
-                </ul>
-              </div>
-            {/if}
-          </div>
-          <div>
-            <label for="newContactEmail" class="label">
-              Email
-            </label>
-            <input
-              id="newContactEmail"
-              name="newContactEmail"
-              type="email"
-              maxlength="320"
-              bind:value={inlineNewEmail}
-              class="field mt-1"
-            />
-            {#if custErr('email') && custErr('email') !== 'email_dupe'}
-              <p class="mt-1 text-xs text-danger">{custErr('email')}</p>
-            {/if}
-            <p class="mt-1 text-xs text-fg/50">
-              Optional, but needed to send the invoice by email.
-            </p>
-          </div>
-          {#if form?.dupeContact}
-            <div class="rounded-sm border border-danger/30 bg-danger/5 p-3 text-sm">
-              <p class="text-fg">
-                <span class="font-medium">{form.dupeContact.name}</span> already uses this email.
-              </p>
-              <div class="mt-2 flex flex-wrap items-center gap-3">
-                <button
-                  type="button"
-                  onclick={() => useExisting(form!.dupeContact!.id)}
-                  class="rounded-sm bg-inverse px-3 py-1 text-xs uppercase tracking-wider text-on-inverse hover:bg-accent"
-                >
-                  Use {form.dupeContact.name}
-                </button>
-                <span class="text-xs text-fg/50">or change the email above to create a different contact.</span>
-              </div>
-            </div>
-          {:else if liveEmailDupe}
-            <div class="rounded-sm border border-accent/30 bg-accent/5 p-3 text-sm">
-              <p class="text-fg">
-                <span class="font-medium">{liveEmailDupe.name}</span> already uses this email.
-              </p>
-              <button
-                type="button"
-                onclick={() => useExisting(liveEmailDupe.id)}
-                class="mt-2 rounded-sm border border-fg/20 bg-surface-2 px-3 py-1 text-xs uppercase tracking-wider text-fg/70 hover:border-accent hover:text-accent"
-              >
-                Use {liveEmailDupe.name}
-              </button>
-            </div>
-          {/if}
-          {#if custErr('_')}
-            <p class="text-xs text-danger">{custErr('_')}</p>
-          {/if}
-        </div>
-      {/if}
+      <ContactPicker
+        initialContactId={values?.contactId ?? ''}
+        initialContactName={values?.contactName ?? ''}
+        initialNewName={values?.newContactName ?? ''}
+        initialNewEmail={values?.newContactEmail ?? ''}
+        fieldError={err('contactId')}
+        contactErrors={form?.contactErrors}
+        dupeContact={form?.dupeContact}
+      />
     </div>
 
     <div>

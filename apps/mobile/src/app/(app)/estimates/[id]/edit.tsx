@@ -11,7 +11,6 @@ import { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -21,6 +20,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Checkbox } from '../../../../components/Checkbox';
+import { ContactField } from '../../../../components/ContactField';
 import { DateField } from '../../../../components/DateField';
 import { type ItemPatch, ItemPickerField } from '../../../../components/ItemPickerField';
 import { TaxRow } from '../../../../components/TaxRow';
@@ -31,10 +31,9 @@ import { type TaxPolicyLite, lineTax, policyRate, resolvePolicyId } from '../../
 // Edit half of apps/web's /estimates/[id]/edit — the invoice-edit twin, minus
 // dueDate, plus an optional expiresOn ("Valid until"). Draft-only on the API
 // (the detail screen gates the Edit button). PATCHes the whole estimate
-// (estimateUpdateSchema = create minus companyId). Each line carries its
-// sourceItemId through unchanged so editing a draft doesn't null the
-// top-products breadcrumb (see apps/mobile/CLAUDE.md).
-type Contact = { id: string; name: string; email: string | null };
+// (estimateUpdateSchema = create minus companyId). The ContactField re-picks an
+// existing contact only (allowCreate=false). Each line carries its sourceItemId
+// through unchanged so editing a draft doesn't null the top-products breadcrumb.
 type Row = {
   description: string;
   quantity: string;
@@ -76,9 +75,9 @@ export default function EditEstimate() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [seed, setSeed] = useState<Seed | null>(null);
-  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [companyId, setCompanyId] = useState<string | null>(null);
+  const [contactName, setContactName] = useState('');
   const [taxPolicies, setTaxPolicies] = useState<TaxPolicyLite[]>([]);
-  const [pickerOpen, setPickerOpen] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -88,20 +87,18 @@ export default function EditEstimate() {
       if (seed) return;
       let active = true;
       (async () => {
-        const [estRes, custRes] = await Promise.all([
-          api.api.estimates[':id'].$get({ param: { id } }),
-          api.api.contacts.$get(),
-        ]);
+        const estRes = await api.api.estimates[':id'].$get({ param: { id } });
         if (!active) return;
-        if (custRes.ok) {
-          const { contacts: rows } = await custRes.json();
-          setContacts(rows.map((c) => ({ id: c.id, name: c.name, email: c.email ?? null })));
-        }
         if (!estRes.ok) {
           setFormError('load_failed');
           return;
         }
         const est = await estRes.json();
+        setCompanyId(est.companyId);
+        // The ContactField type-ahead searches on demand; we only need the
+        // currently linked contact's name to seed its display text.
+        const cRes = await api.api.contacts[':id'].$get({ param: { id: est.contactId } });
+        if (active && cRes.ok) setContactName((await cRes.json()).name);
         setSeed({
           contactId: est.contactId,
           number: est.number,
@@ -196,8 +193,6 @@ export default function EditEstimate() {
   const subtotal = useMemo(() => sumMoney(computedRows.map((r) => r.amount)), [computedRows]);
   const taxTotal = useMemo(() => sumMoney(computedRows.map((r) => r.tax)), [computedRows]);
   const total = useMemo(() => addMoney(subtotal, taxTotal), [subtotal, taxTotal]);
-
-  const selectedName = seed ? (contacts.find((c) => c.id === seed.contactId)?.name ?? null) : null;
 
   async function onSubmit() {
     if (!seed) return;
@@ -304,19 +299,16 @@ export default function EditEstimate() {
           ) : null}
 
           <View className="mt-8 space-y-5">
-            <View>
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
-                Contact *
-              </Text>
-              <Pressable
-                onPress={() => setPickerOpen(true)}
-                className="mt-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-3"
-              >
-                <Text className={selectedName ? 'text-ink' : 'text-ink/40'}>
-                  {selectedName ?? 'Select a contact'}
-                </Text>
-              </Pressable>
-            </View>
+            <ContactField
+              label="Contact *"
+              companyId={companyId}
+              contactName={contactName}
+              setContactName={setContactName}
+              contactId={seed.contactId}
+              setContactId={(v) => set('contactId', v)}
+              allowCreate={false}
+              error={fieldErrors.contactId}
+            />
 
             <LabeledInput
               label="Number *"
@@ -409,37 +401,6 @@ export default function EditEstimate() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
-
-      <Modal
-        visible={pickerOpen}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setPickerOpen(false)}
-      >
-        <Pressable className="flex-1 justify-end bg-ink/40" onPress={() => setPickerOpen(false)}>
-          <Pressable
-            className="max-h-[70%] rounded-t-lg bg-cream px-6 pb-10 pt-5"
-            onPress={() => {}}
-          >
-            <Text className="font-serif text-xl text-ink">Choose contact</Text>
-            <ScrollView className="mt-4">
-              {contacts.map((c) => (
-                <Pressable
-                  key={c.id}
-                  onPress={() => {
-                    set('contactId', c.id);
-                    setPickerOpen(false);
-                  }}
-                  className="border-b border-ink/10 py-3"
-                >
-                  <Text className="text-ink">{c.name}</Text>
-                  {c.email ? <Text className="text-xs text-ink/50">{c.email}</Text> : null}
-                </Pressable>
-              ))}
-            </ScrollView>
-          </Pressable>
-        </Pressable>
-      </Modal>
     </SafeAreaView>
   );
 }

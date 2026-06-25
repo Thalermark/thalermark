@@ -23,24 +23,29 @@ const LINE_FIELD_TAX_POLICY_ID = 'li_taxPolicyId';
 
 export const load: PageServerLoad = async (event) => {
   const client = serverApiClient(event);
-  // Scope the contact dropdown to the active company (the nav switcher's pick).
-  const { activeCompanyId } = await event.parent();
-  const custQuery: Record<string, string> = {};
-  if (activeCompanyId) custQuery.companyId = activeCompanyId;
-  const [scheduleRes, contactsRes] = await Promise.all([
-    client.api['recurring-invoices'][':id'].$get({ param: { id: event.params.id } }),
-    client.api.contacts.$get({ query: custQuery }),
-  ]);
+  const scheduleRes = await client.api['recurring-invoices'][':id'].$get({
+    param: { id: event.params.id },
+  });
   if (scheduleRes.status === 404) throw error(404, 'recurring schedule not found');
   if (!scheduleRes.ok) throw error(scheduleRes.status, 'failed to load recurring schedule');
-  if (!contactsRes.ok) throw error(contactsRes.status, 'failed to load contacts');
   const schedule = await scheduleRes.json();
   // Edit is blocked once ended (terminal) on the API side — surface the same
   // boundary at load so a stale tab gets a clean 409, not a post-submit one.
   if (schedule.status === 'ended') {
     throw error(409, 'this schedule has ended and can no longer be edited');
   }
-  const { contacts } = await contactsRes.json();
+
+  // The contact selector is a type-ahead (ContactPicker, allowCreate=false)
+  // that searches /contacts/search on demand, so we only need the currently
+  // linked contact's name to seed the field — not the whole list.
+  let initialContact: { id: string; name: string } | null = null;
+  const contactRes = await client.api.contacts[':id'].$get({
+    param: { id: schedule.contactId },
+  });
+  if (contactRes.ok) {
+    const c = await contactRes.json();
+    initialContact = { id: c.id, name: c.name };
+  }
 
   const polRes = await client.api['tax-policies'].$get({
     query: { companyId: schedule.companyId, limit: '100' },
@@ -49,9 +54,7 @@ export const load: PageServerLoad = async (event) => {
 
   return {
     schedule,
-    contacts: contacts
-      .map((c) => ({ id: c.id, name: c.name }))
-      .sort((a, b) => a.name.localeCompare(b.name)),
+    initialContact,
     taxPolicies: taxPolicies.map((p) => ({
       id: p.id,
       name: p.name,
@@ -63,6 +66,9 @@ export const load: PageServerLoad = async (event) => {
 
 type FormValues = {
   contactId: string;
+  // Round-trips the ContactPicker's visible search text so a fail() re-render
+  // re-shows the selected contact name (read but not sent to the API).
+  contactName: string;
   frequency: string;
   intervalCount: string;
   startDate: string;
@@ -102,6 +108,7 @@ function readForm(data: FormData): FormValues {
   }));
   return {
     contactId: String(data.get('contactId') ?? '').trim(),
+    contactName: String(data.get('contactName') ?? '').trim(),
     frequency: String(data.get('frequency') ?? '').trim(),
     intervalCount: String(data.get('intervalCount') ?? '').trim(),
     startDate: String(data.get('startDate') ?? '').trim(),

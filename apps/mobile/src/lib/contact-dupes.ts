@@ -24,6 +24,11 @@ export type DupeCandidate = {
   email: string | null;
 };
 
+// Stored in `contactId` while the ContactField is in inline-create mode (the
+// "+ Add new contact" row). The invoice/estimate/recurring screens branch on
+// it: create the contact first, then use the returned id for the document POST.
+export const NEW_CONTACT = '__new__';
+
 function normalizeEmail(s: string): string {
   return s.trim().toLowerCase();
 }
