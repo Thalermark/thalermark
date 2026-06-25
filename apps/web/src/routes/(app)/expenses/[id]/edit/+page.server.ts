@@ -166,7 +166,12 @@ export const actions: Actions = {
     // Resolve the Vendor field. undefined → leave the link + needs-review flag
     // untouched (an unrelated edit must not resurrect a dismissed flag); null →
     // unlink; a uuid → (re)link. The API mirrors a linked name into merchant.
-    const vendor = await resolveVendorField(client, companyId, values.vendorContactId, values.merchant);
+    const vendor = await resolveVendorField(
+      client,
+      companyId,
+      values.vendorContactId,
+      values.merchant,
+    );
     if (!vendor.ok) {
       return fail(400, { values, formError: 'Could not add that vendor. Please try again.' });
     }

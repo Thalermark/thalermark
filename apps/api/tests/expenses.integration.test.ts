@@ -8,8 +8,8 @@ import {
   journalLines,
   memberships,
 } from '@thalermark/db';
-import { v7 as uuidv7 } from 'uuid';
 import { and, eq } from 'drizzle-orm';
+import { v7 as uuidv7 } from 'uuid';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
 import type { Env } from '../src/env.js';
@@ -572,7 +572,12 @@ describe('expenses — vendor link + needs-review', () => {
         ctx.app,
         cookie,
         accountId,
-        expenseBody({ companyId, categoryAccountId: category, paymentAccountId: payment, merchant: 'HD #4412' }),
+        expenseBody({
+          companyId,
+          categoryAccountId: category,
+          paymentAccountId: payment,
+          merchant: 'HD #4412',
+        }),
       );
       const { id } = (await create.json()) as { id: string };
       // Simulate a scanned-but-unlinked expense (receipt + needs_review).
@@ -672,19 +677,28 @@ describe('expenses — vendor link + needs-review', () => {
       const payment = await coaId(companyId, '1000');
       const body = { companyId, categoryAccountId: category, paymentAccountId: payment };
       const flagged = (await (
-        await createExpense(ctx.app, cookie, accountId, expenseBody({ ...body, merchant: 'Flag me' }))
+        await createExpense(
+          ctx.app,
+          cookie,
+          accountId,
+          expenseBody({ ...body, merchant: 'Flag me' }),
+        )
       ).json()) as { id: string };
-      await createExpense(ctx.app, cookie, accountId, expenseBody({ ...body, merchant: 'Leave me' }));
+      await createExpense(
+        ctx.app,
+        cookie,
+        accountId,
+        expenseBody({ ...body, merchant: 'Leave me' }),
+      );
       const db = getTestDb();
       await db
         .update(expenses)
         .set({ vendorReview: 'needs_review' })
         .where(eq(expenses.id, flagged.id));
 
-      const res = await ctx.app.request(
-        `/api/expenses?companyId=${companyId}&needsReview=true`,
-        { headers: { cookie, 'x-account-id': accountId } },
-      );
+      const res = await ctx.app.request(`/api/expenses?companyId=${companyId}&needsReview=true`, {
+        headers: { cookie, 'x-account-id': accountId },
+      });
       expect(res.status).toBe(200);
       const rows = ((await res.json()) as { expenses: ExpenseRow[] }).expenses;
       expect(rows).toHaveLength(1);

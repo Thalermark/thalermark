@@ -197,7 +197,12 @@ export const actions: Actions = {
     // Resolve the Vendor field: link an existing contact, create one inline, or
     // leave unlinked (free-text merchant). The API mirrors a linked contact's
     // name into merchant authoritatively.
-    const vendor = await resolveVendorField(client, companyId, values.vendorContactId, values.merchant);
+    const vendor = await resolveVendorField(
+      client,
+      companyId,
+      values.vendorContactId,
+      values.merchant,
+    );
     if (!vendor.ok) {
       return fail(400, { values, formError: 'Could not add that vendor. Please try again.' });
     }

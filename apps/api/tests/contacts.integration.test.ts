@@ -499,10 +499,7 @@ describe('PATCH /api/contacts/:id', () => {
       expect(body.companyId).toBe(companyId);
 
       const db = getTestDb();
-      const audits = await db
-        .select()
-        .from(auditEvents)
-        .where(eq(auditEvents.entityId, contactId));
+      const audits = await db.select().from(auditEvents).where(eq(auditEvents.entityId, contactId));
       expect(audits.map((a) => a.action).sort()).toEqual(['create', 'update']);
       const update = audits.find((a) => a.action === 'update');
       expect(update?.before).toMatchObject({ name: 'Original Name' });

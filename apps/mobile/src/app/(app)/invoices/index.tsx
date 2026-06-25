@@ -2,10 +2,7 @@ import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import {
-  ContactFilterField,
-  type SelectedContact,
-} from '../../../components/ContactFilterField';
+import { ContactFilterField, type SelectedContact } from '../../../components/ContactFilterField';
 import { DateField } from '../../../components/DateField';
 import { FilterChips } from '../../../components/FilterChips';
 import { api } from '../../../lib/api';
@@ -156,9 +153,7 @@ export default function InvoicesList() {
             </View>
           </View>
           <View>
-            <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
-              Contact
-            </Text>
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">Contact</Text>
             <View className="mt-1">
               <ContactFilterField selected={contact} onChange={setContact} />
             </View>

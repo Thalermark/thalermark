@@ -38,9 +38,7 @@ export default function ContactsList() {
       if (!res.ok) return null;
       const { contacts, nextCursor } = await res.json();
       return {
-        rows: contacts.map(
-          (c): ContactRow => ({ id: c.id, name: c.name, email: c.email ?? null }),
-        ),
+        rows: contacts.map((c): ContactRow => ({ id: c.id, name: c.name, email: c.email ?? null })),
         nextCursor,
       };
     },

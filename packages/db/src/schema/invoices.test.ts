@@ -14,9 +14,7 @@ async function seedTenant() {
   const contactId = uuidv7();
   await db.insert(accounts).values({ id: accountId, name: 'Acme' });
   await db.insert(companies).values({ id: companyId, accountId, name: 'Acme Co' });
-  await db
-    .insert(contacts)
-    .values({ id: contactId, accountId, companyId, name: 'Wile E. Coyote' });
+  await db.insert(contacts).values({ id: contactId, accountId, companyId, name: 'Wile E. Coyote' });
   return { accountId, companyId, contactId };
 }
 

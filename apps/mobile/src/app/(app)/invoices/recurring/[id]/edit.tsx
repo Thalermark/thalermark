@@ -214,9 +214,7 @@ export default function EditRecurring() {
   const taxTotal = useMemo(() => sumMoney(computedRows.map((r) => r.tax)), [computedRows]);
   const total = useMemo(() => addMoney(subtotal, taxTotal), [subtotal, taxTotal]);
 
-  const selectedName = seed
-    ? (contacts.find((c) => c.id === seed.contactId)?.name ?? null)
-    : null;
+  const selectedName = seed ? (contacts.find((c) => c.id === seed.contactId)?.name ?? null) : null;
 
   // Parse a counter TextInput → a non-negative integer, or undefined when blank.
   const toInt = (str: string): number | undefined => {

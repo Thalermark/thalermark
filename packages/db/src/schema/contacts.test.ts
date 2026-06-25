@@ -44,7 +44,9 @@ describe('contacts', () => {
 
     await db.insert(accounts).values({ id: accountId, name: 'Acme' });
     await db.insert(companies).values({ id: companyId, accountId, name: 'Acme Co' });
-    await db.insert(contacts).values({ id: contactId, accountId, companyId, name: 'Default Roles' });
+    await db
+      .insert(contacts)
+      .values({ id: contactId, accountId, companyId, name: 'Default Roles' });
 
     const [row] = await db.select().from(contacts).where(eq(contacts.id, contactId));
     expect(row?.isCustomer).toBe(true);

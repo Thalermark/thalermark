@@ -294,7 +294,12 @@ async function resolveVendorLink(
 ): Promise<{ id: string; name: string } | { error: string; status: 400 | 404 } | null> {
   if (!vendorContactId) return null;
   const [vendor] = await tx
-    .select({ id: contacts.id, companyId: contacts.companyId, name: contacts.name, isVendor: contacts.isVendor })
+    .select({
+      id: contacts.id,
+      companyId: contacts.companyId,
+      name: contacts.name,
+      isVendor: contacts.isVendor,
+    })
     .from(contacts)
     .where(and(eq(contacts.id, vendorContactId), eq(contacts.accountId, accountId)))
     .limit(1);
@@ -5380,7 +5385,14 @@ export function createApp(deps: AppDeps) {
 
         const tx = c.get('tx');
         const accountId = c.get('accountId');
-        const { companyId, customerContactId, vendorContactId, categoryAccountId, paymentAccountId, ...rest } = parsed.data;
+        const {
+          companyId,
+          customerContactId,
+          vendorContactId,
+          categoryAccountId,
+          paymentAccountId,
+          ...rest
+        } = parsed.data;
 
         const [company] = await tx
           .select({ id: companies.id })
@@ -5641,8 +5653,12 @@ export function createApp(deps: AppDeps) {
           // is immutable (omitted from the schema) so the expense can't move
           // between companies and orphan its company-scoped ledger accounts.
           const next = {
-            customerContactId: data.customerContactId !== undefined ? data.customerContactId : current.customerContactId,
-            vendorContactId: data.vendorContactId !== undefined ? data.vendorContactId : current.vendorContactId,
+            customerContactId:
+              data.customerContactId !== undefined
+                ? data.customerContactId
+                : current.customerContactId,
+            vendorContactId:
+              data.vendorContactId !== undefined ? data.vendorContactId : current.vendorContactId,
             categoryAccountId: data.categoryAccountId ?? current.categoryAccountId,
             paymentAccountId: data.paymentAccountId ?? current.paymentAccountId,
             amount: data.amount ?? current.amount,
@@ -5655,7 +5671,9 @@ export function createApp(deps: AppDeps) {
             const [customer] = await tx
               .select({ id: contacts.id, companyId: contacts.companyId })
               .from(contacts)
-              .where(and(eq(contacts.id, data.customerContactId), eq(contacts.accountId, accountId)))
+              .where(
+                and(eq(contacts.id, data.customerContactId), eq(contacts.accountId, accountId)),
+              )
               .limit(1);
             if (!customer) return c.json({ error: 'contact_not_found' }, 404);
             if (customer.companyId !== current.companyId) {
@@ -5671,7 +5689,12 @@ export function createApp(deps: AppDeps) {
           // flag.
           let vendorReview = current.vendorReview;
           if (data.vendorContactId !== undefined) {
-            const vendor = await resolveVendorLink(tx, accountId, current.companyId, data.vendorContactId);
+            const vendor = await resolveVendorLink(
+              tx,
+              accountId,
+              current.companyId,
+              data.vendorContactId,
+            );
             if (vendor && 'error' in vendor) return c.json({ error: vendor.error }, vendor.status);
             if (vendor) {
               next.merchant = vendor.name;

@@ -111,10 +111,7 @@ export default function NewContact() {
       country: s.country,
     }));
 
-  const emailDupe = useMemo(
-    () => findEmailDupe(values.email, contacts),
-    [values.email, contacts],
-  );
+  const emailDupe = useMemo(() => findEmailDupe(values.email, contacts), [values.email, contacts]);
   const nameDupes = useMemo(() => findNameDupes(values.name, contacts), [values.name, contacts]);
 
   const noCompany = bootstrapped && companyId === null;
@@ -194,8 +191,7 @@ export default function NewContact() {
             {nameDupes.length > 0 ? (
               <View className="rounded-sm border border-ink/10 bg-cream-warm/60 p-3">
                 <Text className="text-xs text-ink/60">
-                  Looks like{' '}
-                  {nameDupes.length === 1 ? 'an existing contact' : 'existing contacts'}:
+                  Looks like {nameDupes.length === 1 ? 'an existing contact' : 'existing contacts'}:
                 </Text>
                 {nameDupes.map((d) => (
                   <Pressable

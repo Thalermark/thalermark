@@ -197,9 +197,7 @@ export default function EditEstimate() {
   const taxTotal = useMemo(() => sumMoney(computedRows.map((r) => r.tax)), [computedRows]);
   const total = useMemo(() => addMoney(subtotal, taxTotal), [subtotal, taxTotal]);
 
-  const selectedName = seed
-    ? (contacts.find((c) => c.id === seed.contactId)?.name ?? null)
-    : null;
+  const selectedName = seed ? (contacts.find((c) => c.id === seed.contactId)?.name ?? null) : null;
 
   async function onSubmit() {
     if (!seed) return;

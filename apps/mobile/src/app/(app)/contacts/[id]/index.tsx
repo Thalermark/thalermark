@@ -31,10 +31,7 @@ type Reliability = {
   overdueCount: number;
   overdueTotal: string;
 };
-type DetailState =
-  | { state: 'loading' }
-  | { state: 'ready'; contact: Contact }
-  | { state: 'error' };
+type DetailState = { state: 'loading' } | { state: 'ready'; contact: Contact } | { state: 'error' };
 
 const fmt = (s: string) =>
   Number(s).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
