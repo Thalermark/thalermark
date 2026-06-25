@@ -403,12 +403,27 @@ async function transitionInvoice(
     patch.publicToken = randomBytes(32).toString('hex');
   }
   if (opts?.patch) Object.assign(patch, opts.patch);
+  // Re-assert the exact status we validated above so a concurrent transition
+  // (an overlapping mark-paid, or the Stripe webhook flipping sent → paid)
+  // can't double-apply. Under READ COMMITTED the losing UPDATE re-checks this
+  // predicate against the freshly committed row, matches 0 rows, and bails
+  // before postInvoiceTransition double-posts to the ledger. A 0-row result
+  // here means the row moved out from under us → same 409 as the SELECT-time
+  // invalid-transition check.
   const [updated] = await tx
     .update(invoices)
     .set(patch)
-    .where(and(eq(invoices.id, id), eq(invoices.accountId, accountId)))
+    .where(
+      and(
+        eq(invoices.id, id),
+        eq(invoices.accountId, accountId),
+        eq(invoices.status, current.status),
+      ),
+    )
     .returning();
-  if (!updated) return c.json({ error: 'invoice_not_found' }, 404);
+  if (!updated) {
+    return c.json({ error: 'invalid_transition', from: current.status, to: spec.to }, 409);
+  }
 
   await c.var.audit({
     entityType: 'invoice',
@@ -6959,6 +6974,32 @@ export function createApp(deps: AppDeps) {
           // operator at that point.
           if (current.status !== 'sent') return c.json({ received: true });
 
+          // Amount + currency verification. We minted the PaymentIntent for the
+          // invoice total, but trust nothing on the way back in: confirm Stripe
+          // actually captured that exact amount and currency before reconciling
+          // as paid-in-full. amount_received is what was collected (cents); a
+          // mismatch — partial capture, a stale intent against a since-changed
+          // total, or a crafted event — must not post Dr Cash / Cr AR for the
+          // full balance. Acknowledge 200 so Stripe stops retrying (the amount
+          // won't change on redelivery) but leave the invoice 'sent' for the
+          // operator to reconcile by hand.
+          const expectedCents = decimalDollarsToCents(current.total);
+          const receivedCents = intent.amount_received ?? 0;
+          const expectedCurrency = current.currency.toLowerCase();
+          if (receivedCents !== expectedCents || intent.currency !== expectedCurrency) {
+            log.error(
+              'stripe webhook payment mismatch for invoice {invoiceId}: expected {expectedCents} {expectedCurrency}, received {receivedCents} {receivedCurrency}',
+              {
+                invoiceId,
+                expectedCents,
+                expectedCurrency,
+                receivedCents,
+                receivedCurrency: intent.currency,
+              },
+            );
+            return c.json({ received: true });
+          }
+
           const now = new Date();
           // Wrap the status flip + audit + ledger posting in one tx so
           // the deferred sum-to-zero trigger on journal_lines fires at
@@ -6971,7 +7012,13 @@ export function createApp(deps: AppDeps) {
               // Stamp the channel so the detail page reads "Paid via Card
               // (Stripe)" consistently with the manual mark-paid methods.
               .set({ status: 'paid', paidAt: now, updatedAt: now, paymentMethod: 'stripe' })
-              .where(eq(invoices.id, invoiceId))
+              // Re-assert status='sent' inside the UPDATE so concurrent
+              // deliveries (or a webhook overlapping a manual mark-paid) can't
+              // both post. The SELECT guard above runs outside any lock; under
+              // READ COMMITTED the losing UPDATE re-evaluates this predicate
+              // against the freshly committed row, matches 0 rows, and bails
+              // before the ledger posting double-counts Dr Cash / Cr AR.
+              .where(and(eq(invoices.id, invoiceId), eq(invoices.status, 'sent')))
               .returning();
             if (!updated) return;
 
