@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ImportExportActions from '$lib/components/ImportExportActions.svelte';
   import LoadMore from '$lib/components/LoadMore.svelte';
   import { fetchMore } from '$lib/load-more';
   import { may } from '$lib/perms';
@@ -54,14 +55,12 @@
       All contacts<span class="text-accent">.</span>
     </h1>
   </div>
-  {#if may(data.role, 'contacts:write')}
-    <a
-      href="/contacts/new"
-      class="btn"
-    >
-      + New contact
-    </a>
-  {/if}
+  <div class="flex items-center gap-2">
+    <ImportExportActions entity="contacts" role={data.role} />
+    {#if may(data.role, 'contacts:write')}
+      <a href="/contacts/new" class="btn"> + New contact </a>
+    {/if}
+  </div>
 </div>
 
 <!-- Filters. Plain GET form so they live in the URL (shareable, back-button

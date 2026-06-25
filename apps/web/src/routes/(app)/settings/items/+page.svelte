@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ImportExportActions from '$lib/components/ImportExportActions.svelte';
   import LoadMore from '$lib/components/LoadMore.svelte';
   import { fetchMore } from '$lib/load-more';
   import { may } from '$lib/perms';
@@ -61,14 +62,12 @@
       Products &amp; services<span class="text-accent">.</span>
     </h1>
   </div>
-  {#if may(data.role, 'sales:write')}
-    <a
-      href="/settings/items/new"
-      class="btn"
-    >
-      + New item
-    </a>
-  {/if}
+  <div class="flex items-center gap-2">
+    <ImportExportActions entity="items" role={data.role} />
+    {#if may(data.role, 'sales:write')}
+      <a href="/settings/items/new" class="btn"> + New item </a>
+    {/if}
+  </div>
 </div>
 
 <p class="mt-3 text-sm text-fg/60">
