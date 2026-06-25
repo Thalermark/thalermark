@@ -4,7 +4,7 @@ import {
   auditEvents,
   authUser,
   companies,
-  customers,
+  contacts,
   invoices,
   memberships,
   seedChartOfAccounts,
@@ -457,7 +457,7 @@ async function seedPayableInvoice(connect: {
   const userId = uuidv7();
   const acctId = uuidv7();
   const companyId = uuidv7();
-  const customerId = uuidv7();
+  const contactId = uuidv7();
   const invoiceId = uuidv7();
   const publicToken = `tok_${invoiceId}`;
   await db
@@ -473,12 +473,12 @@ async function seedPayableInvoice(connect: {
     stripeConnectChargesEnabled: connect.chargesEnabled,
     stripeConnectDetailsSubmitted: connect.chargesEnabled,
   });
-  await db.insert(customers).values({ id: customerId, accountId: acctId, companyId, name: 'Bob' });
+  await db.insert(contacts).values({ id: contactId, accountId: acctId, companyId, name: 'Bob' });
   await db.insert(invoices).values({
     id: invoiceId,
     accountId: acctId,
     companyId,
-    customerId,
+    contactId,
     number: 'INV-1',
     status: 'sent',
     issueDate: '2026-05-28',

@@ -2,10 +2,7 @@ import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import {
-  CustomerFilterField,
-  type SelectedCustomer,
-} from '../../../components/CustomerFilterField';
+import { ContactFilterField, type SelectedContact } from '../../../components/ContactFilterField';
 import { DateField } from '../../../components/DateField';
 import { FilterChips } from '../../../components/FilterChips';
 import { api } from '../../../lib/api';
@@ -13,11 +10,11 @@ import { useMay } from '../../../lib/role';
 import { pageQuery, usePaginatedList } from '../../../lib/use-paginated-list';
 
 // Mirror of apps/web's /invoices list. customerName is LEFT JOINed by the API
-// now (#195), so the list no longer fetches every customer to resolve names —
+// now (#195), so the list no longer fetches every contact to resolve names —
 // that doesn't survive pagination. Keyset infinite scroll via usePaginatedList.
 //
-// Filters mirror the web filter bar: search (q, number OR customer name),
-// status, date range (issueDate), and a single customer. usePaginatedList
+// Filters mirror the web filter bar: search (q, number OR contact name),
+// status, date range (issueDate), and a single contact. usePaginatedList
 // reloads page 1 whenever fetchPage's identity changes, so flipping any filter
 // re-runs the query from the top.
 type InvoiceRow = {
@@ -47,7 +44,7 @@ export default function InvoicesList() {
   const [status, setStatus] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
-  const [customer, setCustomer] = useState<SelectedCustomer | null>(null);
+  const [contact, setContact] = useState<SelectedContact | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Debounce the search box so each keystroke doesn't refetch.
@@ -56,7 +53,7 @@ export default function InvoicesList() {
     return () => clearTimeout(t);
   }, [q]);
 
-  const advancedActive = Boolean(from || to || customer);
+  const advancedActive = Boolean(from || to || contact);
   const anyFilter = Boolean(appliedQ || status || advancedActive);
 
   const fetchPage = useCallback(
@@ -66,7 +63,7 @@ export default function InvoicesList() {
       if (status) query.status = status;
       if (from) query.from = from;
       if (to) query.to = to;
-      if (customer) query.customerId = customer.id;
+      if (contact) query.contactId = contact.id;
       const res = await api.api.invoices.$get({ query });
       if (!res.ok) return null;
       const { invoices, nextCursor } = await res.json();
@@ -85,7 +82,7 @@ export default function InvoicesList() {
         nextCursor,
       };
     },
-    [appliedQ, status, from, to, customer],
+    [appliedQ, status, from, to, contact],
   );
 
   const { list, loadingMore, loadMore } = usePaginatedList(fetchPage);
@@ -121,7 +118,7 @@ export default function InvoicesList() {
         <TextInput
           value={q}
           onChangeText={setQ}
-          placeholder="Search number or customer"
+          placeholder="Search number or contact"
           returnKeyType="search"
           className="flex-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2.5 text-ink"
         />
@@ -156,11 +153,9 @@ export default function InvoicesList() {
             </View>
           </View>
           <View>
-            <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
-              Customer
-            </Text>
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">Contact</Text>
             <View className="mt-1">
-              <CustomerFilterField selected={customer} onChange={setCustomer} />
+              <ContactFilterField selected={contact} onChange={setContact} />
             </View>
           </View>
         </View>

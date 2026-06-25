@@ -46,7 +46,7 @@
   <form method="POST" action="?/save" class="px-6 py-7">
     <input type="hidden" name="companyId" value={data.company.id} />
     <p class="max-w-prose text-sm leading-relaxed text-fg/70">
-      These show in the &ldquo;from&rdquo; block on the invoices and estimates your customers see,
+      These show in the &ldquo;from&rdquo; block on the invoices and estimates your contacts see,
       under your business name. The checkboxes set the default for new documents &mdash; you can
       still change it on any individual invoice or estimate. Leave a field blank to omit it entirely.
     </p>
@@ -174,7 +174,7 @@
     <input type="hidden" name="companyId" value={data.company.id} />
     <p class="max-w-prose text-sm leading-relaxed text-fg/70">
       Invoices and estimates go out under your business name, but from Thalermark's sending address.
-      Set a reply-to so when a customer hits "reply," it reaches you. Leave it blank to send with no
+      Set a reply-to so when a contact hits "reply," it reaches you. Leave it blank to send with no
       reply-to.
     </p>
     <label class="mt-5 block">
@@ -202,7 +202,7 @@
   <header class="border-b border-fg/10 px-6 py-5">
     <span class="eyebrow">Logo</span>
     <p class="mt-2 text-sm text-fg/70">
-      Shown on the invoices and estimates your customers see. PNG, JPEG, or WebP, up to 2&nbsp;MB.
+      Shown on the invoices and estimates your contacts see. PNG, JPEG, or WebP, up to 2&nbsp;MB.
     </p>
   </header>
   <div class="px-6 py-6">

@@ -26,7 +26,7 @@ type LineItem = {
 };
 type Schedule = {
   status: string;
-  customerId: string;
+  contactId: string;
   frequency: string;
   intervalCount: number;
   startDate: string;
@@ -68,14 +68,14 @@ export default function RecurringDetail() {
     }
     const s = await res.json();
     let customerName: string | null = null;
-    const custRes = await api.api.customers[':id'].$get({ param: { id: s.customerId } });
+    const custRes = await api.api.contacts[':id'].$get({ param: { id: s.contactId } });
     if (custRes.ok) customerName = (await custRes.json()).name;
     setDetail({
       state: 'ready',
       customerName,
       schedule: {
         status: s.status,
-        customerId: s.customerId,
+        contactId: s.contactId,
         frequency: s.frequency,
         intervalCount: s.intervalCount,
         startDate: s.startDate,
@@ -288,7 +288,7 @@ export default function RecurringDetail() {
 
             {/* Meta */}
             <View className="mt-8 space-y-2">
-              <Meta label="Customer" value={detail.customerName ?? '—'} />
+              <Meta label="Contact" value={detail.customerName ?? '—'} />
               <Meta label="Next run" value={s.status === 'ended' ? '—' : s.nextRunDate} />
               <Meta label="Generated" value={String(s.occurrenceCount)} />
               <Meta label="Schedule" value={endLabel} />

@@ -39,7 +39,7 @@
 </div>
 
 <p class="mt-3 text-sm text-fg/70">
-  Edit the subject and message your customers see. The Thalermark layout, button, and footer stay
+  Edit the subject and message your contacts see. The Thalermark layout, button, and footer stay
   the same. Use the placeholders below — they're filled in for each {data.type} you send.
 </p>
 

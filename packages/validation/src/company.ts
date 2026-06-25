@@ -22,7 +22,7 @@ export type BusinessType = z.infer<typeof businessTypeSchema>;
 // wizard updates name + businessType together, but follow-on flows (rename
 // from settings, accountant updates business type alone) only touch one
 // field. Sparse semantics rely on the typed Hono client treating `undefined`
-// as "leave alone", matching the customer PATCH idiom for editable strings.
+// as "leave alone", matching the contact PATCH idiom for editable strings.
 // At least one of the two fields must be present.
 // Nullable-email field idiom (reply-to + business email): an empty field from
 // settings clears it (sets the column back to null); `null` and a valid email

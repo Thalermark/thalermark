@@ -1,4 +1,5 @@
 import { serverApiClient } from '$lib/api.server';
+import { resolveVendorField } from '$lib/expense-vendor';
 import { error, fail, redirect } from '@sveltejs/kit';
 import { expenseUpdateSchema } from '@thalermark/validation';
 import type { Actions, PageServerLoad } from './$types';
@@ -61,6 +62,7 @@ export const load: PageServerLoad = async (event) => {
 
 type FormValues = {
   merchant: string;
+  vendorContactId: string;
   amount: string;
   expenseDate: string;
   categoryAccountId: string;
@@ -71,6 +73,8 @@ type FormValues = {
 function readForm(data: FormData): FormValues {
   return {
     merchant: String(data.get('merchant') ?? '').trim(),
+    // VendorPicker hidden field: '__unchanged__' | '' (unlink) | <uuid> | '__new__'.
+    vendorContactId: String(data.get('vendorContactId') ?? '').trim(),
     amount: String(data.get('amount') ?? '').trim(),
     expenseDate: String(data.get('expenseDate') ?? '').trim(),
     categoryAccountId: String(data.get('categoryAccountId') ?? '').trim(),
@@ -152,10 +156,31 @@ export const actions: Actions = {
     const data = await event.request.formData();
     const values = readForm(data);
 
+    // Load the company so an inline "+ Add vendor" creates the contact in the
+    // right tenant scope (an expense can't move companies).
+    const expRes = await client.api.expenses[':id'].$get({ param: { id: event.params.id } });
+    if (expRes.status === 404) throw error(404, 'expense not found');
+    if (!expRes.ok) throw error(expRes.status, 'failed to load expense');
+    const companyId = (await expRes.json()).companyId;
+
+    // Resolve the Vendor field. undefined → leave the link + needs-review flag
+    // untouched (an unrelated edit must not resurrect a dismissed flag); null →
+    // unlink; a uuid → (re)link. The API mirrors a linked name into merchant.
+    const vendor = await resolveVendorField(
+      client,
+      companyId,
+      values.vendorContactId,
+      values.merchant,
+    );
+    if (!vendor.ok) {
+      return fail(400, { values, formError: 'Could not add that vendor. Please try again.' });
+    }
+
     // The edit form submits every field, so PATCH carries the full editable
     // set. memo is sent even when empty (so clearing it actually clears the
     // column) — the sparse update schema accepts an empty string.
     const parsed = expenseUpdateSchema.safeParse({
+      vendorContactId: vendor.value,
       categoryAccountId: values.categoryAccountId,
       paymentAccountId: values.paymentAccountId,
       amount: values.amount,

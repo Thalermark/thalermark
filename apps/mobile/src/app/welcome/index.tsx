@@ -136,7 +136,7 @@ export default function WelcomeBusiness() {
                 className="mt-2 border-b border-ink/30 py-2 text-ink"
               />
               <Text className="mt-1 font-mono text-xs text-ink/50">
-                This is what your customers see.
+                This is what your contacts see.
               </Text>
             </View>
 

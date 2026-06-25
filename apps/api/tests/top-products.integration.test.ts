@@ -114,8 +114,8 @@ async function createItem(
   return ((await res.json()) as { id: string }).id;
 }
 
-async function createCustomer(app: ReturnType<typeof createApp>, ctx: Ctx) {
-  const res = await app.request('/api/customers', {
+async function createContact(app: ReturnType<typeof createApp>, ctx: Ctx) {
+  const res = await app.request('/api/contacts', {
     method: 'POST',
     headers: headers(ctx),
     body: JSON.stringify({ companyId: ctx.companyId, name: 'Coyote' }),
@@ -126,7 +126,7 @@ async function createCustomer(app: ReturnType<typeof createApp>, ctx: Ctx) {
 async function createInvoice(
   app: ReturnType<typeof createApp>,
   ctx: Ctx,
-  customerId: string,
+  contactId: string,
   number: string,
   lineItems: Line[],
 ) {
@@ -136,7 +136,7 @@ async function createInvoice(
     headers: headers(ctx),
     body: JSON.stringify({
       companyId: ctx.companyId,
-      customerId,
+      contactId,
       number,
       issueDate: '2026-06-01',
       dueDate: '2026-07-01',
@@ -203,7 +203,7 @@ describe('GET /api/companies/:id/top-products', () => {
     const ctx: Ctx = { cookie, accountId, companyId };
     const itemA = await createItem(app, ctx, 'Mowing', '40.00');
     const itemB = await createItem(app, ctx, 'Washing', '120.00');
-    const customer = await createCustomer(app, ctx);
+    const customer = await createContact(app, ctx);
 
     const paid = await createInvoice(app, ctx, customer, 'INV-1', [
       {
@@ -347,7 +347,7 @@ describe('GET /api/companies/:id/top-products', () => {
       const cookie = await signUp(app, 'cap@example.com');
       const { accountId, companyId } = await userContext('cap@example.com');
       const ctx: Ctx = { cookie, accountId, companyId };
-      const customer = await createCustomer(app, ctx);
+      const customer = await createContact(app, ctx);
 
       // 27 catalogued items with distinct, descending revenue (item k => 100-k),
       // all on one paid invoice, plus a hand-typed line for the bucket.

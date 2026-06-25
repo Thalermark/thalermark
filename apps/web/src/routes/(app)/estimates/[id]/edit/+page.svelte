@@ -112,25 +112,25 @@
 <form method="post" class="mt-8 space-y-8">
   <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
     <div>
-      <label for="customerId" class="label">
-        Customer<span class="text-accent">*</span>
+      <label for="contactId" class="label">
+        Contact<span class="text-accent">*</span>
       </label>
       <select
-        id="customerId"
-        name="customerId"
+        id="contactId"
+        name="contactId"
         required
         class="field mt-1"
       >
-        <option value="" disabled>Select a customer…</option>
-        {#each data.customers as c (c.id)}
+        <option value="" disabled>Select a contact…</option>
+        {#each data.contacts as c (c.id)}
           <option
             value={c.id}
-            selected={(values?.customerId ?? data.estimate.customerId) === c.id}>{c.name}</option
+            selected={(values?.contactId ?? data.estimate.contactId) === c.id}>{c.name}</option
           >
         {/each}
       </select>
-      {#if err('customerId')}
-        <p class="mt-1 text-xs text-danger">{err('customerId')}</p>
+      {#if err('contactId')}
+        <p class="mt-1 text-xs text-danger">{err('contactId')}</p>
       {/if}
     </div>
 

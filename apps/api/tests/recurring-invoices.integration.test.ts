@@ -94,14 +94,14 @@ function buildApp() {
 
 type CtxApp = { app: ReturnType<typeof createApp>; handle: { close: () => Promise<void> } };
 
-async function createCustomer(
+async function createContact(
   { app }: CtxApp,
   cookie: string,
   accountId: string,
   companyId: string,
   name = 'Acme Corp',
 ): Promise<string> {
-  const res = await app.request('/api/customers', {
+  const res = await app.request('/api/contacts', {
     method: 'POST',
     headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
     body: JSON.stringify({ companyId, name }),
@@ -112,12 +112,12 @@ async function createCustomer(
 
 function recurringBody(
   companyId: string,
-  customerId: string,
+  contactId: string,
   overrides: Record<string, unknown> = {},
 ) {
   return {
     companyId,
-    customerId,
+    contactId,
     frequency: 'monthly',
     intervalCount: 1,
     startDate: '2026-06-01',
@@ -147,13 +147,13 @@ async function createSchedule(
   cookie: string,
   accountId: string,
   companyId: string,
-  customerId: string,
+  contactId: string,
   overrides: Record<string, unknown> = {},
 ): Promise<string> {
   const res = await ctx.app.request('/api/recurring-invoices', {
     method: 'POST',
     headers: headers(cookie, accountId),
-    body: JSON.stringify(recurringBody(companyId, customerId, overrides)),
+    body: JSON.stringify(recurringBody(companyId, contactId, overrides)),
   });
   if (res.status !== 201) throw new Error(`schedule create failed: ${res.status}`);
   return ((await res.json()) as { id: string }).id;
@@ -167,13 +167,13 @@ describe('POST /api/recurring-invoices', () => {
     try {
       const cookie = await signUp(ctx.app, 'rec-create@example.com');
       const { accountId, companyId } = await userContext('rec-create@example.com');
-      const customerId = await createCustomer(ctx, cookie, accountId, companyId);
+      const contactId = await createContact(ctx, cookie, accountId, companyId);
 
       const res = await ctx.app.request('/api/recurring-invoices', {
         method: 'POST',
         headers: headers(cookie, accountId),
         body: JSON.stringify(
-          recurringBody(companyId, customerId, { endDate: '2026-12-01', maxOccurrences: 6 }),
+          recurringBody(companyId, contactId, { endDate: '2026-12-01', maxOccurrences: 6 }),
         ),
       });
       expect(res.status).toBe(201);
@@ -212,8 +212,8 @@ describe('POST /api/recurring-invoices', () => {
     try {
       const cookie = await signUp(ctx.app, 'rec-defaults@example.com');
       const { accountId, companyId } = await userContext('rec-defaults@example.com');
-      const customerId = await createCustomer(ctx, cookie, accountId, companyId);
-      const id = await createSchedule(ctx, cookie, accountId, companyId, customerId);
+      const contactId = await createContact(ctx, cookie, accountId, companyId);
+      const id = await createSchedule(ctx, cookie, accountId, companyId, contactId);
 
       const [row] = await getTestDb()
         .select()
@@ -233,12 +233,12 @@ describe('POST /api/recurring-invoices', () => {
     try {
       const cookie = await signUp(ctx.app, 'rec-badfreq@example.com');
       const { accountId, companyId } = await userContext('rec-badfreq@example.com');
-      const customerId = await createCustomer(ctx, cookie, accountId, companyId);
+      const contactId = await createContact(ctx, cookie, accountId, companyId);
 
       const res = await ctx.app.request('/api/recurring-invoices', {
         method: 'POST',
         headers: headers(cookie, accountId),
-        body: JSON.stringify(recurringBody(companyId, customerId, { frequency: 'fortnightly' })),
+        body: JSON.stringify(recurringBody(companyId, contactId, { frequency: 'fortnightly' })),
       });
       expect(res.status).toBe(400);
       expect(((await res.json()) as { error: string }).error).toBe('invalid_body');
@@ -247,12 +247,12 @@ describe('POST /api/recurring-invoices', () => {
     }
   });
 
-  it('rejects a customerId from a different account with 404', async () => {
+  it('rejects a contactId from a different account with 404', async () => {
     const ctx = buildApp();
     try {
       const aCookie = await signUp(ctx.app, 'rec-a@example.com');
       const aCtx = await userContext('rec-a@example.com');
-      const aCustId = await createCustomer(ctx, aCookie, aCtx.accountId, aCtx.companyId);
+      const aCustId = await createContact(ctx, aCookie, aCtx.accountId, aCtx.companyId);
 
       const bCookie = await signUp(ctx.app, 'rec-b@example.com');
       const bCtx = await userContext('rec-b@example.com');
@@ -263,7 +263,7 @@ describe('POST /api/recurring-invoices', () => {
         body: JSON.stringify(recurringBody(bCtx.companyId, aCustId)),
       });
       expect(res.status).toBe(404);
-      expect(((await res.json()) as { error: string }).error).toBe('customer_not_found');
+      expect(((await res.json()) as { error: string }).error).toBe('contact_not_found');
     } finally {
       await ctx.handle.close();
     }
@@ -278,7 +278,7 @@ describe('GET /api/recurring-invoices', () => {
     try {
       const aCookie = await signUp(ctx.app, 'rec-list-a@example.com');
       const aCtx = await userContext('rec-list-a@example.com');
-      const aCust = await createCustomer(ctx, aCookie, aCtx.accountId, aCtx.companyId);
+      const aCust = await createContact(ctx, aCookie, aCtx.accountId, aCtx.companyId);
       const active = await createSchedule(ctx, aCookie, aCtx.accountId, aCtx.companyId, aCust);
       const paused = await createSchedule(ctx, aCookie, aCtx.accountId, aCtx.companyId, aCust);
       await ctx.app.request(`/api/recurring-invoices/${paused}/pause`, {
@@ -288,7 +288,7 @@ describe('GET /api/recurring-invoices', () => {
 
       const bCookie = await signUp(ctx.app, 'rec-list-b@example.com');
       const bCtx = await userContext('rec-list-b@example.com');
-      const bCust = await createCustomer(ctx, bCookie, bCtx.accountId, bCtx.companyId);
+      const bCust = await createContact(ctx, bCookie, bCtx.accountId, bCtx.companyId);
       await createSchedule(ctx, bCookie, bCtx.accountId, bCtx.companyId, bCust);
 
       const all = await ctx.app.request('/api/recurring-invoices', {
@@ -312,8 +312,8 @@ describe('GET /api/recurring-invoices', () => {
     try {
       const cookie = await signUp(ctx.app, 'rec-get@example.com');
       const { accountId, companyId } = await userContext('rec-get@example.com');
-      const customerId = await createCustomer(ctx, cookie, accountId, companyId);
-      const id = await createSchedule(ctx, cookie, accountId, companyId, customerId);
+      const contactId = await createContact(ctx, cookie, accountId, companyId);
+      const id = await createSchedule(ctx, cookie, accountId, companyId, contactId);
 
       const res = await ctx.app.request(`/api/recurring-invoices/${id}`, {
         headers: headers(cookie, accountId),
@@ -337,7 +337,7 @@ describe('GET /api/recurring-invoices', () => {
     try {
       const aCookie = await signUp(ctx.app, 'rec-leak-a@example.com');
       const aCtx = await userContext('rec-leak-a@example.com');
-      const aCust = await createCustomer(ctx, aCookie, aCtx.accountId, aCtx.companyId);
+      const aCust = await createContact(ctx, aCookie, aCtx.accountId, aCtx.companyId);
       const id = await createSchedule(ctx, aCookie, aCtx.accountId, aCtx.companyId, aCust);
 
       const bCookie = await signUp(ctx.app, 'rec-leak-b@example.com');
@@ -361,10 +361,10 @@ describe('PATCH /api/recurring-invoices/:id', () => {
     try {
       const cookie = await signUp(ctx.app, 'rec-patch@example.com');
       const { accountId, companyId } = await userContext('rec-patch@example.com');
-      const customerId = await createCustomer(ctx, cookie, accountId, companyId);
-      const id = await createSchedule(ctx, cookie, accountId, companyId, customerId);
+      const contactId = await createContact(ctx, cookie, accountId, companyId);
+      const id = await createSchedule(ctx, cookie, accountId, companyId, contactId);
 
-      const update = recurringBody(companyId, customerId, {
+      const update = recurringBody(companyId, contactId, {
         frequency: 'weekly',
         intervalCount: 2,
         startDate: '2026-07-01',
@@ -414,14 +414,14 @@ describe('PATCH /api/recurring-invoices/:id', () => {
     try {
       const cookie = await signUp(ctx.app, 'rec-patch-ended@example.com');
       const { accountId, companyId } = await userContext('rec-patch-ended@example.com');
-      const customerId = await createCustomer(ctx, cookie, accountId, companyId);
-      const id = await createSchedule(ctx, cookie, accountId, companyId, customerId);
+      const contactId = await createContact(ctx, cookie, accountId, companyId);
+      const id = await createSchedule(ctx, cookie, accountId, companyId, contactId);
       await ctx.app.request(`/api/recurring-invoices/${id}/end`, {
         method: 'POST',
         headers: headers(cookie, accountId),
       });
 
-      const { companyId: _omit, ...patchBody } = recurringBody(companyId, customerId);
+      const { companyId: _omit, ...patchBody } = recurringBody(companyId, contactId);
       const res = await ctx.app.request(`/api/recurring-invoices/${id}`, {
         method: 'PATCH',
         headers: headers(cookie, accountId),
@@ -443,8 +443,8 @@ describe('recurring schedule transitions (pause / resume / end)', () => {
     try {
       const cookie = await signUp(ctx.app, 'rec-trans@example.com');
       const { accountId, companyId } = await userContext('rec-trans@example.com');
-      const customerId = await createCustomer(ctx, cookie, accountId, companyId);
-      const id = await createSchedule(ctx, cookie, accountId, companyId, customerId);
+      const contactId = await createContact(ctx, cookie, accountId, companyId);
+      const id = await createSchedule(ctx, cookie, accountId, companyId, contactId);
 
       const pause = await ctx.app.request(`/api/recurring-invoices/${id}/pause`, {
         method: 'POST',
@@ -476,9 +476,9 @@ describe('recurring schedule transitions (pause / resume / end)', () => {
     try {
       const cookie = await signUp(ctx.app, 'rec-resume-bump@example.com');
       const { accountId, companyId } = await userContext('rec-resume-bump@example.com');
-      const customerId = await createCustomer(ctx, cookie, accountId, companyId);
+      const contactId = await createContact(ctx, cookie, accountId, companyId);
       // A long-past start date → next_run_date is in the past.
-      const id = await createSchedule(ctx, cookie, accountId, companyId, customerId, {
+      const id = await createSchedule(ctx, cookie, accountId, companyId, contactId, {
         startDate: '2020-01-01',
       });
       await ctx.app.request(`/api/recurring-invoices/${id}/pause`, {
@@ -505,8 +505,8 @@ describe('recurring schedule transitions (pause / resume / end)', () => {
     try {
       const cookie = await signUp(ctx.app, 'rec-badtrans@example.com');
       const { accountId, companyId } = await userContext('rec-badtrans@example.com');
-      const customerId = await createCustomer(ctx, cookie, accountId, companyId);
-      const id = await createSchedule(ctx, cookie, accountId, companyId, customerId);
+      const contactId = await createContact(ctx, cookie, accountId, companyId);
+      const id = await createSchedule(ctx, cookie, accountId, companyId, contactId);
 
       const res = await ctx.app.request(`/api/recurring-invoices/${id}/resume`, {
         method: 'POST',
@@ -524,8 +524,8 @@ describe('recurring schedule transitions (pause / resume / end)', () => {
     try {
       const cookie = await signUp(ctx.app, 'rec-end@example.com');
       const { accountId, companyId } = await userContext('rec-end@example.com');
-      const customerId = await createCustomer(ctx, cookie, accountId, companyId);
-      const id = await createSchedule(ctx, cookie, accountId, companyId, customerId);
+      const contactId = await createContact(ctx, cookie, accountId, companyId);
+      const id = await createSchedule(ctx, cookie, accountId, companyId, contactId);
 
       const first = await ctx.app.request(`/api/recurring-invoices/${id}/end`, {
         method: 'POST',
@@ -549,7 +549,7 @@ describe('recurring schedule transitions (pause / resume / end)', () => {
     try {
       const aCookie = await signUp(ctx.app, 'rec-trans-a@example.com');
       const aCtx = await userContext('rec-trans-a@example.com');
-      const aCust = await createCustomer(ctx, aCookie, aCtx.accountId, aCtx.companyId);
+      const aCust = await createContact(ctx, aCookie, aCtx.accountId, aCtx.companyId);
       const id = await createSchedule(ctx, aCookie, aCtx.accountId, aCtx.companyId, aCust);
 
       const bCookie = await signUp(ctx.app, 'rec-trans-b@example.com');

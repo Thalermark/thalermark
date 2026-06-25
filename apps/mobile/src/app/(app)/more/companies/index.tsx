@@ -74,7 +74,7 @@ export default function CompaniesScreen() {
         </Pressable>
         <Text className="mt-3 font-serif text-3xl font-light text-ink">Companies</Text>
         <Text className="mt-3 text-sm text-ink/60">
-          Each company keeps its own books, invoices, and customers. Pick which one to work in —
+          Each company keeps its own books, invoices, and contacts. Pick which one to work in —
           everything re-scopes to your choice.
         </Text>
 

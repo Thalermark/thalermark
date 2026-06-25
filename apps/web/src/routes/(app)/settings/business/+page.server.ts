@@ -89,7 +89,7 @@ export const actions: Actions = {
     };
   },
 
-  // Saves the reply-to address shown to the customer's mail client. Empty input
+  // Saves the reply-to address shown to the contact's mail client. Empty input
   // clears it (API coerces '' → null, dropping the Reply-To header from outbound
   // invoice/estimate emails). Distinct replyToSaved/replyToError flags keep this
   // from tripping the contact form's status (both POST to this page).

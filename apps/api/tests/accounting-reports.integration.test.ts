@@ -112,8 +112,8 @@ async function coaId(companyId: string, code: string): Promise<string> {
   return row.id;
 }
 
-async function createCustomer(ctx: Ctx, name = 'Acme'): Promise<string> {
-  const res = await ctx.app.request('/api/customers', {
+async function createContact(ctx: Ctx, name = 'Acme'): Promise<string> {
+  const res = await ctx.app.request('/api/contacts', {
     method: 'POST',
     headers: headers(ctx),
     body: JSON.stringify({ companyId: ctx.companyId, name }),
@@ -124,7 +124,7 @@ async function createCustomer(ctx: Ctx, name = 'Acme'): Promise<string> {
 
 async function createInvoice(
   ctx: Ctx,
-  customerId: string,
+  contactId: string,
   opts: {
     number: string;
     issueDate: string;
@@ -139,7 +139,7 @@ async function createInvoice(
     headers: headers(ctx),
     body: JSON.stringify({
       companyId: ctx.companyId,
-      customerId,
+      contactId,
       number: opts.number,
       issueDate: opts.issueDate,
       dueDate: opts.dueDate,
@@ -197,7 +197,7 @@ describe('GET /api/companies/:id/balance-sheet', () => {
     const { ctx, close } = await setup('bs@example.com');
     try {
       const today = new Date().toISOString().slice(0, 10);
-      const cust = await createCustomer(ctx);
+      const cust = await createContact(ctx);
       // Paid invoice: subtotal 100, tax 8.25, total 108.25 (sent → paid).
       const inv = await createInvoice(ctx, cust, {
         number: 'A',
@@ -263,7 +263,7 @@ describe('GET /api/companies/:id/ar-aging', () => {
   it('buckets outstanding invoices by days past due', async () => {
     const { ctx, close } = await setup('ar@example.com');
     try {
-      const cust = await createCustomer(ctx);
+      const cust = await createContact(ctx);
       const mk = async (number: string, dueDate: string, total: string) => {
         const inv = await createInvoice(ctx, cust, {
           number,
@@ -317,7 +317,7 @@ describe('GET /api/companies/:id/sales-tax', () => {
     const { ctx, close } = await setup('tax@example.com');
     try {
       const today = new Date().toISOString().slice(0, 10);
-      const cust = await createCustomer(ctx);
+      const cust = await createContact(ctx);
       const mk = async (number: string, tax: string, subtotal: string) => {
         const total = (Number(subtotal) + Number(tax)).toFixed(2);
         const inv = await createInvoice(ctx, cust, {

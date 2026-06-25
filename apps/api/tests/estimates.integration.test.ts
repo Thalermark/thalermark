@@ -97,7 +97,7 @@ function buildApp(opts: { mailer?: import('../src/lib/mailer.js').Mailer } = {})
 
 type CtxApp = { app: ReturnType<typeof createApp>; handle: { close: () => Promise<void> } };
 
-async function createCustomer(
+async function createContact(
   { app }: CtxApp,
   cookie: string,
   accountId: string,
@@ -107,7 +107,7 @@ async function createCustomer(
 ): Promise<string> {
   const body: Record<string, string> = { companyId, name };
   if (email) body.email = email;
-  const res = await app.request('/api/customers', {
+  const res = await app.request('/api/contacts', {
     method: 'POST',
     headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
     body: JSON.stringify(body),
@@ -117,10 +117,10 @@ async function createCustomer(
   return out.id;
 }
 
-function estimateBody(companyId: string, customerId: string, number = 'EST-001') {
+function estimateBody(companyId: string, contactId: string, number = 'EST-001') {
   return {
     companyId,
-    customerId,
+    contactId,
     number,
     issueDate: '2026-05-23',
     expiresOn: '2026-06-22',
@@ -147,12 +147,12 @@ describe('POST /api/estimates', () => {
     try {
       const cookie = await signUp(ctx.app, 'quoter@example.com');
       const { accountId, companyId } = await userContext('quoter@example.com');
-      const customerId = await createCustomer(ctx, cookie, accountId, companyId);
+      const contactId = await createContact(ctx, cookie, accountId, companyId);
 
       const res = await ctx.app.request('/api/estimates', {
         method: 'POST',
         headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
-        body: JSON.stringify(estimateBody(companyId, customerId)),
+        body: JSON.stringify(estimateBody(companyId, contactId)),
       });
       expect(res.status).toBe(201);
       const body = (await res.json()) as { id: string };
@@ -185,8 +185,8 @@ describe('POST /api/estimates', () => {
     try {
       const cookie = await signUp(ctx.app, 'noexp@example.com');
       const { accountId, companyId } = await userContext('noexp@example.com');
-      const customerId = await createCustomer(ctx, cookie, accountId, companyId);
-      const body = estimateBody(companyId, customerId);
+      const contactId = await createContact(ctx, cookie, accountId, companyId);
+      const body = estimateBody(companyId, contactId);
       const { expiresOn: _drop, ...rest } = body;
 
       const res = await ctx.app.request('/api/estimates', {
@@ -208,19 +208,19 @@ describe('POST /api/estimates', () => {
     try {
       const cookie = await signUp(ctx.app, 'estdup@example.com');
       const { accountId, companyId } = await userContext('estdup@example.com');
-      const customerId = await createCustomer(ctx, cookie, accountId, companyId);
+      const contactId = await createContact(ctx, cookie, accountId, companyId);
 
       const first = await ctx.app.request('/api/estimates', {
         method: 'POST',
         headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
-        body: JSON.stringify(estimateBody(companyId, customerId, 'EST-DUP')),
+        body: JSON.stringify(estimateBody(companyId, contactId, 'EST-DUP')),
       });
       expect(first.status).toBe(201);
 
       const second = await ctx.app.request('/api/estimates', {
         method: 'POST',
         headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
-        body: JSON.stringify(estimateBody(companyId, customerId, 'EST-DUP')),
+        body: JSON.stringify(estimateBody(companyId, contactId, 'EST-DUP')),
       });
       expect(second.status).toBe(409);
       expect((await second.json()) as { error: string }).toEqual({
@@ -231,12 +231,12 @@ describe('POST /api/estimates', () => {
     }
   });
 
-  it('rejects a customerId from a different account with 404', async () => {
+  it('rejects a contactId from a different account with 404', async () => {
     const ctx = buildApp();
     try {
       const aCookie = await signUp(ctx.app, 'esta@example.com');
       const aCtx = await userContext('esta@example.com');
-      const aCustId = await createCustomer(ctx, aCookie, aCtx.accountId, aCtx.companyId);
+      const aCustId = await createContact(ctx, aCookie, aCtx.accountId, aCtx.companyId);
 
       const bCookie = await signUp(ctx.app, 'estb@example.com');
       const bCtx = await userContext('estb@example.com');
@@ -256,12 +256,12 @@ describe('POST /api/estimates', () => {
     }
   });
 
-  it('rejects customerId that does not match the requested companyId with 400', async () => {
+  it('rejects contactId that does not match the requested companyId with 400', async () => {
     const ctx = buildApp();
     try {
       const cookie = await signUp(ctx.app, 'estmis@example.com');
       const { accountId, companyId } = await userContext('estmis@example.com');
-      const customerId = await createCustomer(ctx, cookie, accountId, companyId);
+      const contactId = await createContact(ctx, cookie, accountId, companyId);
 
       const otherCompanyId = await (async () => {
         const id = (await import('uuid')).v7();
@@ -272,7 +272,7 @@ describe('POST /api/estimates', () => {
       const res = await ctx.app.request('/api/estimates', {
         method: 'POST',
         headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
-        body: JSON.stringify(estimateBody(otherCompanyId, customerId)),
+        body: JSON.stringify(estimateBody(otherCompanyId, contactId)),
       });
       expect(res.status).toBe(400);
     } finally {
@@ -285,8 +285,8 @@ describe('POST /api/estimates', () => {
     try {
       const cookie = await signUp(ctx.app, 'estbad@example.com');
       const { accountId, companyId } = await userContext('estbad@example.com');
-      const customerId = await createCustomer(ctx, cookie, accountId, companyId);
-      const body = estimateBody(companyId, customerId);
+      const contactId = await createContact(ctx, cookie, accountId, companyId);
+      const body = estimateBody(companyId, contactId);
       const res = await ctx.app.request('/api/estimates', {
         method: 'POST',
         headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
@@ -307,12 +307,12 @@ describe('GET /api/estimates and /api/estimates/:id', () => {
     try {
       const cookie = await signUp(ctx.app, 'estreader@example.com');
       const { accountId, companyId } = await userContext('estreader@example.com');
-      const customerId = await createCustomer(ctx, cookie, accountId, companyId);
+      const contactId = await createContact(ctx, cookie, accountId, companyId);
 
       const create = await ctx.app.request('/api/estimates', {
         method: 'POST',
         headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
-        body: JSON.stringify(estimateBody(companyId, customerId)),
+        body: JSON.stringify(estimateBody(companyId, contactId)),
       });
       const { id } = (await create.json()) as { id: string };
 
@@ -344,7 +344,7 @@ describe('GET /api/estimates and /api/estimates/:id', () => {
     try {
       const aCookie = await signUp(ctx.app, 'estxa@example.com');
       const aCtx = await userContext('estxa@example.com');
-      const aCust = await createCustomer(ctx, aCookie, aCtx.accountId, aCtx.companyId);
+      const aCust = await createContact(ctx, aCookie, aCtx.accountId, aCtx.companyId);
       const create = await ctx.app.request('/api/estimates', {
         method: 'POST',
         headers: {
@@ -391,7 +391,7 @@ describe('GET /api/estimates/next-number', () => {
     try {
       const cookie = await signUp(ctx.app, 'estinc@example.com');
       const { accountId, companyId } = await userContext('estinc@example.com');
-      const customer = await createCustomer(ctx, cookie, accountId, companyId);
+      const customer = await createContact(ctx, cookie, accountId, companyId);
       for (const number of ['EST-0041', 'EST-0042']) {
         const post = await ctx.app.request('/api/estimates', {
           method: 'POST',
@@ -434,32 +434,32 @@ describe('PATCH /api/estimates/:id', () => {
     cookie: string;
     accountId: string;
     companyId: string;
-    customerId: string;
+    contactId: string;
     estimateId: string;
   }> {
     const cookie = await signUp(ctx.app, email);
     const { accountId, companyId } = await userContext(email);
-    const customerId = await createCustomer(ctx, cookie, accountId, companyId);
+    const contactId = await createContact(ctx, cookie, accountId, companyId);
     const create = await ctx.app.request('/api/estimates', {
       method: 'POST',
       headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
-      body: JSON.stringify(estimateBody(companyId, customerId)),
+      body: JSON.stringify(estimateBody(companyId, contactId)),
     });
     if (create.status !== 201) throw new Error(`seed estimate failed: ${create.status}`);
     const { id } = (await create.json()) as { id: string };
-    return { cookie, accountId, companyId, customerId, estimateId: id };
+    return { cookie, accountId, companyId, contactId, estimateId: id };
   }
 
   it('replaces header + line items in one tx and writes an update audit', async () => {
     const ctx = buildApp();
     try {
-      const { cookie, accountId, customerId, estimateId } = await seedDraftEstimate(
+      const { cookie, accountId, contactId, estimateId } = await seedDraftEstimate(
         ctx,
         'estedit@example.com',
       );
 
       const newBody = {
-        customerId,
+        contactId,
         number: 'EST-002',
         issueDate: '2026-06-01',
         expiresOn: '2026-07-01',
@@ -516,7 +516,7 @@ describe('PATCH /api/estimates/:id', () => {
   it('rejects PATCH on a non-draft estimate with 409 not_editable', async () => {
     const ctx = buildApp();
     try {
-      const { cookie, accountId, customerId, estimateId } = await seedDraftEstimate(
+      const { cookie, accountId, contactId, estimateId } = await seedDraftEstimate(
         ctx,
         'estsent@example.com',
       );
@@ -530,7 +530,7 @@ describe('PATCH /api/estimates/:id', () => {
         method: 'PATCH',
         headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
         body: JSON.stringify({
-          customerId,
+          contactId,
           number: 'EST-NEW',
           issueDate: '2026-06-01',
           subtotal: '50.00',
@@ -554,11 +554,11 @@ describe('Estimate transitions', () => {
   async function seedDraft(ctx: CtxApp, email: string) {
     const cookie = await signUp(ctx.app, email);
     const { accountId, companyId } = await userContext(email);
-    const customerId = await createCustomer(ctx, cookie, accountId, companyId);
+    const contactId = await createContact(ctx, cookie, accountId, companyId);
     const create = await ctx.app.request('/api/estimates', {
       method: 'POST',
       headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
-      body: JSON.stringify(estimateBody(companyId, customerId)),
+      body: JSON.stringify(estimateBody(companyId, contactId)),
     });
     if (create.status !== 201) throw new Error(`seed failed: ${create.status}`);
     const { id } = (await create.json()) as { id: string };
@@ -678,11 +678,11 @@ describe('POST /api/estimates/:id/convert', () => {
   async function seedAccepted(ctx: CtxApp, email: string) {
     const cookie = await signUp(ctx.app, email);
     const { accountId, companyId } = await userContext(email);
-    const customerId = await createCustomer(ctx, cookie, accountId, companyId);
+    const contactId = await createContact(ctx, cookie, accountId, companyId);
     const create = await ctx.app.request('/api/estimates', {
       method: 'POST',
       headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
-      body: JSON.stringify(estimateBody(companyId, customerId)),
+      body: JSON.stringify(estimateBody(companyId, contactId)),
     });
     if (create.status !== 201) throw new Error(`seed estimate failed: ${create.status}`);
     const { id: estimateId } = (await create.json()) as { id: string };
@@ -691,13 +691,13 @@ describe('POST /api/estimates/:id/convert', () => {
       headers: { cookie, 'x-account-id': accountId },
     });
     if (acc.status !== 200) throw new Error(`mark-accepted failed: ${acc.status}`);
-    return { cookie, accountId, companyId, customerId, estimateId };
+    return { cookie, accountId, companyId, contactId, estimateId };
   }
 
   it('copies header + line items into a draft invoice and links the estimate', async () => {
     const ctx = buildApp();
     try {
-      const { cookie, accountId, companyId, customerId, estimateId } = await seedAccepted(
+      const { cookie, accountId, companyId, contactId, estimateId } = await seedAccepted(
         ctx,
         'convok@example.com',
       );
@@ -713,7 +713,7 @@ describe('POST /api/estimates/:id/convert', () => {
       const [inv] = await db.select().from(invoices).where(eq(invoices.id, invoiceId));
       expect(inv).toBeDefined();
       expect(inv?.companyId).toBe(companyId);
-      expect(inv?.customerId).toBe(customerId);
+      expect(inv?.contactId).toBe(contactId);
       expect(inv?.status).toBe('draft');
       expect(inv?.subtotal).toBe('100.00');
       expect(inv?.tax).toBe('8.25');
@@ -779,13 +779,13 @@ describe('POST /api/estimates/:id/convert', () => {
     try {
       const cookie = await signUp(ctx.app, 'convgate@example.com');
       const { accountId, companyId } = await userContext('convgate@example.com');
-      const customerId = await createCustomer(ctx, cookie, accountId, companyId);
+      const contactId = await createContact(ctx, cookie, accountId, companyId);
 
       async function makeEstimate(number: string): Promise<string> {
         const r = await ctx.app.request('/api/estimates', {
           method: 'POST',
           headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
-          body: JSON.stringify(estimateBody(companyId, customerId, number)),
+          body: JSON.stringify(estimateBody(companyId, contactId, number)),
         });
         if (r.status !== 201) throw new Error(`seed ${number} failed: ${r.status}`);
         return ((await r.json()) as { id: string }).id;
@@ -885,7 +885,7 @@ describe('POST /api/estimates/:id/send', () => {
   ): Promise<{ cookie: string; accountId: string; estimateId: string }> {
     const cookie = await signUp(ctx.app, signupEmail);
     const { accountId, companyId } = await userContext(signupEmail);
-    const customerId = await createCustomer(
+    const contactId = await createContact(
       ctx,
       cookie,
       accountId,
@@ -896,7 +896,7 @@ describe('POST /api/estimates/:id/send', () => {
     const create = await ctx.app.request('/api/estimates', {
       method: 'POST',
       headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
-      body: JSON.stringify(estimateBody(companyId, customerId)),
+      body: JSON.stringify(estimateBody(companyId, contactId)),
     });
     if (create.status !== 201) throw new Error(`seed estimate failed: ${create.status}`);
     const { id } = (await create.json()) as { id: string };
@@ -1101,7 +1101,7 @@ describe('Public estimate routes', () => {
 
     const cookie = await signUp(ctx.app, email);
     const { accountId, companyId } = await userContext(email);
-    const customerId = await createCustomer(
+    const contactId = await createContact(
       ctx,
       cookie,
       accountId,
@@ -1112,7 +1112,7 @@ describe('Public estimate routes', () => {
     const create = await ctx.app.request('/api/estimates', {
       method: 'POST',
       headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
-      body: JSON.stringify(estimateBody(companyId, customerId)),
+      body: JSON.stringify(estimateBody(companyId, contactId)),
     });
     if (create.status !== 201) throw new Error(`seed estimate failed: ${create.status}`);
     const { id: estimateId } = (await create.json()) as { id: string };
@@ -1164,7 +1164,7 @@ describe('Public estimate routes', () => {
     try {
       const cookie = await signUp(ctx.app, 'est-flags@example.com');
       const { accountId, companyId } = await userContext('est-flags@example.com');
-      const customerId = await createCustomer(
+      const contactId = await createContact(
         ctx,
         cookie,
         accountId,
@@ -1189,7 +1189,7 @@ describe('Public estimate routes', () => {
         method: 'POST',
         headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
         body: JSON.stringify({
-          ...estimateBody(companyId, customerId),
+          ...estimateBody(companyId, contactId),
           showAddress: true,
           showPhone: false,
           showEmail: true,
@@ -1224,7 +1224,7 @@ describe('Public estimate routes', () => {
     try {
       const cookie = await signUp(ctx.app, 'est-seed@example.com');
       const { accountId, companyId } = await userContext('est-seed@example.com');
-      const customerId = await createCustomer(ctx, cookie, accountId, companyId);
+      const contactId = await createContact(ctx, cookie, accountId, companyId);
 
       // Turn the phone default off for estimates only.
       const patched = await ctx.app.request(`/api/companies/${companyId}`, {
@@ -1238,7 +1238,7 @@ describe('Public estimate routes', () => {
       const create = await ctx.app.request('/api/estimates', {
         method: 'POST',
         headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
-        body: JSON.stringify(estimateBody(companyId, customerId)),
+        body: JSON.stringify(estimateBody(companyId, contactId)),
       });
       expect(create.status).toBe(201);
       const { id } = (await create.json()) as { id: string };

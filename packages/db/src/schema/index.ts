@@ -3,7 +3,7 @@ export * from './audit_events.js';
 export * from './auth.js';
 export * from './chart_of_accounts.js';
 export * from './companies.js';
-export * from './customers.js';
+export * from './contacts.js';
 export * from './email_templates.js';
 export * from './estimates.js';
 export * from './expenses.js';

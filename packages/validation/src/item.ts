@@ -39,7 +39,7 @@ export type ItemCreateInput = z.infer<typeof itemCreateSchema>;
 
 // Input schema for PATCH /api/items/:id. Same shape as create minus companyId
 // — an item cannot move between companies (its sales-history breadcrumbs are
-// scoped to the original company). Full-replacement like customerUpdate: the
+// scoped to the original company). Full-replacement like contactUpdate: the
 // edit form re-submits every field, so undefined optionals clear the value.
 export const itemUpdateSchema = itemCreateSchema.omit({ companyId: true });
 

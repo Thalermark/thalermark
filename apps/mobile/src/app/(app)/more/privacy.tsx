@@ -93,7 +93,7 @@ export default function PrivacySettings() {
             <Text className="mt-2 text-sm text-ink/70">
               Help us build a better product. With your consent we collect anonymous usage data —
               which features get used and where errors happen. We never collect personal or
-              financial information: no names, amounts, customers, or document contents.
+              financial information: no names, amounts, contacts, or document contents.
             </Text>
 
             {disabled ? (

@@ -13,7 +13,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import { accounts } from './accounts.js';
 import { companies } from './companies.js';
-import { customers } from './customers.js';
+import { contacts } from './contacts.js';
 import { items } from './items.js';
 import { recurringInvoices } from './recurring-invoices.js';
 import { taxPolicies } from './tax_policies.js';
@@ -26,8 +26,8 @@ import { taxPolicies } from './tax_policies.js';
 // hole. number is unique within (account_id, company_id) — invoice numbers
 // belong to the company, not the workspace.
 //
-// customer_id is RESTRICT on delete: customers with invoices cannot be
-// hard-deleted. The MVP path is to keep customers around for invoice history;
+// contact_id is RESTRICT on delete: contacts with invoices cannot be
+// hard-deleted. The MVP path is to keep contacts around for invoice history;
 // soft-delete / archival is a v1.x decision.
 //
 // sent_at / paid_at / voided_at record when each transition fired (timestamptz,
@@ -45,9 +45,9 @@ export const invoices = pgTable(
     companyId: uuid('company_id')
       .notNull()
       .references(() => companies.id, { onDelete: 'cascade' }),
-    customerId: uuid('customer_id')
+    contactId: uuid('contact_id')
       .notNull()
-      .references(() => customers.id, { onDelete: 'restrict' }),
+      .references(() => contacts.id, { onDelete: 'restrict' }),
     number: text('number').notNull(),
     status: text('status').notNull().default('draft'),
     issueDate: date('issue_date', { mode: 'string' }).notNull(),
@@ -93,7 +93,7 @@ export const invoices = pgTable(
   (table) => ({
     accountIdIdx: index('invoices_account_id_idx').on(table.accountId),
     companyIdIdx: index('invoices_company_id_idx').on(table.companyId),
-    customerIdIdx: index('invoices_customer_id_idx').on(table.customerId),
+    contactIdIdx: index('invoices_contact_id_idx').on(table.contactId),
     statusIdx: index('invoices_status_idx').on(table.status),
     // Backs the keyset list query: WHERE account_id ORDER BY created_at DESC, id DESC.
     accountCreatedAtIdx: index('invoices_account_created_at_idx').on(

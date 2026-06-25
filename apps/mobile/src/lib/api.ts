@@ -33,7 +33,7 @@ function buildClient(baseUrl: string) {
 // hc captures it at construction. So we memoize the client and rebuild it
 // whenever the configured URL changes. `api` stays a stable export — a Proxy
 // that forwards every access to the live client — so the ~30 call sites
-// (`api.api.customers…`) never need to know the URL can change.
+// (`api.api.contacts…`) never need to know the URL can change.
 let client = buildClient(getServerUrl());
 let builtFor = getServerUrl();
 

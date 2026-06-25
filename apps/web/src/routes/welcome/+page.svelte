@@ -74,7 +74,7 @@
       placeholder="e.g. Sunrise Landscaping"
       class="field-line mt-2"
     />
-    <span class="mt-1 block font-mono text-xs text-fg/50">This is what your customers see.</span>
+    <span class="mt-1 block font-mono text-xs text-fg/50">This is what your contacts see.</span>
     {#if fieldErrors.name}
       <p class="label mt-2 text-danger">{fieldErrors.name}</p>
     {/if}

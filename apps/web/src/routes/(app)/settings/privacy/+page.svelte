@@ -18,7 +18,7 @@
     <p class="mt-2 text-sm text-fg/70">
       Help us build a better product. With your consent we collect anonymous usage data — which
       features get used and where errors happen. We never collect personal or financial information:
-      no names, amounts, customers, or document contents. You can change this any time, and the
+      no names, amounts, contacts, or document contents. You can change this any time, and the
       <a class="link" href="https://github.com/thalermark/thalermark/blob/main/TELEMETRY.md">
         full spec is public</a
       >.

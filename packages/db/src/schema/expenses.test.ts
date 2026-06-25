@@ -6,7 +6,7 @@ import { seedChartOfAccounts } from '../seed/coa-sole-prop.js';
 import { accounts } from './accounts.js';
 import { chartOfAccounts } from './chart_of_accounts.js';
 import { companies } from './companies.js';
-import { customers } from './customers.js';
+import { contacts } from './contacts.js';
 import { expenses } from './expenses.js';
 
 async function seedTenant() {
@@ -49,7 +49,9 @@ describe('expenses', () => {
     expect(row?.merchant).toBe('Home Depot');
     expect(row?.amount).toBe('25.00');
     expect(row?.expenseDate).toBe('2026-05-30');
-    expect(row?.customerId).toBeNull();
+    expect(row?.customerContactId).toBeNull();
+    expect(row?.vendorContactId).toBeNull();
+    expect(row?.vendorReview).toBeNull();
     expect(row?.memo).toBeNull();
     expect(row?.receiptStorageKey).toBeNull();
     expect(row?.receiptUploadedAt).toBeNull();
@@ -188,18 +190,18 @@ describe('expenses', () => {
     ).rejects.toThrow();
   });
 
-  it('blocks delete of a customer referenced by an expense (RESTRICT)', async () => {
+  it('blocks delete of a contact referenced by an expense (RESTRICT)', async () => {
     const db = getTestDb();
     const { accountId, companyId, cashAccountId, suppliesAccountId } = await seedTenant();
-    const customerId = uuidv7();
+    const contactId = uuidv7();
     await db
-      .insert(customers)
-      .values({ id: customerId, accountId, companyId, name: 'Wile E. Coyote' });
+      .insert(contacts)
+      .values({ id: contactId, accountId, companyId, name: 'Wile E. Coyote' });
     await db.insert(expenses).values({
       id: uuidv7(),
       accountId,
       companyId,
-      customerId,
+      customerContactId: contactId,
       categoryAccountId: suppliesAccountId,
       paymentAccountId: cashAccountId,
       amount: '10.00',
@@ -207,10 +209,58 @@ describe('expenses', () => {
       merchant: 'For Wile',
     });
 
-    await expect(db.delete(customers).where(eq(customers.id, customerId))).rejects.toThrow();
+    await expect(db.delete(contacts).where(eq(contacts.id, contactId))).rejects.toThrow();
   });
 
-  it('allows nullable customer_id (MVP does not expose it)', async () => {
+  it('links a vendor contact and stores the review flag', async () => {
+    const db = getTestDb();
+    const { accountId, companyId, cashAccountId, suppliesAccountId } = await seedTenant();
+    const vendorId = uuidv7();
+    await db
+      .insert(contacts)
+      .values({ id: vendorId, accountId, companyId, name: 'Home Depot', isVendor: true });
+    const expenseId = uuidv7();
+    await db.insert(expenses).values({
+      id: expenseId,
+      accountId,
+      companyId,
+      vendorContactId: vendorId,
+      categoryAccountId: suppliesAccountId,
+      paymentAccountId: cashAccountId,
+      amount: '25.00',
+      expenseDate: '2026-05-30',
+      merchant: 'Home Depot',
+      vendorReview: 'needs_review',
+    });
+
+    const [row] = await db.select().from(expenses).where(eq(expenses.id, expenseId));
+    expect(row?.vendorContactId).toBe(vendorId);
+    expect(row?.vendorReview).toBe('needs_review');
+  });
+
+  it('blocks delete of a contact referenced as an expense vendor (RESTRICT)', async () => {
+    const db = getTestDb();
+    const { accountId, companyId, cashAccountId, suppliesAccountId } = await seedTenant();
+    const vendorId = uuidv7();
+    await db
+      .insert(contacts)
+      .values({ id: vendorId, accountId, companyId, name: 'Acme Supply', isVendor: true });
+    await db.insert(expenses).values({
+      id: uuidv7(),
+      accountId,
+      companyId,
+      vendorContactId: vendorId,
+      categoryAccountId: suppliesAccountId,
+      paymentAccountId: cashAccountId,
+      amount: '10.00',
+      expenseDate: '2026-05-30',
+      merchant: 'Acme Supply',
+    });
+
+    await expect(db.delete(contacts).where(eq(contacts.id, vendorId))).rejects.toThrow();
+  });
+
+  it('allows nullable customer_contact_id (MVP does not expose it)', async () => {
     const db = getTestDb();
     const { accountId, companyId, cashAccountId, suppliesAccountId } = await seedTenant();
     const expenseId = uuidv7();
@@ -227,7 +277,7 @@ describe('expenses', () => {
     });
 
     const [row] = await db.select().from(expenses).where(eq(expenses.id, expenseId));
-    expect(row?.customerId).toBeNull();
+    expect(row?.customerContactId).toBeNull();
   });
 
   it('cascades delete from accounts → expenses', async () => {

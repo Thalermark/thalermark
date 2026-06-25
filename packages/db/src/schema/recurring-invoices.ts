@@ -12,7 +12,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import { accounts } from './accounts.js';
 import { companies } from './companies.js';
-import { customers } from './customers.js';
+import { contacts } from './contacts.js';
 import { items } from './items.js';
 import { taxPolicies } from './tax_policies.js';
 
@@ -41,8 +41,8 @@ import { taxPolicies } from './tax_policies.js';
 // net_terms_days drives the generated invoice's due date (issue + N days),
 // defaulting to Net-30 like the duplicate-as-template flow. currency / subtotal
 // / tax / total are the template snapshot copied onto each generated invoice
-// header, mirroring the invoices table. customer_id is RESTRICT to match
-// invoices (a customer with schedules can't be hard-deleted).
+// header, mirroring the invoices table. contact_id is RESTRICT to match
+// invoices (a contact with schedules can't be hard-deleted).
 export const recurringInvoices = pgTable(
   'recurring_invoices',
   {
@@ -53,9 +53,9 @@ export const recurringInvoices = pgTable(
     companyId: uuid('company_id')
       .notNull()
       .references(() => companies.id, { onDelete: 'cascade' }),
-    customerId: uuid('customer_id')
+    contactId: uuid('contact_id')
       .notNull()
-      .references(() => customers.id, { onDelete: 'restrict' }),
+      .references(() => contacts.id, { onDelete: 'restrict' }),
     frequency: text('frequency').notNull(),
     // Counter / small-int columns are bigint, not integer — squawk's
     // prefer-bigint-over-int rule is active and these read fine as JS numbers.
@@ -78,7 +78,7 @@ export const recurringInvoices = pgTable(
   (table) => ({
     accountIdIdx: index('recurring_invoices_account_id_idx').on(table.accountId),
     companyIdIdx: index('recurring_invoices_company_id_idx').on(table.companyId),
-    customerIdIdx: index('recurring_invoices_customer_id_idx').on(table.customerId),
+    contactIdIdx: index('recurring_invoices_contact_id_idx').on(table.contactId),
     // The sweep query filters on (status, next_run_date) across all tenants;
     // this composite index keeps the daily scan cheap as schedules grow.
     sweepIdx: index('recurring_invoices_sweep_idx').on(table.status, table.nextRunDate),

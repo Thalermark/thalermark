@@ -15,8 +15,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { DateField } from '../../../../components/DateField';
 import { SuggestButton, SuggestNotice } from '../../../../components/SuggestCategory';
+import { VendorField } from '../../../../components/VendorField';
 import { api } from '../../../../lib/api';
 import { type SuggestResult, suggestCategory } from '../../../../lib/categorize';
+import { resolveVendor } from '../../../../lib/expense-vendor';
 
 // Edit half of apps/web's /expenses/[id]/edit. Seeds from the loaded expense +
 // its company's chart of accounts, then PATCHes. The API does a sparse merge
@@ -28,6 +30,7 @@ type Account = { id: string; code: string; name: string };
 type Seed = {
   companyId: string;
   merchant: string;
+  vendorContactId: string;
   amount: string;
   expenseDate: string;
   memo: string;
@@ -47,6 +50,9 @@ export default function EditExpense() {
   const [submitting, setSubmitting] = useState(false);
   const [suggesting, setSuggesting] = useState(false);
   const [suggestNotice, setSuggestNotice] = useState<SuggestResult | null>(null);
+  // Whether the Vendor field was touched. Untouched → omit vendorContactId from
+  // the PATCH so an unrelated edit leaves the link + needs-review flag alone.
+  const [vendorTouched, setVendorTouched] = useState(false);
 
   // Seed once from the expense + its COA; don't clobber edits on a focus regain.
   useFocusEffect(
@@ -77,6 +83,7 @@ export default function EditExpense() {
         setSeed({
           companyId: e.companyId,
           merchant: e.merchant,
+          vendorContactId: e.vendorContactId ?? '',
           amount: e.amount,
           expenseDate: e.expenseDate,
           memo: e.memo ?? '',
@@ -142,7 +149,18 @@ export default function EditExpense() {
 
     setSubmitting(true);
     try {
-      const res = await api.api.expenses[':id'].$patch({ param: { id }, json: parsed.data });
+      // Only resolve/send the vendor when it was touched; otherwise omit it so
+      // the API preserves the existing link AND the needs-review flag.
+      let json = parsed.data;
+      if (vendorTouched) {
+        const vendor = await resolveVendor(seed.companyId, seed.vendorContactId, seed.merchant);
+        if (!vendor.ok) {
+          setFormError('vendor_create_failed');
+          return;
+        }
+        json = { ...parsed.data, vendorContactId: vendor.value };
+      }
+      const res = await api.api.expenses[':id'].$patch({ param: { id }, json });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
         setFormError(body?.error ?? 'save_failed');
@@ -194,10 +212,14 @@ export default function EditExpense() {
           ) : null}
 
           <View className="mt-8 space-y-5">
-            <Field
-              label="Merchant *"
-              value={seed.merchant}
-              onChangeText={(t) => set('merchant', t)}
+            <VendorField
+              label="Vendor *"
+              companyId={seed.companyId}
+              merchant={seed.merchant}
+              setMerchant={(t) => set('merchant', t)}
+              vendorContactId={seed.vendorContactId}
+              setVendorContactId={(v) => set('vendorContactId', v)}
+              onDirty={() => setVendorTouched(true)}
               error={fieldErrors.merchant}
             />
             <Field

@@ -1,6 +1,6 @@
 # Scaffolding Plan
 
-**Status:** Phases 0–8 shipped; **Phase 9 (mobile catch-up) COMPLETE (2026-06-09)** — the RN/Expo app now mirrors every web MVP flow (slices M1–M11f, PRs #174–#190). Phase 8 (MVP features) slices 8.1–8.4f, 8.5a–8.5e, 8.6a–8.6c, 8.7a–8.7e, 8.8a–8.8b, L1–L4, 8.9a–8.9h, 8.10–8.15, R1–R4, I1–I5 merged (latest 2026-06-07). Invoice CRUD + status flow, the send-invoice chain (public view → email → Stripe self-host pay → SaaS Stripe Connect onboarding + connected payments), the customer-creation chain (inline create → dupe detection → address autocomplete), the full estimates chain (DB + RLS, CRUD/transitions, web pages, convert-to-invoice, public view + send + accept/decline), audit-history UI (per-entity tab + account-wide /activity feed with collapsible inline diffs), the hidden-double-entry ledger reshape (foundation + invoice-transition postings + business-type wizard + GL / trial-balance export), and the full expenses chain (DB + RLS → ledger posting policy → CRUD API → web list/create/detail/edit → object-storage package → receipt capture → vision-LLM receipt extraction) all complete; plus the position dashboard, the full AI insight layer (5 insights: receipt extraction, expense categorization, cash-flow nudges, late-payer detection, spending anomalies), duplicate-as-template across invoices/estimates/expenses, and the recurring-invoice chain (schema → CRUD → pg-boss generation engine + sweeper → web UI — the first pg-boss consumer); plus the items / products & services catalog (Slice I, scoped 2026-06-07 — table + provenance FK → CRUD API → management surface → line-item autocomplete → top-products report). The full locked MVP web scope is feature-complete, and the **mobile catch-up is now complete too (Phase 9)** — every web MVP flow has a native equivalent. **Remaining MVP product work is polish + ship.** **Post-MVP web polish (not slice-tracked here):** keyset pagination across the lists, the report lineup grown to 9, and **#237** — client-side CSV export on every report page + the GL/ledger export finally surfaced in the UI (detail on the **L4** row). **Pre-launch email overhaul (slice-tracked below):** the customer-facing emails got a branded shell (#251) then became **per-company editable** across web + mobile (#252–#255) — see *Post-MVP polish — editable email templates*. **Invoice & estimate "from" block (slice-tracked below):** per-invoice / per-estimate control over which company contact details (address / phone / a new business email) print in the public "from" block, with separate per-document-type company defaults, plus the company logo brought to the public estimate — across web + mobile (#257–#262); see *Post-MVP polish — invoice & estimate from-block*. **Post-Phase-9 tracks (all shipped api→web→mobile; cataloged in the *Post-MVP polish* sections below):** workspace-membership management + granular roles, onboarding welcome wizard, multi-company create/switch, social sign-in + email verification, the web design-system refactor, per-item tax, line-item product/service revenue split, password reset, login brute-force backoff, wrong-method sign-in rescue, and **telemetry wiring** (consent + both emit paths, #280–#281). **Next: Phase 10 — production hardening + open-core seams** (public-repo prep for a real deploy; the managed layer that fills those seams is maintained out-of-repo).
+**Status:** Phases 0–8 shipped; **Phase 9 (mobile catch-up) COMPLETE (2026-06-09)** — the RN/Expo app now mirrors every web MVP flow (slices M1–M11f, PRs #174–#190). Phase 8 (MVP features) slices 8.1–8.4f, 8.5a–8.5e, 8.6a–8.6c, 8.7a–8.7e, 8.8a–8.8b, L1–L4, 8.9a–8.9h, 8.10–8.15, R1–R4, I1–I5 merged (latest 2026-06-07). Invoice CRUD + status flow, the send-invoice chain (public view → email → Stripe self-host pay → SaaS Stripe Connect onboarding + connected payments), the customer-creation chain (inline create → dupe detection → address autocomplete), the full estimates chain (DB + RLS, CRUD/transitions, web pages, convert-to-invoice, public view + send + accept/decline), audit-history UI (per-entity tab + account-wide /activity feed with collapsible inline diffs), the hidden-double-entry ledger reshape (foundation + invoice-transition postings + business-type wizard + GL / trial-balance export), and the full expenses chain (DB + RLS → ledger posting policy → CRUD API → web list/create/detail/edit → object-storage package → receipt capture → vision-LLM receipt extraction) all complete; plus the position dashboard, the full AI insight layer (5 insights: receipt extraction, expense categorization, cash-flow nudges, late-payer detection, spending anomalies), duplicate-as-template across invoices/estimates/expenses, and the recurring-invoice chain (schema → CRUD → pg-boss generation engine + sweeper → web UI — the first pg-boss consumer); plus the items / products & services catalog (Slice I, scoped 2026-06-07 — table + provenance FK → CRUD API → management surface → line-item autocomplete → top-products report). The full locked MVP web scope is feature-complete, and the **mobile catch-up is now complete too (Phase 9)** — every web MVP flow has a native equivalent. **Remaining MVP product work is polish + ship.** **Post-MVP web polish (not slice-tracked here):** keyset pagination across the lists, the report lineup grown to 9, and **#237** — client-side CSV export on every report page + the GL/ledger export finally surfaced in the UI (detail on the **L4** row). **Pre-launch email overhaul (slice-tracked below):** the customer-facing emails got a branded shell (#251) then became **per-company editable** across web + mobile (#252–#255) — see *Post-MVP polish — editable email templates*. **Invoice & estimate "from" block (slice-tracked below):** per-invoice / per-estimate control over which company contact details (address / phone / a new business email) print in the public "from" block, with separate per-document-type company defaults, plus the company logo brought to the public estimate — across web + mobile (#257–#262); see *Post-MVP polish — invoice & estimate from-block*. **Post-Phase-9 tracks (all shipped api→web→mobile; cataloged in the *Post-MVP polish* sections below):** workspace-membership management + granular roles, onboarding welcome wizard, multi-company create/switch, social sign-in + email verification, the web design-system refactor, per-item tax, line-item product/service revenue split, password reset, login brute-force backoff, wrong-method sign-in rescue, **telemetry wiring** (consent + both emit paths, #280–#281), and the **contacts unification** (Xero-style `customers`→`contacts` rename + an expense vendor link with OCR scan-and-forget needs-review — its own *Post-MVP polish* section below). **Next: Phase 10 — production hardening + open-core seams** (public-repo prep for a real deploy; the managed layer that fills those seams is maintained out-of-repo).
 **Reads:** Assumes you've read PROJECT.md and TECH-STACK.md.
 
 The shape of work between "all decisions locked" and shipping the MVP. Eight foundation phases (0–7), a Phase 8 for the MVP-feature slices, and a Phase 9 for the mobile catch-up — roughly sequential, each builds on the previous one. Phases 0–7 are the foundation; Phase 8 is where the product becomes visible on web; Phase 9 brings the mobile app to parity.
@@ -707,13 +707,71 @@ exists.
 
 ---
 
+## Post-MVP polish — Contacts unification (customers → contacts) + expense vendor link
+
+A v1.2-class, cross-cutting change, **not a numbered phase** (no Phase-overview row, same
+deviation as the sections above). Today the two halves of a business relationship were modelled
+inconsistently — **sell-to** lived in a real `customers` table, **buy-from** was just
+`expenses.merchant` free text with no entity. For trades/freelancers the same business is often
+both, so this unifies them into one **`contacts`** entity (the Xero model: one record that can act
+as customer and/or supplier) and lays the **accounts-payable seam** — without building AP (bills,
+AP control account, 1099) here. Canonical design: `spikes/CONTACTS-AND-AP.md`.
+
+Shipped on the **`contacts-rename` integration branch** as per-slice commits, db → validation →
+api → web → mobile → wrap, squash-merged to `main` as a single PR (so `main` never saw partial
+state). Because it's one squash-merge, the table below maps slices to what landed rather than to
+per-slice PR numbers.
+
+**Design (locked, user-confirmed):**
+- **Full rename `customers` → `contacts`** (table, FK columns, API, validation, UI,
+  `customers:write` → `contacts:write`). The cheaper "just add `is_vendor`/`is_customer` flags to
+  the `customers` table and skip the rename" was **rejected** — a self-hoster inspecting the schema
+  must not find `customers.is_vendor` and no `vendors` table. A self-documenting schema wins the
+  churn. Role flags `is_customer` (default true) / `is_vendor` (default false) added.
+- **One on-screen "Vendor" field** for the expense buy-from side (the "Merchant" wording leaves the
+  UI). Behind it: the kept `merchant` text is the always-present **display name**; a new nullable
+  `vendor_contact_id` is the optional **structured link**; `vendor_review` is a stored status. This
+  resolved a user objection to a visible two-field (merchant + vendor) model — the two are never
+  shown separately. Linking **mirrors the contact's name into `merchant`** (server-authoritative)
+  and **flips `contacts.is_vendor = true`**, so an existing customer becomes a vendor too — the
+  buy-from half of the total-relationship view.
+- **Receipt OCR is scan-and-forget + a review flag**, additive on the existing extract-and-prefill
+  capture (not a rework): a receipt uploaded with no vendor linked sets `vendor_review='needs_review'`;
+  it clears on link-or-dismiss. A "Needs review" list filter is where a human links an existing
+  vendor, creates one inline, or **dismisses** (one-off — clears the flag, creates no contact). On
+  edit, the flag only moves when the vendor field is touched, so an unrelated edit never resurrects a
+  dismissed flag.
+- **Two-step migration.** Now: hand-written `0053` (`RENAME` table — RLS/FKs/indexes follow
+  automatically — + column renames + role flags + audit `entity_type` update) and `0054` (the
+  additive `vendor_contact_id` / `vendor_review` + indexes). Squawk renaming + add-FK rules
+  suppressed inline (pre-alpha, no populated prod tables). Deferred to its own pre-release PR: reset
+  the migration *history* to a clean baseline (so `contacts` is born named correctly and the file
+  count collapses); until then `drizzle-kit generate` stays off and migrations are hand-written.
+
+| Slice | What landed |
+|---|---|
+| 1 — db | `customers` → `contacts` (table + indexes + RLS policy) + `is_customer` / `is_vendor`; FK columns `invoices`/`estimates`/`recurring_invoices` `customer_id` → `contact_id`, `expenses` `customer_id` → `customer_contact_id`; `audit_events.entity_type` `customer` → `contact`. Hand-written `0053` (`RENAME`, not drop+create). |
+| 2 — validation | `customer.ts` → `contact.ts` (`contactCreate`/`UpdateSchema` + optional `isCustomer`/`isVendor`); `customers:write` → `contacts:write`; wire fields renamed; `contactImportSchema`. |
+| 3 — api | `/api/customers*` → `/api/contacts*`; new tested `?role=customer\|vendor` filter + flags on create; audit `entityType:'contact'` on the write **and** the feed read side; `customer_not_found` → `contact_not_found`. Kept where cheap to limit client churn: `customerName` list field, `customer_company_mismatch`, the `sales-by-customer` report, and the customer-statement lib (a document concept). |
+| 4 — web | Route dir `(app)/customers` → `contacts`, nav, hc `api.customers` → `api.contacts`, capability, `customer-dupes.ts` → `contact-dupes.ts`, invoice-list query param. **Pure rename** (user chose this; vendor-role UI deferred to slice 6). Statement page reverted to read the API's kept `customer` object. svelte-check + 18 tests green. |
+| 5 — mobile | Mirror of slice 4; `CustomerFilterField.tsx` → `ContactFilterField.tsx`; the inline-create local error-key `customer_<field>` → `contact_<field>`. Expo typedRoutes regenerated to `/contacts`. tsc green. |
+| 6 — expense vendor link + OCR needs-review | The buy-from feature, end-to-end. **6a db:** `0054` — `expenses.vendor_contact_id` (→ `contacts`, restrict) + `vendor_review` + a partial needs-review index. **6b validation:** `vendorContactId` on the expense schema. **6c api:** `resolveVendorLink()` (validate + name-mirror + `is_vendor` flip), the `vendor_review` lifecycle, `POST /api/expenses/:id/dismiss-review`, `GET /api/expenses?needsReview=true`. **6d web:** `VendorPicker.svelte` + `/contacts/search` proxy + inline "add vendor", Merchant→Vendor relabel, needs-review filter + per-row badge + detail dismiss. **6e mobile:** `VendorField.tsx` + `resolveVendor()`, the filter chip + badge, detail banner + dismiss. 255 db / 135 validation / 488 api tests; web + mobile typecheck green. |
+| 7 — wrap | This SCAFFOLDING record. |
+
+**Explicitly deferred (the bills/AP feature, not this work):** bills / accounts-payable tables, an
+AP control account in the COA seed, 1099 / W-9 vendor tax fields, vendor payment terms, and any
+forced dedup of historical `merchant` strings. The two role flags + `vendor_contact_id` are the
+only forward-compat baked in; a future `bills` table FKs `contacts(id)` where `is_vendor = true`.
+
+---
+
 ## Post-MVP polish — other shipped tracks (since Phase 9)
 
 Between the Phase-9 mobile catch-up and now, work continued as **non-phase tracks** (auth, roles,
 onboarding, commercialization groundwork, presentation) rather than numbered phases. Each shipped
 api → web → mobile per the usual slice discipline; full detail lives in the PRs. The detailed
-write-ups above (editable email templates, from-block, telemetry) are the tracks that grew their
-own section; the rest are cataloged here.
+write-ups above (editable email templates, from-block, telemetry, contacts unification) are the
+tracks that grew their own section; the rest are cataloged here.
 
 | Track | PRs | What shipped |
 |---|---|---|

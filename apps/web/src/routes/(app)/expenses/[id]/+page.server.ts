@@ -132,6 +132,21 @@ export const actions: Actions = {
     redirect(303, `/expenses/${event.params.id}`);
   },
 
+  // Dismiss the needs-review flag without linking a vendor (the one-off path).
+  // The API clears vendor_review and never creates a contact.
+  dismissReview: async (event) => {
+    const client = serverApiClient(event);
+    const res = await client.api.expenses[':id']['dismiss-review'].$post({
+      param: { id: event.params.id },
+    });
+    if (res.status === 404) throw error(404, 'expense not found');
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      return fail(res.status, { reviewError: body?.error ?? 'dismiss_failed' });
+    }
+    redirect(303, `/expenses/${event.params.id}`);
+  },
+
   // Auto-fill from receipt (slice 8.9h). The api reads the stored receipt with
   // a vision model; on success we carry the suggestions to the edit form as
   // query params so the user reviews + saves (the AI never writes the ledger).

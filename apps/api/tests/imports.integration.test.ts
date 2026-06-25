@@ -1,4 +1,4 @@
-import { auditEvents, authUser, companies, customers, items, memberships } from '@thalermark/db';
+import { auditEvents, authUser, companies, contacts, items, memberships } from '@thalermark/db';
 import { MAX_IMPORT_ROWS } from '@thalermark/validation';
 import { eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -8,7 +8,7 @@ import { createApiAuth } from '../src/lib/auth.js';
 import { createApiDatabase } from '../src/lib/db.js';
 import { appDatabaseUrl, getTestDb, resetDb } from './test-helper.js';
 
-// Bulk CSV import endpoints (POST /api/customers/import, POST /api/items/import).
+// Bulk CSV import endpoints (POST /api/contacts/import, POST /api/items/import).
 // The capability gate is covered by roles-authz.integration.test.ts (both routes
 // are in its matrix); this file covers the import-specific behavior: atomic
 // batch insert, per-row audit, company scoping, and the MAX_IMPORT_ROWS ceiling.
@@ -86,7 +86,7 @@ function buildApp() {
   return { app, handle };
 }
 
-describe('POST /api/customers/import', () => {
+describe('POST /api/contacts/import', () => {
   beforeEach(resetDb);
 
   it('inserts every row and writes a create audit per row', async () => {
@@ -95,7 +95,7 @@ describe('POST /api/customers/import', () => {
       const cookie = await signUp(app, 'imp-cust@example.com');
       const { accountId, companyId } = await userContext('imp-cust@example.com');
 
-      const res = await app.request('/api/customers/import', {
+      const res = await app.request('/api/contacts/import', {
         method: 'POST',
         headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
         body: JSON.stringify({
@@ -111,7 +111,7 @@ describe('POST /api/customers/import', () => {
       expect((await res.json()) as { created: number }).toEqual({ created: 3 });
 
       const db = getTestDb();
-      const rows = await db.select().from(customers).where(eq(customers.companyId, companyId));
+      const rows = await db.select().from(contacts).where(eq(contacts.companyId, companyId));
       expect(rows).toHaveLength(3);
       expect(rows.every((r) => r.accountId === accountId)).toBe(true);
       expect(rows.map((r) => r.name).sort()).toEqual(['Acme Co', 'Globex', 'Initech']);
@@ -119,7 +119,7 @@ describe('POST /api/customers/import', () => {
       const audits = await db
         .select()
         .from(auditEvents)
-        .where(eq(auditEvents.entityType, 'customer'));
+        .where(eq(auditEvents.entityType, 'contact'));
       expect(audits).toHaveLength(3);
       expect(audits.every((a) => a.action === 'create')).toBe(true);
     } finally {
@@ -133,7 +133,7 @@ describe('POST /api/customers/import', () => {
       const cookie = await signUp(app, 'imp-bad@example.com');
       const { accountId, companyId } = await userContext('imp-bad@example.com');
 
-      const res = await app.request('/api/customers/import', {
+      const res = await app.request('/api/contacts/import', {
         method: 'POST',
         headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
         body: JSON.stringify({
@@ -148,7 +148,7 @@ describe('POST /api/customers/import', () => {
       expect(res.status).toBe(400);
 
       const db = getTestDb();
-      const rows = await db.select().from(customers).where(eq(customers.companyId, companyId));
+      const rows = await db.select().from(contacts).where(eq(contacts.companyId, companyId));
       expect(rows).toHaveLength(0);
     } finally {
       await handle.close();
@@ -163,7 +163,7 @@ describe('POST /api/customers/import', () => {
       const bCookie = await signUp(app, 'imp-b@example.com');
       const b = await userContext('imp-b@example.com');
 
-      const res = await app.request('/api/customers/import', {
+      const res = await app.request('/api/contacts/import', {
         method: 'POST',
         headers: {
           cookie: bCookie,
@@ -175,7 +175,7 @@ describe('POST /api/customers/import', () => {
       expect(res.status).toBe(404);
 
       const db = getTestDb();
-      const rows = await db.select().from(customers).where(eq(customers.companyId, a.companyId));
+      const rows = await db.select().from(contacts).where(eq(contacts.companyId, a.companyId));
       expect(rows).toHaveLength(0);
     } finally {
       await handle.close();
@@ -189,7 +189,7 @@ describe('POST /api/customers/import', () => {
       const { accountId, companyId } = await userContext('imp-max@example.com');
 
       const rows = Array.from({ length: MAX_IMPORT_ROWS + 1 }, (_, i) => ({ name: `C${i}` }));
-      const res = await app.request('/api/customers/import', {
+      const res = await app.request('/api/contacts/import', {
         method: 'POST',
         headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
         body: JSON.stringify({ companyId, rows }),
@@ -205,7 +205,7 @@ describe('POST /api/customers/import', () => {
     try {
       const cookie = await signUp(app, 'imp-empty@example.com');
       const { accountId, companyId } = await userContext('imp-empty@example.com');
-      const res = await app.request('/api/customers/import', {
+      const res = await app.request('/api/contacts/import', {
         method: 'POST',
         headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
         body: JSON.stringify({ companyId, rows: [] }),
@@ -219,7 +219,7 @@ describe('POST /api/customers/import', () => {
   it('refuses unauthed requests', async () => {
     const { app, handle } = buildApp();
     try {
-      const res = await app.request('/api/customers/import', {
+      const res = await app.request('/api/contacts/import', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ companyId: 'x', rows: [{ name: 'y' }] }),

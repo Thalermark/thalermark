@@ -209,10 +209,10 @@ export default function PaymentsSettings() {
                 <Text className="mt-2 font-serif text-lg text-ink">{company.name}</Text>
                 <Text className="mt-3 text-sm text-ink/70">
                   {stage === 'notStarted'
-                    ? 'Connect a Stripe account so customers can pay your invoices online. Stripe runs the onboarding — bank, ID, the lot.'
+                    ? 'Connect a Stripe account so contacts can pay your invoices online. Stripe runs the onboarding — bank, ID, the lot.'
                     : stage === 'submitted'
                       ? "Your details are with Stripe. They're verifying everything and will switch payments on automatically when they're done."
-                      : 'Payments are live. Customers can pay invoices using the pay link on the public invoice page.'}
+                      : 'Payments are live. Contacts can pay invoices using the pay link on the public invoice page.'}
                 </Text>
                 <View className="mt-4 flex-row justify-between">
                   <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">

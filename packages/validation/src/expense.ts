@@ -10,16 +10,23 @@ import { isoDateString, moneyString } from './money.js';
 // COA codes — the form picks them from the company's seeded chart. The API
 // resolves each to its code and validates account_type (category must be an
 // 'expense' account, payment an 'asset' account) before posting Dr category /
-// Cr payment. customerId is carried nullable from day one for v1.x job-costing
-// but MVP doesn't surface it in the form, so it's optional here.
+// Cr payment. customerContactId is the job-costing link (which contact, acting
+// as customer, the expense was for); carried nullable from day one for v1.x but
+// MVP doesn't surface it in the form, so it's optional here.
 //
 // amount is a decimal string ([[architecture_money_decimal_strings]]);
 // expenseDate is a bare YYYY-MM-DD calendar date matching the
-// `date({ mode: 'string' })` column. merchant is free text (no vendor entity
-// in MVP). memo is the user's note.
+// `date({ mode: 'string' })` column. merchant is free text — the single
+// on-screen "Vendor" field's display name; receipt OCR writes the raw string
+// with no link required. vendorContactId is the optional structured buy-from
+// link (a contact, acting as vendor): nullable so the edit form can clear it
+// back to free-text. The needs-review flag itself is server-managed (set when
+// a receipt-backed expense has no vendor, cleared on link-or-dismiss), so it is
+// not a client-supplied field. memo is the user's note.
 export const expenseCreateSchema = z.object({
   companyId: z.string().uuid(),
-  customerId: z.string().uuid().optional(),
+  customerContactId: z.string().uuid().optional(),
+  vendorContactId: z.string().uuid().nullable().optional(),
   categoryAccountId: z.string().uuid(),
   paymentAccountId: z.string().uuid(),
   amount: moneyString,

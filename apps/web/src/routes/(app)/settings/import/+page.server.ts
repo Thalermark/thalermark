@@ -1,6 +1,6 @@
 import { serverApiClient } from '$lib/api.server';
 import { fail } from '@sveltejs/kit';
-import { customerImportSchema, itemImportSchema } from '@thalermark/validation';
+import { contactImportSchema, itemImportSchema } from '@thalermark/validation';
 import type { Actions, PageServerLoad } from './$types';
 
 type Client = ReturnType<typeof serverApiClient>;
@@ -16,10 +16,10 @@ async function customerNames(client: Client, companyId: string): Promise<string[
   for (let page = 0; page < 25; page++) {
     const query: Record<string, string> = { companyId, limit: '200' };
     if (cursor) query.cursor = cursor;
-    const res = await client.api.customers.$get({ query });
+    const res = await client.api.contacts.$get({ query });
     if (!res.ok) break;
     const body = await res.json();
-    for (const r of body.customers) {
+    for (const r of body.contacts) {
       const n = r.name?.trim().toLowerCase();
       if (n) keys.add(n);
     }
@@ -51,14 +51,14 @@ async function itemNames(client: Client, companyId: string): Promise<string[]> {
 export const load: PageServerLoad = async (event) => {
   const { activeCompanyId } = await event.parent();
   if (!activeCompanyId) {
-    return { companyId: null, existing: { customers: [], items: [] } };
+    return { companyId: null, existing: { contacts: [], items: [] } };
   }
   const client = serverApiClient(event);
-  const [customers, items] = await Promise.all([
+  const [contacts, items] = await Promise.all([
     customerNames(client, activeCompanyId),
     itemNames(client, activeCompanyId),
   ]);
-  return { companyId: activeCompanyId, existing: { customers, items } };
+  return { companyId: activeCompanyId, existing: { contacts, items } };
 };
 
 export const actions: Actions = {
@@ -80,11 +80,11 @@ export const actions: Actions = {
 
     const client = serverApiClient(event);
 
-    if (entity === 'customers') {
-      const parsed = customerImportSchema.safeParse({ companyId, rows });
+    if (entity === 'contacts') {
+      const parsed = contactImportSchema.safeParse({ companyId, rows });
       if (!parsed.success)
         return fail(400, { error: 'Some rows are invalid — go back and fix them.' });
-      const res = await client.api.customers.import.$post({ json: parsed.data });
+      const res = await client.api.contacts.import.$post({ json: parsed.data });
       if (!res.ok) return fail(res.status, { error: await importError(res) });
       const { created } = await res.json();
       return { created, entity };

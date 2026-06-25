@@ -1,7 +1,7 @@
-import { type Database, type Transaction, companies, customers, invoices } from '@thalermark/db';
+import { type Database, type Transaction, companies, contacts, invoices } from '@thalermark/db';
 import { and, eq, inArray } from 'drizzle-orm';
 
-// Customer statement builder, shared by GET /api/customers/:id/statement and
+// Customer statement builder, shared by GET /api/contacts/:id/statement and
 // the email-send route so the on-screen / printed / emailed statement are the
 // same data. The customer's issued invoices (status sent or paid; drafts are
 // unbilled, voided excluded) become a chronological charge/payment ledger with
@@ -43,8 +43,8 @@ export async function buildCustomerStatement(
 ): Promise<CustomerStatement | null> {
   const [customer] = await tx
     .select()
-    .from(customers)
-    .where(and(eq(customers.id, customerId), eq(customers.accountId, accountId)))
+    .from(contacts)
+    .where(and(eq(contacts.id, customerId), eq(contacts.accountId, accountId)))
     .limit(1);
   if (!customer) return null;
 
@@ -69,7 +69,7 @@ export async function buildCustomerStatement(
     .where(
       and(
         eq(invoices.accountId, accountId),
-        eq(invoices.customerId, customerId),
+        eq(invoices.contactId, customerId),
         inArray(invoices.status, ['sent', 'paid']),
       ),
     );

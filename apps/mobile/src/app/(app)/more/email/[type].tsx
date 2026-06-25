@@ -12,7 +12,7 @@ import { api } from '../../../../lib/api';
 
 // Per-template editor — native mirror of apps/web's /settings/email/[type].
 // Edit the subject + message (plain text with {{placeholders}}); the branded
-// shell stays server-side. Save (PUT) / Preview (renders the text the customer
+// shell stays server-side. Save (PUT) / Preview (renders the text the contact
 // gets) / Reset to default (DELETE the override).
 const LABELS: Record<string, string> = {
   invoice: 'Invoice',
@@ -230,7 +230,7 @@ export default function EmailTemplateEditor() {
         ) : (
           <>
             <Text className="mt-3 text-sm text-ink/70">
-              Edit the subject and message your customers see. The Thalermark layout, button, and
+              Edit the subject and message your contacts see. The Thalermark layout, button, and
               footer stay the same. Use the placeholders below.
             </Text>
 

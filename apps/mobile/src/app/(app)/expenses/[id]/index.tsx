@@ -31,6 +31,8 @@ type Expense = {
   categoryAccountId: string;
   paymentAccountId: string;
   receiptStorageKey: string | null;
+  vendorContactId: string | null;
+  vendorReview: string | null;
 };
 type Receipt = { url: string; contentType: string };
 type Extraction = { merchant: string | null; total: string | null; expenseDate: string | null };
@@ -105,6 +107,8 @@ export default function ExpenseDetail() {
         categoryAccountId: e.categoryAccountId,
         paymentAccountId: e.paymentAccountId,
         receiptStorageKey: e.receiptStorageKey ?? null,
+        vendorContactId: e.vendorContactId ?? null,
+        vendorReview: e.vendorReview ?? null,
       },
     });
     // Audit trail — best-effort; refetched on every load() (focus + after each
@@ -231,6 +235,18 @@ export default function ExpenseDetail() {
     ]);
   }
 
+  // Dismiss the needs-review flag without linking a vendor (clears it; creates
+  // no contact). Reload so the banner + audit reflect it.
+  async function onDismissReview() {
+    setActing(true);
+    try {
+      const res = await api.api.expenses[':id']['dismiss-review'].$post({ param: { id } });
+      if (res.ok) await load();
+    } finally {
+      setActing(false);
+    }
+  }
+
   return (
     <SafeAreaView className="flex-1 bg-cream" edges={['top']}>
       <ScrollView contentContainerClassName="px-6 pt-6 pb-16">
@@ -278,6 +294,33 @@ export default function ExpenseDetail() {
                 </View>
               ) : null}
             </View>
+
+            {e.vendorReview === 'needs_review' && canWrite ? (
+              <View className="mt-6 rounded-sm border border-gold-deep/30 bg-gold-deep/5 px-4 py-3">
+                <Text className="text-sm text-ink/80">
+                  This expense has a receipt but no vendor linked yet.
+                </Text>
+                <View className="mt-3 flex-row gap-2">
+                  <Pressable
+                    onPress={() => router.push(`/expenses/${id}/edit`)}
+                    className="rounded-sm border border-gold-deep/40 px-3 py-1.5 active:bg-gold-deep/10"
+                  >
+                    <Text className="font-mono text-xs uppercase tracking-widest text-gold-deep">
+                      Link a vendor
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={onDismissReview}
+                    disabled={acting}
+                    className="rounded-sm border border-ink/20 px-3 py-1.5 active:bg-ink/5 disabled:opacity-50"
+                  >
+                    <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+                      Dismiss
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
+            ) : null}
 
             <View className="mt-8 space-y-3">
               <Row label="Date" value={e.expenseDate} />
@@ -344,7 +387,7 @@ export default function ExpenseDetail() {
                         Found on the receipt
                       </Text>
                       <View className="mt-2 space-y-1">
-                        <Row label="Merchant" value={extraction.merchant ?? '—'} />
+                        <Row label="Vendor" value={extraction.merchant ?? '—'} />
                         <Row label="Total" value={extraction.total ?? '—'} />
                         <Row label="Date" value={extraction.expenseDate ?? '—'} />
                       </View>

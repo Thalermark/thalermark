@@ -19,7 +19,7 @@
   // authority; this just keeps the UI honest).
   const entities = $derived(IMPORT_ENTITIES.filter((e) => may(page.data.role, e.cap)));
 
-  let entityKey = $state<ImportEntityKey>('customers');
+  let entityKey = $state<ImportEntityKey>('contacts');
   const entity = $derived<ImportEntity>(entityByKey(entityKey));
 
   let fileName = $state('');
@@ -37,7 +37,7 @@
   const showResult = $derived(form?.created !== undefined && !dismissed);
   const hasFile = $derived(headers.length > 0);
   const existingSet = $derived(
-    new Set(entityKey === 'customers' ? data.existing.customers : data.existing.items),
+    new Set(entityKey === 'contacts' ? data.existing.contacts : data.existing.items),
   );
 
   function reset() {
@@ -149,16 +149,16 @@
   Import<span class="text-accent">.</span>
 </h1>
 <p class="mt-3 max-w-prose text-sm text-fg/60">
-  Bring in your existing customers and items from a CSV — a spreadsheet export, or a download from
+  Bring in your existing contacts and items from a CSV — a spreadsheet export, or a download from
   another tool. Upload the file, line up the columns, and review before anything is saved.
 </p>
 
 {#if !data.companyId}
   <div class="callout mt-8">Pick a company from the switcher before importing.</div>
 {:else if entities.length === 0}
-  <div class="callout mt-8">Your role can't create customers or items, so there's nothing to import.</div>
+  <div class="callout mt-8">Your role can't create contacts or items, so there's nothing to import.</div>
 {:else if showResult}
-  {@const done = entityByKey((form?.entity as ImportEntityKey) ?? 'customers')}
+  {@const done = entityByKey((form?.entity as ImportEntityKey) ?? 'contacts')}
   <div class="mt-8 rounded-sm border border-success/30 bg-success/5 px-5 py-4">
     <p class="text-fg">
       Imported <strong>{form?.created}</strong>

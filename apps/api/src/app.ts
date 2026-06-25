@@ -17,7 +17,7 @@ import {
   authUser,
   chartOfAccounts,
   companies,
-  customers,
+  contacts,
   emailTemplates,
   estimateLineItems,
   estimates,
@@ -49,9 +49,9 @@ import {
   can,
   companyCreateSchema,
   companyUpdateSchema,
-  customerCreateSchema,
-  customerImportSchema,
-  customerUpdateSchema,
+  contactCreateSchema,
+  contactImportSchema,
+  contactUpdateSchema,
   emailTemplateTypeSchema,
   emailTemplateUpdateSchema,
   estimateCreateSchema,
@@ -277,6 +277,41 @@ async function resolveCoaAccounts(
       ),
     );
   return new Map(rows.map((r) => [r.id, { code: r.code, accountType: r.accountType }]));
+}
+
+// Resolve an expense's optional buy-from vendor link (shared by create +
+// update). Returns null when nothing to link; an {error,status} pair for a bad
+// link; otherwise the resolved {id,name} after marking the contact is_vendor.
+// Marking is_vendor on link is how an existing customer-only contact becomes a
+// vendor too — the buy-from half of the unified-contact relationship view.
+// Callers mirror the returned name into expenses.merchant so the single
+// on-screen "Vendor" field stays the display string.
+async function resolveVendorLink(
+  tx: Transaction,
+  accountId: string,
+  companyId: string,
+  vendorContactId: string | null | undefined,
+): Promise<{ id: string; name: string } | { error: string; status: 400 | 404 } | null> {
+  if (!vendorContactId) return null;
+  const [vendor] = await tx
+    .select({
+      id: contacts.id,
+      companyId: contacts.companyId,
+      name: contacts.name,
+      isVendor: contacts.isVendor,
+    })
+    .from(contacts)
+    .where(and(eq(contacts.id, vendorContactId), eq(contacts.accountId, accountId)))
+    .limit(1);
+  if (!vendor) return { error: 'contact_not_found', status: 404 };
+  if (vendor.companyId !== companyId) return { error: 'vendor_company_mismatch', status: 400 };
+  if (!vendor.isVendor) {
+    await tx
+      .update(contacts)
+      .set({ isVendor: true, updatedAt: new Date() })
+      .where(and(eq(contacts.id, vendorContactId), eq(contacts.accountId, accountId)));
+  }
+  return { id: vendor.id, name: vendor.name };
 }
 
 // Offline-payment columns projected for the company PATCH's audit before/after
@@ -2505,7 +2540,7 @@ export function createApp(deps: AppDeps) {
       )
       // Sales by customer (insight set). Pre-tax sales (subtotal) per customer
       // for invoices issued in the window, sent or paid (drafts + voided
-      // excluded). Top 25 by sales; the grand total sums ALL customers (computed
+      // excluded). Top 25 by sales; the grand total sums ALL contacts (computed
       // from the full result, sliced in app code) so "Top 25 of $X" is honest.
       .get(
         '/api/companies/:id/sales-by-customer',
@@ -2531,13 +2566,13 @@ export function createApp(deps: AppDeps) {
 
           const rows = await tx
             .select({
-              customerId: invoices.customerId,
-              name: customers.name,
+              contactId: invoices.contactId,
+              name: contacts.name,
               sales: sql<string>`sum(${invoices.subtotal})::numeric(15,2)`,
               invoiceCount: sql<number>`count(*)::int`,
             })
             .from(invoices)
-            .leftJoin(customers, eq(customers.id, invoices.customerId))
+            .leftJoin(contacts, eq(contacts.id, invoices.contactId))
             .where(
               and(
                 eq(invoices.accountId, accountId),
@@ -2547,15 +2582,15 @@ export function createApp(deps: AppDeps) {
                 lte(invoices.issueDate, win.to),
               ),
             )
-            .groupBy(invoices.customerId, customers.name)
+            .groupBy(invoices.contactId, contacts.name)
             .orderBy(sql`sum(${invoices.subtotal}) desc`);
 
           const totalSales = rows.reduce((s, r) => s + Number(r.sales), 0).toFixed(2);
           return c.json({
             from: win.from,
             to: win.to,
-            customers: rows.slice(0, 25).map((r) => ({
-              customerId: r.customerId,
+            contacts: rows.slice(0, 25).map((r) => ({
+              contactId: r.contactId,
               name: r.name,
               sales: r.sales ?? '0.00',
               invoiceCount: r.invoiceCount,
@@ -2803,12 +2838,12 @@ export function createApp(deps: AppDeps) {
             .select({
               id: invoices.id,
               number: invoices.number,
-              customerName: customers.name,
+              customerName: contacts.name,
               dueDate: invoices.dueDate,
               total: invoices.total,
             })
             .from(invoices)
-            .leftJoin(customers, eq(customers.id, invoices.customerId))
+            .leftJoin(contacts, eq(contacts.id, invoices.contactId))
             .where(
               and(
                 eq(invoices.accountId, accountId),
@@ -3196,9 +3231,9 @@ export function createApp(deps: AppDeps) {
           return c.json({ accounts });
         },
       )
-      .post('/api/customers', requireCapability('customers:write'), async (c) => {
+      .post('/api/contacts', requireCapability('contacts:write'), async (c) => {
         const body = await c.req.json().catch(() => null);
-        const parsed = customerCreateSchema.safeParse(body);
+        const parsed = contactCreateSchema.safeParse(body);
         if (!parsed.success) {
           return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
         }
@@ -3215,9 +3250,9 @@ export function createApp(deps: AppDeps) {
 
         const id = uuidv7();
         const row = { id, accountId, ...parsed.data };
-        await tx.insert(customers).values(row);
+        await tx.insert(contacts).values(row);
         await c.var.audit({
-          entityType: 'customer',
+          entityType: 'contact',
           entityId: id,
           action: 'create',
           after: row,
@@ -3231,13 +3266,13 @@ export function createApp(deps: AppDeps) {
         return c.json(row, 201);
       })
       // Bulk CSV import (web). The importer parses + maps + previews client-side,
-      // then posts the mapped rows as JSON. Registered before /api/customers/:id
+      // then posts the mapped rows as JSON. Registered before /api/contacts/:id
       // so Hono's first-match doesn't capture "import" as an :id. companyId is
       // supplied once and merged onto every row; the whole batch validated up
-      // front (customerImportSchema), so this is atomic — every row lands or none.
-      .post('/api/customers/import', requireCapability('customers:write'), async (c) => {
+      // front (contactImportSchema), so this is atomic — every row lands or none.
+      .post('/api/contacts/import', requireCapability('contacts:write'), async (c) => {
         const body = await c.req.json().catch(() => null);
-        const parsed = customerImportSchema.safeParse(body);
+        const parsed = contactImportSchema.safeParse(body);
         if (!parsed.success) {
           return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
         }
@@ -3256,10 +3291,10 @@ export function createApp(deps: AppDeps) {
         // One INSERT for the batch; per-row audit so each customer's history tab
         // shows its creation (action 'create', identical to the single path).
         const rows = parsed.data.rows.map((r) => ({ id: uuidv7(), accountId, companyId, ...r }));
-        await tx.insert(customers).values(rows);
+        await tx.insert(contacts).values(rows);
         for (const row of rows) {
           await c.var.audit({
-            entityType: 'customer',
+            entityType: 'contact',
             entityId: row.id,
             action: 'create',
             after: row,
@@ -3270,58 +3305,63 @@ export function createApp(deps: AppDeps) {
 
         return c.json({ created: rows.length }, 201);
       })
-      .get('/api/customers', async (c) => {
+      .get('/api/contacts', async (c) => {
         const tx = c.get('tx');
         const accountId = c.get('accountId');
         const companyId = c.req.query('companyId');
-        // Filters: q searches name OR email; openInvoices narrows to customers
+        // Filters: q searches name OR email; openInvoices narrows to contacts
         // who have at least one issued-but-unpaid invoice (status 'sent').
         const q = c.req.query('q');
         const openInvoices = c.req.query('openInvoices') === 'true';
+        // role narrows to one side of the relationship: 'customer' (is_customer)
+        // or 'vendor' (is_vendor). Omitted = all contacts.
+        const role = c.req.query('role');
         const limit = parseLimit(c.req.query('limit'));
         if (limit === null) return c.json({ error: 'invalid_limit' }, 400);
         const keys = [
-          { col: customers.createdAt, revive: (v: unknown) => new Date(v as string) },
-          { col: customers.id },
+          { col: contacts.createdAt, revive: (v: unknown) => new Date(v as string) },
+          { col: contacts.id },
         ];
         const keyset = applyCursor(c.req.query('cursor'), keys, 'desc');
         if (keyset === 'invalid') return c.json({ error: 'invalid_cursor' }, 400);
-        const conditions = [eq(customers.accountId, accountId)];
-        if (companyId) conditions.push(eq(customers.companyId, companyId));
+        const conditions = [eq(contacts.accountId, accountId)];
+        if (companyId) conditions.push(eq(contacts.companyId, companyId));
+        if (role === 'customer') conditions.push(eq(contacts.isCustomer, true));
+        else if (role === 'vendor') conditions.push(eq(contacts.isVendor, true));
         if (q) {
           const term = `%${escapeLike(q)}%`;
           // biome-ignore lint/style/noNonNullAssertion: or() with >=1 arg is non-null
-          conditions.push(or(ilike(customers.name, term), ilike(customers.email, term))!);
+          conditions.push(or(ilike(contacts.name, term), ilike(contacts.email, term))!);
         }
         if (openInvoices) {
           // drafts aren't owed yet; paid/voided are closed — 'sent' is the
-          // "owes you money" set. Subquery keeps the keyset scan on customers.
+          // "owes you money" set. Subquery keeps the keyset scan on contacts.
           const owing = tx
-            .select({ id: invoices.customerId })
+            .select({ id: invoices.contactId })
             .from(invoices)
             .where(and(eq(invoices.accountId, accountId), eq(invoices.status, 'sent')));
-          conditions.push(inArray(customers.id, owing));
+          conditions.push(inArray(contacts.id, owing));
         }
         if (keyset) conditions.push(keyset);
         const rows = await tx
           .select()
-          .from(customers)
+          .from(contacts)
           .where(and(...conditions))
           .orderBy(keysetOrderBy(keys, 'desc'))
           .limit(limit + 1);
         const page = slicePage(rows, limit, (r) => [r.createdAt, r.id]);
-        return c.json({ customers: page.rows, nextCursor: page.nextCursor });
+        return c.json({ contacts: page.rows, nextCursor: page.nextCursor });
       })
-      .get('/api/customers/:id', async (c) => {
+      .get('/api/contacts/:id', async (c) => {
         const id = c.req.param('id');
         if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
         const tx = c.get('tx');
         const accountId = c.get('accountId');
         const [row] = await tx
           .select()
-          .from(customers)
-          .where(and(eq(customers.id, id), eq(customers.accountId, accountId)));
-        if (!row) return c.json({ error: 'customer_not_found' }, 404);
+          .from(contacts)
+          .where(and(eq(contacts.id, id), eq(contacts.accountId, accountId)));
+        if (!row) return c.json({ error: 'contact_not_found' }, 404);
         return c.json(row);
       })
       // Late-payer detection (AI-layer "invoice intelligence", deterministic):
@@ -3330,18 +3370,18 @@ export function createApp(deps: AppDeps) {
       // early). overdue* count invoices still unpaid past due. One aggregate
       // pass; no LLM — the numbers are the insight. The customer page renders a
       // plain-English line from these and decides the "enough history" floor.
-      .get('/api/customers/:id/payment-reliability', async (c) => {
+      .get('/api/contacts/:id/payment-reliability', async (c) => {
         const id = c.req.param('id');
         if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
         const tx = c.get('tx');
         const accountId = c.get('accountId');
 
         const [customer] = await tx
-          .select({ id: customers.id })
-          .from(customers)
-          .where(and(eq(customers.id, id), eq(customers.accountId, accountId)))
+          .select({ id: contacts.id })
+          .from(contacts)
+          .where(and(eq(contacts.id, id), eq(contacts.accountId, accountId)))
           .limit(1);
-        if (!customer) return c.json({ error: 'customer_not_found' }, 404);
+        if (!customer) return c.json({ error: 'contact_not_found' }, 404);
 
         const todayYmd = new Date().toISOString().slice(0, 10);
         const [stats] = await tx
@@ -3359,7 +3399,7 @@ export function createApp(deps: AppDeps) {
             overdueTotal: sql<string>`coalesce(sum(${invoices.total}) filter (where ${invoices.status} = 'sent' and ${invoices.dueDate} < ${todayYmd}), 0)::numeric(15,2)`,
           })
           .from(invoices)
-          .where(and(eq(invoices.accountId, accountId), eq(invoices.customerId, id)));
+          .where(and(eq(invoices.accountId, accountId), eq(invoices.contactId, id)));
 
         const paidCount = stats?.paidCount ?? 0;
         const lateCount = stats?.lateCount ?? 0;
@@ -3379,11 +3419,11 @@ export function createApp(deps: AppDeps) {
       // Each issued invoice (status sent or paid; drafts unbilled, voided
       // excluded) is a charge on its issue date; a paid one adds a payment on
       // its paid date. The closing balance equals the customer's outstanding AR.
-      .get('/api/customers/:id/statement', async (c) => {
+      .get('/api/contacts/:id/statement', async (c) => {
         const id = c.req.param('id');
         if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
         const statement = await buildCustomerStatement(c.get('tx'), c.get('accountId'), id);
-        if (!statement) return c.json({ error: 'customer_not_found' }, 404);
+        if (!statement) return c.json({ error: 'contact_not_found' }, 404);
         return c.json(statement);
       })
       // Email the statement to the customer (or a `to` override). Reuses the
@@ -3391,8 +3431,8 @@ export function createApp(deps: AppDeps) {
       // 400, mailer throw => 502. Best-effort audit on success. The statement
       // has no public link, so the email carries the ledger itself.
       .post(
-        '/api/customers/:id/statement/send',
-        requireCapability('customers:write'),
+        '/api/contacts/:id/statement/send',
+        requireCapability('contacts:write'),
         validator('json', (value, c) => {
           const v = (value ?? {}) as { to?: unknown };
           if (v.to !== undefined && typeof v.to !== 'string') {
@@ -3408,7 +3448,7 @@ export function createApp(deps: AppDeps) {
           const tx = c.get('tx');
           const accountId = c.get('accountId');
           const statement = await buildCustomerStatement(tx, accountId, id);
-          if (!statement) return c.json({ error: 'customer_not_found' }, 404);
+          if (!statement) return c.json({ error: 'contact_not_found' }, 404);
 
           const toOverride = c.req.valid('json').to?.trim() || null;
           const to = (toOverride ?? statement.customer.email ?? '').trim();
@@ -3417,10 +3457,10 @@ export function createApp(deps: AppDeps) {
           // companyId (for the audit) + replyToEmail in one join through the
           // customer (the statement object intentionally doesn't expose them).
           const [meta] = await tx
-            .select({ companyId: customers.companyId, replyToEmail: companies.replyToEmail })
-            .from(customers)
-            .innerJoin(companies, eq(companies.id, customers.companyId))
-            .where(and(eq(customers.id, id), eq(customers.accountId, accountId)))
+            .select({ companyId: contacts.companyId, replyToEmail: companies.replyToEmail })
+            .from(contacts)
+            .innerJoin(companies, eq(companies.id, contacts.companyId))
+            .where(and(eq(contacts.id, id), eq(contacts.accountId, accountId)))
             .limit(1);
 
           const template = meta?.companyId
@@ -3441,7 +3481,7 @@ export function createApp(deps: AppDeps) {
           }
 
           await c.var.audit({
-            entityType: 'customer',
+            entityType: 'contact',
             entityId: id,
             action: 'statement-emailed',
             after: { to, subject, balanceDue: statement.balanceDue },
@@ -3458,10 +3498,10 @@ export function createApp(deps: AppDeps) {
       // duplicated safeParse — c.req.valid('json') hands back the parsed
       // shape, and the validator returns the 400 itself.
       .patch(
-        '/api/customers/:id',
-        requireCapability('customers:write'),
+        '/api/contacts/:id',
+        requireCapability('contacts:write'),
         validator('json', (value, c) => {
-          const parsed = customerUpdateSchema.safeParse(value);
+          const parsed = contactUpdateSchema.safeParse(value);
           if (!parsed.success) {
             return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
           }
@@ -3477,10 +3517,10 @@ export function createApp(deps: AppDeps) {
 
           const [before] = await tx
             .select()
-            .from(customers)
-            .where(and(eq(customers.id, id), eq(customers.accountId, accountId)))
+            .from(contacts)
+            .where(and(eq(contacts.id, id), eq(contacts.accountId, accountId)))
             .limit(1);
-          if (!before) return c.json({ error: 'customer_not_found' }, 404);
+          if (!before) return c.json({ error: 'contact_not_found' }, 404);
 
           // Full-replacement semantics — undefined optionals clear the column.
           // The DB columns for optional fields are nullable, so collapsing
@@ -3500,14 +3540,14 @@ export function createApp(deps: AppDeps) {
             updatedAt: new Date(),
           };
           const [after] = await tx
-            .update(customers)
+            .update(contacts)
             .set(patch)
-            .where(and(eq(customers.id, id), eq(customers.accountId, accountId)))
+            .where(and(eq(contacts.id, id), eq(contacts.accountId, accountId)))
             .returning();
-          if (!after) return c.json({ error: 'customer_not_found' }, 404);
+          if (!after) return c.json({ error: 'contact_not_found' }, 404);
 
           await c.var.audit({
-            entityType: 'customer',
+            entityType: 'contact',
             entityId: id,
             action: 'update',
             before,
@@ -3519,7 +3559,7 @@ export function createApp(deps: AppDeps) {
         },
       )
       // Items catalog (products & services) — per-company reusable line items.
-      // Mirrors customers: full CRUD within the tenant, but items archive
+      // Mirrors contacts: full CRUD within the tenant, but items archive
       // rather than hard-delete (archive/restore transitions below) so the
       // top-products report never loses history.
       .post('/api/items', requireCapability('sales:write'), async (c) => {
@@ -3552,7 +3592,7 @@ export function createApp(deps: AppDeps) {
 
         return c.json(row, 201);
       })
-      // Bulk CSV import (web) — mirrors /api/customers/import. Registered before
+      // Bulk CSV import (web) — mirrors /api/contacts/import. Registered before
       // /api/items/:id so first-match doesn't capture "import" as an :id. Atomic:
       // the whole batch validates (itemImportSchema) before any row inserts.
       .post('/api/items/import', requireCapability('sales:write'), async (c) => {
@@ -3667,7 +3707,7 @@ export function createApp(deps: AppDeps) {
             .limit(1);
           if (!before) return c.json({ error: 'item_not_found' }, 404);
 
-          // Full-replacement semantics like customers — omitted optionals
+          // Full-replacement semantics like contacts — omitted optionals
           // collapse to their column default (null, or '0' / '1' for the money
           // / quantity columns). archived_at is owned by archive/restore, not
           // touched here, so editing an archived item keeps it archived.
@@ -3878,18 +3918,18 @@ export function createApp(deps: AppDeps) {
 
         const tx = c.get('tx');
         const accountId = c.get('accountId');
-        const { companyId, customerId, lineItems, ...header } = parsed.data;
+        const { companyId, contactId, lineItems, ...header } = parsed.data;
 
         // Customer must belong to this account AND match the requested companyId.
         // The schema does not enforce the customer↔company link at the DB level
-        // (customers carry companyId; invoices independently set companyId), so
+        // (contacts carry companyId; invoices independently set companyId), so
         // we check it here to avoid an invoice that disagrees with its customer.
         const [customer] = await tx
-          .select({ id: customers.id, companyId: customers.companyId })
-          .from(customers)
-          .where(and(eq(customers.id, customerId), eq(customers.accountId, accountId)))
+          .select({ id: contacts.id, companyId: contacts.companyId })
+          .from(contacts)
+          .where(and(eq(contacts.id, contactId), eq(contacts.accountId, accountId)))
           .limit(1);
-        if (!customer) return c.json({ error: 'customer_not_found' }, 404);
+        if (!customer) return c.json({ error: 'contact_not_found' }, 404);
         if (customer.companyId !== companyId) {
           return c.json({ error: 'customer_company_mismatch' }, 400);
         }
@@ -3937,7 +3977,7 @@ export function createApp(deps: AppDeps) {
           id: invoiceId,
           accountId,
           companyId,
-          customerId,
+          contactId,
           ...header,
           ...showFlags,
         });
@@ -4021,7 +4061,7 @@ export function createApp(deps: AppDeps) {
           id: invoiceId,
           accountId,
           companyId: source.companyId,
-          customerId: source.customerId,
+          contactId: source.contactId,
           number,
           issueDate: todayIso,
           dueDate: dueIso,
@@ -4070,7 +4110,7 @@ export function createApp(deps: AppDeps) {
           after: {
             id: invoiceId,
             companyId: source.companyId,
-            customerId: source.customerId,
+            contactId: source.contactId,
             number,
             issueDate: todayIso,
             dueDate: dueIso,
@@ -4093,16 +4133,16 @@ export function createApp(deps: AppDeps) {
         const status = c.req.query('status');
         // Filters (slice mirrors the web/mobile filter bars): q searches the
         // invoice number OR the joined customer name; from/to bound issueDate
-        // (inclusive); customerId narrows to one customer. All compose with the
+        // (inclusive); contactId narrows to one customer. All compose with the
         // keyset scan as plain extra WHERE conditions.
         const q = c.req.query('q');
         const from = c.req.query('from');
         const to = c.req.query('to');
-        const customerId = c.req.query('customerId');
+        const contactId = c.req.query('contactId');
         if (from !== undefined && !isValidDateParam(from))
           return c.json({ error: 'invalid_from' }, 400);
         if (to !== undefined && !isValidDateParam(to)) return c.json({ error: 'invalid_to' }, 400);
-        if (customerId !== undefined && !UUID_RE.test(customerId))
+        if (contactId !== undefined && !UUID_RE.test(contactId))
           return c.json({ error: 'invalid_customer_id' }, 400);
         const limit = parseLimit(c.req.query('limit'));
         if (limit === null) return c.json({ error: 'invalid_limit' }, 400);
@@ -4115,21 +4155,21 @@ export function createApp(deps: AppDeps) {
         const conditions = [eq(invoices.accountId, accountId)];
         if (companyId) conditions.push(eq(invoices.companyId, companyId));
         if (status) conditions.push(eq(invoices.status, status));
-        if (customerId) conditions.push(eq(invoices.customerId, customerId));
+        if (contactId) conditions.push(eq(invoices.contactId, contactId));
         if (from) conditions.push(gte(invoices.issueDate, from));
         if (to) conditions.push(lte(invoices.issueDate, to));
         if (q) {
           const term = `%${escapeLike(q)}%`;
           // biome-ignore lint/style/noNonNullAssertion: or() with >=1 arg is non-null
-          conditions.push(or(ilike(invoices.number, term), ilike(customers.name, term))!);
+          conditions.push(or(ilike(invoices.number, term), ilike(contacts.name, term))!);
         }
         if (keyset) conditions.push(keyset);
         // LEFT JOIN the customer name so the list renders without the client
         // fetching every customer (which paginated lists can't do at volume).
         const rows = await tx
-          .select({ ...getTableColumns(invoices), customerName: customers.name })
+          .select({ ...getTableColumns(invoices), customerName: contacts.name })
           .from(invoices)
-          .leftJoin(customers, eq(customers.id, invoices.customerId))
+          .leftJoin(contacts, eq(contacts.id, invoices.contactId))
           .where(and(...conditions))
           .orderBy(keysetOrderBy(keys, 'desc'))
           .limit(limit + 1);
@@ -4197,7 +4237,7 @@ export function createApp(deps: AppDeps) {
 
           const tx = c.get('tx');
           const accountId = c.get('accountId');
-          const { customerId, lineItems, ...header } = data;
+          const { contactId, lineItems, ...header } = data;
 
           const [current] = await tx
             .select()
@@ -4216,16 +4256,16 @@ export function createApp(deps: AppDeps) {
             return c.json({ error: 'not_editable', status: current.status }, 409);
           }
 
-          // customerId is mutable on edit, so the customer↔company invariant
+          // contactId is mutable on edit, so the customer↔company invariant
           // needs the same check the create endpoint does. companyId is fixed
           // (omitted from the update schema) — the invoice cannot move
           // between companies — so we compare against current.companyId.
           const [customer] = await tx
-            .select({ id: customers.id, companyId: customers.companyId })
-            .from(customers)
-            .where(and(eq(customers.id, customerId), eq(customers.accountId, accountId)))
+            .select({ id: contacts.id, companyId: contacts.companyId })
+            .from(contacts)
+            .where(and(eq(contacts.id, contactId), eq(contacts.accountId, accountId)))
             .limit(1);
-          if (!customer) return c.json({ error: 'customer_not_found' }, 404);
+          if (!customer) return c.json({ error: 'contact_not_found' }, 404);
           if (customer.companyId !== current.companyId) {
             return c.json({ error: 'customer_company_mismatch' }, 400);
           }
@@ -4279,7 +4319,7 @@ export function createApp(deps: AppDeps) {
           const [updated] = await tx
             .update(invoices)
             .set({
-              customerId,
+              contactId,
               number: header.number,
               issueDate: header.issueDate,
               dueDate: header.dueDate,
@@ -4443,15 +4483,15 @@ export function createApp(deps: AppDeps) {
 
         const tx = c.get('tx');
         const accountId = c.get('accountId');
-        const { companyId, customerId, lineItems } = parsed.data;
+        const { companyId, contactId, lineItems } = parsed.data;
         const d = parsed.data;
 
         const [customer] = await tx
-          .select({ id: customers.id, companyId: customers.companyId })
-          .from(customers)
-          .where(and(eq(customers.id, customerId), eq(customers.accountId, accountId)))
+          .select({ id: contacts.id, companyId: contacts.companyId })
+          .from(contacts)
+          .where(and(eq(contacts.id, contactId), eq(contacts.accountId, accountId)))
           .limit(1);
-        if (!customer) return c.json({ error: 'customer_not_found' }, 404);
+        if (!customer) return c.json({ error: 'contact_not_found' }, 404);
         if (customer.companyId !== companyId) {
           return c.json({ error: 'customer_company_mismatch' }, 400);
         }
@@ -4462,7 +4502,7 @@ export function createApp(deps: AppDeps) {
           id: recurringId,
           accountId,
           companyId,
-          customerId,
+          contactId,
           frequency: d.frequency,
           intervalCount: d.intervalCount,
           startDate: d.startDate,
@@ -4513,9 +4553,9 @@ export function createApp(deps: AppDeps) {
         if (keyset) conditions.push(keyset);
         // LEFT JOIN the customer name (see /api/invoices for the rationale).
         const rows = await tx
-          .select({ ...getTableColumns(recurringInvoices), customerName: customers.name })
+          .select({ ...getTableColumns(recurringInvoices), customerName: contacts.name })
           .from(recurringInvoices)
-          .leftJoin(customers, eq(customers.id, recurringInvoices.customerId))
+          .leftJoin(contacts, eq(contacts.id, recurringInvoices.contactId))
           .where(and(...conditions))
           .orderBy(keysetOrderBy(keys, 'desc'))
           .limit(limit + 1);
@@ -4576,7 +4616,7 @@ export function createApp(deps: AppDeps) {
 
           const tx = c.get('tx');
           const accountId = c.get('accountId');
-          const { customerId, lineItems } = data;
+          const { contactId, lineItems } = data;
           const d = data;
 
           const [current] = await tx
@@ -4593,15 +4633,15 @@ export function createApp(deps: AppDeps) {
             return c.json({ error: 'not_editable', status: current.status }, 409);
           }
 
-          // customerId is mutable; companyId is fixed (omitted from the update
+          // contactId is mutable; companyId is fixed (omitted from the update
           // schema), so the customer↔company invariant compares against
           // current.companyId.
           const [customer] = await tx
-            .select({ id: customers.id, companyId: customers.companyId })
-            .from(customers)
-            .where(and(eq(customers.id, customerId), eq(customers.accountId, accountId)))
+            .select({ id: contacts.id, companyId: contacts.companyId })
+            .from(contacts)
+            .where(and(eq(contacts.id, contactId), eq(contacts.accountId, accountId)))
             .limit(1);
-          if (!customer) return c.json({ error: 'customer_not_found' }, 404);
+          if (!customer) return c.json({ error: 'contact_not_found' }, 404);
           if (customer.companyId !== current.companyId) {
             return c.json({ error: 'customer_company_mismatch' }, 400);
           }
@@ -4643,7 +4683,7 @@ export function createApp(deps: AppDeps) {
           const [updated] = await tx
             .update(recurringInvoices)
             .set({
-              customerId,
+              contactId,
               frequency: d.frequency,
               intervalCount: d.intervalCount,
               startDate: d.startDate,
@@ -4727,14 +4767,14 @@ export function createApp(deps: AppDeps) {
 
         const tx = c.get('tx');
         const accountId = c.get('accountId');
-        const { companyId, customerId, lineItems, ...header } = parsed.data;
+        const { companyId, contactId, lineItems, ...header } = parsed.data;
 
         const [customer] = await tx
-          .select({ id: customers.id, companyId: customers.companyId })
-          .from(customers)
-          .where(and(eq(customers.id, customerId), eq(customers.accountId, accountId)))
+          .select({ id: contacts.id, companyId: contacts.companyId })
+          .from(contacts)
+          .where(and(eq(contacts.id, contactId), eq(contacts.accountId, accountId)))
           .limit(1);
-        if (!customer) return c.json({ error: 'customer_not_found' }, 404);
+        if (!customer) return c.json({ error: 'contact_not_found' }, 404);
         if (customer.companyId !== companyId) {
           return c.json({ error: 'customer_company_mismatch' }, 400);
         }
@@ -4779,7 +4819,7 @@ export function createApp(deps: AppDeps) {
           id: estimateId,
           accountId,
           companyId,
-          customerId,
+          contactId,
           ...header,
           ...showFlags,
         });
@@ -4862,7 +4902,7 @@ export function createApp(deps: AppDeps) {
           id: estimateId,
           accountId,
           companyId: source.companyId,
-          customerId: source.customerId,
+          contactId: source.contactId,
           number,
           issueDate: todayIso,
           expiresOn: expiresIso,
@@ -4909,7 +4949,7 @@ export function createApp(deps: AppDeps) {
           after: {
             id: estimateId,
             companyId: source.companyId,
-            customerId: source.customerId,
+            contactId: source.contactId,
             number,
             issueDate: todayIso,
             expiresOn: expiresIso,
@@ -4931,15 +4971,15 @@ export function createApp(deps: AppDeps) {
         const companyId = c.req.query('companyId');
         const status = c.req.query('status');
         // Filters mirror the invoice list: q (number OR customer name),
-        // from/to (issueDate, inclusive), customerId.
+        // from/to (issueDate, inclusive), contactId.
         const q = c.req.query('q');
         const from = c.req.query('from');
         const to = c.req.query('to');
-        const customerId = c.req.query('customerId');
+        const contactId = c.req.query('contactId');
         if (from !== undefined && !isValidDateParam(from))
           return c.json({ error: 'invalid_from' }, 400);
         if (to !== undefined && !isValidDateParam(to)) return c.json({ error: 'invalid_to' }, 400);
-        if (customerId !== undefined && !UUID_RE.test(customerId))
+        if (contactId !== undefined && !UUID_RE.test(contactId))
           return c.json({ error: 'invalid_customer_id' }, 400);
         const limit = parseLimit(c.req.query('limit'));
         if (limit === null) return c.json({ error: 'invalid_limit' }, 400);
@@ -4952,20 +4992,20 @@ export function createApp(deps: AppDeps) {
         const conditions = [eq(estimates.accountId, accountId)];
         if (companyId) conditions.push(eq(estimates.companyId, companyId));
         if (status) conditions.push(eq(estimates.status, status));
-        if (customerId) conditions.push(eq(estimates.customerId, customerId));
+        if (contactId) conditions.push(eq(estimates.contactId, contactId));
         if (from) conditions.push(gte(estimates.issueDate, from));
         if (to) conditions.push(lte(estimates.issueDate, to));
         if (q) {
           const term = `%${escapeLike(q)}%`;
           // biome-ignore lint/style/noNonNullAssertion: or() with >=1 arg is non-null
-          conditions.push(or(ilike(estimates.number, term), ilike(customers.name, term))!);
+          conditions.push(or(ilike(estimates.number, term), ilike(contacts.name, term))!);
         }
         if (keyset) conditions.push(keyset);
         // LEFT JOIN the customer name (see /api/invoices for the rationale).
         const rows = await tx
-          .select({ ...getTableColumns(estimates), customerName: customers.name })
+          .select({ ...getTableColumns(estimates), customerName: contacts.name })
           .from(estimates)
-          .leftJoin(customers, eq(customers.id, estimates.customerId))
+          .leftJoin(contacts, eq(contacts.id, estimates.contactId))
           .where(and(...conditions))
           .orderBy(keysetOrderBy(keys, 'desc'))
           .limit(limit + 1);
@@ -5035,7 +5075,7 @@ export function createApp(deps: AppDeps) {
 
           const tx = c.get('tx');
           const accountId = c.get('accountId');
-          const { customerId, lineItems, ...header } = data;
+          const { contactId, lineItems, ...header } = data;
 
           const [current] = await tx
             .select()
@@ -5053,11 +5093,11 @@ export function createApp(deps: AppDeps) {
           }
 
           const [customer] = await tx
-            .select({ id: customers.id, companyId: customers.companyId })
-            .from(customers)
-            .where(and(eq(customers.id, customerId), eq(customers.accountId, accountId)))
+            .select({ id: contacts.id, companyId: contacts.companyId })
+            .from(contacts)
+            .where(and(eq(contacts.id, contactId), eq(contacts.accountId, accountId)))
             .limit(1);
-          if (!customer) return c.json({ error: 'customer_not_found' }, 404);
+          if (!customer) return c.json({ error: 'contact_not_found' }, 404);
           if (customer.companyId !== current.companyId) {
             return c.json({ error: 'customer_company_mismatch' }, 400);
           }
@@ -5101,7 +5141,7 @@ export function createApp(deps: AppDeps) {
           const [updated] = await tx
             .update(estimates)
             .set({
-              customerId,
+              contactId,
               number: header.number,
               issueDate: header.issueDate,
               expiresOn: header.expiresOn ?? null,
@@ -5245,7 +5285,7 @@ export function createApp(deps: AppDeps) {
           id: invoiceId,
           accountId,
           companyId: estimate.companyId,
-          customerId: estimate.customerId,
+          contactId: estimate.contactId,
           number: invoiceNumber,
           issueDate: todayIso,
           dueDate: dueIso,
@@ -5305,7 +5345,7 @@ export function createApp(deps: AppDeps) {
           after: {
             id: invoiceId,
             companyId: estimate.companyId,
-            customerId: estimate.customerId,
+            contactId: estimate.contactId,
             number: invoiceNumber,
             issueDate: todayIso,
             dueDate: dueIso,
@@ -5345,7 +5385,14 @@ export function createApp(deps: AppDeps) {
 
         const tx = c.get('tx');
         const accountId = c.get('accountId');
-        const { companyId, customerId, categoryAccountId, paymentAccountId, ...rest } = parsed.data;
+        const {
+          companyId,
+          customerContactId,
+          vendorContactId,
+          categoryAccountId,
+          paymentAccountId,
+          ...rest
+        } = parsed.data;
 
         const [company] = await tx
           .select({ id: companies.id })
@@ -5354,20 +5401,31 @@ export function createApp(deps: AppDeps) {
           .limit(1);
         if (!company) return c.json({ error: 'company_not_found' }, 404);
 
-        // customerId is optional (carried for v1.x job-costing, not surfaced
+        // customerContactId is optional (carried for v1.x job-costing, not surfaced
         // in MVP). When present it must belong to this account AND match the
         // expense's company — the same invariant the invoice create enforces.
-        if (customerId) {
+        if (customerContactId) {
           const [customer] = await tx
-            .select({ id: customers.id, companyId: customers.companyId })
-            .from(customers)
-            .where(and(eq(customers.id, customerId), eq(customers.accountId, accountId)))
+            .select({ id: contacts.id, companyId: contacts.companyId })
+            .from(contacts)
+            .where(and(eq(contacts.id, customerContactId), eq(contacts.accountId, accountId)))
             .limit(1);
-          if (!customer) return c.json({ error: 'customer_not_found' }, 404);
+          if (!customer) return c.json({ error: 'contact_not_found' }, 404);
           if (customer.companyId !== companyId) {
             return c.json({ error: 'customer_company_mismatch' }, 400);
           }
         }
+
+        // vendorContactId is the optional buy-from link (same account+company
+        // invariant). Linking resolves the single on-screen "Vendor" field:
+        // merchant is mirrored from the contact's name (the always-present
+        // display string) and the contact is marked is_vendor so it shows on
+        // the buy-from side of the relationship. The needs-review flag is left
+        // null (a linked expense needs no review).
+        let merchant = rest.merchant;
+        const vendor = await resolveVendorLink(tx, accountId, companyId, vendorContactId);
+        if (vendor && 'error' in vendor) return c.json({ error: vendor.error }, vendor.status);
+        if (vendor) merchant = vendor.name;
 
         const coa = await resolveCoaAccounts(tx, accountId, companyId, [
           categoryAccountId,
@@ -5389,12 +5447,13 @@ export function createApp(deps: AppDeps) {
             id: expenseId,
             accountId,
             companyId,
-            customerId: customerId ?? null,
+            customerContactId: customerContactId ?? null,
+            vendorContactId: vendorContactId ?? null,
             categoryAccountId,
             paymentAccountId,
             amount: rest.amount,
             expenseDate: rest.expenseDate,
-            merchant: rest.merchant,
+            merchant,
             memo: rest.memo ?? null,
           })
           .returning();
@@ -5408,7 +5467,7 @@ export function createApp(deps: AppDeps) {
         });
 
         await postExpenseCreate(tx, {
-          expense: { id: expenseId, merchant: rest.merchant, amount: rest.amount },
+          expense: { id: expenseId, merchant, amount: rest.amount },
           categoryCode: category.code,
           paymentCode: payment.code,
           accountId,
@@ -5507,6 +5566,7 @@ export function createApp(deps: AppDeps) {
         const to = c.req.query('to');
         const categoryAccountId = c.req.query('categoryAccountId');
         const q = c.req.query('q');
+        const needsReview = c.req.query('needsReview');
 
         // from/to are inclusive YYYY-MM-DD bounds on expense_date. Validate the
         // shape so a malformed value returns a clean 400 rather than letting
@@ -5534,6 +5594,9 @@ export function createApp(deps: AppDeps) {
         if (from) conditions.push(gte(expenses.expenseDate, from));
         if (to) conditions.push(lte(expenses.expenseDate, to));
         if (categoryAccountId) conditions.push(eq(expenses.categoryAccountId, categoryAccountId));
+        // "Needs review" filter: receipt-backed expenses whose vendor isn't
+        // linked yet (backed by the partial index expenses_vendor_review_idx).
+        if (needsReview === 'true') conditions.push(eq(expenses.vendorReview, 'needs_review'));
         // Merchant contains-search. escapeLike neutralises %/_ so a literal
         // "50%" search doesn't turn into a wildcard.
         if (q) conditions.push(ilike(expenses.merchant, `%${escapeLike(q)}%`));
@@ -5590,7 +5653,12 @@ export function createApp(deps: AppDeps) {
           // is immutable (omitted from the schema) so the expense can't move
           // between companies and orphan its company-scoped ledger accounts.
           const next = {
-            customerId: data.customerId !== undefined ? data.customerId : current.customerId,
+            customerContactId:
+              data.customerContactId !== undefined
+                ? data.customerContactId
+                : current.customerContactId,
+            vendorContactId:
+              data.vendorContactId !== undefined ? data.vendorContactId : current.vendorContactId,
             categoryAccountId: data.categoryAccountId ?? current.categoryAccountId,
             paymentAccountId: data.paymentAccountId ?? current.paymentAccountId,
             amount: data.amount ?? current.amount,
@@ -5599,15 +5667,40 @@ export function createApp(deps: AppDeps) {
             memo: data.memo !== undefined ? data.memo : current.memo,
           };
 
-          if (data.customerId !== undefined) {
+          if (data.customerContactId !== undefined) {
             const [customer] = await tx
-              .select({ id: customers.id, companyId: customers.companyId })
-              .from(customers)
-              .where(and(eq(customers.id, data.customerId), eq(customers.accountId, accountId)))
+              .select({ id: contacts.id, companyId: contacts.companyId })
+              .from(contacts)
+              .where(
+                and(eq(contacts.id, data.customerContactId), eq(contacts.accountId, accountId)),
+              )
               .limit(1);
-            if (!customer) return c.json({ error: 'customer_not_found' }, 404);
+            if (!customer) return c.json({ error: 'contact_not_found' }, 404);
             if (customer.companyId !== current.companyId) {
               return c.json({ error: 'customer_company_mismatch' }, 400);
+            }
+          }
+
+          // Vendor link: only (re)validated when the field is touched. Linking
+          // mirrors the contact's name into merchant and clears the review flag;
+          // an explicit unlink re-flags iff a receipt is attached (otherwise
+          // there's nothing to review). When untouched, vendor_review is left
+          // as-is so an edit to some other field never resurrects a dismissed
+          // flag.
+          let vendorReview = current.vendorReview;
+          if (data.vendorContactId !== undefined) {
+            const vendor = await resolveVendorLink(
+              tx,
+              accountId,
+              current.companyId,
+              data.vendorContactId,
+            );
+            if (vendor && 'error' in vendor) return c.json({ error: vendor.error }, vendor.status);
+            if (vendor) {
+              next.merchant = vendor.name;
+              vendorReview = null;
+            } else {
+              vendorReview = current.receiptStorageKey ? 'needs_review' : null;
             }
           }
 
@@ -5654,13 +5747,15 @@ export function createApp(deps: AppDeps) {
           const [updated] = await tx
             .update(expenses)
             .set({
-              customerId: next.customerId ?? null,
+              customerContactId: next.customerContactId ?? null,
+              vendorContactId: next.vendorContactId ?? null,
               categoryAccountId: next.categoryAccountId,
               paymentAccountId: next.paymentAccountId,
               amount: next.amount,
               expenseDate: next.expenseDate,
               merchant: next.merchant,
               memo: next.memo ?? null,
+              vendorReview,
               updatedAt: now,
             })
             .where(and(eq(expenses.id, id), eq(expenses.accountId, accountId)))
@@ -5783,9 +5878,14 @@ export function createApp(deps: AppDeps) {
         const key = `accounts/${accountId}/companies/${expense.companyId}/expenses/${id}/${uuidv7()}.${ext}`;
         const now = new Date();
 
+        // Scan-and-forget review flag: a freshly-attached receipt with no vendor
+        // link goes to the "Needs review" queue so a human can link/create/
+        // dismiss the vendor later. A receipt on an already-linked expense needs
+        // no review.
+        const vendorReview = expense.vendorContactId ? null : 'needs_review';
         const [updated] = await tx
           .update(expenses)
-          .set({ receiptStorageKey: key, receiptUploadedAt: now, updatedAt: now })
+          .set({ receiptStorageKey: key, receiptUploadedAt: now, vendorReview, updatedAt: now })
           .where(and(eq(expenses.id, id), eq(expenses.accountId, accountId)))
           .returning();
         if (!updated) return c.json({ error: 'expense_not_found' }, 404);
@@ -5805,6 +5905,39 @@ export function createApp(deps: AppDeps) {
         await deps.storage.putObject({ key, body: bytes, contentType: file.type });
 
         return c.json({ id, receiptStorageKey: key, receiptUploadedAt: now }, 201);
+      })
+      // Dismiss the needs-review flag without linking a vendor — the one-off
+      // "I'm not tracking this merchant as a contact" path. Clears the flag
+      // (vendor_review → null); never creates a contact. Idempotent.
+      .post('/api/expenses/:id/dismiss-review', requireCapability('expenses:write'), async (c) => {
+        const id = c.req.param('id');
+        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+        const [expense] = await tx
+          .select()
+          .from(expenses)
+          .where(and(eq(expenses.id, id), eq(expenses.accountId, accountId)))
+          .limit(1);
+        if (!expense || expense.deletedAt) return c.json({ error: 'expense_not_found' }, 404);
+
+        if (expense.vendorReview !== null) {
+          const [updated] = await tx
+            .update(expenses)
+            .set({ vendorReview: null, updatedAt: new Date() })
+            .where(and(eq(expenses.id, id), eq(expenses.accountId, accountId)))
+            .returning();
+          await c.var.audit({
+            entityType: 'expense',
+            entityId: id,
+            action: 'dismiss-review',
+            before: { vendorReview: expense.vendorReview },
+            after: { vendorReview: null },
+            companyId: expense.companyId,
+          });
+          return c.json(updated);
+        }
+        return c.json(expense);
       })
       // 1-hour signed download URL. For s3 it's a presigned object-store URL
       // the browser fetches directly; for local-FS it's a relative
@@ -6050,11 +6183,11 @@ export function createApp(deps: AppDeps) {
           }
 
           const [customer] = await tx
-            .select({ id: customers.id, name: customers.name, email: customers.email })
-            .from(customers)
-            .where(and(eq(customers.id, current.customerId), eq(customers.accountId, accountId)))
+            .select({ id: contacts.id, name: contacts.name, email: contacts.email })
+            .from(contacts)
+            .where(and(eq(contacts.id, current.contactId), eq(contacts.accountId, accountId)))
             .limit(1);
-          if (!customer) return c.json({ error: 'customer_not_found' }, 404);
+          if (!customer) return c.json({ error: 'contact_not_found' }, 404);
 
           const to = (toOverride ?? customer.email ?? '').trim();
           if (!to || !EMAIL_RE.test(to)) return c.json({ error: 'invalid_recipient' }, 400);
@@ -6199,11 +6332,11 @@ export function createApp(deps: AppDeps) {
           }
 
           const [customer] = await tx
-            .select({ id: customers.id, name: customers.name, email: customers.email })
-            .from(customers)
-            .where(and(eq(customers.id, current.customerId), eq(customers.accountId, accountId)))
+            .select({ id: contacts.id, name: contacts.name, email: contacts.email })
+            .from(contacts)
+            .where(and(eq(contacts.id, current.contactId), eq(contacts.accountId, accountId)))
             .limit(1);
-          if (!customer) return c.json({ error: 'customer_not_found' }, 404);
+          if (!customer) return c.json({ error: 'contact_not_found' }, 404);
 
           const to = (toOverride ?? customer.email ?? '').trim();
           if (!to || !EMAIL_RE.test(to)) return c.json({ error: 'invalid_recipient' }, 400);
@@ -6313,7 +6446,7 @@ export function createApp(deps: AppDeps) {
         const entityIdRaw = c.req.query('entityId');
         const limitRaw = c.req.query('limit');
         const ALLOWED_TYPES = [
-          'customer',
+          'contact',
           'invoice',
           'estimate',
           'expense',
@@ -6384,7 +6517,7 @@ export function createApp(deps: AppDeps) {
         const labelMap = new Map<string, string>();
         if (feedMode && rows.length > 0) {
           const idsByType: Record<EntityType, string[]> = {
-            customer: [],
+            contact: [],
             invoice: [],
             estimate: [],
             expense: [],
@@ -6414,14 +6547,14 @@ export function createApp(deps: AppDeps) {
               );
             for (const r of estRows) labelMap.set(`estimate:${r.id}`, r.label);
           }
-          if (idsByType.customer.length > 0) {
-            const custRows = await tx
-              .select({ id: customers.id, label: customers.name })
-              .from(customers)
+          if (idsByType.contact.length > 0) {
+            const contactRows = await tx
+              .select({ id: contacts.id, label: contacts.name })
+              .from(contacts)
               .where(
-                and(eq(customers.accountId, accountId), inArray(customers.id, idsByType.customer)),
+                and(eq(contacts.accountId, accountId), inArray(contacts.id, idsByType.contact)),
               );
-            for (const r of custRows) labelMap.set(`customer:${r.id}`, r.label);
+            for (const r of contactRows) labelMap.set(`contact:${r.id}`, r.label);
           }
           if (idsByType.expense.length > 0) {
             const expRows = await tx
@@ -6435,9 +6568,9 @@ export function createApp(deps: AppDeps) {
           // Schedules have no number — label them by customer name (joined).
           if (idsByType.recurring_invoice.length > 0) {
             const recRows = await tx
-              .select({ id: recurringInvoices.id, label: customers.name })
+              .select({ id: recurringInvoices.id, label: contacts.name })
               .from(recurringInvoices)
-              .innerJoin(customers, eq(customers.id, recurringInvoices.customerId))
+              .innerJoin(contacts, eq(contacts.id, recurringInvoices.contactId))
               .where(
                 and(
                   eq(recurringInvoices.accountId, accountId),
@@ -6506,9 +6639,9 @@ export function createApp(deps: AppDeps) {
           .where(eq(companies.id, invoice.companyId))
           .limit(1);
         const [customer] = await bootstrapDb
-          .select({ name: customers.name })
-          .from(customers)
-          .where(eq(customers.id, invoice.customerId))
+          .select({ name: contacts.name })
+          .from(contacts)
+          .where(eq(contacts.id, invoice.contactId))
           .limit(1);
         const lines = await bootstrapDb
           .select({
@@ -6695,9 +6828,9 @@ export function createApp(deps: AppDeps) {
           .where(eq(companies.id, estimate.companyId))
           .limit(1);
         const [customer] = await bootstrapDb
-          .select({ name: customers.name })
-          .from(customers)
-          .where(eq(customers.id, estimate.customerId))
+          .select({ name: contacts.name })
+          .from(contacts)
+          .where(eq(contacts.id, estimate.contactId))
           .limit(1);
         const lines = await bootstrapDb
           .select({

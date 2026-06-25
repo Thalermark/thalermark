@@ -16,7 +16,7 @@
 
   // One row per open invoice — the detail an accountant chases against.
   const csvRows = $derived<CsvCell[][]>([
-    ['Invoice', 'Customer', 'Due date', 'Days past due', 'Amount'],
+    ['Invoice', 'Contact', 'Due date', 'Days past due', 'Amount'],
     ...report.invoices.map(
       (inv) =>
         [inv.number, inv.customerName ?? '', inv.dueDate, inv.daysPastDue, inv.amount] as CsvCell[],
@@ -64,7 +64,7 @@
       <thead class="bg-surface">
         <tr class="label">
           <th class="px-5 py-3">Number</th>
-          <th class="px-5 py-3">Customer</th>
+          <th class="px-5 py-3">Contact</th>
           <th class="px-5 py-3">Due</th>
           <th class="px-5 py-3 text-right">Overdue</th>
           <th class="px-5 py-3 text-right">Amount</th>

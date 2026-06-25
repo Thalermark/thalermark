@@ -97,7 +97,7 @@ describe('line-item source_item_id provenance', () => {
         body: JSON.stringify({ companyId, name: 'Power washing', unitPrice: '120.00' }),
       });
       const item = (await itemRes.json()) as { id: string };
-      const custRes = await app.request('/api/customers', {
+      const custRes = await app.request('/api/contacts', {
         method: 'POST',
         headers: h,
         body: JSON.stringify({ companyId, name: 'Coyote' }),
@@ -110,7 +110,7 @@ describe('line-item source_item_id provenance', () => {
         headers: h,
         body: JSON.stringify({
           companyId,
-          customerId: customer.id,
+          contactId: customer.id,
           number: 'INV-PROV-1',
           issueDate: '2026-06-07',
           dueDate: '2026-07-07',
@@ -170,7 +170,7 @@ describe('line-item source_item_id provenance', () => {
         body: JSON.stringify({ companyId, name: 'Mowing', unitPrice: '40.00' }),
       });
       const item = (await itemRes.json()) as { id: string };
-      const custRes = await app.request('/api/customers', {
+      const custRes = await app.request('/api/contacts', {
         method: 'POST',
         headers: h,
         body: JSON.stringify({ companyId, name: 'Roadrunner' }),
@@ -182,7 +182,7 @@ describe('line-item source_item_id provenance', () => {
         headers: h,
         body: JSON.stringify({
           companyId,
-          customerId: customer.id,
+          contactId: customer.id,
           number: 'INV-DUP-1',
           issueDate: '2026-06-07',
           dueDate: '2026-07-07',

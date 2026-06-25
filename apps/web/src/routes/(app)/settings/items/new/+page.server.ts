@@ -47,7 +47,7 @@ export const actions: Actions = {
     const values = readForm(data);
 
     // Auto-pick the only company for MVP single-company users — same pattern
-    // as /customers/new. The multi-company picker UX is deferred.
+    // as /contacts/new. The multi-company picker UX is deferred.
     const companiesRes = await client.api.companies.$get();
     if (!companiesRes.ok) throw error(companiesRes.status, 'failed to load companies');
     const { companies } = await companiesRes.json();

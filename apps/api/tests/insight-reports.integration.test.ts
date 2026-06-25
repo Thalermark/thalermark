@@ -102,8 +102,8 @@ function headers(ctx: Ctx) {
   return { cookie: ctx.cookie, 'x-account-id': ctx.accountId, 'content-type': 'application/json' };
 }
 
-async function createCustomer(ctx: Ctx, name: string): Promise<string> {
-  const res = await ctx.app.request('/api/customers', {
+async function createContact(ctx: Ctx, name: string): Promise<string> {
+  const res = await ctx.app.request('/api/contacts', {
     method: 'POST',
     headers: headers(ctx),
     body: JSON.stringify({ companyId: ctx.companyId, name }),
@@ -114,7 +114,7 @@ async function createCustomer(ctx: Ctx, name: string): Promise<string> {
 
 async function createInvoice(
   ctx: Ctx,
-  customerId: string,
+  contactId: string,
   opts: { number: string; issueDate: string; subtotal: string },
 ): Promise<string> {
   const res = await ctx.app.request('/api/invoices', {
@@ -122,7 +122,7 @@ async function createInvoice(
     headers: headers(ctx),
     body: JSON.stringify({
       companyId: ctx.companyId,
-      customerId,
+      contactId,
       number: opts.number,
       issueDate: opts.issueDate,
       dueDate: opts.issueDate,
@@ -149,13 +149,13 @@ async function createEstimate(
   ctx: Ctx,
   opts: { number: string; issueDate: string; subtotal: string },
 ): Promise<string> {
-  const customerId = await createCustomer(ctx, `Cust ${opts.number}`);
+  const contactId = await createContact(ctx, `Cust ${opts.number}`);
   const res = await ctx.app.request('/api/estimates', {
     method: 'POST',
     headers: headers(ctx),
     body: JSON.stringify({
       companyId: ctx.companyId,
-      customerId,
+      contactId,
       number: opts.number,
       issueDate: opts.issueDate,
       expiresOn: opts.issueDate,
@@ -192,11 +192,11 @@ const WINDOW = '?from=2026-01-01&to=2026-12-31';
 describe('GET /api/companies/:id/sales-by-customer', () => {
   beforeEach(resetDb);
 
-  it('ranks customers by pre-tax sales (sent or paid), excludes drafts', async () => {
+  it('ranks contacts by pre-tax sales (sent or paid), excludes drafts', async () => {
     const { ctx, close } = await setup('sbc@example.com');
     try {
-      const x = await createCustomer(ctx, 'Customer X');
-      const y = await createCustomer(ctx, 'Customer Y');
+      const x = await createContact(ctx, 'Customer X');
+      const y = await createContact(ctx, 'Customer Y');
 
       const x1 = await createInvoice(ctx, x, {
         number: 'X1',
@@ -226,12 +226,12 @@ describe('GET /api/companies/:id/sales-by-customer', () => {
       );
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
-        customers: { name: string; sales: string; invoiceCount: number }[];
+        contacts: { name: string; sales: string; invoiceCount: number }[];
         totalSales: string;
       };
-      expect(body.customers).toEqual([
-        { customerId: expect.any(String), name: 'Customer X', sales: '300.00', invoiceCount: 2 },
-        { customerId: expect.any(String), name: 'Customer Y', sales: '150.00', invoiceCount: 1 },
+      expect(body.contacts).toEqual([
+        { contactId: expect.any(String), name: 'Customer X', sales: '300.00', invoiceCount: 2 },
+        { contactId: expect.any(String), name: 'Customer Y', sales: '150.00', invoiceCount: 1 },
       ]);
       expect(body.totalSales).toBe('450.00');
     } finally {
@@ -246,7 +246,7 @@ describe('GET /api/companies/:id/revenue-over-time', () => {
   it('buckets pre-tax sales by month', async () => {
     const { ctx, close } = await setup('rot@example.com');
     try {
-      const cust = await createCustomer(ctx, 'C');
+      const cust = await createContact(ctx, 'C');
       const a = await createInvoice(ctx, cust, {
         number: 'A',
         issueDate: '2026-02-15',

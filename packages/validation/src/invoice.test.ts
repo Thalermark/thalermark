@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { customerCreateSchema } from './customer.js';
+import { contactCreateSchema } from './contact.js';
 import {
   invoiceCreateSchema,
   invoiceLineItemInputSchema,
@@ -37,9 +37,9 @@ describe('isoDateString', () => {
   });
 });
 
-describe('customerCreateSchema', () => {
-  it('accepts a minimal customer', () => {
-    const parsed = customerCreateSchema.parse({
+describe('contactCreateSchema', () => {
+  it('accepts a minimal contact', () => {
+    const parsed = contactCreateSchema.parse({
       companyId: '01890000-0000-7000-8000-000000000001',
       name: 'Wile E. Coyote',
     });
@@ -48,7 +48,7 @@ describe('customerCreateSchema', () => {
   });
 
   it('rejects an empty name', () => {
-    const r = customerCreateSchema.safeParse({
+    const r = contactCreateSchema.safeParse({
       companyId: '01890000-0000-7000-8000-000000000001',
       name: '',
     });
@@ -56,7 +56,7 @@ describe('customerCreateSchema', () => {
   });
 
   it('rejects a malformed email', () => {
-    const r = customerCreateSchema.safeParse({
+    const r = contactCreateSchema.safeParse({
       companyId: '01890000-0000-7000-8000-000000000001',
       name: 'X',
       email: 'not-an-email',
@@ -93,7 +93,7 @@ describe('invoiceLineItemInputSchema', () => {
 describe('invoiceCreateSchema', () => {
   const base = {
     companyId: '01890000-0000-7000-8000-000000000001',
-    customerId: '01890000-0000-7000-8000-000000000002',
+    contactId: '01890000-0000-7000-8000-000000000002',
     number: 'INV-001',
     issueDate: '2026-05-23',
     dueDate: '2026-06-22',

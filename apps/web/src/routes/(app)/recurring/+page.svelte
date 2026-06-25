@@ -8,7 +8,7 @@
 
   let { data }: PageProps = $props();
 
-  // See /customers for the untrack() seed-and-re-seed pattern.
+  // See /contacts for the untrack() seed-and-re-seed pattern.
   type Row = (typeof data.schedules)[number];
   let rows = $state<Row[]>(untrack(() => data.schedules));
   let cursor = $state<string | null>(untrack(() => data.nextCursor));
@@ -66,7 +66,7 @@
     <table class="w-full text-left text-sm">
       <thead class="bg-surface">
         <tr class="label">
-          <th class="px-5 py-3">Customer</th>
+          <th class="px-5 py-3">Contact</th>
           <th class="px-5 py-3">Cadence</th>
           <th class="px-5 py-3">Next run</th>
           <th class="px-5 py-3">Status</th>

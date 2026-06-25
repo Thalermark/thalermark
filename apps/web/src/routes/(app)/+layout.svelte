@@ -44,7 +44,7 @@
         <a href="/recurring" class="hover:text-fg">Recurring</a>
         <a href="/estimates" class="hover:text-fg">Estimates</a>
         <a href="/expenses" class="hover:text-fg">Expenses</a>
-        <a href="/customers" class="hover:text-fg">Customers</a>
+        <a href="/contacts" class="hover:text-fg">Contacts</a>
         <a href="/reports" class="hover:text-fg">Reports</a>
       </nav>
       <UserMenu

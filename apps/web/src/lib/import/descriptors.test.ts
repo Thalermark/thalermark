@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { autoMap, entityByKey } from './descriptors';
 
-const customers = entityByKey('customers');
+const contacts = entityByKey('contacts');
 const items = entityByKey('items');
 
 function coerce(entity: ReturnType<typeof entityByKey>, key: string, raw: string) {
@@ -12,7 +12,7 @@ function coerce(entity: ReturnType<typeof entityByKey>, key: string, raw: string
 
 describe('autoMap', () => {
   it('matches headers to fields by synonym, normalizing case/spacing/punctuation', () => {
-    const map = autoMap(customers, ['Full Name', 'E-mail Address', 'Phone #', 'Zip Code']);
+    const map = autoMap(contacts, ['Full Name', 'E-mail Address', 'Phone #', 'Zip Code']);
     expect(map.name).toBe('Full Name');
     expect(map.email).toBe('E-mail Address');
     expect(map.phone).toBe('Phone #');
@@ -30,7 +30,7 @@ describe('autoMap', () => {
   });
 
   it('leaves unmatched fields out of the map', () => {
-    const map = autoMap(customers, ['Name']);
+    const map = autoMap(contacts, ['Name']);
     expect(map.name).toBe('Name');
     expect(map.country).toBeUndefined();
   });
@@ -59,7 +59,7 @@ describe('coercion', () => {
   });
 
   it('uppercases country', () => {
-    expect(coerce(customers, 'country', 'us')).toBe('US');
+    expect(coerce(contacts, 'country', 'us')).toBe('US');
   });
 });
 
@@ -70,7 +70,7 @@ describe('validateRow', () => {
   });
 
   it('rejects a row missing the required name', () => {
-    const res = customers.validateRow({ email: 'a@b.example' });
+    const res = contacts.validateRow({ email: 'a@b.example' });
     expect(res.ok).toBe(false);
   });
 

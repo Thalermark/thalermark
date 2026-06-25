@@ -1,5 +1,6 @@
 import { pickActiveCompany } from '$lib/active-company';
 import { serverApiClient } from '$lib/api.server';
+import { resolveVendorField } from '$lib/expense-vendor';
 import { error, fail, redirect } from '@sveltejs/kit';
 import { expenseCreateSchema } from '@thalermark/validation';
 import type { Actions, PageServerLoad } from './$types';
@@ -56,6 +57,8 @@ export const load: PageServerLoad = async (event) => {
       const src = await srcRes.json();
       prefill = {
         merchant: src.merchant ?? '',
+        // A duplicate of an expense paid to the same vendor keeps the link.
+        vendorContactId: src.vendorContactId ?? '',
         amount: src.amount,
         categoryAccountId: src.categoryAccountId,
         paymentAccountId: src.paymentAccountId,
@@ -77,6 +80,7 @@ export const load: PageServerLoad = async (event) => {
 
 type FormValues = {
   merchant: string;
+  vendorContactId: string;
   amount: string;
   expenseDate: string;
   categoryAccountId: string;
@@ -87,6 +91,8 @@ type FormValues = {
 function readForm(data: FormData): FormValues {
   return {
     merchant: String(data.get('merchant') ?? '').trim(),
+    // The VendorPicker's hidden field: '' (unlinked) | <uuid> | '__new__'.
+    vendorContactId: String(data.get('vendorContactId') ?? '').trim(),
     amount: String(data.get('amount') ?? '').trim(),
     expenseDate: String(data.get('expenseDate') ?? '').trim(),
     categoryAccountId: String(data.get('categoryAccountId') ?? '').trim(),
@@ -188,8 +194,22 @@ export const actions: Actions = {
     const companyId = pickActiveCompany(event.cookies, companies)?.id;
     if (!companyId) return fail(400, { values, formError: 'No company in this workspace.' });
 
+    // Resolve the Vendor field: link an existing contact, create one inline, or
+    // leave unlinked (free-text merchant). The API mirrors a linked contact's
+    // name into merchant authoritatively.
+    const vendor = await resolveVendorField(
+      client,
+      companyId,
+      values.vendorContactId,
+      values.merchant,
+    );
+    if (!vendor.ok) {
+      return fail(400, { values, formError: 'Could not add that vendor. Please try again.' });
+    }
+
     const parsed = expenseCreateSchema.safeParse({
       companyId,
+      vendorContactId: vendor.value ?? undefined,
       categoryAccountId: values.categoryAccountId,
       paymentAccountId: values.paymentAccountId,
       amount: values.amount,

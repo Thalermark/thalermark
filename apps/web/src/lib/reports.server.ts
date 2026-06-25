@@ -81,7 +81,7 @@ export async function loadProfitLoss(event: Parameters<typeof serverApiClient>[0
 export type SalesByCustomer = {
   from: string;
   to: string;
-  customers: { customerId: string; name: string | null; sales: string; invoiceCount: number }[];
+  contacts: { contactId: string; name: string | null; sales: string; invoiceCount: number }[];
   totalSales: string;
 };
 

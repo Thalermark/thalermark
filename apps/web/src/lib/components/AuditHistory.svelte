@@ -43,6 +43,7 @@
     'receipt-upload': 'attached a receipt',
     'receipt-delete': 'removed the receipt',
     'receipt-extract': 'auto-filled from the receipt',
+    'dismiss-review': 'dismissed the vendor review',
     pause: 'paused',
     resume: 'resumed',
     end: 'ended',
@@ -52,7 +53,7 @@
 
   // Entity-type → display singular for the feed prefix and the link path.
   const ENTITY_LABELS: Record<string, string> = {
-    customer: 'Customer',
+    contact: 'Contact',
     invoice: 'Invoice',
     estimate: 'Estimate',
     expense: 'Expense',
@@ -61,7 +62,7 @@
     item: 'Item',
   };
   const ENTITY_PATHS: Record<string, string> = {
-    customer: '/customers',
+    contact: '/contacts',
     invoice: '/invoices',
     estimate: '/estimates',
     expense: '/expenses',

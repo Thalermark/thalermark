@@ -22,6 +22,7 @@ export const load: PageServerLoad = async (event) => {
   const to = params.get('to') ?? '';
   const category = params.get('category') ?? '';
   const q = params.get('q') ?? '';
+  const needsReview = params.get('needsReview') === 'true';
 
   // Only forward filters that are set — an empty `from`/`to` would fail the
   // API's date-shape check, and empty `q` would match nothing useful.
@@ -30,6 +31,7 @@ export const load: PageServerLoad = async (event) => {
   if (to) query.to = to;
   if (category) query.categoryAccountId = category;
   if (q) query.q = q;
+  if (needsReview) query.needsReview = 'true';
 
   const [expensesRes, accountsRes] = await Promise.all([
     client.api.expenses.$get({ query }),
@@ -50,6 +52,6 @@ export const load: PageServerLoad = async (event) => {
     nextCursor,
     companyId: company.id,
     categories: accounts.map((a) => ({ id: a.id, label: `${a.code} · ${a.name}` })),
-    filters: { from, to, category, q },
+    filters: { from, to, category, q, needsReview },
   };
 };

@@ -31,7 +31,7 @@ describe('can(role, capability) matrix', () => {
   const grid: Record<Role, Record<Capability, boolean>> = {
     owner: {
       'sales:write': true,
-      'customers:write': true,
+      'contacts:write': true,
       'expenses:write': true,
       'reports:export': true,
       'settings:manage': true,
@@ -41,7 +41,7 @@ describe('can(role, capability) matrix', () => {
     },
     admin: {
       'sales:write': true,
-      'customers:write': true,
+      'contacts:write': true,
       'expenses:write': true,
       'reports:export': true,
       'settings:manage': true,
@@ -51,7 +51,7 @@ describe('can(role, capability) matrix', () => {
     },
     member: {
       'sales:write': true,
-      'customers:write': true,
+      'contacts:write': true,
       'expenses:write': true,
       'reports:export': false,
       'settings:manage': false,
@@ -61,7 +61,7 @@ describe('can(role, capability) matrix', () => {
     },
     accountant: {
       'sales:write': false,
-      'customers:write': false,
+      'contacts:write': false,
       'expenses:write': true,
       'reports:export': true,
       'settings:manage': false,
@@ -71,7 +71,7 @@ describe('can(role, capability) matrix', () => {
     },
     viewer: {
       'sales:write': false,
-      'customers:write': false,
+      'contacts:write': false,
       'expenses:write': false,
       'reports:export': false,
       'settings:manage': false,

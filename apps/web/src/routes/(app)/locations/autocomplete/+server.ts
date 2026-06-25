@@ -4,7 +4,7 @@ import { createAddressAutocompleteProvider } from '@thalermark/location';
 import type { RequestHandler } from './$types.js';
 
 // Same-origin browser proxy for address autocomplete. The user types into
-// the customer form's AddressLookup, which calls this endpoint with `?q=...`
+// the contact form's AddressLookup, which calls this endpoint with `?q=...`
 // and gets back a list of structured suggestions to fill the address fields.
 // Lives on the web app rather than the Hono api because:
 //   - Caddy routes /api/* to the api service; an /api endpoint on web would

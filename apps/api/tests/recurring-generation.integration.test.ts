@@ -140,7 +140,7 @@ type Ctx = {
   handle: { db: ReturnType<typeof createApiDatabase>['db']; close: () => Promise<void> };
 };
 
-async function createCustomer(
+async function createContact(
   ctx: Ctx,
   cookie: string,
   accountId: string,
@@ -149,7 +149,7 @@ async function createCustomer(
 ): Promise<string> {
   const body: Record<string, string> = { companyId, name: 'Acme Corp' };
   if (email) body.email = email;
-  const res = await ctx.app.request('/api/customers', {
+  const res = await ctx.app.request('/api/contacts', {
     method: 'POST',
     headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
     body: JSON.stringify(body),
@@ -163,7 +163,7 @@ async function createSchedule(
   cookie: string,
   accountId: string,
   companyId: string,
-  customerId: string,
+  contactId: string,
   overrides: Record<string, unknown> = {},
 ): Promise<string> {
   const res = await ctx.app.request('/api/recurring-invoices', {
@@ -171,7 +171,7 @@ async function createSchedule(
     headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
     body: JSON.stringify({
       companyId,
-      customerId,
+      contactId,
       frequency: 'monthly',
       intervalCount: 1,
       startDate: '2026-06-01',
@@ -224,8 +224,8 @@ describe('sweepRecurringInvoices', () => {
     try {
       const cookie = await signUp(ctx.app, 'gen@example.com');
       const { accountId, companyId } = await userContext('gen@example.com');
-      const customerId = await createCustomer(ctx, cookie, accountId, companyId, 'pay@example.com');
-      const id = await createSchedule(ctx, cookie, accountId, companyId, customerId);
+      const contactId = await createContact(ctx, cookie, accountId, companyId, 'pay@example.com');
+      const id = await createSchedule(ctx, cookie, accountId, companyId, contactId);
       const dueOn = todayIso();
       await makeDue(id, dueOn);
 
@@ -281,8 +281,8 @@ describe('sweepRecurringInvoices', () => {
     try {
       const cookie = await signUp(ctx.app, 'future@example.com');
       const { accountId, companyId } = await userContext('future@example.com');
-      const customerId = await createCustomer(ctx, cookie, accountId, companyId);
-      const id = await createSchedule(ctx, cookie, accountId, companyId, customerId);
+      const contactId = await createContact(ctx, cookie, accountId, companyId);
+      const id = await createSchedule(ctx, cookie, accountId, companyId, contactId);
       await makeDue(id, '2999-01-01');
 
       const result = await sweep(ctx);
@@ -302,8 +302,8 @@ describe('sweepRecurringInvoices', () => {
     try {
       const cookie = await signUp(ctx.app, 'paused@example.com');
       const { accountId, companyId } = await userContext('paused@example.com');
-      const customerId = await createCustomer(ctx, cookie, accountId, companyId);
-      const id = await createSchedule(ctx, cookie, accountId, companyId, customerId);
+      const contactId = await createContact(ctx, cookie, accountId, companyId);
+      const id = await createSchedule(ctx, cookie, accountId, companyId, contactId);
       await makeDue(id);
       await ctx.app.request(`/api/recurring-invoices/${id}/pause`, {
         method: 'POST',
@@ -322,8 +322,8 @@ describe('sweepRecurringInvoices', () => {
     try {
       const cookie = await signUp(ctx.app, 'max@example.com');
       const { accountId, companyId } = await userContext('max@example.com');
-      const customerId = await createCustomer(ctx, cookie, accountId, companyId);
-      const id = await createSchedule(ctx, cookie, accountId, companyId, customerId, {
+      const contactId = await createContact(ctx, cookie, accountId, companyId);
+      const id = await createSchedule(ctx, cookie, accountId, companyId, contactId, {
         maxOccurrences: 1,
       });
       await makeDue(id);
@@ -349,9 +349,9 @@ describe('sweepRecurringInvoices', () => {
     try {
       const cookie = await signUp(ctx.app, 'enddate@example.com');
       const { accountId, companyId } = await userContext('enddate@example.com');
-      const customerId = await createCustomer(ctx, cookie, accountId, companyId);
+      const contactId = await createContact(ctx, cookie, accountId, companyId);
       // Monthly; end_date 10 days out, so the next run (one month later) is past it.
-      const id = await createSchedule(ctx, cookie, accountId, companyId, customerId, {
+      const id = await createSchedule(ctx, cookie, accountId, companyId, contactId, {
         endDate: '2026-06-11',
       });
       await makeDue(id, '2026-06-01');
@@ -373,8 +373,8 @@ describe('sweepRecurringInvoices', () => {
     try {
       const cookie = await signUp(ctx.app, 'overdue@example.com');
       const { accountId, companyId } = await userContext('overdue@example.com');
-      const customerId = await createCustomer(ctx, cookie, accountId, companyId);
-      const id = await createSchedule(ctx, cookie, accountId, companyId, customerId);
+      const contactId = await createContact(ctx, cookie, accountId, companyId);
+      const id = await createSchedule(ctx, cookie, accountId, companyId, contactId);
       // Six months in the past.
       const sixAgo = new Date();
       sixAgo.setUTCMonth(sixAgo.getUTCMonth() - 6);
@@ -401,13 +401,13 @@ describe('sweepRecurringInvoices', () => {
     try {
       const aCookie = await signUp(ctx.app, 'sweep-a@example.com');
       const a = await userContext('sweep-a@example.com');
-      const aCust = await createCustomer(ctx, aCookie, a.accountId, a.companyId);
+      const aCust = await createContact(ctx, aCookie, a.accountId, a.companyId);
       const aId = await createSchedule(ctx, aCookie, a.accountId, a.companyId, aCust);
       await makeDue(aId);
 
       const bCookie = await signUp(ctx.app, 'sweep-b@example.com');
       const b = await userContext('sweep-b@example.com');
-      const bCust = await createCustomer(ctx, bCookie, b.accountId, b.companyId);
+      const bCust = await createContact(ctx, bCookie, b.accountId, b.companyId);
       const bId = await createSchedule(ctx, bCookie, b.accountId, b.companyId, bCust);
       await makeDue(bId);
 
@@ -434,8 +434,8 @@ describe('POST /api/recurring-invoices/:id/run-now', () => {
     try {
       const cookie = await signUp(ctx.app, 'runnow@example.com');
       const { accountId, companyId } = await userContext('runnow@example.com');
-      const customerId = await createCustomer(ctx, cookie, accountId, companyId, 'pay@example.com');
-      const id = await createSchedule(ctx, cookie, accountId, companyId, customerId);
+      const contactId = await createContact(ctx, cookie, accountId, companyId, 'pay@example.com');
+      const id = await createSchedule(ctx, cookie, accountId, companyId, contactId);
 
       const res = await ctx.app.request(`/api/recurring-invoices/${id}/run-now`, {
         method: 'POST',
@@ -470,8 +470,8 @@ describe('POST /api/recurring-invoices/:id/run-now', () => {
     try {
       const cookie = await signUp(ctx.app, 'runnow-paused@example.com');
       const { accountId, companyId } = await userContext('runnow-paused@example.com');
-      const customerId = await createCustomer(ctx, cookie, accountId, companyId);
-      const id = await createSchedule(ctx, cookie, accountId, companyId, customerId);
+      const contactId = await createContact(ctx, cookie, accountId, companyId);
+      const id = await createSchedule(ctx, cookie, accountId, companyId, contactId);
       await ctx.app.request(`/api/recurring-invoices/${id}/pause`, {
         method: 'POST',
         headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },

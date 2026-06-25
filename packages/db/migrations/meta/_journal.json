@@ -372,6 +372,20 @@
       "when": 1781638006515,
       "tag": "0052_pgboss_role",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1782310613845,
+      "tag": "0053_contacts_rename",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1782329752159,
+      "tag": "0054_expense_vendor_link",
+      "breakpoints": true
     }
   ]
 }

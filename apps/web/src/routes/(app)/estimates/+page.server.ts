@@ -4,8 +4,8 @@ import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 
 // customerName is LEFT JOINed server-side (see /invoices). Filters mirror the
-// invoices list: status, q (number or customer name), from/to (issueDate
-// range), customerId. Customer <select> populated from a capped fetch.
+// invoices list: status, q (number or contact name), from/to (issueDate
+// range), contactId. Contact <select> populated from a capped fetch.
 export const load: PageServerLoad = async (event) => {
   const client = serverApiClient(event);
   const sp = event.url.searchParams;
@@ -14,9 +14,9 @@ export const load: PageServerLoad = async (event) => {
     q: sp.get('q') ?? '',
     from: sp.get('from') ?? '',
     to: sp.get('to') ?? '',
-    customerId: sp.get('customerId') ?? '',
+    contactId: sp.get('contactId') ?? '',
   };
-  // Scope both the list and the customer-filter dropdown to the active company
+  // Scope both the list and the contact-filter dropdown to the active company
   // (the nav switcher's pick), resolved by the (app) layout load. Without it the
   // list — and the dropdown — span every company in the workspace.
   const { activeCompanyId } = await event.parent();
@@ -29,12 +29,12 @@ export const load: PageServerLoad = async (event) => {
   if (activeCompanyId) custQuery.companyId = activeCompanyId;
   const [res, custRes] = await Promise.all([
     client.api.estimates.$get({ query }),
-    client.api.customers.$get({ query: custQuery }),
+    client.api.contacts.$get({ query: custQuery }),
   ]);
   if (!res.ok) throw error(res.status, 'failed to load estimates');
   const { estimates, nextCursor } = await res.json();
-  const customers = custRes.ok
-    ? (await custRes.json()).customers.map((c) => ({ id: c.id, name: c.name }))
+  const contacts = custRes.ok
+    ? (await custRes.json()).contacts.map((c) => ({ id: c.id, name: c.name }))
     : [];
-  return { estimates, nextCursor, filters, customers };
+  return { estimates, nextCursor, filters, contacts };
 };

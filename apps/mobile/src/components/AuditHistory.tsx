@@ -50,6 +50,7 @@ const ACTION_LABELS: Record<string, string> = {
   'receipt-upload': 'attached a receipt',
   'receipt-delete': 'removed the receipt',
   'receipt-extract': 'auto-filled from the receipt',
+  'dismiss-review': 'dismissed the vendor review',
   pause: 'paused',
   resume: 'resumed',
   end: 'ended',
@@ -64,7 +65,7 @@ function actionLabel(action: string): string {
 // Entity-type → display singular for the feed prefix. Kept in sync with web's
 // ENTITY_LABELS.
 const ENTITY_LABELS: Record<string, string> = {
-  customer: 'Customer',
+  contact: 'Contact',
   invoice: 'Invoice',
   estimate: 'Estimate',
   expense: 'Expense',
@@ -78,8 +79,8 @@ const ENTITY_LABELS: Record<string, string> = {
 // return makes the prefix non-tappable.
 function entityHref(entityType: string, entityId: string): Href | null {
   switch (entityType) {
-    case 'customer':
-      return `/customers/${entityId}`;
+    case 'contact':
+      return `/contacts/${entityId}`;
     case 'invoice':
       return `/invoices/${entityId}`;
     case 'estimate':
