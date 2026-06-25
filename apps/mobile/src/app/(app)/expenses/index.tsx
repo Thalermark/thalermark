@@ -1,36 +1,51 @@
 import { useRouter } from 'expo-router';
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from '../../../lib/api';
 import { useMay } from '../../../lib/role';
 import { pageQuery, usePaginatedList } from '../../../lib/use-paginated-list';
 
-// Mirror of apps/web's /expenses list. Rows show merchant / amount / date —
-// the category lives behind a COA account UUID we don't resolve in the list
-// (kept lean; the detail screen resolves names). Keyset infinite scroll.
-type ExpenseRow = { id: string; merchant: string; amount: string; expenseDate: string };
+// Mirror of apps/web's /expenses list. Rows show the vendor (merchant) / amount
+// / date — the category lives behind a COA account UUID we don't resolve in the
+// list (kept lean; the detail screen resolves names). Keyset infinite scroll.
+type ExpenseRow = {
+  id: string;
+  merchant: string;
+  amount: string;
+  expenseDate: string;
+  needsReview: boolean;
+};
 
 export default function ExpensesList() {
   const router = useRouter();
   const canCreate = useMay('expenses:write');
+  // "Needs review": receipt-backed expenses with no vendor linked. Toggling it
+  // changes fetchPage's identity, which usePaginatedList re-runs from page 1.
+  const [needsReview, setNeedsReview] = useState(false);
 
-  const fetchPage = useCallback(async (cursor: string | null) => {
-    const res = await api.api.expenses.$get({ query: pageQuery(cursor) });
-    if (!res.ok) return null;
-    const { expenses, nextCursor } = await res.json();
-    return {
-      rows: expenses.map(
-        (e): ExpenseRow => ({
-          id: e.id,
-          merchant: e.merchant,
-          amount: e.amount,
-          expenseDate: e.expenseDate,
-        }),
-      ),
-      nextCursor,
-    };
-  }, []);
+  const fetchPage = useCallback(
+    async (cursor: string | null) => {
+      const query = pageQuery(cursor);
+      if (needsReview) query.needsReview = 'true';
+      const res = await api.api.expenses.$get({ query });
+      if (!res.ok) return null;
+      const { expenses, nextCursor } = await res.json();
+      return {
+        rows: expenses.map(
+          (e): ExpenseRow => ({
+            id: e.id,
+            merchant: e.merchant,
+            amount: e.amount,
+            expenseDate: e.expenseDate,
+            needsReview: e.vendorReview === 'needs_review',
+          }),
+        ),
+        nextCursor,
+      };
+    },
+    [needsReview],
+  );
 
   const { list, loadingMore, loadMore } = usePaginatedList(fetchPage);
 
@@ -53,6 +68,19 @@ export default function ExpensesList() {
         ) : null}
       </View>
 
+      <View className="px-6 pt-4">
+        <Pressable
+          onPress={() => setNeedsReview((v) => !v)}
+          className={`self-start rounded-sm border px-3 py-1.5 ${needsReview ? 'border-gold-deep bg-gold-deep/10' : 'border-ink/15'}`}
+        >
+          <Text
+            className={`font-mono text-xs uppercase tracking-widest ${needsReview ? 'text-gold-deep' : 'text-ink/60'}`}
+          >
+            Needs review
+          </Text>
+        </Pressable>
+      </View>
+
       {list.state === 'loading' ? (
         <View className="mt-12 items-center">
           <ActivityIndicator color="#0f1626" />
@@ -60,7 +88,9 @@ export default function ExpensesList() {
       ) : list.state === 'error' ? (
         <Text className="mt-8 px-6 text-sm text-oxblood">Couldn't load expenses.</Text>
       ) : list.rows.length === 0 ? (
-        <Text className="mt-8 px-6 text-ink/70">No expenses yet.</Text>
+        <Text className="mt-8 px-6 text-ink/70">
+          {needsReview ? 'Nothing needs review.' : 'No expenses yet.'}
+        </Text>
       ) : (
         <FlatList
           data={list.rows}
@@ -82,8 +112,19 @@ export default function ExpensesList() {
               onPress={() => router.push(`/expenses/${item.id}`)}
               className="flex-row items-center justify-between bg-cream-warm px-5 py-4 active:bg-cream"
             >
-              <View>
-                <Text className="font-serif text-lg text-ink">{item.merchant}</Text>
+              <View className="flex-1 pr-3">
+                <View className="flex-row items-center gap-2">
+                  <Text className="font-serif text-lg text-ink" numberOfLines={1}>
+                    {item.merchant}
+                  </Text>
+                  {item.needsReview ? (
+                    <View className="rounded-sm bg-gold-deep/15 px-1.5 py-0.5">
+                      <Text className="font-mono text-[10px] uppercase tracking-wide text-gold-deep">
+                        Review
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
                 <Text className="mt-1 font-mono text-xs uppercase tracking-widest text-ink/50">
                   {item.expenseDate}
                 </Text>

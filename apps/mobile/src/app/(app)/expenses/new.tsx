@@ -15,9 +15,11 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { DateField } from '../../../components/DateField';
 import { SuggestButton, SuggestNotice } from '../../../components/SuggestCategory';
+import { VendorField } from '../../../components/VendorField';
 import { pickActiveCompany } from '../../../lib/active-company';
 import { api } from '../../../lib/api';
 import { type SuggestResult, suggestCategory } from '../../../lib/categorize';
+import { resolveVendor } from '../../../lib/expense-vendor';
 
 // Mirror of apps/web's /expenses/new. An expense posts against two chart-of-
 // accounts rows (category = an 'expense' account, payment = an 'asset'
@@ -42,6 +44,8 @@ export default function NewExpense() {
   const [bootstrapped, setBootstrapped] = useState(false);
 
   const [merchant, setMerchant] = useState('');
+  // Vendor link state: '' (unlinked) | <uuid> | VENDOR_NEW. Resolved on submit.
+  const [vendorContactId, setVendorContactId] = useState('');
   const [amount, setAmount] = useState('');
   const [expenseDate, setExpenseDate] = useState(todayIso());
   const [memo, setMemo] = useState('');
@@ -104,6 +108,8 @@ export default function NewExpense() {
           if (active && srcRes.ok) {
             const src = await srcRes.json();
             setMerchant(src.merchant ?? '');
+            // A duplicate paid to the same vendor keeps the link.
+            setVendorContactId(src.vendorContactId ?? '');
             setAmount(src.amount);
             setMemo(src.memo ?? '');
             setCategoryId(src.categoryAccountId);
@@ -159,7 +165,16 @@ export default function NewExpense() {
 
     setSubmitting(true);
     try {
-      const res = await api.api.expenses.$post({ json: parsed.data });
+      // Resolve the Vendor field after the core fields validate (so an inline
+      // "+ Add vendor" never creates an orphan contact for an invalid expense).
+      const vendor = await resolveVendor(companyId, vendorContactId, merchant);
+      if (!vendor.ok) {
+        setFormError('vendor_create_failed');
+        return;
+      }
+      const res = await api.api.expenses.$post({
+        json: { ...parsed.data, vendorContactId: vendor.value ?? undefined },
+      });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
         setFormError(body?.error ?? 'create_failed');
@@ -197,10 +212,13 @@ export default function NewExpense() {
           ) : null}
 
           <View className="mt-8 space-y-5">
-            <Field
-              label="Merchant *"
-              value={merchant}
-              onChangeText={setMerchant}
+            <VendorField
+              label="Vendor *"
+              companyId={companyId}
+              merchant={merchant}
+              setMerchant={setMerchant}
+              vendorContactId={vendorContactId}
+              setVendorContactId={setVendorContactId}
               error={fieldErrors.merchant}
             />
             <Field
