@@ -1,4 +1,4 @@
-import { type Capability, contactCreateSchema, itemCreateSchema } from '@thalermark/validation';
+import { type Capability, contactCreateSchema, itemImportRowSchema } from '@thalermark/validation';
 
 // Drives the generic CSV importer (Settings → Import). One descriptor per
 // importable entity; the import page is entirely parameterized by these, so
@@ -73,7 +73,7 @@ const boolish = (raw: string): boolean | undefined => {
 };
 
 const contactRowSchema = contactCreateSchema.omit({ companyId: true });
-const itemRowSchema = itemCreateSchema.omit({ companyId: true });
+const itemRowSchema = itemImportRowSchema;
 
 type ZodIssue = { path: PropertyKey[]; message: string };
 function firstIssue(issues: ZodIssue[]): string {
@@ -244,6 +244,13 @@ export const IMPORT_ENTITIES: ImportEntity[] = [
         label: 'Taxable',
         hint: 'yes / no',
         synonyms: ['taxable', 'istaxable', 'tax'],
+        coerce: boolish,
+      },
+      {
+        key: 'archived',
+        label: 'Archived',
+        hint: 'yes / no',
+        synonyms: ['archived', 'isarchived'],
         coerce: boolish,
       },
     ],

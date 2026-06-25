@@ -272,6 +272,37 @@ describe('POST /api/items/import', () => {
     }
   });
 
+  it('sets archived_at from the import-only `archived` flag (omitted/false → active)', async () => {
+    const { app, handle } = buildApp();
+    try {
+      const cookie = await signUp(app, 'imp-item-arch@example.com');
+      const { accountId, companyId } = await userContext('imp-item-arch@example.com');
+
+      const res = await app.request('/api/items/import', {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          companyId,
+          rows: [
+            { name: 'Retired Service', archived: true },
+            { name: 'Active Service', archived: false },
+            { name: 'Default Service' },
+          ],
+        }),
+      });
+      expect(res.status).toBe(201);
+
+      const db = getTestDb();
+      const rows = await db.select().from(items).where(eq(items.companyId, companyId));
+      const byName = new Map(rows.map((r) => [r.name, r]));
+      expect(byName.get('Retired Service')?.archivedAt).toBeInstanceOf(Date);
+      expect(byName.get('Active Service')?.archivedAt).toBeNull();
+      expect(byName.get('Default Service')?.archivedAt).toBeNull();
+    } finally {
+      await handle.close();
+    }
+  });
+
   it('rejects the whole batch atomically on a malformed money string (nothing inserted)', async () => {
     const { app, handle } = buildApp();
     try {
