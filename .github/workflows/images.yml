@@ -64,6 +64,11 @@ jobs:
         with:
           context: .
           file: apps/${{ matrix.app }}/Dockerfile
+          # App version baked into the web build (Settings → About): the release
+          # tag on a tag build, else the commit SHA. The api Dockerfile ignores
+          # this arg, so it's harmless to pass to both matrix legs.
+          build-args: |
+            APP_VERSION=${{ github.ref_type == 'tag' && github.ref_name || github.sha }}
           # PR = validate only; tag/manual = publish.
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}

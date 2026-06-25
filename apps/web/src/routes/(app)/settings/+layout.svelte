@@ -26,6 +26,7 @@
     { href: '/settings/import', label: 'Import', cap: 'contacts:write' },
     { href: '/settings/activity', label: 'Activity' },
     { href: '/settings/privacy', label: 'Privacy', cap: 'settings:manage' },
+    { href: '/settings/about', label: 'About' },
   ];
   const visibleTabs = $derived(TABS.filter((t) => !t.cap || may(page.data.role, t.cap)));
 
