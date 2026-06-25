@@ -1,6 +1,10 @@
 import type { Role } from '@thalermark/validation';
 
 declare global {
+  // Injected at build time by Vite `define` (apps/web/vite.config.ts): the git
+  // release tag of this build, shown on Settings → About.
+  const __APP_VERSION__: string;
+
   namespace App {
     interface Locals {
       session: Session | null;

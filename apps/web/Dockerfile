@@ -42,6 +42,11 @@ RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
 
 # ---------------------------------------------------------------------------
 FROM deps AS builder
+# The build context excludes .git, so the app version (shown on Settings →
+# About) is passed in by CI as a build-arg and read by vite.config.ts at build.
+# Falls back to 'dev' for a plain `docker build` with no --build-arg.
+ARG APP_VERSION=dev
+ENV APP_VERSION=${APP_VERSION}
 COPY apps/web ./apps/web
 COPY packages ./packages
 COPY tsconfig.base.json ./

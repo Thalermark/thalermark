@@ -29,6 +29,7 @@ type Entry = {
     | '/more/payments'
     | '/more/email'
     | '/more/privacy'
+    | '/more/about'
     | '/more/tax-policies';
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
@@ -135,6 +136,14 @@ const SETTINGS_ENTRIES: Entry[] = [
   },
 ];
 
+// Always visible (every role) — just shows the app version.
+const ABOUT_ENTRY: Entry = {
+  href: '/more/about',
+  icon: 'information-circle-outline',
+  title: 'About',
+  subtitle: 'The app version running on this device.',
+};
+
 export default function MoreHub() {
   const router = useRouter();
   const [accountName, setAccountName] = useState<string | null>(null);
@@ -195,6 +204,7 @@ export default function MoreHub() {
             onOpen={(href) => router.push(href)}
           />
         ) : null}
+        <Section label="About" entries={[ABOUT_ENTRY]} onOpen={(href) => router.push(href)} />
       </ScrollView>
     </SafeAreaView>
   );
