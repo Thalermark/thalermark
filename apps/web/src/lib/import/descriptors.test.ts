@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { autoMap, entityByKey } from './descriptors';
+import { IMPORT_ENTITIES, autoMap, entityByKey } from './descriptors';
 
 const contacts = entityByKey('contacts');
 const items = entityByKey('items');
@@ -61,6 +61,23 @@ describe('coercion', () => {
   it('uppercases country', () => {
     expect(coerce(contacts, 'country', 'us')).toBe('US');
   });
+});
+
+describe('export → re-import round trip', () => {
+  // CSV export uses each field's label as its column header. This proves those
+  // labels auto-map straight back to their fields, so an exported file
+  // re-imports without manual column matching. A new field whose label doesn't
+  // normalize to one of its synonyms (the `region` → 'stateregion' gap) trips
+  // this guard.
+  for (const entity of IMPORT_ENTITIES) {
+    it(`maps every ${entity.key} export header back to its field`, () => {
+      const headers = entity.fields.map((f) => f.label);
+      const map = autoMap(entity, headers);
+      for (const f of entity.fields) {
+        expect(map[f.key]).toBe(f.label);
+      }
+    });
+  }
 });
 
 describe('validateRow', () => {

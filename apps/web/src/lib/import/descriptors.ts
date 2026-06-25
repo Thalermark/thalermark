@@ -151,7 +151,10 @@ export const IMPORT_ENTITIES: ImportEntity[] = [
       {
         key: 'region',
         label: 'State / region',
-        synonyms: ['region', 'state', 'province', 'stateprovince', 'county'],
+        // 'stateregion' is the normalized form of this field's own label — kept
+        // here so an export (headers = labels) re-imports onto this field
+        // automatically. The round-trip guard test enforces the invariant.
+        synonyms: ['region', 'state', 'province', 'stateprovince', 'stateregion', 'county'],
         coerce: text,
       },
       {

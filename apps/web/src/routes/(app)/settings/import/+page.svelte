@@ -19,7 +19,16 @@
   // authority; this just keeps the UI honest).
   const entities = $derived(IMPORT_ENTITIES.filter((e) => may(page.data.role, e.cap)));
 
-  let entityKey = $state<ImportEntityKey>('contacts');
+  // Seed the active entity from ?entity= (the list pages link here pre-selected)
+  // but only when it's a real key the role can create — a bad or forbidden param
+  // must never select a hidden entity. Falls back to the first permitted entity
+  // (today's default). Runs once at init; the picker drives it thereafter.
+  function initialEntity(): ImportEntityKey {
+    const wanted = page.url.searchParams.get('entity');
+    if (wanted && entities.some((e) => e.key === wanted)) return wanted as ImportEntityKey;
+    return entities[0]?.key ?? 'contacts';
+  }
+  let entityKey = $state<ImportEntityKey>(initialEntity());
   const entity = $derived<ImportEntity>(entityByKey(entityKey));
 
   let fileName = $state('');
