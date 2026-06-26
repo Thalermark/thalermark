@@ -648,6 +648,8 @@ describe('Stripe webhook — payment_intent.succeeded from a connected account (
             id: 'pi_connected_intent',
             object: 'payment_intent',
             status: 'succeeded',
+            amount_received: 10000,
+            currency: 'usd',
             metadata: { invoiceId },
           },
         },
