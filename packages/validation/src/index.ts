@@ -1,3 +1,4 @@
+export * from './bill.js';
 export * from './company.js';
 export * from './contact.js';
 export * from './email-template.js';

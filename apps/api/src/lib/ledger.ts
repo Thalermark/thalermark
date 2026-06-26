@@ -34,6 +34,9 @@ const COA_CASH = '1000';
 // Exported for the position dashboard (slice 8.10): "money in/out" sums cash
 // movement across asset accounts *except* AR, and "owed" is the AR balance.
 export const COA_AR = '1200';
+// Accounts Payable — the credit-normal liability bills post against. "owing" on
+// the position dashboard is the AP balance, the mirror of "owed" (AR).
+export const COA_AP = '2000';
 const COA_SALES_TAX_PAYABLE = '2200';
 const COA_SERVICE_REVENUE = '4000';
 const COA_PRODUCT_REVENUE = '4100';
@@ -304,6 +307,104 @@ export async function postExpenseReversal(
   });
 }
 
+// --- Bill (accounts payable) posting -------------------------------------
+// A bill is the accrual mirror of an expense. Recording it ("open") recognises
+// the cost and the liability:
+//   Dr <category>   amount
+//   Cr Accounts Payable   amount
+// Settling it ("paid") clears the liability against an asset:
+//   Dr Accounts Payable   amount
+//   Cr <payment asset>    amount
+// Edit while open = reverse the open posting + repost (like expenses); void
+// while open = reverse the open posting only. Codes are passed in because the
+// category (and the payment asset, on settle) are user-pickable per bill.
+
+export function billOpenLines(args: { categoryCode: string; amount: string }): LedgerLine[] {
+  return [
+    { code: args.categoryCode, side: 'debit', amount: args.amount },
+    { code: COA_AP, side: 'credit', amount: args.amount },
+  ];
+}
+
+export function billPaymentLines(args: { paymentCode: string; amount: string }): LedgerLine[] {
+  return [
+    { code: COA_AP, side: 'debit', amount: args.amount },
+    { code: args.paymentCode, side: 'credit', amount: args.amount },
+  ];
+}
+
+// Posts the open (Dr category / Cr AP) entry for a newly recorded bill. `label`
+// is a human-readable handle for the GL memo (vendor name, optionally + the
+// vendor's reference). Caller is inside the tenant tx.
+export async function postBillOpen(
+  tx: Database | Transaction,
+  args: {
+    bill: { id: string; amount: string; label: string };
+    categoryCode: string;
+    accountId: string;
+    companyId: string;
+    postedAt: Date;
+  },
+): Promise<string | null> {
+  return postJournalEntry(tx, {
+    accountId: args.accountId,
+    companyId: args.companyId,
+    sourceEntityType: 'bill',
+    sourceEntityId: args.bill.id,
+    postedAt: args.postedAt,
+    memo: `Bill ${args.bill.label} open`,
+    lines: billOpenLines({ categoryCode: args.categoryCode, amount: args.bill.amount }),
+  });
+}
+
+// Reverses a bill's open posting — used by edit (before reposting the new
+// amounts) and void. Just the open lines with sides flipped.
+export async function postBillOpenReversal(
+  tx: Database | Transaction,
+  args: {
+    bill: { id: string; amount: string; label: string };
+    categoryCode: string;
+    accountId: string;
+    companyId: string;
+    postedAt: Date;
+  },
+): Promise<string | null> {
+  const lines = reverseLedgerLines(
+    billOpenLines({ categoryCode: args.categoryCode, amount: args.bill.amount }),
+  );
+  return postJournalEntry(tx, {
+    accountId: args.accountId,
+    companyId: args.companyId,
+    sourceEntityType: 'bill',
+    sourceEntityId: args.bill.id,
+    postedAt: args.postedAt,
+    memo: `Bill ${args.bill.label} reversal`,
+    lines,
+  });
+}
+
+// Posts the settlement (Dr AP / Cr payment asset) for a bill being marked paid.
+export async function postBillPayment(
+  tx: Database | Transaction,
+  args: {
+    bill: { id: string; amount: string; label: string };
+    paymentCode: string;
+    accountId: string;
+    companyId: string;
+    postedAt: Date;
+  },
+): Promise<string | null> {
+  return postJournalEntry(tx, {
+    accountId: args.accountId,
+    companyId: args.companyId,
+    sourceEntityType: 'bill',
+    sourceEntityId: args.bill.id,
+    postedAt: args.postedAt,
+    memo: `Bill ${args.bill.label} paid`,
+    lines: billPaymentLines({ paymentCode: args.paymentCode, amount: args.bill.amount }),
+  });
+}
+
 // Thin wrapper: derives lines from the invoice + transition and posts.
 // Caller is responsible for being inside a tx (tenant tx for mark-* on
 // transitionInvoice, explicit bootstrap tx for the Stripe webhook path)
@@ -478,4 +579,26 @@ export async function arBalance(tx: Database | Transaction, scope: LedgerScope):
       ),
     );
   return row?.owed ?? '0.00';
+}
+
+// Owing: live AP balance — what the business currently owes vendors. AP is
+// credit-normal, so the outstanding balance is credits − debits (an open bill
+// credits AP; paying or voiding it debits AP back down). Point-in-time figure,
+// reversal-safe by construction, the mirror of arBalance.
+export async function apBalance(tx: Database | Transaction, scope: LedgerScope): Promise<string> {
+  const [row] = await tx
+    .select({
+      owing: sql<string>`coalesce(sum(case when ${journalLines.side} = 'credit' then ${journalLines.amount} else -${journalLines.amount} end), 0)::numeric(15,2)`,
+    })
+    .from(journalLines)
+    .innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id))
+    .innerJoin(chartOfAccounts, eq(journalLines.coaAccountId, chartOfAccounts.id))
+    .where(
+      and(
+        eq(journalEntries.companyId, scope.companyId),
+        eq(journalEntries.accountId, scope.accountId),
+        eq(chartOfAccounts.code, COA_AP),
+      ),
+    );
+  return row?.owing ?? '0.00';
 }

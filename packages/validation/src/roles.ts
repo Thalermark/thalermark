@@ -35,7 +35,7 @@ export type InviteRole = (typeof INVITE_ROLES)[number];
 export const CAPABILITIES = [
   'sales:write', // invoices, estimates, recurring, items catalog + their state actions
   'contacts:write',
-  'expenses:write', // create/edit/delete, receipts, categorize
+  'expenses:write', // expenses (create/edit/delete, receipts, categorize) + bills/AP
   'reports:export', // GL / ledger export
   'settings:manage', // company profile, logo, email, payments, Stripe Connect
   'team:manage', // invite, remove, change role

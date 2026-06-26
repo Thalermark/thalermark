@@ -47,8 +47,9 @@ import { contacts } from './contacts.js';
 // merchant stays free text: receipt OCR writes the raw string off the receipt
 // with no vendor link required. The optional structured vendor link
 // (vendor_contact_id → contacts where is_vendor) is added with the expense
-// vendor-link slice; bills / accounts payable remain deferred. memo is the
-// user's note.
+// vendor-link slice. Expenses are cash-basis (Dr <category> / Cr <asset>); the
+// accrual "owe now, pay later" sibling is `bills` (accounts payable), which
+// posts Dr <category> / Cr AP and settles later. memo is the user's note.
 export const expenses = pgTable(
   'expenses',
   {
