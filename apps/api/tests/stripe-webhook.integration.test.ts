@@ -120,7 +120,12 @@ function signEvent(stripeClient: Stripe, payload: string): string {
   });
 }
 
-function paymentSucceededPayload(invoiceId: string): string {
+// Defaults match seedSentInvoice's $100.00 USD invoice so the webhook's
+// amount/currency check passes; override to exercise the mismatch path.
+function paymentSucceededPayload(
+  invoiceId: string,
+  opts: { amountReceived?: number; currency?: string } = {},
+): string {
   return JSON.stringify({
     id: 'evt_test_succeeded',
     object: 'event',
@@ -130,6 +135,8 @@ function paymentSucceededPayload(invoiceId: string): string {
         id: 'pi_test_intent',
         object: 'payment_intent',
         status: 'succeeded',
+        amount_received: opts.amountReceived ?? 10000,
+        currency: opts.currency ?? 'usd',
         metadata: { invoiceId },
       },
     },
@@ -277,6 +284,57 @@ describe('Stripe webhook', () => {
         type: 'payment_intent.created',
         data: { object: { id: 'pi_x' } },
       });
+      const sig = signEvent(stripe.client, payload);
+      const res = await app.request('/api/webhooks/stripe', {
+        method: 'POST',
+        headers: { 'stripe-signature': sig },
+        body: payload,
+      });
+      expect(res.status).toBe(200);
+
+      const db = getTestDb();
+      const [unchanged] = await db.select().from(invoices).where(eq(invoices.id, invoiceId));
+      expect(unchanged?.status).toBe('sent');
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('does not reconcile a partial/wrong-amount payment as paid-in-full', async () => {
+    const { invoiceId } = await seedSentInvoice();
+    const { app, handle, stripe } = buildApp();
+    if (!stripe) throw new Error('stripe bundle not configured');
+    try {
+      const payload = paymentSucceededPayload(invoiceId, { amountReceived: 5000 });
+      const sig = signEvent(stripe.client, payload);
+      const res = await app.request('/api/webhooks/stripe', {
+        method: 'POST',
+        headers: { 'stripe-signature': sig },
+        body: payload,
+      });
+      // 200 so Stripe stops retrying, but the invoice stays 'sent' and no
+      // ledger entry is posted — the operator reconciles by hand.
+      expect(res.status).toBe(200);
+
+      const db = getTestDb();
+      const [unchanged] = await db.select().from(invoices).where(eq(invoices.id, invoiceId));
+      expect(unchanged?.status).toBe('sent');
+      const entries = await db
+        .select()
+        .from(journalEntries)
+        .where(eq(journalEntries.sourceEntityId, invoiceId));
+      expect(entries).toHaveLength(0);
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('does not reconcile a wrong-currency payment as paid-in-full', async () => {
+    const { invoiceId } = await seedSentInvoice();
+    const { app, handle, stripe } = buildApp();
+    if (!stripe) throw new Error('stripe bundle not configured');
+    try {
+      const payload = paymentSucceededPayload(invoiceId, { currency: 'eur' });
       const sig = signEvent(stripe.client, payload);
       const res = await app.request('/api/webhooks/stripe', {
         method: 'POST',
