@@ -38,7 +38,7 @@ async function setArchived(event: Parameters<Actions[string]>[0], archived: bool
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
     return fail(res.status, { actionError: body?.error ?? 'action_failed' });
   }
-  redirect(303, `/settings/items${event.url.search}`);
+  redirect(303, `/items${event.url.search}`);
 }
 
 export const actions: Actions = {

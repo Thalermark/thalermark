@@ -1017,8 +1017,9 @@ function billsRoutes() {
         if (keyset) conditions.push(keyset);
 
         const rows = await tx
-          .select()
+          .select({ ...getTableColumns(bills), vendorName: contacts.name })
           .from(bills)
+          .innerJoin(contacts, eq(contacts.id, bills.contactId))
           .where(and(...conditions))
           .orderBy(keysetOrderBy(keys, 'desc'))
           .limit(limit + 1);
@@ -1111,8 +1112,9 @@ function billsRoutes() {
         const tx = c.get('tx');
         const accountId = c.get('accountId');
         const [bill] = await tx
-          .select()
+          .select({ ...getTableColumns(bills), vendorName: contacts.name })
           .from(bills)
+          .innerJoin(contacts, eq(contacts.id, bills.contactId))
           .where(and(eq(bills.id, id), eq(bills.accountId, accountId)))
           .limit(1);
         if (!bill) return c.json({ error: 'bill_not_found' }, 404);
@@ -1253,103 +1255,111 @@ function billsRoutes() {
           return c.json(updated);
         },
       )
-      .post('/api/bills/:id/mark-paid', requireCapability('expenses:write'), async (c) => {
-        const id = c.req.param('id');
-        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
-        const body = await c.req.json().catch(() => null);
-        const parsed = billMarkPaidSchema.safeParse(body);
-        if (!parsed.success) {
-          return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
-        }
-
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
-        const { method, paymentAccountId, reference, paidOn } = parsed.data;
-
-        const [current] = await tx
-          .select()
-          .from(bills)
-          .where(and(eq(bills.id, id), eq(bills.accountId, accountId)))
-          .limit(1);
-        if (!current) return c.json({ error: 'bill_not_found' }, 404);
-        if (current.status !== 'open') return c.json({ error: 'invalid_transition' }, 409);
-
-        // Resolve the payment asset: an explicit pick (validated 'asset') or the
-        // company's Cash (1000) default — the single-Cash MVP seed.
-        let paymentCode: string;
-        let resolvedPaymentAccountId: string;
-        if (paymentAccountId) {
-          const coa = await resolveCoaAccounts(tx, accountId, current.companyId, [
-            paymentAccountId,
-          ]);
-          const payment = coa.get(paymentAccountId);
-          if (!payment || payment.accountType !== 'asset') {
-            return c.json({ error: 'invalid_payment_account' }, 400);
+      .post(
+        '/api/bills/:id/mark-paid',
+        requireCapability('expenses:write'),
+        // validator middleware (not a manual parse) so hc<BillsAppType>() exposes
+        // `json` on the typed client — same pattern as the invoice mark-paid.
+        validator('json', (value, c) => {
+          const parsed = billMarkPaidSchema.safeParse(value);
+          if (!parsed.success) {
+            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
           }
-          paymentCode = payment.code;
-          resolvedPaymentAccountId = paymentAccountId;
-        } else {
-          const [cash] = await tx
-            .select({ id: chartOfAccounts.id, code: chartOfAccounts.code })
-            .from(chartOfAccounts)
-            .where(
-              and(
-                eq(chartOfAccounts.accountId, accountId),
-                eq(chartOfAccounts.companyId, current.companyId),
-                eq(chartOfAccounts.code, '1000'),
-              ),
-            )
+          return parsed.data;
+        }),
+        async (c) => {
+          const id = c.req.param('id');
+          if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+          const { method, paymentAccountId, reference, paidOn } = c.req.valid('json');
+
+          const [current] = await tx
+            .select()
+            .from(bills)
+            .where(and(eq(bills.id, id), eq(bills.accountId, accountId)))
             .limit(1);
-          if (!cash) throw new Error(`bill ${id}: Cash account missing for company`);
-          paymentCode = cash.code;
-          resolvedPaymentAccountId = cash.id;
-        }
+          if (!current) return c.json({ error: 'bill_not_found' }, 404);
+          if (current.status !== 'open') return c.json({ error: 'invalid_transition' }, 409);
 
-        // Payment date drives both paidAt and the settlement posting date.
-        const paidAt = paidOn ? new Date(`${paidOn}T00:00:00.000Z`) : new Date();
+          // Resolve the payment asset: an explicit pick (validated 'asset') or the
+          // company's Cash (1000) default — the single-Cash MVP seed.
+          let paymentCode: string;
+          let resolvedPaymentAccountId: string;
+          if (paymentAccountId) {
+            const coa = await resolveCoaAccounts(tx, accountId, current.companyId, [
+              paymentAccountId,
+            ]);
+            const payment = coa.get(paymentAccountId);
+            if (!payment || payment.accountType !== 'asset') {
+              return c.json({ error: 'invalid_payment_account' }, 400);
+            }
+            paymentCode = payment.code;
+            resolvedPaymentAccountId = paymentAccountId;
+          } else {
+            const [cash] = await tx
+              .select({ id: chartOfAccounts.id, code: chartOfAccounts.code })
+              .from(chartOfAccounts)
+              .where(
+                and(
+                  eq(chartOfAccounts.accountId, accountId),
+                  eq(chartOfAccounts.companyId, current.companyId),
+                  eq(chartOfAccounts.code, '1000'),
+                ),
+              )
+              .limit(1);
+            if (!cash) throw new Error(`bill ${id}: Cash account missing for company`);
+            paymentCode = cash.code;
+            resolvedPaymentAccountId = cash.id;
+          }
 
-        const [updated] = await tx
-          .update(bills)
-          .set({
-            status: 'paid',
-            paymentAccountId: resolvedPaymentAccountId,
-            paymentMethod: method,
-            paymentReference: reference ?? null,
-            paidAt,
-            updatedAt: new Date(),
-          })
-          .where(and(eq(bills.id, id), eq(bills.accountId, accountId)))
-          .returning();
-        if (!updated) return c.json({ error: 'bill_not_found' }, 404);
+          // Payment date drives both paidAt and the settlement posting date.
+          const paidAt = paidOn ? new Date(`${paidOn}T00:00:00.000Z`) : new Date();
 
-        await c.var.audit({
-          entityType: 'bill',
-          entityId: id,
-          action: 'mark-paid',
-          before: current,
-          after: updated,
-          companyId: current.companyId,
-        });
+          const [updated] = await tx
+            .update(bills)
+            .set({
+              status: 'paid',
+              paymentAccountId: resolvedPaymentAccountId,
+              paymentMethod: method,
+              paymentReference: reference ?? null,
+              paidAt,
+              updatedAt: new Date(),
+            })
+            .where(and(eq(bills.id, id), eq(bills.accountId, accountId)))
+            .returning();
+          if (!updated) return c.json({ error: 'bill_not_found' }, 404);
 
-        const [vendor] = await tx
-          .select({ name: contacts.name })
-          .from(contacts)
-          .where(and(eq(contacts.id, current.contactId), eq(contacts.accountId, accountId)))
-          .limit(1);
-        await postBillPayment(tx, {
-          bill: {
-            id,
-            amount: current.amount,
-            label: billMemoLabel(vendor?.name ?? 'vendor', current.reference),
-          },
-          paymentCode,
-          accountId,
-          companyId: current.companyId,
-          postedAt: paidAt,
-        });
+          await c.var.audit({
+            entityType: 'bill',
+            entityId: id,
+            action: 'mark-paid',
+            before: current,
+            after: updated,
+            companyId: current.companyId,
+          });
 
-        return c.json(updated);
-      })
+          const [vendor] = await tx
+            .select({ name: contacts.name })
+            .from(contacts)
+            .where(and(eq(contacts.id, current.contactId), eq(contacts.accountId, accountId)))
+            .limit(1);
+          await postBillPayment(tx, {
+            bill: {
+              id,
+              amount: current.amount,
+              label: billMemoLabel(vendor?.name ?? 'vendor', current.reference),
+            },
+            paymentCode,
+            accountId,
+            companyId: current.companyId,
+            postedAt: paidAt,
+          });
+
+          return c.json(updated);
+        },
+      )
       .post('/api/bills/:id/void', requireCapability('expenses:write'), async (c) => {
         const id = c.req.param('id');
         if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);

@@ -33,7 +33,7 @@
     loading = true;
     loadError = false;
     try {
-      const page = await fetchMore<Row>('/settings/items/more', cursor, {
+      const page = await fetchMore<Row>('/items/more', cursor, {
         archived: showArchived ? '1' : '',
       });
       rows = [...rows, ...page.rows];
@@ -65,7 +65,7 @@
   <div class="flex items-center gap-2">
     <ImportExportActions entity="items" role={data.role} />
     {#if may(data.role, 'sales:write')}
-      <a href="/settings/items/new" class="btn"> + New item </a>
+      <a href="/items/new" class="btn"> + New item </a>
     {/if}
   </div>
 </div>
@@ -76,7 +76,7 @@
 
 <div class="mt-6">
   <a
-    href={data.showArchived ? '/settings/items' : '/settings/items?archived=1'}
+    href={data.showArchived ? '/items' : '/items?archived=1'}
     class="label hover:text-accent"
   >
     {data.showArchived ? '← Hide archived' : 'Show archived'}
@@ -91,7 +91,7 @@
   <ul class="mt-6 divide-y divide-fg/10 rounded-sm border border-fg/10 bg-surface-2">
     {#each rows as item (item.id)}
       <li class="flex items-center justify-between gap-4 px-5 py-4">
-        <a href="/settings/items/{item.id}" class="min-w-0 flex-1 transition-colors hover:opacity-70">
+        <a href="/items/{item.id}" class="min-w-0 flex-1 transition-colors hover:opacity-70">
           <span class="font-serif text-lg text-fg">{item.name}</span>
           {#if item.archivedAt}
             <span

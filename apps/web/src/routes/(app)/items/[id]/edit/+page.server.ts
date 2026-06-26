@@ -3,7 +3,7 @@ import { error, fail, redirect } from '@sveltejs/kit';
 import { itemUpdateSchema } from '@thalermark/validation';
 import type { Actions, PageServerLoad } from './$types';
 
-// Same optional set as /settings/items/new — empty string collapses to
+// Same optional set as /items/new — empty string collapses to
 // undefined so the money/quantity regex doesn't trip on a blank input; the
 // PATCH then resets the column to its default ('0' / '1' / null).
 const OPTIONAL_FIELDS = ['description', 'unitPrice', 'unitLabel', 'defaultQuantity'] as const;
@@ -66,6 +66,6 @@ export const actions: Actions = {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
       return fail(res.status, { values, formError: body?.error ?? 'update_failed' });
     }
-    redirect(303, `/settings/items/${event.params.id}`);
+    redirect(303, `/items/${event.params.id}`);
   },
 };

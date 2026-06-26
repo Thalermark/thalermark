@@ -29,7 +29,7 @@
   );
 </script>
 
-<a href="/settings/items/{data.item.id}" class="eyebrow text-fg/60 hover:text-fg">← {data.item.name}</a>
+<a href="/items/{data.item.id}" class="eyebrow text-fg/60 hover:text-fg">← {data.item.name}</a>
 <h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-fg">
   Edit item<span class="text-accent">.</span>
 </h1>
@@ -148,6 +148,6 @@
     >
       Save changes
     </button>
-    <a href="/settings/items/{data.item.id}" class="text-sm text-fg/60 hover:text-fg">Cancel</a>
+    <a href="/items/{data.item.id}" class="text-sm text-fg/60 hover:text-fg">Cancel</a>
   </div>
 </form>

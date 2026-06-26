@@ -76,7 +76,7 @@
   </a>
 {/if}
 
-<dl class="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-3">
+<dl class="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
   <div class="rounded-sm border border-fg/10 bg-surface-2 p-6">
     <dt class="label">Money in</dt>
     <dd class="mt-2 font-serif text-3xl font-light tabular-nums text-fg">{fmt(d.moneyIn)}</dd>
@@ -92,6 +92,11 @@
     <dd class="mt-2 font-serif text-3xl font-light tabular-nums text-fg">{fmt(d.owed)}</dd>
     <p class="mt-1 text-xs text-fg/40">outstanding now</p>
   </div>
+  <a href="/bills" class="rounded-sm border border-fg/10 bg-surface-2 p-6 transition-colors hover:border-fg/25">
+    <dt class="label">Owed by you</dt>
+    <dd class="mt-2 font-serif text-3xl font-light tabular-nums text-fg">{fmt(d.owing)}</dd>
+    <p class="mt-1 text-xs text-fg/40">unpaid bills</p>
+  </a>
 </dl>
 
 {#if showAnomalies}

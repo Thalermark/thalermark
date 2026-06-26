@@ -86,7 +86,7 @@
           <tr>
             <td class="px-5 py-3">
               {#if p.name}
-                <a href="/settings/items/{p.sourceItemId}" class="text-fg hover:text-accent">
+                <a href="/items/{p.sourceItemId}" class="text-fg hover:text-accent">
                   {p.name}
                 </a>
               {:else}
