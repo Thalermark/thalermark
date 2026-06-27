@@ -20,7 +20,7 @@
   const dateValue = $derived(v('occurredOn') || data.today);
 </script>
 
-<a href="/owner-money" class="eyebrow text-fg/60 hover:text-fg">← Owner money</a>
+<a href="/owner-money" class="eyebrow text-fg/60 hover:text-fg">← My Money</a>
 <h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-fg">
   Record money<span class="text-accent">.</span>
 </h1>

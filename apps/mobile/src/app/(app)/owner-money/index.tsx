@@ -61,11 +61,9 @@ export default function OwnerMoneyList() {
       <View className="flex-row items-end justify-between px-6 pt-6">
         <View>
           <Text className="font-mono text-xs uppercase tracking-widest text-gold-deep">
-            Owner money
+            My Money
           </Text>
-          <Text className="mt-2 font-serif text-3xl font-light text-ink">
-            Your money in &amp; out
-          </Text>
+          <Text className="mt-2 font-serif text-3xl font-light text-ink">Money in &amp; out</Text>
         </View>
         {canCreate ? (
           <Pressable

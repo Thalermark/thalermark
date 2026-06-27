@@ -70,7 +70,7 @@ const ENTITY_LABELS: Record<string, string> = {
   estimate: 'Estimate',
   expense: 'Expense',
   bill: 'Bill',
-  owner_money_event: 'Owner money',
+  owner_money_event: 'My Money',
   company: 'Company',
   recurring_invoice: 'Recurring',
   item: 'Item',
