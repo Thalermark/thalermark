@@ -5,6 +5,7 @@ import {
   billPaymentLines,
   expensePostingLines,
   invoicePostingLines,
+  ownerMoneyEventLines,
   reverseLedgerLines,
 } from './ledger.js';
 
@@ -159,6 +160,31 @@ describe('billOpenLines / billPaymentLines (accounts payable)', () => {
       { code: '7000', side: 'credit', amount: '320.00' },
       { code: '2000', side: 'debit', amount: '320.00' },
     ]);
+  });
+});
+
+describe('ownerMoneyEventLines (owner equity / draw)', () => {
+  it("contribution posts Dr Cash (1000) / Cr Owner's Equity (3000)", () => {
+    expect(ownerMoneyEventLines('contribution', '1500.00')).toEqual([
+      { code: '1000', side: 'debit', amount: '1500.00' },
+      { code: '3000', side: 'credit', amount: '1500.00' },
+    ]);
+  });
+
+  it("draw posts Dr Owner's Draw (3100) / Cr Cash (1000)", () => {
+    expect(ownerMoneyEventLines('draw', '800.00')).toEqual([
+      { code: '3100', side: 'debit', amount: '800.00' },
+      { code: '1000', side: 'credit', amount: '800.00' },
+    ]);
+  });
+
+  it('reverse(create) nets Cash (1000) to zero — the edit/delete prelude', () => {
+    const create = ownerMoneyEventLines('contribution', '400.00');
+    const combined = [...create, ...reverseLedgerLines(create)];
+    const cashNet = combined
+      .filter((l) => l.code === '1000')
+      .reduce((sum, l) => sum + (l.side === 'debit' ? Number(l.amount) : -Number(l.amount)), 0);
+    expect(cashNet).toBe(0);
   });
 });
 

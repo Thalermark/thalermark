@@ -25,6 +25,7 @@ export type {
   InvoicesAppType,
   ItemsAppType,
   LocationsAppType,
+  OwnerMoneyEventsAppType,
   RecurringInvoicesAppType,
   ReportsAppType,
   SocialProvidersAppType,

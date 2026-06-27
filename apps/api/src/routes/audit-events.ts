@@ -7,6 +7,7 @@ import {
   expenses,
   invoices,
   items,
+  ownerMoneyEvents,
   recurringInvoices,
 } from '@thalermark/db';
 import { and, eq, inArray } from 'drizzle-orm';
@@ -43,6 +44,7 @@ export function auditEventsRoutes() {
       'estimate',
       'expense',
       'bill',
+      'owner_money_event',
       'recurring_invoice',
       'item',
     ] as const;
@@ -115,6 +117,7 @@ export function auditEventsRoutes() {
         estimate: [],
         expense: [],
         bill: [],
+        owner_money_event: [],
         recurring_invoice: [],
         item: [],
       };
@@ -162,6 +165,25 @@ export function auditEventsRoutes() {
           .innerJoin(contacts, eq(contacts.id, bills.contactId))
           .where(and(eq(bills.accountId, accountId), inArray(bills.id, idsByType.bill)));
         for (const r of billRows) labelMap.set(`bill:${r.id}`, r.label);
+      }
+      // Owner money events have no number/name — label them by kind in plain
+      // language ("Money in" / "Money out"), matching the user-facing copy.
+      if (idsByType.owner_money_event.length > 0) {
+        const omeRows = await tx
+          .select({ id: ownerMoneyEvents.id, kind: ownerMoneyEvents.kind })
+          .from(ownerMoneyEvents)
+          .where(
+            and(
+              eq(ownerMoneyEvents.accountId, accountId),
+              inArray(ownerMoneyEvents.id, idsByType.owner_money_event),
+            ),
+          );
+        for (const r of omeRows) {
+          labelMap.set(
+            `owner_money_event:${r.id}`,
+            r.kind === 'contribution' ? 'Money in' : 'Money out',
+          );
+        }
       }
       // Schedules have no number — label them by customer name (joined).
       if (idsByType.recurring_invoice.length > 0) {
