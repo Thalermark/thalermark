@@ -1,9 +1,12 @@
-// Re-export point for the Hono RPC schema. Web + mobile import AppType
+// Re-export point for the Hono RPC schema. Web + mobile import these types
 // from here rather than from @thalermark/api directly so the api app can
 // refactor its internals without breaking either client. Type-only — there
 // is no runtime entry point because the api app is the runtime.
-// BillsAppType is a second RPC surface: the bills (accounts payable) routes are
-// mounted at runtime in createApp but kept out of AppType to stay under the
-// TypeScript type-serialization ceiling (TS7056). Clients build a dedicated
-// hc<BillsAppType>() for /api/bills* alongside the main hc<AppType>() client.
-export type { AppType, BillsAppType } from '@thalermark/api';
+//
+// Per-domain RPC surfaces: the api is being carved into modular sub-apps
+// (apps/api/src/routes/*), each mounted at runtime in createApp but kept out of
+// AppType so no single combined type is ever serialized (the root cause of the
+// TS type-serialization ceiling, TS7056). Each domain exposes its own XAppType;
+// clients build a dedicated hc<XAppType>() per domain and compose them behind a
+// unified facade. AppType still carries every not-yet-migrated domain.
+export type { AppType, BillsAppType, ItemsAppType, TaxPoliciesAppType } from '@thalermark/api';
