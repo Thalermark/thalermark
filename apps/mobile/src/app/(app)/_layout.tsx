@@ -202,6 +202,7 @@ export default function AppLayout() {
           select-company is reached via redirect only. */}
         <Tabs.Screen name="estimates" options={{ href: null }} />
         <Tabs.Screen name="bills" options={{ href: null }} />
+        <Tabs.Screen name="owner-money" options={{ href: null }} />
         <Tabs.Screen name="select-company" options={{ href: null }} />
       </Tabs>
     </RoleProvider>

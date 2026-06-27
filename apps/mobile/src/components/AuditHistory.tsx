@@ -70,6 +70,7 @@ const ENTITY_LABELS: Record<string, string> = {
   estimate: 'Estimate',
   expense: 'Expense',
   bill: 'Bill',
+  owner_money_event: 'Owner money',
   company: 'Company',
   recurring_invoice: 'Recurring',
   item: 'Item',
@@ -90,6 +91,8 @@ function entityHref(entityType: string, entityId: string): Href | null {
       return `/expenses/${entityId}`;
     case 'bill':
       return `/bills/${entityId}`;
+    case 'owner_money_event':
+      return `/owner-money/${entityId}`;
     case 'recurring_invoice':
       return `/invoices/recurring/${entityId}`;
     case 'item':

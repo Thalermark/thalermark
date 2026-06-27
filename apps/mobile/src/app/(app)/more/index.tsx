@@ -20,6 +20,7 @@ type Entry = {
     | '/estimates'
     | '/invoices/recurring'
     | '/bills'
+    | '/owner-money'
     | '/more/team'
     | '/more/companies'
     | '/more/switch-account'
@@ -68,6 +69,16 @@ const BILLS_ENTRY: Entry = {
   icon: 'wallet-outline',
   title: 'Bills',
   subtitle: 'Track what you owe vendors and when each bill is due.',
+};
+
+// Owner money — money you put into the business or take out for yourself.
+// Ungated like Bills (the list is viewable by all; the API gates writes on
+// expenses:write).
+const OWNER_MONEY_ENTRY: Entry = {
+  href: '/owner-money',
+  icon: 'swap-vertical-outline',
+  title: 'Owner money',
+  subtitle: 'Money you put in from your own pocket, or take out to pay yourself.',
 };
 
 const ACCOUNT_ENTRY: Entry = {
@@ -201,7 +212,11 @@ export default function MoreHub() {
 
         <Section label="Account" entries={[PROFILE_ENTRY]} onOpen={(href) => router.push(href)} />
         <Section label="Sales" entries={SALES_ENTRIES} onOpen={(href) => router.push(href)} />
-        <Section label="Purchases" entries={[BILLS_ENTRY]} onOpen={(href) => router.push(href)} />
+        <Section
+          label="Purchases"
+          entries={[BILLS_ENTRY, OWNER_MONEY_ENTRY]}
+          onOpen={(href) => router.push(href)}
+        />
         <Section label="Workspace" entries={accountEntries} onOpen={(href) => router.push(href)} />
         <Section
           label="Catalog & reports"
