@@ -1,4 +1,4 @@
-import { serverApiClient, serverBillsApiClient } from '$lib/api.server';
+import { serverApiClient } from '$lib/api.server';
 import { PAGE_SIZE } from '$lib/load-more';
 import { json } from '@sveltejs/kit';
 import { mapBillRows } from '../bill-rows';
@@ -14,14 +14,13 @@ export const GET: RequestHandler = async (event) => {
   const cursor = p.get('cursor') ?? undefined;
 
   const client = serverApiClient(event);
-  const billsClient = serverBillsApiClient(event);
   const query: Record<string, string> = { companyId, limit: String(PAGE_SIZE) };
   if (cursor) query.cursor = cursor;
   const status = p.get('status');
   if (status) query.status = status;
 
   const [billsRes, accountsRes] = await Promise.all([
-    billsClient.api.bills.$get({ query }),
+    client.api.bills.$get({ query }),
     client.api.companies[':id'].accounts.$get({
       param: { id: companyId },
       query: { type: 'expense' },

@@ -31,6 +31,7 @@ const baseUrl = () =>
 // serialized (the TS7056 ceiling the modular sub-apps dodge — see app.ts).
 const mkMain = (...a: Parameters<typeof hc>) => hc<AppType>(...a);
 const mkAccount = (...a: Parameters<typeof hc>) => hc<AccountAppType>(...a);
+const mkBills = (...a: Parameters<typeof hc>) => hc<BillsAppType>(...a);
 const mkItems = (...a: Parameters<typeof hc>) => hc<ItemsAppType>(...a);
 const mkTaxPolicies = (...a: Parameters<typeof hc>) => hc<TaxPoliciesAppType>(...a);
 const mkAuditEvents = (...a: Parameters<typeof hc>) => hc<AuditEventsAppType>(...a);
@@ -43,6 +44,7 @@ const mkExpenses = (...a: Parameters<typeof hc>) => hc<ExpensesAppType>(...a);
 const mkReports = (...a: Parameters<typeof hc>) => hc<ReportsAppType>(...a);
 type MainApi = ReturnType<typeof mkMain>['api'];
 type AccountApi = ReturnType<typeof mkAccount>['api'];
+type BillsApi = ReturnType<typeof mkBills>['api'];
 type ItemsApi = ReturnType<typeof mkItems>['api'];
 type TaxPoliciesApi = ReturnType<typeof mkTaxPolicies>['api'];
 type AuditEventsApi = ReturnType<typeof mkAuditEvents>['api'];
@@ -75,6 +77,7 @@ export type ServerApiClient = {
     me: AccountApi['me'];
     account: AccountApi['account'];
     team: AccountApi['team'];
+    bills: BillsApi['bills'];
     items: ItemsApi['items'];
     'tax-policies': TaxPoliciesApi['tax-policies'];
     'audit-events': AuditEventsApi['audit-events'];
@@ -100,6 +103,7 @@ export function serverApiClient(event: RequestEvent): ServerApiClient {
     me: accountApi.me,
     account: accountApi.account,
     team: accountApi.team,
+    bills: hc<BillsAppType>(base, { headers }).api.bills,
     items: hc<ItemsAppType>(base, { headers }).api.items,
     'tax-policies': hc<TaxPoliciesAppType>(base, { headers }).api['tax-policies'],
     'audit-events': hc<AuditEventsAppType>(base, { headers }).api['audit-events'],
@@ -117,14 +121,6 @@ export function serverApiClient(event: RequestEvent): ServerApiClient {
     },
   }) as ServerApiClient['api'];
   return { api };
-}
-
-// Bills (accounts payable) live on a second RPC surface (BillsAppType) — kept
-// out of AppType to stay under the TS type-serialization ceiling. Same auth
-// headers; just a different typed client over the same api origin. (Folds into
-// the facade above once the bills domain is migrated to a routes/ sub-app.)
-export function serverBillsApiClient(event: RequestEvent) {
-  return hc<BillsAppType>(baseUrl(), { headers: serverApiHeaders(event) });
 }
 
 // Absolute api base for the rare server-side call that can't go through the

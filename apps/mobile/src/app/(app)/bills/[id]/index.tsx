@@ -14,7 +14,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { type AuditEvent, AuditHistory } from '../../../../components/AuditHistory';
 import { DateField } from '../../../../components/DateField';
 import { api } from '../../../../lib/api';
-import { billsApi } from '../../../../lib/bills-api';
 import { useMay } from '../../../../lib/role';
 
 // Bill (accounts payable) detail + status actions — mirror of apps/web's
@@ -77,7 +76,7 @@ export default function BillDetail() {
   const [paidOn, setPaidOn] = useState(todayIso());
 
   const load = useCallback(async () => {
-    const res = await billsApi.api.bills[':id'].$get({ param: { id } });
+    const res = await api.api.bills[':id'].$get({ param: { id } });
     if (!res.ok) {
       setDetail({ state: 'error' });
       return;
@@ -176,7 +175,7 @@ export default function BillDetail() {
     const reference = paidReference.trim();
     act(
       () =>
-        billsApi.api.bills[':id']['mark-paid'].$post({
+        api.api.bills[':id']['mark-paid'].$post({
           param: { id },
           json: { method: paidMethod, reference: reference || undefined, paidOn },
         }),
@@ -190,7 +189,7 @@ export default function BillDetail() {
       {
         text: 'Void',
         style: 'destructive',
-        onPress: () => act(() => billsApi.api.bills[':id'].void.$post({ param: { id } })),
+        onPress: () => act(() => api.api.bills[':id'].void.$post({ param: { id } })),
       },
     ]);
   }

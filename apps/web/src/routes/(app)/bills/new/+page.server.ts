@@ -1,5 +1,5 @@
 import { pickActiveCompany } from '$lib/active-company';
-import { serverApiClient, serverBillsApiClient } from '$lib/api.server';
+import { serverApiClient } from '$lib/api.server';
 import { NEW_CONTACT_SENTINEL, findEmailDupe } from '$lib/contact-dupes';
 import { error, fail, redirect } from '@sveltejs/kit';
 import { billCreateSchema, contactCreateSchema } from '@thalermark/validation';
@@ -76,7 +76,6 @@ function formErrorFor(code: string): string {
 export const actions: Actions = {
   default: async (event) => {
     const client = serverApiClient(event);
-    const billsClient = serverBillsApiClient(event);
     const data = await event.request.formData();
     const values = readForm(data);
 
@@ -163,7 +162,7 @@ export const actions: Actions = {
       });
     }
 
-    const res = await billsClient.api.bills.$post({ json: parsed.data });
+    const res = await client.api.bills.$post({ json: parsed.data });
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
       return fail(res.status, {

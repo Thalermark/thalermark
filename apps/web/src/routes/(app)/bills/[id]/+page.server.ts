@@ -1,4 +1,4 @@
-import { serverApiClient, serverBillsApiClient } from '$lib/api.server';
+import { serverApiClient } from '$lib/api.server';
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -13,9 +13,8 @@ type AuditEvent = {
 
 export const load: PageServerLoad = async (event) => {
   const client = serverApiClient(event);
-  const billsClient = serverBillsApiClient(event);
 
-  const billRes = await billsClient.api.bills[':id'].$get({ param: { id: event.params.id } });
+  const billRes = await client.api.bills[':id'].$get({ param: { id: event.params.id } });
   if (billRes.status === 404) throw error(404, 'bill not found');
   if (!billRes.ok) throw error(billRes.status, 'failed to load bill');
   const bill = await billRes.json();
@@ -62,7 +61,7 @@ export const actions: Actions = {
   // optional reference + optional paidOn from PaymentFields; the asset defaults
   // to Cash server-side.
   markPaid: async (event) => {
-    const billsClient = serverBillsApiClient(event);
+    const client = serverApiClient(event);
     const id = event.params.id;
     const data = await event.request.formData();
     const method = String(data.get('method') ?? 'cash') as
@@ -77,7 +76,7 @@ export const actions: Actions = {
     const paidOnRaw = data.get('paidOn');
     const paidOn = typeof paidOnRaw === 'string' && paidOnRaw.trim() ? paidOnRaw.trim() : undefined;
 
-    const res = await billsClient.api.bills[':id']['mark-paid'].$post({
+    const res = await client.api.bills[':id']['mark-paid'].$post({
       param: { id },
       json: { method, reference, paidOn },
     });
@@ -91,9 +90,9 @@ export const actions: Actions = {
 
   // open -> voided. Reverses the open posting.
   void: async (event) => {
-    const billsClient = serverBillsApiClient(event);
+    const client = serverApiClient(event);
     const id = event.params.id;
-    const res = await billsClient.api.bills[':id'].void.$post({ param: { id } });
+    const res = await client.api.bills[':id'].void.$post({ param: { id } });
     if (res.status === 404) throw error(404, 'bill not found');
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;

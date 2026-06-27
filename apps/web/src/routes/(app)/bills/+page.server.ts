@@ -1,5 +1,5 @@
 import { pickActiveCompany } from '$lib/active-company';
-import { serverApiClient, serverBillsApiClient } from '$lib/api.server';
+import { serverApiClient } from '$lib/api.server';
 import { PAGE_SIZE } from '$lib/load-more';
 import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
@@ -10,7 +10,6 @@ import { mapBillRows } from './bill-rows';
 // lives in the URL (?status=open|paid|voided) so it's shareable + no-JS.
 export const load: PageServerLoad = async (event) => {
   const client = serverApiClient(event);
-  const billsClient = serverBillsApiClient(event);
 
   const companiesRes = await client.api.companies.$get();
   if (!companiesRes.ok) throw error(companiesRes.status, 'failed to load companies');
@@ -24,7 +23,7 @@ export const load: PageServerLoad = async (event) => {
   if (status) query.status = status;
 
   const [billsRes, accountsRes] = await Promise.all([
-    billsClient.api.bills.$get({ query }),
+    client.api.bills.$get({ query }),
     client.api.companies[':id'].accounts.$get({
       param: { id: company.id },
       query: { type: 'expense' },

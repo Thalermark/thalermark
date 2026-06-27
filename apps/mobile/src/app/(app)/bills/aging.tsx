@@ -4,7 +4,6 @@ import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-nati
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { pickActiveCompany } from '../../../lib/active-company';
 import { api } from '../../../lib/api';
-import { billsApi } from '../../../lib/bills-api';
 
 // AP aging — open bills bucketed by how far past due they are (the payable
 // mirror of the A/R aging report). Mirror of apps/web's /bills/aging. The report
@@ -66,7 +65,7 @@ export default function BillsAging() {
           setView({ state: 'error' });
           return;
         }
-        const res = await billsApi.api.bills.aging.$get({ query: { companyId: company.id } });
+        const res = await api.api.bills.aging.$get({ query: { companyId: company.id } });
         if (!active) return;
         if (!res.ok) {
           setView({ state: 'error' });
