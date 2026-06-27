@@ -1,4 +1,12 @@
-import type { AppType, ItemsAppType, TaxPoliciesAppType } from '@thalermark/api-contract';
+import type {
+  AppType,
+  AuditEventsAppType,
+  ItemsAppType,
+  LocationsAppType,
+  SocialProvidersAppType,
+  TaxPoliciesAppType,
+  TelemetryAppType,
+} from '@thalermark/api-contract';
 import { hc } from 'hono/client';
 import { getActiveAccountId, getAuthToken } from './secure-store';
 import { getServerUrl } from './server-url';
@@ -29,16 +37,21 @@ export async function authHeaders(): Promise<Record<string, string>> {
   return base;
 }
 
-// Per-domain RPC surfaces. Items + tax-policies are kept out of AppType to stay
-// under the TS type-serialization ceiling (TS7056 — see apps/api/src/app.ts);
-// they live on their own hc clients but are composed back behind the single
-// `api` export so call sites stay `api.api.<domain>`. All three share authHeaders
-// and the same base URL — the runtime is one server, so the split is type-only.
+// Per-domain RPC surfaces. The migrated domains (apps/api/src/routes/*) are kept
+// out of AppType to stay under the TS type-serialization ceiling (TS7056 — see
+// apps/api/src/app.ts); they live on their own hc clients but are composed back
+// behind the single `api` export so call sites stay `api.api.<domain>`. As more
+// domains migrate they join the map below. All share authHeaders and the same base
+// URL — the runtime is one server, so the split is type-only.
 function buildClients(baseUrl: string) {
   return {
     main: hc<AppType>(baseUrl, { headers: authHeaders }),
     items: hc<ItemsAppType>(baseUrl, { headers: authHeaders }),
     taxPolicies: hc<TaxPoliciesAppType>(baseUrl, { headers: authHeaders }),
+    socialProviders: hc<SocialProvidersAppType>(baseUrl, { headers: authHeaders }),
+    locations: hc<LocationsAppType>(baseUrl, { headers: authHeaders }),
+    auditEvents: hc<AuditEventsAppType>(baseUrl, { headers: authHeaders }),
+    telemetry: hc<TelemetryAppType>(baseUrl, { headers: authHeaders }),
   };
 }
 
@@ -59,14 +72,19 @@ function liveClients() {
   return clients;
 }
 
-// The unified `.api` surface: the migrated domains (items, tax-policies) route
-// to their own client, everything else to the main client. As more domains
-// migrate they join the override map — call sites never change.
+// The unified `.api` surface: the migrated domains route to their own client,
+// everything else to the main client. As more domains migrate they join the
+// override map — call sites never change.
 function facadeApi() {
-  const { main, items, taxPolicies } = liveClients();
+  const { main, items, taxPolicies, socialProviders, locations, auditEvents, telemetry } =
+    liveClients();
   const overrides: Record<string, unknown> = {
     items: items.api.items,
     'tax-policies': taxPolicies.api['tax-policies'],
+    'social-providers': socialProviders.api['social-providers'],
+    locations: locations.api.locations,
+    'audit-events': auditEvents.api['audit-events'],
+    telemetry: telemetry.api.telemetry,
   };
   return new Proxy(main.api, {
     get(target, prop) {
@@ -79,8 +97,19 @@ function facadeApi() {
 type MainApi = ReturnType<typeof buildClients>['main']['api'];
 type ItemsApi = ReturnType<typeof buildClients>['items']['api'];
 type TaxPoliciesApi = ReturnType<typeof buildClients>['taxPolicies']['api'];
+type SocialProvidersApi = ReturnType<typeof buildClients>['socialProviders']['api'];
+type LocationsApi = ReturnType<typeof buildClients>['locations']['api'];
+type AuditEventsApi = ReturnType<typeof buildClients>['auditEvents']['api'];
+type TelemetryApi = ReturnType<typeof buildClients>['telemetry']['api'];
 type ApiClient = {
-  api: MainApi & { items: ItemsApi['items']; 'tax-policies': TaxPoliciesApi['tax-policies'] };
+  api: MainApi & {
+    items: ItemsApi['items'];
+    'tax-policies': TaxPoliciesApi['tax-policies'];
+    'social-providers': SocialProvidersApi['social-providers'];
+    locations: LocationsApi['locations'];
+    'audit-events': AuditEventsApi['audit-events'];
+    telemetry: TelemetryApi['telemetry'];
+  };
 };
 
 export const api = new Proxy({} as ApiClient, {

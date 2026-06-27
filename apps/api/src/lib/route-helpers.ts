@@ -13,3 +13,20 @@ export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
 export function escapeLike(s: string): string {
   return s.replace(/[\\%_]/g, (ch) => `\\${ch}`);
 }
+
+// Stored-object key extension → content-type. The local-FS storage adapter
+// doesn't persist content-type metadata, so the serve routes (company logo,
+// receipt, /api/files/:token) infer it from the key. Shared by the root app
+// and the files sub-app.
+const EXT_MIME: Record<string, string> = {
+  jpg: 'image/jpeg',
+  png: 'image/png',
+  pdf: 'application/pdf',
+  webp: 'image/webp',
+};
+
+// Content-type to serve a stored object with, inferred from its key extension.
+export function mimeForKey(key: string): string {
+  const ext = key.slice(key.lastIndexOf('.') + 1).toLowerCase();
+  return EXT_MIME[ext] ?? 'application/octet-stream';
+}

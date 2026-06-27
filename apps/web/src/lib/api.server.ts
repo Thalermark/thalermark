@@ -3,6 +3,7 @@ import { env as publicEnv } from '$env/dynamic/public';
 import type { RequestEvent } from '@sveltejs/kit';
 import type {
   AppType,
+  AuditEventsAppType,
   BillsAppType,
   ItemsAppType,
   TaxPoliciesAppType,
@@ -23,9 +24,11 @@ const baseUrl = () =>
 const mkMain = (...a: Parameters<typeof hc>) => hc<AppType>(...a);
 const mkItems = (...a: Parameters<typeof hc>) => hc<ItemsAppType>(...a);
 const mkTaxPolicies = (...a: Parameters<typeof hc>) => hc<TaxPoliciesAppType>(...a);
+const mkAuditEvents = (...a: Parameters<typeof hc>) => hc<AuditEventsAppType>(...a);
 type MainApi = ReturnType<typeof mkMain>['api'];
 type ItemsApi = ReturnType<typeof mkItems>['api'];
 type TaxPoliciesApi = ReturnType<typeof mkTaxPolicies>['api'];
+type AuditEventsApi = ReturnType<typeof mkAuditEvents>['api'];
 
 // The unified server RPC client. Call sites still reach every domain as
 // client.api.<domain>; a Proxy routes the migrated domains (items,
@@ -34,7 +37,11 @@ type TaxPoliciesApi = ReturnType<typeof mkTaxPolicies>['api'];
 // change. The runtime is one server (createApp mounts every sub-app), so the
 // split is purely type-level.
 export type ServerApiClient = {
-  api: MainApi & { items: ItemsApi['items']; 'tax-policies': TaxPoliciesApi['tax-policies'] };
+  api: MainApi & {
+    items: ItemsApi['items'];
+    'tax-policies': TaxPoliciesApi['tax-policies'];
+    'audit-events': AuditEventsApi['audit-events'];
+  };
 };
 
 // Server-side hc client. Forwards the BA session cookie from the incoming
@@ -48,6 +55,7 @@ export function serverApiClient(event: RequestEvent): ServerApiClient {
   const overrides: Record<string, unknown> = {
     items: hc<ItemsAppType>(base, { headers }).api.items,
     'tax-policies': hc<TaxPoliciesAppType>(base, { headers }).api['tax-policies'],
+    'audit-events': hc<AuditEventsAppType>(base, { headers }).api['audit-events'],
   };
   const api = new Proxy(main.api, {
     get(target, prop) {
