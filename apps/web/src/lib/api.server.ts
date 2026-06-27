@@ -12,6 +12,7 @@ import type {
   InvoicesAppType,
   ItemsAppType,
   RecurringInvoicesAppType,
+  ReportsAppType,
   TaxPoliciesAppType,
 } from '@thalermark/api-contract';
 import { hc } from 'hono/client';
@@ -37,6 +38,7 @@ const mkInvoices = (...a: Parameters<typeof hc>) => hc<InvoicesAppType>(...a);
 const mkRecurring = (...a: Parameters<typeof hc>) => hc<RecurringInvoicesAppType>(...a);
 const mkEstimates = (...a: Parameters<typeof hc>) => hc<EstimatesAppType>(...a);
 const mkExpenses = (...a: Parameters<typeof hc>) => hc<ExpensesAppType>(...a);
+const mkReports = (...a: Parameters<typeof hc>) => hc<ReportsAppType>(...a);
 type MainApi = ReturnType<typeof mkMain>['api'];
 type ItemsApi = ReturnType<typeof mkItems>['api'];
 type TaxPoliciesApi = ReturnType<typeof mkTaxPolicies>['api'];
@@ -47,25 +49,27 @@ type InvoicesApi = ReturnType<typeof mkInvoices>['api'];
 type RecurringApi = ReturnType<typeof mkRecurring>['api'];
 type EstimatesApi = ReturnType<typeof mkEstimates>['api'];
 type ExpensesApi = ReturnType<typeof mkExpenses>['api'];
+type ReportsApi = ReturnType<typeof mkReports>['api'];
 
 // The unified server RPC client. Call sites still reach every domain as
 // client.api.<domain>; a Proxy routes the migrated domains to their own hc
 // client and everything else to the main client. As more domains migrate they
 // join the override map below — call sites never change. The runtime is one
 // server (createApp mounts every sub-app), so the split is purely type-level.
-// `companies` is the first split-prefix domain: the CRUD / settings / logo /
-// stripe-connect / ledger-export / accounts routes moved to CompaniesAppType,
-// but the company-scoped REPORTS + AI insights (`/api/companies/:id/dashboard`,
-// `/profit-loss`, `/cash-flow-nudges`, …) still ride on AppType. So `companies`
-// is left in MainApi here and the sub-app surface is *intersected* on top — TS
-// merges the two same-key object types, and the runtime hc client is a URL
-// builder, so the single override client reaches both halves' paths.
+// `companies` is a split-prefix domain: the CRUD / settings / logo /
+// stripe-connect / ledger-export / accounts routes live on CompaniesAppType,
+// while the company-scoped REPORTS + AI insights (`/api/companies/:id/dashboard`,
+// `/profit-loss`, `/cash-flow-nudges`, …) live on ReportsAppType — both under
+// the same `/api/companies/:id` prefix. So `companies` is the *intersection* of
+// the two sub-app surfaces: TS merges the same-key object types, and the runtime
+// hc client is a URL builder so the single override client reaches both halves'
+// paths. (AppType no longer carries any `/api/companies` route.)
 export type ServerApiClient = {
   api: MainApi & {
     items: ItemsApi['items'];
     'tax-policies': TaxPoliciesApi['tax-policies'];
     'audit-events': AuditEventsApi['audit-events'];
-    companies: MainApi['companies'] & CompaniesApi['companies'];
+    companies: CompaniesApi['companies'] & ReportsApi['companies'];
     contacts: ContactsApi['contacts'];
     invoices: InvoicesApi['invoices'];
     'recurring-invoices': RecurringApi['recurring-invoices'];

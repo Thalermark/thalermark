@@ -9,6 +9,7 @@ import type {
   ItemsAppType,
   LocationsAppType,
   RecurringInvoicesAppType,
+  ReportsAppType,
   SocialProvidersAppType,
   TaxPoliciesAppType,
   TelemetryAppType,
@@ -64,6 +65,10 @@ function buildClients(baseUrl: string) {
     recurringInvoices: hc<RecurringInvoicesAppType>(baseUrl, { headers: authHeaders }),
     estimates: hc<EstimatesAppType>(baseUrl, { headers: authHeaders }),
     expenses: hc<ExpensesAppType>(baseUrl, { headers: authHeaders }),
+    // reports is type-only here: its routes live under /api/companies/:id/*, so
+    // they're served at runtime by the `companies` override below (hc is a URL
+    // builder). This client exists to derive ReportsApi for the intersection.
+    reports: hc<ReportsAppType>(baseUrl, { headers: authHeaders }),
   };
 }
 
@@ -138,6 +143,7 @@ type InvoicesApi = ReturnType<typeof buildClients>['invoices']['api'];
 type RecurringApi = ReturnType<typeof buildClients>['recurringInvoices']['api'];
 type EstimatesApi = ReturnType<typeof buildClients>['estimates']['api'];
 type ExpensesApi = ReturnType<typeof buildClients>['expenses']['api'];
+type ReportsApi = ReturnType<typeof buildClients>['reports']['api'];
 type ApiClient = {
   api: MainApi & {
     items: ItemsApi['items'];
@@ -146,10 +152,12 @@ type ApiClient = {
     locations: LocationsApi['locations'];
     'audit-events': AuditEventsApi['audit-events'];
     telemetry: TelemetryApi['telemetry'];
-    // Split-prefix domain: company CRUD / settings / logo / accounts moved to
-    // CompaniesAppType, but the company-scoped reports + AI insights still ride
-    // on AppType (MainApi). Intersect both so call sites reach either half.
-    companies: MainApi['companies'] & CompaniesApi['companies'];
+    // Split-prefix domain: company CRUD / settings / logo / accounts on
+    // CompaniesAppType, the company-scoped reports + AI insights on
+    // ReportsAppType — both under /api/companies/:id. Intersect both surfaces so
+    // call sites reach either half; the `companies` override serves both at
+    // runtime (hc is a URL builder). AppType no longer carries /api/companies.
+    companies: CompaniesApi['companies'] & ReportsApi['companies'];
     contacts: ContactsApi['contacts'];
     invoices: InvoicesApi['invoices'];
     'recurring-invoices': RecurringApi['recurring-invoices'];
