@@ -33,7 +33,6 @@ import {
   recurringInvoiceLineItems,
   recurringInvoices,
   seedChartOfAccounts,
-  taxPolicies,
 } from '@thalermark/db';
 import type { AddressAutocompleteProvider, AddressSuggestion } from '@thalermark/location';
 import { getLogger } from '@thalermark/logger';
@@ -69,13 +68,8 @@ import {
   invoiceMarkPaidSchema,
   invoiceSendSchema,
   invoiceUpdateSchema,
-  itemCreateSchema,
-  itemImportSchema,
-  itemUpdateSchema,
   recurringInvoiceCreateSchema,
   recurringInvoiceUpdateSchema,
-  taxPolicyCreateSchema,
-  taxPolicyUpdateSchema,
   telemetryIngestSchema,
   telemetryUpdateSchema,
   unknownPlaceholders,
@@ -126,26 +120,17 @@ import {
 import type { Mailer } from './lib/mailer.js';
 import { applyCursor, keysetOrderBy, parseLimit, slicePage } from './lib/pagination.js';
 import { generateOnce } from './lib/recurring.js';
+import { UUID_RE, escapeLike } from './lib/route-helpers.js';
 import { sendStatementEmail } from './lib/statement-email.js';
 import { type StripeBundle, decimalDollarsToCents } from './lib/stripe.js';
 import { requireCapability } from './middleware/authz.js';
 import { type RlsVariables, rlsContext } from './middleware/rls-context.js';
+import { itemsRoutes } from './routes/items.js';
+import { taxPoliciesRoutes } from './routes/tax-policies.js';
 
 const log = getLogger(['api', 'app']);
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
-// Inline HTML escaper for the invoice-send email body. The recipient's mail
-// client renders the HTML, and number / customer name / company name are
-// all user-supplied free text — a `<script>` in a company name would
-// otherwise ride out to every customer.
-// Escape the LIKE/ILIKE metacharacters so a merchant search for "50%" or
-// "a_b" matches literally instead of as wildcards. Drizzle's ilike() uses the
-// default backslash escape character, so backslash itself is escaped too.
-function escapeLike(s: string): string {
-  return s.replace(/[\\%_]/g, (ch) => `\\${ch}`);
-}
 
 // Validate a YYYY-MM-DD list-filter param (from=/to= on the invoice + estimate
 // lists). The date columns are bare `date` strings, so a valid value can bind
@@ -670,99 +655,6 @@ async function transitionEstimate(
       declinedAt: updated.declinedAt,
       publicToken: updated.publicToken,
     },
-    companyId: updated.companyId,
-  });
-
-  return c.json(updated);
-}
-
-// Items archive/restore. There is no item DELETE — archiving sets archived_at
-// (drops the item out of the picker, keeps the source_item_id breadcrumbs and
-// sales history intact); restore clears it. Idempotent: a no-op transition
-// (archive an already-archived item, or restore a live one) returns the
-// current row with 200 and writes no audit noise.
-async function setItemArchived(
-  c: Context<{ Variables: RlsVariables }>,
-  id: string,
-  archived: boolean,
-) {
-  if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
-  const tx = c.get('tx');
-  const accountId = c.get('accountId');
-
-  const [current] = await tx
-    .select()
-    .from(items)
-    .where(and(eq(items.id, id), eq(items.accountId, accountId)))
-    .limit(1);
-  if (!current) return c.json({ error: 'item_not_found' }, 404);
-
-  const isArchived = current.archivedAt !== null;
-  if (isArchived === archived) return c.json(current);
-
-  const now = new Date();
-  const [updated] = await tx
-    .update(items)
-    .set({ archivedAt: archived ? now : null, updatedAt: now })
-    .where(and(eq(items.id, id), eq(items.accountId, accountId)))
-    .returning();
-  if (!updated) return c.json({ error: 'item_not_found' }, 404);
-
-  await c.var.audit({
-    entityType: 'item',
-    entityId: id,
-    action: archived ? 'archive' : 'restore',
-    before: { archivedAt: current.archivedAt },
-    after: { archivedAt: updated.archivedAt },
-    companyId: updated.companyId,
-  });
-
-  return c.json(updated);
-}
-
-// Tax-policy archive/restore — same idempotent, audit-on-change transition as
-// items (policies archive rather than hard-delete so the tax_policy_id
-// breadcrumbs on historical lines never dangle). Archiving the company's
-// default policy also clears its is_default flag so the picker doesn't keep
-// offering a hidden default.
-async function setTaxPolicyArchived(
-  c: Context<{ Variables: RlsVariables }>,
-  id: string,
-  archived: boolean,
-) {
-  if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
-  const tx = c.get('tx');
-  const accountId = c.get('accountId');
-
-  const [current] = await tx
-    .select()
-    .from(taxPolicies)
-    .where(and(eq(taxPolicies.id, id), eq(taxPolicies.accountId, accountId)))
-    .limit(1);
-  if (!current) return c.json({ error: 'tax_policy_not_found' }, 404);
-
-  const isArchived = current.archivedAt !== null;
-  if (isArchived === archived) return c.json(current);
-
-  const now = new Date();
-  const [updated] = await tx
-    .update(taxPolicies)
-    .set({
-      archivedAt: archived ? now : null,
-      // An archived policy can't remain the default.
-      isDefault: archived ? false : current.isDefault,
-      updatedAt: now,
-    })
-    .where(and(eq(taxPolicies.id, id), eq(taxPolicies.accountId, accountId)))
-    .returning();
-  if (!updated) return c.json({ error: 'tax_policy_not_found' }, 404);
-
-  await c.var.audit({
-    entityType: 'tax_policy',
-    entityId: id,
-    action: archived ? 'archive' : 'restore',
-    before: { archivedAt: current.archivedAt, isDefault: current.isDefault },
-    after: { archivedAt: updated.archivedAt, isDefault: updated.isDefault },
     companyId: updated.companyId,
   });
 
@@ -4144,366 +4036,6 @@ function createMainApp(deps: AppDeps) {
           return c.json(after);
         },
       )
-      // Items catalog (products & services) — per-company reusable line items.
-      // Mirrors contacts: full CRUD within the tenant, but items archive
-      // rather than hard-delete (archive/restore transitions below) so the
-      // top-products report never loses history.
-      .post('/api/items', requireCapability('sales:write'), async (c) => {
-        const body = await c.req.json().catch(() => null);
-        const parsed = itemCreateSchema.safeParse(body);
-        if (!parsed.success) {
-          return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
-        }
-
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
-
-        const [company] = await tx
-          .select({ id: companies.id })
-          .from(companies)
-          .where(and(eq(companies.id, parsed.data.companyId), eq(companies.accountId, accountId)))
-          .limit(1);
-        if (!company) return c.json({ error: 'company_not_found' }, 404);
-
-        const id = uuidv7();
-        const row = { id, accountId, ...parsed.data };
-        await tx.insert(items).values(row);
-        await c.var.audit({
-          entityType: 'item',
-          entityId: id,
-          action: 'create',
-          after: row,
-          companyId: parsed.data.companyId,
-        });
-
-        return c.json(row, 201);
-      })
-      // Bulk CSV import (web) — mirrors /api/contacts/import. Registered before
-      // /api/items/:id so first-match doesn't capture "import" as an :id. Atomic:
-      // the whole batch validates (itemImportSchema) before any row inserts.
-      .post('/api/items/import', requireCapability('sales:write'), async (c) => {
-        const body = await c.req.json().catch(() => null);
-        const parsed = itemImportSchema.safeParse(body);
-        if (!parsed.success) {
-          return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
-        }
-
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
-        const { companyId } = parsed.data;
-
-        const [company] = await tx
-          .select({ id: companies.id })
-          .from(companies)
-          .where(and(eq(companies.id, companyId), eq(companies.accountId, accountId)))
-          .limit(1);
-        if (!company) return c.json({ error: 'company_not_found' }, 404);
-
-        // `archived` is an import-only boolean (the catalog round-trips its
-        // archived state); translate it to the archived_at timestamp the table
-        // actually stores. Omitted/false → null (active).
-        const rows = parsed.data.rows.map(({ archived, ...r }) => ({
-          id: uuidv7(),
-          accountId,
-          companyId,
-          ...r,
-          archivedAt: archived ? new Date() : null,
-        }));
-        await tx.insert(items).values(rows);
-        for (const row of rows) {
-          await c.var.audit({
-            entityType: 'item',
-            entityId: row.id,
-            action: 'create',
-            after: row,
-            companyId,
-          });
-        }
-
-        return c.json({ created: rows.length }, 201);
-      })
-      // List for both the management surface and the line-item autocomplete.
-      // Archived items are hidden by default (the picker must never offer them);
-      // the management page passes includeArchived=true for its show-archived
-      // toggle. `q` is a contains-search on name backing the type-ahead — capped
-      // so the autocomplete stays cheap; escapeLike neutralises %/_ wildcards.
-      .get('/api/items', async (c) => {
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
-        const companyId = c.req.query('companyId');
-        const q = c.req.query('q');
-        const includeArchived = c.req.query('includeArchived') === 'true';
-
-        const conditions = [eq(items.accountId, accountId)];
-        if (companyId) conditions.push(eq(items.companyId, companyId));
-        if (!includeArchived) conditions.push(isNull(items.archivedAt));
-        if (q) conditions.push(ilike(items.name, `%${escapeLike(q)}%`));
-
-        // Typeahead (?q=) keeps its capped, unpaginated behavior. List mode
-        // paginates the catalog alphabetically (name + id tiebreak, asc).
-        if (q) {
-          const rows = await tx
-            .select()
-            .from(items)
-            .where(and(...conditions))
-            .orderBy(asc(items.name))
-            .limit(20);
-          return c.json({ items: rows, nextCursor: null });
-        }
-        const limit = parseLimit(c.req.query('limit'));
-        if (limit === null) return c.json({ error: 'invalid_limit' }, 400);
-        const keys = [{ col: items.name }, { col: items.id }];
-        const keyset = applyCursor(c.req.query('cursor'), keys, 'asc');
-        if (keyset === 'invalid') return c.json({ error: 'invalid_cursor' }, 400);
-        if (keyset) conditions.push(keyset);
-        const rows = await tx
-          .select()
-          .from(items)
-          .where(and(...conditions))
-          .orderBy(keysetOrderBy(keys, 'asc'))
-          .limit(limit + 1);
-        const page = slicePage(rows, limit, (r) => [r.name, r.id]);
-        return c.json({ items: page.rows, nextCursor: page.nextCursor });
-      })
-      .get('/api/items/:id', async (c) => {
-        const id = c.req.param('id');
-        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
-        const [row] = await tx
-          .select()
-          .from(items)
-          .where(and(eq(items.id, id), eq(items.accountId, accountId)));
-        if (!row) return c.json({ error: 'item_not_found' }, 404);
-        return c.json(row);
-      })
-      .patch(
-        '/api/items/:id',
-        requireCapability('sales:write'),
-        validator('json', (value, c) => {
-          const parsed = itemUpdateSchema.safeParse(value);
-          if (!parsed.success) {
-            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
-          }
-          return parsed.data;
-        }),
-        async (c) => {
-          const id = c.req.param('id');
-          if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
-          const data = c.req.valid('json');
-
-          const tx = c.get('tx');
-          const accountId = c.get('accountId');
-
-          const [before] = await tx
-            .select()
-            .from(items)
-            .where(and(eq(items.id, id), eq(items.accountId, accountId)))
-            .limit(1);
-          if (!before) return c.json({ error: 'item_not_found' }, 404);
-
-          // Full-replacement semantics like contacts — omitted optionals
-          // collapse to their column default (null, or '0' / '1' for the money
-          // / quantity columns). archived_at is owned by archive/restore, not
-          // touched here, so editing an archived item keeps it archived.
-          const patch = {
-            name: data.name,
-            description: data.description ?? null,
-            type: data.type ?? 'service',
-            unitPrice: data.unitPrice ?? '0',
-            unitLabel: data.unitLabel ?? null,
-            defaultQuantity: data.defaultQuantity ?? '1',
-            taxable: data.taxable ?? false,
-            taxPolicyId: data.taxPolicyId ?? null,
-            updatedAt: new Date(),
-          };
-          const [after] = await tx
-            .update(items)
-            .set(patch)
-            .where(and(eq(items.id, id), eq(items.accountId, accountId)))
-            .returning();
-          if (!after) return c.json({ error: 'item_not_found' }, 404);
-
-          await c.var.audit({
-            entityType: 'item',
-            entityId: id,
-            action: 'update',
-            before,
-            after,
-            companyId: before.companyId,
-          });
-
-          return c.json(after);
-        },
-      )
-      .post('/api/items/:id/archive', requireCapability('sales:write'), (c) =>
-        setItemArchived(c, c.req.param('id'), true),
-      )
-      .post('/api/items/:id/restore', requireCapability('sales:write'), (c) =>
-        setItemArchived(c, c.req.param('id'), false),
-      )
-      // Tax policies — per-company named sales-tax rates that items + invoice
-      // lines reference. A settings-management surface (not sales:write) since
-      // it's company configuration, not day-to-day selling. Archive rather than
-      // hard-delete so the tax_policy_id breadcrumbs on historical lines survive.
-      .post('/api/tax-policies', requireCapability('settings:manage'), async (c) => {
-        const body = await c.req.json().catch(() => null);
-        const parsed = taxPolicyCreateSchema.safeParse(body);
-        if (!parsed.success) {
-          return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
-        }
-
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
-
-        const [company] = await tx
-          .select({ id: companies.id })
-          .from(companies)
-          .where(and(eq(companies.id, parsed.data.companyId), eq(companies.accountId, accountId)))
-          .limit(1);
-        if (!company) return c.json({ error: 'company_not_found' }, 404);
-
-        // Single default per company: marking this one default clears the flag
-        // on every other policy in the company first.
-        if (parsed.data.isDefault) {
-          await tx
-            .update(taxPolicies)
-            .set({ isDefault: false, updatedAt: new Date() })
-            .where(
-              and(
-                eq(taxPolicies.accountId, accountId),
-                eq(taxPolicies.companyId, parsed.data.companyId),
-              ),
-            );
-        }
-
-        const id = uuidv7();
-        const row = { id, accountId, ...parsed.data };
-        await tx.insert(taxPolicies).values(row);
-        await c.var.audit({
-          entityType: 'tax_policy',
-          entityId: id,
-          action: 'create',
-          after: row,
-          companyId: parsed.data.companyId,
-        });
-
-        return c.json(row, 201);
-      })
-      // List for the settings surface and the item / line tax-policy pickers.
-      // Archived policies are hidden by default (the picker must never offer
-      // them); the management page passes includeArchived=true. Alphabetical
-      // keyset pagination by name, matching items.
-      .get('/api/tax-policies', async (c) => {
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
-        const companyId = c.req.query('companyId');
-        const includeArchived = c.req.query('includeArchived') === 'true';
-
-        const conditions = [eq(taxPolicies.accountId, accountId)];
-        if (companyId) conditions.push(eq(taxPolicies.companyId, companyId));
-        if (!includeArchived) conditions.push(isNull(taxPolicies.archivedAt));
-
-        const limit = parseLimit(c.req.query('limit'));
-        if (limit === null) return c.json({ error: 'invalid_limit' }, 400);
-        const keys = [{ col: taxPolicies.name }, { col: taxPolicies.id }];
-        const keyset = applyCursor(c.req.query('cursor'), keys, 'asc');
-        if (keyset === 'invalid') return c.json({ error: 'invalid_cursor' }, 400);
-        if (keyset) conditions.push(keyset);
-        const rows = await tx
-          .select()
-          .from(taxPolicies)
-          .where(and(...conditions))
-          .orderBy(keysetOrderBy(keys, 'asc'))
-          .limit(limit + 1);
-        const page = slicePage(rows, limit, (r) => [r.name, r.id]);
-        return c.json({ taxPolicies: page.rows, nextCursor: page.nextCursor });
-      })
-      .get('/api/tax-policies/:id', async (c) => {
-        const id = c.req.param('id');
-        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
-        const [row] = await tx
-          .select()
-          .from(taxPolicies)
-          .where(and(eq(taxPolicies.id, id), eq(taxPolicies.accountId, accountId)));
-        if (!row) return c.json({ error: 'tax_policy_not_found' }, 404);
-        return c.json(row);
-      })
-      .patch(
-        '/api/tax-policies/:id',
-        requireCapability('settings:manage'),
-        validator('json', (value, c) => {
-          const parsed = taxPolicyUpdateSchema.safeParse(value);
-          if (!parsed.success) {
-            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
-          }
-          return parsed.data;
-        }),
-        async (c) => {
-          const id = c.req.param('id');
-          if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
-          const data = c.req.valid('json');
-
-          const tx = c.get('tx');
-          const accountId = c.get('accountId');
-
-          const [before] = await tx
-            .select()
-            .from(taxPolicies)
-            .where(and(eq(taxPolicies.id, id), eq(taxPolicies.accountId, accountId)))
-            .limit(1);
-          if (!before) return c.json({ error: 'tax_policy_not_found' }, 404);
-
-          const now = new Date();
-          // Single default per company — clear the others first (this row
-          // included), then the patch below sets this one back to default.
-          if (data.isDefault) {
-            await tx
-              .update(taxPolicies)
-              .set({ isDefault: false, updatedAt: now })
-              .where(
-                and(
-                  eq(taxPolicies.accountId, accountId),
-                  eq(taxPolicies.companyId, before.companyId),
-                ),
-              );
-          }
-
-          // Full-replacement like items — omitted optionals collapse to their
-          // column default. archived_at is owned by archive/restore.
-          const patch = {
-            name: data.name,
-            ratePct: data.ratePct ?? '0',
-            isDefault: data.isDefault ?? false,
-            updatedAt: now,
-          };
-          const [after] = await tx
-            .update(taxPolicies)
-            .set(patch)
-            .where(and(eq(taxPolicies.id, id), eq(taxPolicies.accountId, accountId)))
-            .returning();
-          if (!after) return c.json({ error: 'tax_policy_not_found' }, 404);
-
-          await c.var.audit({
-            entityType: 'tax_policy',
-            entityId: id,
-            action: 'update',
-            before,
-            after,
-            companyId: before.companyId,
-          });
-
-          return c.json(after);
-        },
-      )
-      .post('/api/tax-policies/:id/archive', requireCapability('settings:manage'), (c) =>
-        setTaxPolicyArchived(c, c.req.param('id'), true),
-      )
-      .post('/api/tax-policies/:id/restore', requireCapability('settings:manage'), (c) =>
-        setTaxPolicyArchived(c, c.req.param('id'), false),
-      )
       .post('/api/invoices', requireCapability('sales:write'), async (c) => {
         const body = await c.req.json().catch(() => null);
         const parsed = invoiceCreateSchema.safeParse(body);
@@ -7710,17 +7242,25 @@ function createMainApp(deps: AppDeps) {
   );
 }
 
-// createApp wraps the main chain and mounts the bills (AP) routes at runtime.
-// .route() keeps the bills schema OUT of AppType (the main chain's inferred type
-// is already at the TS serialization ceiling, TS7056) while still registering
-// the routes on the returned instance. Bill RPC types ride on BillsAppType.
+// createApp wraps the main chain and mounts the per-domain sub-apps at runtime.
+// Each sub-app is a self-contained chained Hono instance (see apps/api/src/routes/*).
+// Mounting via .route() keeps each sub-app's schema OUT of AppType — the main
+// chain's inferred type is already at the TS serialization ceiling (TS7056), and
+// the whole point of the modular-sub-apps refactor is that no single combined
+// type is ever materialized. Each domain's RPC types ride on its own XAppType
+// (BillsAppType, ItemsAppType, TaxPoliciesAppType, …); the web/mobile clients
+// compose them behind a unified facade so call sites stay api.<domain>.
 export function createApp(deps: AppDeps) {
   const app = createMainApp(deps);
   app.route('/', billsRoutes());
+  app.route('/', itemsRoutes());
+  app.route('/', taxPoliciesRoutes());
   return app;
 }
 
 export type AppType = ReturnType<typeof createMainApp>;
-// Separate RPC surface for the bills (AP) routes — see the mount in createApp.
-// Web/mobile build a dedicated hc<BillsAppType>() client for /api/bills*.
+// Per-domain RPC surfaces — each kept out of AppType (see the mount in createApp).
+// Web/mobile build a dedicated hc<XAppType>() client per domain.
 export type BillsAppType = ReturnType<typeof billsRoutes>;
+export type ItemsAppType = ReturnType<typeof itemsRoutes>;
+export type TaxPoliciesAppType = ReturnType<typeof taxPoliciesRoutes>;

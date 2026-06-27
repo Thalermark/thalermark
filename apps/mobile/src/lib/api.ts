@@ -1,4 +1,4 @@
-import type { AppType } from '@thalermark/api-contract';
+import type { AppType, ItemsAppType, TaxPoliciesAppType } from '@thalermark/api-contract';
 import { hc } from 'hono/client';
 import { getActiveAccountId, getAuthToken } from './secure-store';
 import { getServerUrl } from './server-url';
@@ -29,27 +29,63 @@ export async function authHeaders(): Promise<Record<string, string>> {
   return base;
 }
 
-function buildClient(baseUrl: string) {
-  return hc<AppType>(baseUrl, { headers: authHeaders });
+// Per-domain RPC surfaces. Items + tax-policies are kept out of AppType to stay
+// under the TS type-serialization ceiling (TS7056 — see apps/api/src/app.ts);
+// they live on their own hc clients but are composed back behind the single
+// `api` export so call sites stay `api.api.<domain>`. All three share authHeaders
+// and the same base URL — the runtime is one server, so the split is type-only.
+function buildClients(baseUrl: string) {
+  return {
+    main: hc<AppType>(baseUrl, { headers: authHeaders }),
+    items: hc<ItemsAppType>(baseUrl, { headers: authHeaders }),
+    taxPolicies: hc<TaxPoliciesAppType>(baseUrl, { headers: authHeaders }),
+  };
 }
 
 // The base URL is chosen at runtime (server picker — see server-url.ts), but
-// hc captures it at construction. So we memoize the client and rebuild it
+// hc captures it at construction. So we memoize the clients and rebuild them
 // whenever the configured URL changes. `api` stays a stable export — a Proxy
-// that forwards every access to the live client — so the ~30 call sites
-// (`api.api.contacts…`) never need to know the URL can change.
-let client = buildClient(getServerUrl());
+// that forwards to the live clients — so the call sites (`api.api.contacts…`)
+// never need to know the URL can change.
+let clients = buildClients(getServerUrl());
 let builtFor = getServerUrl();
 
-function liveClient() {
+function liveClients() {
   const url = getServerUrl();
   if (url !== builtFor) {
-    client = buildClient(url);
+    clients = buildClients(url);
     builtFor = url;
   }
-  return client;
+  return clients;
 }
 
-export const api = new Proxy({} as ReturnType<typeof buildClient>, {
-  get: (_target, prop) => liveClient()[prop as keyof ReturnType<typeof buildClient>],
+// The unified `.api` surface: the migrated domains (items, tax-policies) route
+// to their own client, everything else to the main client. As more domains
+// migrate they join the override map — call sites never change.
+function facadeApi() {
+  const { main, items, taxPolicies } = liveClients();
+  const overrides: Record<string, unknown> = {
+    items: items.api.items,
+    'tax-policies': taxPolicies.api['tax-policies'],
+  };
+  return new Proxy(main.api, {
+    get(target, prop) {
+      if (typeof prop === 'string' && prop in overrides) return overrides[prop];
+      return Reflect.get(target, prop);
+    },
+  });
+}
+
+type MainApi = ReturnType<typeof buildClients>['main']['api'];
+type ItemsApi = ReturnType<typeof buildClients>['items']['api'];
+type TaxPoliciesApi = ReturnType<typeof buildClients>['taxPolicies']['api'];
+type ApiClient = {
+  api: MainApi & { items: ItemsApi['items']; 'tax-policies': TaxPoliciesApi['tax-policies'] };
+};
+
+export const api = new Proxy({} as ApiClient, {
+  get: (_target, prop) => {
+    if (prop === 'api') return facadeApi();
+    return (liveClients().main as Record<string | symbol, unknown>)[prop];
+  },
 });
