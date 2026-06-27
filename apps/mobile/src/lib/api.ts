@@ -3,6 +3,7 @@ import type {
   AuditEventsAppType,
   ContactsAppType,
   EstimatesAppType,
+  ExpensesAppType,
   InvoicesAppType,
   ItemsAppType,
   LocationsAppType,
@@ -60,6 +61,7 @@ function buildClients(baseUrl: string) {
     invoices: hc<InvoicesAppType>(baseUrl, { headers: authHeaders }),
     recurringInvoices: hc<RecurringInvoicesAppType>(baseUrl, { headers: authHeaders }),
     estimates: hc<EstimatesAppType>(baseUrl, { headers: authHeaders }),
+    expenses: hc<ExpensesAppType>(baseUrl, { headers: authHeaders }),
   };
 }
 
@@ -96,6 +98,7 @@ function facadeApi() {
     invoices,
     recurringInvoices,
     estimates,
+    expenses,
   } = liveClients();
   const overrides: Record<string, unknown> = {
     items: items.api.items,
@@ -108,6 +111,7 @@ function facadeApi() {
     invoices: invoices.api.invoices,
     'recurring-invoices': recurringInvoices.api['recurring-invoices'],
     estimates: estimates.api.estimates,
+    expenses: expenses.api.expenses,
   };
   return new Proxy(main.api, {
     get(target, prop) {
@@ -128,6 +132,7 @@ type ContactsApi = ReturnType<typeof buildClients>['contacts']['api'];
 type InvoicesApi = ReturnType<typeof buildClients>['invoices']['api'];
 type RecurringApi = ReturnType<typeof buildClients>['recurringInvoices']['api'];
 type EstimatesApi = ReturnType<typeof buildClients>['estimates']['api'];
+type ExpensesApi = ReturnType<typeof buildClients>['expenses']['api'];
 type ApiClient = {
   api: MainApi & {
     items: ItemsApi['items'];
@@ -140,6 +145,7 @@ type ApiClient = {
     invoices: InvoicesApi['invoices'];
     'recurring-invoices': RecurringApi['recurring-invoices'];
     estimates: EstimatesApi['estimates'];
+    expenses: ExpensesApi['expenses'];
   };
 };
 

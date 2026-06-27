@@ -7,6 +7,7 @@ import type {
   BillsAppType,
   ContactsAppType,
   EstimatesAppType,
+  ExpensesAppType,
   InvoicesAppType,
   ItemsAppType,
   RecurringInvoicesAppType,
@@ -33,6 +34,7 @@ const mkContacts = (...a: Parameters<typeof hc>) => hc<ContactsAppType>(...a);
 const mkInvoices = (...a: Parameters<typeof hc>) => hc<InvoicesAppType>(...a);
 const mkRecurring = (...a: Parameters<typeof hc>) => hc<RecurringInvoicesAppType>(...a);
 const mkEstimates = (...a: Parameters<typeof hc>) => hc<EstimatesAppType>(...a);
+const mkExpenses = (...a: Parameters<typeof hc>) => hc<ExpensesAppType>(...a);
 type MainApi = ReturnType<typeof mkMain>['api'];
 type ItemsApi = ReturnType<typeof mkItems>['api'];
 type TaxPoliciesApi = ReturnType<typeof mkTaxPolicies>['api'];
@@ -41,6 +43,7 @@ type ContactsApi = ReturnType<typeof mkContacts>['api'];
 type InvoicesApi = ReturnType<typeof mkInvoices>['api'];
 type RecurringApi = ReturnType<typeof mkRecurring>['api'];
 type EstimatesApi = ReturnType<typeof mkEstimates>['api'];
+type ExpensesApi = ReturnType<typeof mkExpenses>['api'];
 
 // The unified server RPC client. Call sites still reach every domain as
 // client.api.<domain>; a Proxy routes the migrated domains to their own hc
@@ -56,6 +59,7 @@ export type ServerApiClient = {
     invoices: InvoicesApi['invoices'];
     'recurring-invoices': RecurringApi['recurring-invoices'];
     estimates: EstimatesApi['estimates'];
+    expenses: ExpensesApi['expenses'];
   };
 };
 
@@ -75,6 +79,7 @@ export function serverApiClient(event: RequestEvent): ServerApiClient {
     invoices: hc<InvoicesAppType>(base, { headers }).api.invoices,
     'recurring-invoices': hc<RecurringInvoicesAppType>(base, { headers }).api['recurring-invoices'],
     estimates: hc<EstimatesAppType>(base, { headers }).api.estimates,
+    expenses: hc<ExpensesAppType>(base, { headers }).api.expenses,
   };
   const api = new Proxy(main.api, {
     get(target, prop) {
