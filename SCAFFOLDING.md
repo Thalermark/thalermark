@@ -765,13 +765,65 @@ only forward-compat baked in; a future `bills` table FKs `contacts(id)` where `i
 
 ---
 
+## Post-MVP polish — Accounts Payable / vendor bills (hidden double-entry)
+
+The accrual half of the spend side, **not a numbered phase** (no Phase-overview row, same deviation
+as the sections above). Closes an independent audit finding: the COA had no AP account and expenses
+posted strictly **cash-basis** (Dr expense / Cr asset at payment), so there was no way to record "a
+bill I owe and will pay later," no AP aging, and no bill payment. This builds directly on the
+**accounts-payable seam** laid by the contacts unification above — a `bills` row FKs `contacts(id)`
+where `is_vendor = true`. Sibling of [[project_ledger_decision]]; the double-entry stays hidden
+(users see "Bills," never "Accounts Payable" / debit / credit).
+
+Shipped on the **`accounts-payable` branch** as per-slice commits (db → validation → api → web →
+mobile), squash-merged to `main` as a single PR **#314** (so `main` never saw partial state). Because
+it's one squash-merge, the table below maps slices to what landed rather than to per-slice PR numbers.
+
+**Design (locked, user-confirmed):**
+- **A bill is the accrual sibling of an expense** (the mirror of the AR/invoice machine), **NOT** a
+  multi-line invoice. Header-only: single vendor + single expense category + single amount — it
+  matches the `expenses` entity, not `invoices`.
+- **COA:** added **`2000 Accounts Payable`** (liability, credit-normal) to `SOLE_PROP_COA`, seeded for
+  new companies and backfilled into existing ones.
+- **Lifecycle (no `draft`):** `open` on create posts **Dr <category> / Cr AP**; `paid` on mark-paid
+  posts **Dr AP / Cr <payment asset>** (default Cash 1000); `voided` reverses the open posting. Edit
+  is allowed only while `open` (reverse + repost, like expenses); `paid` / `voided` are terminal
+  (`bill_not_editable` / `invalid_transition` 409).
+- **Sales tax rolls into the single `amount`** (US cash-basis sole props can't reclaim input tax) — no
+  separate tax column, matching expenses.
+- **Dashboard now returns `owing` = AP balance** (credit − debit on AP 2000), filling the long-empty
+  fourth quadrant so the position is finally **in / out / owed / owing**.
+- **AP aging:** `GET /api/bills/aging?companyId=` → buckets `current` / `d1_30` / `d31_60` / `d61_90`
+  / `d90_plus` plus per-bill rows with `daysOverdue` + `bucket`, computed in JS off open bills.
+  Unblocks the A/P-aging report tagged in [[project_reporting_gaps]].
+- **Capability:** reuses **`expenses:write`** — managing payables is the accountant role's job, so no
+  new capability was added.
+
+| Slice | What landed |
+|---|---|
+| 1 — db | `bills` table (header: vendor `contact_id` + expense `category_account_id` + `amount` + paid-fields mirrored from invoices), RLS tenant policy + grants + `bills_amount_positive_check` (amount > 0). COA `2000 Accounts Payable` seed + backfill into existing companies. Migration `0001_accounts_payable.sql` — the **first post-baseline migration**, so the first to need `SET search_path TO public;` (the collapsed baseline pg_dump empties the search path for the migrator session). |
+| 2 — validation | `bill.ts` — `billCreateSchema` / `billUpdateSchema` / `billMarkPaidSchema` + `BILL_PAYMENT_METHODS`, mirroring the expense schemas. |
+| 3 — api | Ledger helpers in `apps/api/src/lib/ledger.ts` (`billOpenLines` / `billPaymentLines` / `postBillOpen` / `postBillOpenReversal` / `postBillPayment` / `apBalance`); routes create / list / aging / detail / patch / mark-paid / void with list + detail joining `vendorName` (`getTableColumns(bills) + contacts.name`); dashboard `owing`; activity-feed `bill` entityType (label by vendor). **Bills are mounted at runtime as a separate `BillsAppType`** — the `createApp` Hono chain is at the TS7056 type-serialization ceiling, so a thin `createApp` wraps the byte-identical `createMainApp` and `.route()`s bills in at runtime, keeping their schema out of `AppType`. Clients use a second `hc<BillsAppType>`. |
+| 4 — web | `(app)/bills` list (status filter chips + keyset `/more`), `bills/new` (vendor via **ContactPicker** allowCreate + inline-create as a vendor, category select, amount/dates/reference/memo), `bills/[id]` detail (mark-paid via reused **PaymentFields**, void w/ confirm, **AuditHistory**), `bills/[id]/edit` (open-only re-pick), `bills/aging` (bucket cards + per-bill table). Dashboard gains a 4th **"Owed by you"** tile (`d.owing` → /bills). `serverBillsApiClient` added to `api.server.ts`. **Items catalog moved out of Settings** to top-level `(app)/items` in the same pass (avatar-menu order Company → Workspace → Bills → Items → Settings). |
+| 5 — mobile | Mirror of slice 4. New `bills-api.ts` = a second `hc<BillsAppType>` client; `api.ts` refactored to export a shared `authHeaders()` (Origin + bearer + x-account-id) both clients use. Screens under `(app)/bills/` (list w/ FilterChips + keyset infinite scroll, aging, new via **ContactField**, detail + AuditHistory, open-only edit). Home gains the 4th **"Owed by you"** tile; More hub gains a **"Purchases"** section linking Bills. **Footgun:** a new route folder under `(app)/` auto-registers as a stray tab — needs `<Tabs.Screen name="bills" options={{ href: null }} />`. Mobile has no test suite; verified via typecheck + biome (the 508 api tests cover the backend). |
+
+**Explicitly deferred (out of scope):** partial / pay-many-at-once bill payments (parity with AR,
+which has no partials), bill **line items** / itemised multi-category supplier invoices (header-only
+like expenses), unpay / refund of a paid bill, a cash-basis-vs-accrual tax-report toggle (the ledger
+stays accrual; a report-layer view recognising AP expense at payment date is deferred), and the 1099
+vendor summary (now unblocked by bills + vendor contacts — a follow-on). **Financed equipment** ("a
+mower on payments") surfaced during this work and is its own deferred feature — a capital asset + loan
++ depreciation, none of which is AP.
+
+---
+
 ## Post-MVP polish — other shipped tracks (since Phase 9)
 
 Between the Phase-9 mobile catch-up and now, work continued as **non-phase tracks** (auth, roles,
 onboarding, commercialization groundwork, presentation) rather than numbered phases. Each shipped
 api → web → mobile per the usual slice discipline; full detail lives in the PRs. The detailed
-write-ups above (editable email templates, from-block, telemetry, contacts unification) are the
-tracks that grew their own section; the rest are cataloged here.
+write-ups above (editable email templates, from-block, telemetry, contacts unification, accounts
+payable) are the tracks that grew their own section; the rest are cataloged here.
 
 | Track | PRs | What shipped |
 |---|---|---|
