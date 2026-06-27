@@ -26,7 +26,7 @@
   });
 </script>
 
-<a href="/settings/items" class="eyebrow text-fg/60 hover:text-fg">← Items</a>
+<a href="/items" class="eyebrow text-fg/60 hover:text-fg">← Items</a>
 <div class="mt-3 flex items-baseline justify-between gap-6">
   <h1 class="font-serif text-4xl font-light leading-none tracking-tight text-fg">
     {item.name}<span class="text-accent">.</span>
@@ -41,7 +41,7 @@
   {#if canWrite}
     <div class="flex items-center gap-2">
       <a
-        href="/settings/items/{item.id}/edit"
+        href="/items/{item.id}/edit"
         class="rounded-sm border border-fg/20 px-3 py-1 font-mono text-xs uppercase tracking-widest text-fg/70 hover:border-accent hover:text-accent"
       >
         Edit

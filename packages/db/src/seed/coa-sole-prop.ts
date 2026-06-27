@@ -51,6 +51,13 @@ export const SOLE_PROP_COA: readonly CoaSeed[] = [
 
   // Liabilities
   {
+    code: '2000',
+    name: 'Accounts Payable',
+    accountType: 'liability',
+    normalBalance: 'credit',
+    taxMapping: null,
+  },
+  {
     code: '2200',
     name: 'Sales Tax Payable',
     accountType: 'liability',

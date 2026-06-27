@@ -5,7 +5,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 
 // "Load more" proxy for the tax-policies list. Carries the archived toggle so
-// an appended page matches the current view. Mirrors /settings/items/more.
+// an appended page matches the current view. Mirrors /items/more.
 export const GET: RequestHandler = async (event) => {
   const cursor = event.url.searchParams.get('cursor') ?? undefined;
   const showArchived = event.url.searchParams.get('archived') === '1';

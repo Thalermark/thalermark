@@ -57,6 +57,7 @@
     invoice: 'Invoice',
     estimate: 'Estimate',
     expense: 'Expense',
+    bill: 'Bill',
     company: 'Company',
     recurring_invoice: 'Recurring',
     item: 'Item',
@@ -66,9 +67,10 @@
     invoice: '/invoices',
     estimate: '/estimates',
     expense: '/expenses',
+    bill: '/bills',
     company: '/settings/payments',
     recurring_invoice: '/recurring',
-    item: '/settings/items',
+    item: '/items',
   };
 
   function actionLabel(action: string): string {

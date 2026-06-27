@@ -6,7 +6,7 @@ import type { Actions, PageServerLoad } from './$types';
 // The management list. Archived policies are hidden by default (mirrors the
 // item / line picker, which never offers them); `?archived=1` flips the
 // show-archived toggle and re-fetches with includeArchived=true. Mirrors
-// /settings/items.
+// /items.
 export const load: PageServerLoad = async (event) => {
   const showArchived = event.url.searchParams.get('archived') === '1';
   const client = serverApiClient(event);

@@ -12,7 +12,7 @@ import { useMay } from '../../lib/role';
 // from the API — formatted for display only. Anomalies are deterministic;
 // cash-flow nudges are AI (Pro+/BYOK) and degrade to empty on a 503.
 type Period = 'month' | '30d' | 'ytd';
-type Dashboard = { moneyIn: string; moneyOut: string; owed: string };
+type Dashboard = { moneyIn: string; moneyOut: string; owed: string; owing: string };
 type Anomalies = {
   overall: { pctOver: number; recent: string; typical: string } | null;
   categories: { code: string; name: string; recent: string; typical: string; pctOver: number }[];
@@ -114,7 +114,7 @@ export default function Home() {
       .then(async (res) => {
         if (!active || !res.ok) return;
         const d = await res.json();
-        setDashboard({ moneyIn: d.moneyIn, moneyOut: d.moneyOut, owed: d.owed });
+        setDashboard({ moneyIn: d.moneyIn, moneyOut: d.moneyOut, owed: d.owed, owing: d.owing });
       })
       .catch(() => {})
       .finally(() => {
@@ -263,6 +263,7 @@ export default function Home() {
             <Tile label="Money in" value={fmt(dashboard.moneyIn)} sub={flowLabel(period)} />
             <Tile label="Money out" value={fmt(dashboard.moneyOut)} sub={flowLabel(period)} />
             <Tile label="Owed to you" value={fmt(dashboard.owed)} sub="outstanding now" />
+            <Tile label="Owed by you" value={fmt(dashboard.owing)} sub="bills outstanding" />
           </View>
         ) : (
           <Text className="mt-8 text-sm text-oxblood">Couldn't load your position.</Text>

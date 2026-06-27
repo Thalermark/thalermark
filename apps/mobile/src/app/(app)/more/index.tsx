@@ -19,6 +19,7 @@ type Entry = {
     | '/more/profile'
     | '/estimates'
     | '/invoices/recurring'
+    | '/bills'
     | '/more/team'
     | '/more/companies'
     | '/more/switch-account'
@@ -59,6 +60,15 @@ const SALES_ENTRIES: Entry[] = [
     subtitle: 'Schedules that generate and email invoices on their own.',
   },
 ];
+
+// Bills (accounts payable) — money you owe vendors. Ungated like web's nav link
+// (the list itself is viewable by all; the API gates writes on expenses:write).
+const BILLS_ENTRY: Entry = {
+  href: '/bills',
+  icon: 'wallet-outline',
+  title: 'Bills',
+  subtitle: 'Track what you owe vendors and when each bill is due.',
+};
 
 const ACCOUNT_ENTRY: Entry = {
   href: '/more/team',
@@ -191,6 +201,7 @@ export default function MoreHub() {
 
         <Section label="Account" entries={[PROFILE_ENTRY]} onOpen={(href) => router.push(href)} />
         <Section label="Sales" entries={SALES_ENTRIES} onOpen={(href) => router.push(href)} />
+        <Section label="Purchases" entries={[BILLS_ENTRY]} onOpen={(href) => router.push(href)} />
         <Section label="Workspace" entries={accountEntries} onOpen={(href) => router.push(href)} />
         <Section
           label="Catalog & reports"

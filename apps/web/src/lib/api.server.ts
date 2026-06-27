@@ -1,7 +1,7 @@
 import { env as privateEnv } from '$env/dynamic/private';
 import { env as publicEnv } from '$env/dynamic/public';
 import type { RequestEvent } from '@sveltejs/kit';
-import type { AppType } from '@thalermark/api-contract';
+import type { AppType, BillsAppType } from '@thalermark/api-contract';
 import { hc } from 'hono/client';
 
 // SSR fetches need an absolute URL. Mirrors hooks.server.ts — `||` not `??` so
@@ -16,6 +16,13 @@ const baseUrl = () =>
 // equivalent for client-side calls.
 export function serverApiClient(event: RequestEvent) {
   return hc<AppType>(baseUrl(), { headers: serverApiHeaders(event) });
+}
+
+// Bills (accounts payable) live on a second RPC surface (BillsAppType) — kept
+// out of AppType to stay under the TS type-serialization ceiling. Same auth
+// headers; just a different typed client over the same api origin.
+export function serverBillsApiClient(event: RequestEvent) {
+  return hc<BillsAppType>(baseUrl(), { headers: serverApiHeaders(event) });
 }
 
 // Absolute api base for the rare server-side call that can't go through the

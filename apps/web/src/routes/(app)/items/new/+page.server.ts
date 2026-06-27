@@ -70,6 +70,6 @@ export const actions: Actions = {
       return fail(res.status, { values, formError: body?.error ?? 'create_failed' });
     }
     const created = await res.json();
-    redirect(303, `/settings/items/${created.id}`);
+    redirect(303, `/items/${created.id}`);
   },
 };

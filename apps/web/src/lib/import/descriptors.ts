@@ -182,7 +182,7 @@ export const IMPORT_ENTITIES: ImportEntity[] = [
     key: 'items',
     label: 'Items',
     cap: 'sales:write',
-    href: '/settings/items',
+    href: '/items',
     dupeKey: nameDupeKey,
     validateRow: (row) => {
       const res = itemRowSchema.safeParse(row);

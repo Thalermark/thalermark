@@ -27,7 +27,7 @@
   );
 </script>
 
-<a href="/settings/items" class="eyebrow text-fg/60 hover:text-fg">← Items</a>
+<a href="/items" class="eyebrow text-fg/60 hover:text-fg">← Items</a>
 <h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-fg">
   New item<span class="text-accent">.</span>
 </h1>
@@ -146,6 +146,6 @@
     >
       Create item
     </button>
-    <a href="/settings/items" class="text-sm text-fg/60 hover:text-fg">Cancel</a>
+    <a href="/items" class="text-sm text-fg/60 hover:text-fg">Cancel</a>
   </div>
 </form>

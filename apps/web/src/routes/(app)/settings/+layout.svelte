@@ -13,12 +13,12 @@
   //
   // A `cap` hides the tab for roles that can't use it (UX only — the API and
   // each tab's own actions stay authoritative). Tabs without a cap are plain
-  // reads (Activity feed, Items catalog, Team roster) open to every role.
+  // reads (Activity feed, Team roster) open to every role. (The Items catalog
+  // moved out to the top-level /items nav entry.)
   // Grouped you → business config → people → data/audit/privacy.
   const TABS: { href: string; label: string; cap?: Capability }[] = [
     { href: '/settings/profile', label: 'Profile' },
     { href: '/settings/business', label: 'Business', cap: 'settings:manage' },
-    { href: '/settings/items', label: 'Items' },
     { href: '/settings/tax-policies', label: 'Tax', cap: 'settings:manage' },
     { href: '/settings/payments', label: 'Payments', cap: 'settings:manage' },
     { href: '/settings/email', label: 'Email templates', cap: 'settings:manage' },

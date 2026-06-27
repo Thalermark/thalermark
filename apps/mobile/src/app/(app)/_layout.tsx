@@ -201,6 +201,7 @@ export default function AppLayout() {
           M11f consolidation — it's reached from the More hub's Sales section;
           select-company is reached via redirect only. */}
         <Tabs.Screen name="estimates" options={{ href: null }} />
+        <Tabs.Screen name="bills" options={{ href: null }} />
         <Tabs.Screen name="select-company" options={{ href: null }} />
       </Tabs>
     </RoleProvider>

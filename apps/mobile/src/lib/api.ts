@@ -10,23 +10,27 @@ import { getServerUrl } from './server-url';
 // TRUSTED_ORIGINS allowlist + BA's formCsrfMiddleware both require it.
 const APP_ORIGIN = 'thalermark://';
 
+// The per-request headers every typed client stamps: Origin (CSRF/TRUSTED_ORIGINS)
+// + the bearer token + x-account-id. Shared so the second RPC surface (bills-api.ts,
+// hc<BillsAppType>) sends the identical contract without re-deriving it.
+//
+// `x-account-id` scopes every tenant route to the active membership — the mobile
+// equivalent of web's `active_account_id` cookie → `x-account-id` stamping
+// (apps/web/src/lib/api.server.ts). Bootstrap routes (/api/me, invite-accept)
+// ignore it; tenant routes 400 without it. Absent until an active account is
+// resolved (see active-account.ts) — the only call before that is /api/me, which
+// is a bootstrap route.
+export async function authHeaders(): Promise<Record<string, string>> {
+  const token = await getAuthToken();
+  const base: Record<string, string> = { Origin: APP_ORIGIN };
+  if (token) base.Authorization = `Bearer ${token}`;
+  const accountId = await getActiveAccountId();
+  if (accountId) base['x-account-id'] = accountId;
+  return base;
+}
+
 function buildClient(baseUrl: string) {
-  return hc<AppType>(baseUrl, {
-    headers: async () => {
-      const token = await getAuthToken();
-      const base: Record<string, string> = { Origin: APP_ORIGIN };
-      if (token) base.Authorization = `Bearer ${token}`;
-      // `x-account-id` scopes every tenant route to the active membership — the
-      // mobile equivalent of web's `active_account_id` cookie → `x-account-id`
-      // stamping (apps/web/src/lib/api.server.ts). Bootstrap routes (/api/me,
-      // invite-accept) ignore it; tenant routes 400 without it. Absent until an
-      // active account is resolved (see active-account.ts) — the only call before
-      // that is /api/me, which is a bootstrap route.
-      const accountId = await getActiveAccountId();
-      if (accountId) base['x-account-id'] = accountId;
-      return base;
-    },
-  });
+  return hc<AppType>(baseUrl, { headers: authHeaders });
 }
 
 // The base URL is chosen at runtime (server picker — see server-url.ts), but

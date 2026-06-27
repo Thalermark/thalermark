@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   type LedgerLine,
+  billOpenLines,
+  billPaymentLines,
   expensePostingLines,
   invoicePostingLines,
   reverseLedgerLines,
@@ -122,6 +124,41 @@ describe('expensePostingLines', () => {
       amount: '99.99',
     });
     expect(lines.every((l) => l.amount === '99.99')).toBe(true);
+  });
+});
+
+describe('billOpenLines / billPaymentLines (accounts payable)', () => {
+  it('open posts Dr <category> / Cr Accounts Payable (2000)', () => {
+    expect(billOpenLines({ categoryCode: '7000', amount: '320.00' })).toEqual([
+      { code: '7000', side: 'debit', amount: '320.00' },
+      { code: '2000', side: 'credit', amount: '320.00' },
+    ]);
+  });
+
+  it('payment posts Dr Accounts Payable (2000) / Cr <payment asset>', () => {
+    expect(billPaymentLines({ paymentCode: '1000', amount: '320.00' })).toEqual([
+      { code: '2000', side: 'debit', amount: '320.00' },
+      { code: '1000', side: 'credit', amount: '320.00' },
+    ]);
+  });
+
+  it('open + payment net AP (2000) to zero — the full bill lifecycle', () => {
+    const lifecycle = [
+      ...billOpenLines({ categoryCode: '7000', amount: '320.00' }),
+      ...billPaymentLines({ paymentCode: '1000', amount: '320.00' }),
+    ];
+    const apNet = lifecycle
+      .filter((l) => l.code === '2000')
+      .reduce((sum, l) => sum + (l.side === 'credit' ? Number(l.amount) : -Number(l.amount)), 0);
+    expect(apNet).toBe(0);
+  });
+
+  it('void = reverse(open) — undoes the AP credit and the expense debit', () => {
+    const open = billOpenLines({ categoryCode: '7000', amount: '320.00' });
+    expect(reverseLedgerLines(open)).toEqual([
+      { code: '7000', side: 'credit', amount: '320.00' },
+      { code: '2000', side: 'debit', amount: '320.00' },
+    ]);
   });
 });
 
