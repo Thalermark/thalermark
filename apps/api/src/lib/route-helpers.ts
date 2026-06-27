@@ -7,6 +7,10 @@
 // cast error.
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// Loose email shape guard for recipient/invite fields validated by hand (not via
+// a Zod schema). Shared by the root app and the contacts sub-app.
+export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 // Escape the LIKE/ILIKE metacharacters so a search for "50%" or "a_b" matches
 // literally instead of as wildcards. Drizzle's ilike() uses the default
 // backslash escape character, so backslash itself is escaped too.

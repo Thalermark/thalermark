@@ -17,6 +17,7 @@ export type {
   AppType,
   AuditEventsAppType,
   BillsAppType,
+  ContactsAppType,
   ItemsAppType,
   LocationsAppType,
   SocialProvidersAppType,

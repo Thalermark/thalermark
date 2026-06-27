@@ -5,6 +5,7 @@ import type {
   AppType,
   AuditEventsAppType,
   BillsAppType,
+  ContactsAppType,
   ItemsAppType,
   TaxPoliciesAppType,
 } from '@thalermark/api-contract';
@@ -18,29 +19,31 @@ const baseUrl = () =>
 
 // Name each per-domain client's `.api` surface without constructing a runtime
 // instance (Hono's recommended trick: a wrapper fn whose ReturnType is the
-// client type). Items + tax-policies live on their own RPC surfaces, kept out
-// of AppType so no single combined type is ever serialized (the TS7056 ceiling
-// the modular sub-apps dodge — see apps/api/src/app.ts).
+// client type). The migrated domains (apps/api/src/routes/*) live on their own
+// RPC surfaces, kept out of AppType so no single combined type is ever
+// serialized (the TS7056 ceiling the modular sub-apps dodge — see app.ts).
 const mkMain = (...a: Parameters<typeof hc>) => hc<AppType>(...a);
 const mkItems = (...a: Parameters<typeof hc>) => hc<ItemsAppType>(...a);
 const mkTaxPolicies = (...a: Parameters<typeof hc>) => hc<TaxPoliciesAppType>(...a);
 const mkAuditEvents = (...a: Parameters<typeof hc>) => hc<AuditEventsAppType>(...a);
+const mkContacts = (...a: Parameters<typeof hc>) => hc<ContactsAppType>(...a);
 type MainApi = ReturnType<typeof mkMain>['api'];
 type ItemsApi = ReturnType<typeof mkItems>['api'];
 type TaxPoliciesApi = ReturnType<typeof mkTaxPolicies>['api'];
 type AuditEventsApi = ReturnType<typeof mkAuditEvents>['api'];
+type ContactsApi = ReturnType<typeof mkContacts>['api'];
 
 // The unified server RPC client. Call sites still reach every domain as
-// client.api.<domain>; a Proxy routes the migrated domains (items,
-// tax-policies) to their own hc client and everything else to the main client.
-// As more domains migrate they join the override map below — call sites never
-// change. The runtime is one server (createApp mounts every sub-app), so the
-// split is purely type-level.
+// client.api.<domain>; a Proxy routes the migrated domains to their own hc
+// client and everything else to the main client. As more domains migrate they
+// join the override map below — call sites never change. The runtime is one
+// server (createApp mounts every sub-app), so the split is purely type-level.
 export type ServerApiClient = {
   api: MainApi & {
     items: ItemsApi['items'];
     'tax-policies': TaxPoliciesApi['tax-policies'];
     'audit-events': AuditEventsApi['audit-events'];
+    contacts: ContactsApi['contacts'];
   };
 };
 
@@ -56,6 +59,7 @@ export function serverApiClient(event: RequestEvent): ServerApiClient {
     items: hc<ItemsAppType>(base, { headers }).api.items,
     'tax-policies': hc<TaxPoliciesAppType>(base, { headers }).api['tax-policies'],
     'audit-events': hc<AuditEventsAppType>(base, { headers }).api['audit-events'],
+    contacts: hc<ContactsAppType>(base, { headers }).api.contacts,
   };
   const api = new Proxy(main.api, {
     get(target, prop) {

@@ -1,6 +1,7 @@
 import type {
   AppType,
   AuditEventsAppType,
+  ContactsAppType,
   ItemsAppType,
   LocationsAppType,
   SocialProvidersAppType,
@@ -52,6 +53,7 @@ function buildClients(baseUrl: string) {
     locations: hc<LocationsAppType>(baseUrl, { headers: authHeaders }),
     auditEvents: hc<AuditEventsAppType>(baseUrl, { headers: authHeaders }),
     telemetry: hc<TelemetryAppType>(baseUrl, { headers: authHeaders }),
+    contacts: hc<ContactsAppType>(baseUrl, { headers: authHeaders }),
   };
 }
 
@@ -76,7 +78,7 @@ function liveClients() {
 // everything else to the main client. As more domains migrate they join the
 // override map — call sites never change.
 function facadeApi() {
-  const { main, items, taxPolicies, socialProviders, locations, auditEvents, telemetry } =
+  const { main, items, taxPolicies, socialProviders, locations, auditEvents, telemetry, contacts } =
     liveClients();
   const overrides: Record<string, unknown> = {
     items: items.api.items,
@@ -85,6 +87,7 @@ function facadeApi() {
     locations: locations.api.locations,
     'audit-events': auditEvents.api['audit-events'],
     telemetry: telemetry.api.telemetry,
+    contacts: contacts.api.contacts,
   };
   return new Proxy(main.api, {
     get(target, prop) {
@@ -101,6 +104,7 @@ type SocialProvidersApi = ReturnType<typeof buildClients>['socialProviders']['ap
 type LocationsApi = ReturnType<typeof buildClients>['locations']['api'];
 type AuditEventsApi = ReturnType<typeof buildClients>['auditEvents']['api'];
 type TelemetryApi = ReturnType<typeof buildClients>['telemetry']['api'];
+type ContactsApi = ReturnType<typeof buildClients>['contacts']['api'];
 type ApiClient = {
   api: MainApi & {
     items: ItemsApi['items'];
@@ -109,6 +113,7 @@ type ApiClient = {
     locations: LocationsApi['locations'];
     'audit-events': AuditEventsApi['audit-events'];
     telemetry: TelemetryApi['telemetry'];
+    contacts: ContactsApi['contacts'];
   };
 };
 
