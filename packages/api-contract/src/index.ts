@@ -14,6 +14,7 @@
 // client, so no consumer needs its type. It's mounted at runtime in createApp
 // like every other sub-app; its surface just isn't part of the RPC contract.
 export type {
+  AccountAppType,
   AppType,
   AuditEventsAppType,
   BillsAppType,
