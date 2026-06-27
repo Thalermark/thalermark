@@ -2,6 +2,7 @@ import { env as privateEnv } from '$env/dynamic/private';
 import { env as publicEnv } from '$env/dynamic/public';
 import type { RequestEvent } from '@sveltejs/kit';
 import type {
+  AccountAppType,
   AppType,
   AuditEventsAppType,
   BillsAppType,
@@ -29,6 +30,7 @@ const baseUrl = () =>
 // RPC surfaces, kept out of AppType so no single combined type is ever
 // serialized (the TS7056 ceiling the modular sub-apps dodge — see app.ts).
 const mkMain = (...a: Parameters<typeof hc>) => hc<AppType>(...a);
+const mkAccount = (...a: Parameters<typeof hc>) => hc<AccountAppType>(...a);
 const mkItems = (...a: Parameters<typeof hc>) => hc<ItemsAppType>(...a);
 const mkTaxPolicies = (...a: Parameters<typeof hc>) => hc<TaxPoliciesAppType>(...a);
 const mkAuditEvents = (...a: Parameters<typeof hc>) => hc<AuditEventsAppType>(...a);
@@ -40,6 +42,7 @@ const mkEstimates = (...a: Parameters<typeof hc>) => hc<EstimatesAppType>(...a);
 const mkExpenses = (...a: Parameters<typeof hc>) => hc<ExpensesAppType>(...a);
 const mkReports = (...a: Parameters<typeof hc>) => hc<ReportsAppType>(...a);
 type MainApi = ReturnType<typeof mkMain>['api'];
+type AccountApi = ReturnType<typeof mkAccount>['api'];
 type ItemsApi = ReturnType<typeof mkItems>['api'];
 type TaxPoliciesApi = ReturnType<typeof mkTaxPolicies>['api'];
 type AuditEventsApi = ReturnType<typeof mkAuditEvents>['api'];
@@ -66,6 +69,12 @@ type ReportsApi = ReturnType<typeof mkReports>['api'];
 // paths. (AppType no longer carries any `/api/companies` route.)
 export type ServerApiClient = {
   api: MainApi & {
+    // account sub-app serves four prefixes; web consumes me/account/team via hc
+    // (invitations create/accept/decline go through raw fetch in the (auth) flow,
+    // so no `invitations` override here — see settings/team + select-company).
+    me: AccountApi['me'];
+    account: AccountApi['account'];
+    team: AccountApi['team'];
     items: ItemsApi['items'];
     'tax-policies': TaxPoliciesApi['tax-policies'];
     'audit-events': AuditEventsApi['audit-events'];
@@ -86,7 +95,11 @@ export function serverApiClient(event: RequestEvent): ServerApiClient {
   const headers = serverApiHeaders(event);
   const base = baseUrl();
   const main = hc<AppType>(base, { headers });
+  const accountApi = hc<AccountAppType>(base, { headers }).api;
   const overrides: Record<string, unknown> = {
+    me: accountApi.me,
+    account: accountApi.account,
+    team: accountApi.team,
     items: hc<ItemsAppType>(base, { headers }).api.items,
     'tax-policies': hc<TaxPoliciesAppType>(base, { headers }).api['tax-policies'],
     'audit-events': hc<AuditEventsAppType>(base, { headers }).api['audit-events'],

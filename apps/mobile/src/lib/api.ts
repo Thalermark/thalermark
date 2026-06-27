@@ -1,4 +1,5 @@
 import type {
+  AccountAppType,
   AppType,
   AuditEventsAppType,
   CompaniesAppType,
@@ -59,6 +60,7 @@ function buildClients(baseUrl: string) {
     locations: hc<LocationsAppType>(baseUrl, { headers: authHeaders }),
     auditEvents: hc<AuditEventsAppType>(baseUrl, { headers: authHeaders }),
     telemetry: hc<TelemetryAppType>(baseUrl, { headers: authHeaders }),
+    account: hc<AccountAppType>(baseUrl, { headers: authHeaders }),
     companies: hc<CompaniesAppType>(baseUrl, { headers: authHeaders }),
     contacts: hc<ContactsAppType>(baseUrl, { headers: authHeaders }),
     invoices: hc<InvoicesAppType>(baseUrl, { headers: authHeaders }),
@@ -101,6 +103,7 @@ function facadeApi() {
     locations,
     auditEvents,
     telemetry,
+    account,
     companies,
     contacts,
     invoices,
@@ -115,6 +118,10 @@ function facadeApi() {
     locations: locations.api.locations,
     'audit-events': auditEvents.api['audit-events'],
     telemetry: telemetry.api.telemetry,
+    me: account.api.me,
+    account: account.api.account,
+    invitations: account.api.invitations,
+    team: account.api.team,
     companies: companies.api.companies,
     contacts: contacts.api.contacts,
     invoices: invoices.api.invoices,
@@ -137,6 +144,7 @@ type SocialProvidersApi = ReturnType<typeof buildClients>['socialProviders']['ap
 type LocationsApi = ReturnType<typeof buildClients>['locations']['api'];
 type AuditEventsApi = ReturnType<typeof buildClients>['auditEvents']['api'];
 type TelemetryApi = ReturnType<typeof buildClients>['telemetry']['api'];
+type AccountApi = ReturnType<typeof buildClients>['account']['api'];
 type CompaniesApi = ReturnType<typeof buildClients>['companies']['api'];
 type ContactsApi = ReturnType<typeof buildClients>['contacts']['api'];
 type InvoicesApi = ReturnType<typeof buildClients>['invoices']['api'];
@@ -152,6 +160,11 @@ type ApiClient = {
     locations: LocationsApi['locations'];
     'audit-events': AuditEventsApi['audit-events'];
     telemetry: TelemetryApi['telemetry'];
+    // account sub-app: four workspace prefixes (mobile consumes all via hc).
+    me: AccountApi['me'];
+    account: AccountApi['account'];
+    invitations: AccountApi['invitations'];
+    team: AccountApi['team'];
     // Split-prefix domain: company CRUD / settings / logo / accounts on
     // CompaniesAppType, the company-scoped reports + AI insights on
     // ReportsAppType — both under /api/companies/:id. Intersect both surfaces so
