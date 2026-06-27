@@ -34,7 +34,7 @@ import {
   recurringInvoices,
   seedChartOfAccounts,
 } from '@thalermark/db';
-import type { AddressAutocompleteProvider, AddressSuggestion } from '@thalermark/location';
+import type { AddressAutocompleteProvider } from '@thalermark/location';
 import { getLogger } from '@thalermark/logger';
 import { type StorageProvider, readLocalObject, verifyFileToken } from '@thalermark/storage';
 import {
@@ -126,6 +126,8 @@ import { type StripeBundle, decimalDollarsToCents } from './lib/stripe.js';
 import { requireCapability } from './middleware/authz.js';
 import { type RlsVariables, rlsContext } from './middleware/rls-context.js';
 import { itemsRoutes } from './routes/items.js';
+import { locationsRoutes } from './routes/locations.js';
+import { socialProvidersRoutes } from './routes/social-providers.js';
 import { taxPoliciesRoutes } from './routes/tax-policies.js';
 
 const log = getLogger(['api', 'app']);
@@ -1361,10 +1363,6 @@ function createMainApp(deps: AppDeps) {
           scheduleFlush: deps.scheduleFlush,
         }),
       )
-      // Public (pre-auth): which social-login buttons the sign-in page should
-      // render. Listed in rls-context's PUBLIC_PATH_PATTERNS so it skips the
-      // tenant context. No secrets — just the configured provider ids.
-      .get('/api/social-providers', (c) => c.json({ providers: deps.socialProviders ?? [] }))
       .get('/api/me', async (c) => {
         const userId = c.get('userId');
         const [user] = await bootstrapDb
@@ -1482,26 +1480,6 @@ function createMainApp(deps: AppDeps) {
           await emit(tx, event);
         }
         return c.json({ accepted: parsed.data.events.length });
-      })
-      // Address type-ahead for the mobile customer form. The web client hits its
-      // own same-origin SvelteKit proxy (/locations/autocomplete); mobile talks
-      // to the api, so it needs this route. Account-agnostic (in the rls-context
-      // bootstrap allowlist → behind auth, but no x-account-id / tenant tx). A
-      // missing or misconfigured provider degrades to empty + degraded:true,
-      // matching the web proxy, so the address fields stay usable by hand.
-      .get('/api/locations/autocomplete', async (c) => {
-        const empty: AddressSuggestion[] = [];
-        const q = c.req.query('q')?.trim();
-        if (!q) return c.json({ suggestions: empty, degraded: false });
-        if (q.length > 200) return c.json({ error: 'q_too_long' }, 400);
-        const country = c.req.query('country')?.trim().toUpperCase() || undefined;
-        if (!deps.addressProvider) return c.json({ suggestions: empty, degraded: true });
-        try {
-          const suggestions = await deps.addressProvider.autocomplete({ q, country });
-          return c.json({ suggestions, degraded: false });
-        } catch {
-          return c.json({ suggestions: empty, degraded: true });
-        }
       })
       .post('/api/invitations', requireCapability('team:manage'), async (c) => {
         const body = (await c.req.json().catch(() => null)) as {
@@ -7255,6 +7233,10 @@ export function createApp(deps: AppDeps) {
   app.route('/', billsRoutes());
   app.route('/', itemsRoutes());
   app.route('/', taxPoliciesRoutes());
+  // Deps-taking sub-apps: they close over `deps` (social providers list, address
+  // provider) rather than the tenant tx, so they're constructed with deps here.
+  app.route('/', socialProvidersRoutes(deps));
+  app.route('/', locationsRoutes(deps));
   return app;
 }
 
@@ -7264,3 +7246,5 @@ export type AppType = ReturnType<typeof createMainApp>;
 export type BillsAppType = ReturnType<typeof billsRoutes>;
 export type ItemsAppType = ReturnType<typeof itemsRoutes>;
 export type TaxPoliciesAppType = ReturnType<typeof taxPoliciesRoutes>;
+export type SocialProvidersAppType = ReturnType<typeof socialProvidersRoutes>;
+export type LocationsAppType = ReturnType<typeof locationsRoutes>;

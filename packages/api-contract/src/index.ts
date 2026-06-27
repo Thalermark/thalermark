@@ -9,4 +9,11 @@
 // TS type-serialization ceiling, TS7056). Each domain exposes its own XAppType;
 // clients build a dedicated hc<XAppType>() per domain and compose them behind a
 // unified facade. AppType still carries every not-yet-migrated domain.
-export type { AppType, BillsAppType, ItemsAppType, TaxPoliciesAppType } from '@thalermark/api';
+export type {
+  AppType,
+  BillsAppType,
+  ItemsAppType,
+  LocationsAppType,
+  SocialProvidersAppType,
+  TaxPoliciesAppType,
+} from '@thalermark/api';
