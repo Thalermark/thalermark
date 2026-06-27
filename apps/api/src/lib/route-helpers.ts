@@ -2,6 +2,9 @@
 // sub-apps (apps/api/src/routes/*). Lives in lib/ — not app.ts — so a sub-app
 // can import it without a cycle back through app.ts.
 
+import { type Transaction, chartOfAccounts, contacts } from '@thalermark/db';
+import { and, eq, inArray } from 'drizzle-orm';
+
 // UUIDv7 shape guard for `:id` path params. Most routes validate an id before
 // it reaches Postgres so a malformed value returns a clean 400 instead of a
 // cast error.
@@ -41,4 +44,79 @@ const EXT_MIME: Record<string, string> = {
 export function mimeForKey(key: string): string {
   const ext = key.slice(key.lastIndexOf('.') + 1).toLowerCase();
   return EXT_MIME[ext] ?? 'application/octet-stream';
+}
+
+// Expenses + bills post their open leg against the entity date (not the create
+// timestamp) so an expense/bill dated in a prior tax period lands there. Both
+// the expenses sub-app and the bills routes call this to turn a YYYY-MM-DD date
+// string into a UTC-midnight timestamp for the ledger posting.
+export function expenseDateToPostedAt(d: string): Date {
+  return new Date(`${d}T00:00:00.000Z`);
+}
+
+// Resolves chart_of_accounts row ids to their { code, accountType } within one
+// company (scoped by account for defense-in-depth per
+// [[architecture_account_id_explicit_filter]]). The expense + bill endpoints
+// use it to validate the category/payment account types before posting and to
+// recover the codes of a stored account when posting a reversal. Returns a Map
+// keyed by id; ids that don't resolve are simply absent. Shared by the expenses
+// sub-app and the bills routes.
+export async function resolveCoaAccounts(
+  tx: Transaction,
+  accountId: string,
+  companyId: string,
+  ids: string[],
+): Promise<Map<string, { code: string; accountType: string }>> {
+  const unique = Array.from(new Set(ids));
+  if (unique.length === 0) return new Map();
+  const rows = await tx
+    .select({
+      id: chartOfAccounts.id,
+      code: chartOfAccounts.code,
+      accountType: chartOfAccounts.accountType,
+    })
+    .from(chartOfAccounts)
+    .where(
+      and(
+        eq(chartOfAccounts.accountId, accountId),
+        eq(chartOfAccounts.companyId, companyId),
+        inArray(chartOfAccounts.id, unique),
+      ),
+    );
+  return new Map(rows.map((r) => [r.id, { code: r.code, accountType: r.accountType }]));
+}
+
+// Resolve an expense/bill's buy-from vendor link (shared by expense create +
+// update and bill create). Returns null when nothing to link; an {error,status}
+// pair for a bad link; otherwise the resolved {id,name} after marking the
+// contact is_vendor. Marking is_vendor on link is how an existing customer-only
+// contact becomes a vendor too — the buy-from half of the unified-contact
+// relationship view. Callers mirror the returned name into expenses.merchant so
+// the single on-screen "Vendor" field stays the display string.
+export async function resolveVendorLink(
+  tx: Transaction,
+  accountId: string,
+  companyId: string,
+  vendorContactId: string | null | undefined,
+): Promise<{ id: string; name: string } | { error: string; status: 400 | 404 } | null> {
+  if (!vendorContactId) return null;
+  const [vendor] = await tx
+    .select({
+      id: contacts.id,
+      companyId: contacts.companyId,
+      name: contacts.name,
+      isVendor: contacts.isVendor,
+    })
+    .from(contacts)
+    .where(and(eq(contacts.id, vendorContactId), eq(contacts.accountId, accountId)))
+    .limit(1);
+  if (!vendor) return { error: 'contact_not_found', status: 404 };
+  if (vendor.companyId !== companyId) return { error: 'vendor_company_mismatch', status: 400 };
+  if (!vendor.isVendor) {
+    await tx
+      .update(contacts)
+      .set({ isVendor: true, updatedAt: new Date() })
+      .where(and(eq(contacts.id, vendorContactId), eq(contacts.accountId, accountId)));
+  }
+  return { id: vendor.id, name: vendor.name };
 }

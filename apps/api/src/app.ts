@@ -5,13 +5,11 @@ import {
   type CashFlowAdvisor,
   type CashFlowSignals,
   type ExpenseCategorizer,
-  type ExtractionResult,
   type ReceiptExtractor,
 } from '@thalermark/ai';
 import {
   type Database,
   SYSTEM_USER_ID,
-  type Transaction,
   accounts,
   auditEvents,
   authUser,
@@ -52,9 +50,6 @@ import {
   companyUpdateSchema,
   emailTemplateTypeSchema,
   emailTemplateUpdateSchema,
-  expenseCategorizeSchema,
-  expenseCreateSchema,
-  expenseUpdateSchema,
   inviteRoleSchema,
   telemetryUpdateSchema,
   unknownPlaceholders,
@@ -67,7 +62,6 @@ import {
   getTableColumns,
   gt,
   gte,
-  ilike,
   inArray,
   isNull,
   lt,
@@ -92,19 +86,25 @@ import {
   postBillOpen,
   postBillOpenReversal,
   postBillPayment,
-  postExpenseCreate,
-  postExpenseReversal,
   postInvoiceTransition,
 } from './lib/ledger.js';
 import type { Mailer } from './lib/mailer.js';
 import { applyCursor, keysetOrderBy, parseLimit, slicePage } from './lib/pagination.js';
-import { EMAIL_RE, UUID_RE, escapeLike, mimeForKey } from './lib/route-helpers.js';
+import {
+  EMAIL_RE,
+  UUID_RE,
+  expenseDateToPostedAt,
+  mimeForKey,
+  resolveCoaAccounts,
+  resolveVendorLink,
+} from './lib/route-helpers.js';
 import { type StripeBundle, decimalDollarsToCents } from './lib/stripe.js';
 import { requireCapability } from './middleware/authz.js';
 import { type RlsVariables, rlsContext } from './middleware/rls-context.js';
 import { auditEventsRoutes } from './routes/audit-events.js';
 import { contactsRoutes } from './routes/contacts.js';
 import { estimatesRoutes } from './routes/estimates.js';
+import { expensesRoutes } from './routes/expenses.js';
 import { filesRoutes } from './routes/files.js';
 import { invoicesRoutes } from './routes/invoices.js';
 import { itemsRoutes } from './routes/items.js';
@@ -115,8 +115,6 @@ import { taxPoliciesRoutes } from './routes/tax-policies.js';
 import { telemetryRoutes } from './routes/telemetry.js';
 
 const log = getLogger(['api', 'app']);
-
-const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 // Parse a from/to reporting window shared by the report endpoints. Both are
 // optional; the default is year-to-date through today. Returns the half-open
@@ -175,16 +173,6 @@ function parseAsOf(
   return { asOf, asOfExclusive };
 }
 
-// Expense journal entries are dated to the expense's calendar date, not the
-// data-entry time — an expense dated Dec 31 entered Jan 2 must land in the
-// prior tax period so the Schedule C trial balance is right at year ends.
-// `expense_date` is a bare YYYY-MM-DD; postedAt is timestamptz, so we pin it
-// to midnight UTC. Invoice transitions post at `now` instead because their
-// economic event (sent / paid) genuinely happens at transition time.
-function expenseDateToPostedAt(d: string): Date {
-  return new Date(`${d}T00:00:00.000Z`);
-}
-
 // Bills post against the bill date (the open leg) and the payment date (the
 // paid leg) for the same accrual reason as expenses — a bill dated in the prior
 // tax period must land there. Reuses expenseDateToPostedAt for the date→midnight
@@ -220,92 +208,17 @@ type ApAgingResponse = {
   }[];
 };
 
-// Receipt capture (slice 8.9g). All tiers; image always saved. 10 MB cap +
-// the three formats a phone camera / scanner produces. The mime → extension
-// map doubles as the upload allowlist.
-const RECEIPT_MAX_BYTES = 10 * 1024 * 1024;
-const RECEIPT_MIME_EXT: Record<string, string> = {
-  'image/jpeg': 'jpg',
-  'image/png': 'png',
-  'application/pdf': 'pdf',
-};
-
 // Company logo upload (shown on invoices). Smaller cap than a receipt — a logo
 // is a small raster — and a raster-only allowlist: SVG is deliberately excluded
 // since it can carry script and the logo renders on the public, unauthenticated
-// invoice page. Same mime → extension shape as RECEIPT_MIME_EXT.
+// invoice page. Same mime → extension shape as the receipt upload allowlist
+// (RECEIPT_MIME_EXT, now in the expenses sub-app).
 const LOGO_MAX_BYTES = 2 * 1024 * 1024;
 const LOGO_MIME_EXT: Record<string, string> = {
   'image/jpeg': 'jpg',
   'image/png': 'png',
   'image/webp': 'webp',
 };
-
-// Resolves chart_of_accounts row ids to their { code, accountType } within one
-// company (scoped by account for defense-in-depth per
-// [[architecture_account_id_explicit_filter]]). The expense endpoints use it
-// to validate the category/payment account types before posting and to recover
-// the codes of an expense's stored accounts when posting a reversal. Returns a
-// Map keyed by id; ids that don't resolve are simply absent.
-async function resolveCoaAccounts(
-  tx: Transaction,
-  accountId: string,
-  companyId: string,
-  ids: string[],
-): Promise<Map<string, { code: string; accountType: string }>> {
-  const unique = Array.from(new Set(ids));
-  if (unique.length === 0) return new Map();
-  const rows = await tx
-    .select({
-      id: chartOfAccounts.id,
-      code: chartOfAccounts.code,
-      accountType: chartOfAccounts.accountType,
-    })
-    .from(chartOfAccounts)
-    .where(
-      and(
-        eq(chartOfAccounts.accountId, accountId),
-        eq(chartOfAccounts.companyId, companyId),
-        inArray(chartOfAccounts.id, unique),
-      ),
-    );
-  return new Map(rows.map((r) => [r.id, { code: r.code, accountType: r.accountType }]));
-}
-
-// Resolve an expense's optional buy-from vendor link (shared by create +
-// update). Returns null when nothing to link; an {error,status} pair for a bad
-// link; otherwise the resolved {id,name} after marking the contact is_vendor.
-// Marking is_vendor on link is how an existing customer-only contact becomes a
-// vendor too — the buy-from half of the unified-contact relationship view.
-// Callers mirror the returned name into expenses.merchant so the single
-// on-screen "Vendor" field stays the display string.
-async function resolveVendorLink(
-  tx: Transaction,
-  accountId: string,
-  companyId: string,
-  vendorContactId: string | null | undefined,
-): Promise<{ id: string; name: string } | { error: string; status: 400 | 404 } | null> {
-  if (!vendorContactId) return null;
-  const [vendor] = await tx
-    .select({
-      id: contacts.id,
-      companyId: contacts.companyId,
-      name: contacts.name,
-      isVendor: contacts.isVendor,
-    })
-    .from(contacts)
-    .where(and(eq(contacts.id, vendorContactId), eq(contacts.accountId, accountId)))
-    .limit(1);
-  if (!vendor) return { error: 'contact_not_found', status: 404 };
-  if (vendor.companyId !== companyId) return { error: 'vendor_company_mismatch', status: 400 };
-  if (!vendor.isVendor) {
-    await tx
-      .update(contacts)
-      .set({ isVendor: true, updatedAt: new Date() })
-      .where(and(eq(contacts.id, vendorContactId), eq(contacts.accountId, accountId)));
-  }
-  return { id: vendor.id, name: vendor.name };
-}
 
 // Offline-payment columns projected for the company PATCH's audit before/after
 // and response. Keeps those call sites in lockstep; accepts any row carrying
@@ -3334,753 +3247,6 @@ function createMainApp(deps: AppDeps) {
           return c.json({ accounts });
         },
       )
-      // ---- Expenses (slice 8.9c) ----------------------------------------
-      // Third MVP entity chain, ledger-aware from day one. Every mutation
-      // wraps the row write + audit row + journal posting in the same tenant
-      // tx (c.get('tx')) so the deferred sum-to-zero trigger on journal_lines
-      // fires at commit and a posting failure rolls the whole mutation back
-      // together — the shape L2 established for invoice transitions. Create
-      // posts Dr <category> / Cr <payment>; edit posts a reversal of the
-      // prior entry + a fresh entry; delete is soft (deleted_at) and posts a
-      // reversal only. category_account_id must be an 'expense' COA row,
-      // payment_account_id an 'asset' row (the FK columns alone admit any
-      // account, so the API type-checks before posting).
-      .post('/api/expenses', requireCapability('expenses:write'), async (c) => {
-        const body = await c.req.json().catch(() => null);
-        const parsed = expenseCreateSchema.safeParse(body);
-        if (!parsed.success) {
-          return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
-        }
-
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
-        const {
-          companyId,
-          customerContactId,
-          vendorContactId,
-          categoryAccountId,
-          paymentAccountId,
-          ...rest
-        } = parsed.data;
-
-        const [company] = await tx
-          .select({ id: companies.id })
-          .from(companies)
-          .where(and(eq(companies.id, companyId), eq(companies.accountId, accountId)))
-          .limit(1);
-        if (!company) return c.json({ error: 'company_not_found' }, 404);
-
-        // customerContactId is optional (carried for v1.x job-costing, not surfaced
-        // in MVP). When present it must belong to this account AND match the
-        // expense's company — the same invariant the invoice create enforces.
-        if (customerContactId) {
-          const [customer] = await tx
-            .select({ id: contacts.id, companyId: contacts.companyId })
-            .from(contacts)
-            .where(and(eq(contacts.id, customerContactId), eq(contacts.accountId, accountId)))
-            .limit(1);
-          if (!customer) return c.json({ error: 'contact_not_found' }, 404);
-          if (customer.companyId !== companyId) {
-            return c.json({ error: 'customer_company_mismatch' }, 400);
-          }
-        }
-
-        // vendorContactId is the optional buy-from link (same account+company
-        // invariant). Linking resolves the single on-screen "Vendor" field:
-        // merchant is mirrored from the contact's name (the always-present
-        // display string) and the contact is marked is_vendor so it shows on
-        // the buy-from side of the relationship. The needs-review flag is left
-        // null (a linked expense needs no review).
-        let merchant = rest.merchant;
-        const vendor = await resolveVendorLink(tx, accountId, companyId, vendorContactId);
-        if (vendor && 'error' in vendor) return c.json({ error: vendor.error }, vendor.status);
-        if (vendor) merchant = vendor.name;
-
-        const coa = await resolveCoaAccounts(tx, accountId, companyId, [
-          categoryAccountId,
-          paymentAccountId,
-        ]);
-        const category = coa.get(categoryAccountId);
-        const payment = coa.get(paymentAccountId);
-        if (!category || category.accountType !== 'expense') {
-          return c.json({ error: 'invalid_category_account' }, 400);
-        }
-        if (!payment || payment.accountType !== 'asset') {
-          return c.json({ error: 'invalid_payment_account' }, 400);
-        }
-
-        const expenseId = uuidv7();
-        const [created] = await tx
-          .insert(expenses)
-          .values({
-            id: expenseId,
-            accountId,
-            companyId,
-            customerContactId: customerContactId ?? null,
-            vendorContactId: vendorContactId ?? null,
-            categoryAccountId,
-            paymentAccountId,
-            amount: rest.amount,
-            expenseDate: rest.expenseDate,
-            merchant,
-            memo: rest.memo ?? null,
-          })
-          .returning();
-
-        await c.var.audit({
-          entityType: 'expense',
-          entityId: expenseId,
-          action: 'create',
-          after: created,
-          companyId,
-        });
-
-        await postExpenseCreate(tx, {
-          expense: { id: expenseId, merchant, amount: rest.amount },
-          categoryCode: category.code,
-          paymentCode: payment.code,
-          accountId,
-          companyId,
-          postedAt: expenseDateToPostedAt(rest.expenseDate),
-        });
-
-        // Telemetry (opt-in; no-op unless the account enabled it). Read off the
-        // created row, not a literal — today receipts attach via a follow-up
-        // /:id/receipt upload so this is ~always false, but it stays correct if
-        // the create flow ever carries a receipt inline. No amounts (TELEMETRY.md).
-        await emit(tx, {
-          name: 'expense_logged',
-          has_receipt_attached: !!created?.receiptStorageKey,
-        });
-
-        return c.json(created, 201);
-      })
-      // ---- Text expense categorization (AI) -----------------------------
-      // Stateless suggestion for the new/edit expense form: given the typed
-      // merchant (+ optional memo/amount) the fast model picks a category from
-      // the company's expense COA. The user reviews + saves — the AI never
-      // writes the ledger. Opt-in like /extract: 503 when no LLM is configured.
-      // A literal path, so it never collides with the /api/expenses/:id routes.
-      .post('/api/expenses/categorize', requireCapability('expenses:write'), async (c) => {
-        const body = await c.req.json().catch(() => null);
-        const parsed = expenseCategorizeSchema.safeParse(body);
-        if (!parsed.success) {
-          return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
-        }
-        if (!deps.categorizer) return c.json({ error: 'ai_not_configured' }, 503);
-
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
-        const { companyId, merchant, memo, amount } = parsed.data;
-
-        const [company] = await tx
-          .select({ id: companies.id })
-          .from(companies)
-          .where(and(eq(companies.id, companyId), eq(companies.accountId, accountId)))
-          .limit(1);
-        if (!company) return c.json({ error: 'company_not_found' }, 404);
-
-        // The company's active expense COA — the model's suggestion is
-        // constrained to these codes (in the prompt and by post-hoc validation
-        // inside the categorizer) so it can't return a code that wouldn't post.
-        const categories = await tx
-          .select({
-            id: chartOfAccounts.id,
-            code: chartOfAccounts.code,
-            name: chartOfAccounts.name,
-          })
-          .from(chartOfAccounts)
-          .where(
-            and(
-              eq(chartOfAccounts.accountId, accountId),
-              eq(chartOfAccounts.companyId, companyId),
-              eq(chartOfAccounts.accountType, 'expense'),
-              eq(chartOfAccounts.isActive, true),
-            ),
-          )
-          .orderBy(asc(chartOfAccounts.code));
-
-        let suggestedCategoryCode: string | null;
-        try {
-          ({ suggestedCategoryCode } = await deps.categorizer.categorize({
-            merchant,
-            memo: memo ?? null,
-            amount: amount ?? null,
-            allowedCategories: categories.map((row) => ({ code: row.code, name: row.name })),
-          }));
-        } catch (_err) {
-          return c.json({ error: 'categorization_failed' }, 502);
-        }
-
-        // Resolve code → account id for the form prefill (the select is keyed by
-        // id; codes are the stable persisted form). Null when nothing fit.
-        const suggestedCategoryAccountId = suggestedCategoryCode
-          ? (categories.find((row) => row.code === suggestedCategoryCode)?.id ?? null)
-          : null;
-
-        // Telemetry (opt-in; no-op unless the account enabled it). Same event
-        // the receipt path emits — the AI did the categorisation work; the user
-        // still confirms on save (TELEMETRY.md).
-        if (suggestedCategoryCode) {
-          await emit(tx, { name: 'expense_categorised', method: 'ai_suggested' });
-        }
-
-        return c.json({ suggestedCategoryCode, suggestedCategoryAccountId });
-      })
-      .get('/api/expenses', async (c) => {
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
-        const companyId = c.req.query('companyId');
-        const from = c.req.query('from');
-        const to = c.req.query('to');
-        const categoryAccountId = c.req.query('categoryAccountId');
-        const q = c.req.query('q');
-        const needsReview = c.req.query('needsReview');
-
-        // from/to are inclusive YYYY-MM-DD bounds on expense_date. Validate the
-        // shape so a malformed value returns a clean 400 rather than letting
-        // Postgres throw "invalid input syntax for type date" → 500.
-        if (from !== undefined && !ISO_DATE_RE.test(from)) {
-          return c.json({ error: 'invalid_from' }, 400);
-        }
-        if (to !== undefined && !ISO_DATE_RE.test(to)) {
-          return c.json({ error: 'invalid_to' }, 400);
-        }
-
-        const limit = parseLimit(c.req.query('limit'));
-        if (limit === null) return c.json({ error: 'invalid_limit' }, 400);
-        // expense_date is a date column (string), created_at a timestamp (Date).
-        const keys = [
-          { col: expenses.expenseDate },
-          { col: expenses.createdAt, revive: (v: unknown) => new Date(v as string) },
-          { col: expenses.id },
-        ];
-        const keyset = applyCursor(c.req.query('cursor'), keys, 'desc');
-        if (keyset === 'invalid') return c.json({ error: 'invalid_cursor' }, 400);
-
-        const conditions = [eq(expenses.accountId, accountId), isNull(expenses.deletedAt)];
-        if (companyId) conditions.push(eq(expenses.companyId, companyId));
-        if (from) conditions.push(gte(expenses.expenseDate, from));
-        if (to) conditions.push(lte(expenses.expenseDate, to));
-        if (categoryAccountId) conditions.push(eq(expenses.categoryAccountId, categoryAccountId));
-        // "Needs review" filter: receipt-backed expenses whose vendor isn't
-        // linked yet (backed by the partial index expenses_vendor_review_idx).
-        if (needsReview === 'true') conditions.push(eq(expenses.vendorReview, 'needs_review'));
-        // Merchant contains-search. escapeLike neutralises %/_ so a literal
-        // "50%" search doesn't turn into a wildcard.
-        if (q) conditions.push(ilike(expenses.merchant, `%${escapeLike(q)}%`));
-        if (keyset) conditions.push(keyset);
-
-        const rows = await tx
-          .select()
-          .from(expenses)
-          .where(and(...conditions))
-          .orderBy(keysetOrderBy(keys, 'desc'))
-          .limit(limit + 1);
-        const page = slicePage(rows, limit, (r) => [r.expenseDate, r.createdAt, r.id]);
-        return c.json({ expenses: page.rows, nextCursor: page.nextCursor });
-      })
-      .get('/api/expenses/:id', async (c) => {
-        const id = c.req.param('id');
-        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
-        const [expense] = await tx
-          .select()
-          .from(expenses)
-          .where(and(eq(expenses.id, id), eq(expenses.accountId, accountId)))
-          .limit(1);
-        if (!expense || expense.deletedAt) return c.json({ error: 'expense_not_found' }, 404);
-        return c.json(expense);
-      })
-      .patch(
-        '/api/expenses/:id',
-        requireCapability('expenses:write'),
-        validator('json', (value, c) => {
-          const parsed = expenseUpdateSchema.safeParse(value);
-          if (!parsed.success) {
-            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
-          }
-          return parsed.data;
-        }),
-        async (c) => {
-          const id = c.req.param('id');
-          if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
-          const data = c.req.valid('json');
-
-          const tx = c.get('tx');
-          const accountId = c.get('accountId');
-
-          const [current] = await tx
-            .select()
-            .from(expenses)
-            .where(and(eq(expenses.id, id), eq(expenses.accountId, accountId)))
-            .limit(1);
-          if (!current || current.deletedAt) return c.json({ error: 'expense_not_found' }, 404);
-
-          // Sparse merge: omitted fields keep their current value. companyId
-          // is immutable (omitted from the schema) so the expense can't move
-          // between companies and orphan its company-scoped ledger accounts.
-          const next = {
-            customerContactId:
-              data.customerContactId !== undefined
-                ? data.customerContactId
-                : current.customerContactId,
-            vendorContactId:
-              data.vendorContactId !== undefined ? data.vendorContactId : current.vendorContactId,
-            categoryAccountId: data.categoryAccountId ?? current.categoryAccountId,
-            paymentAccountId: data.paymentAccountId ?? current.paymentAccountId,
-            amount: data.amount ?? current.amount,
-            expenseDate: data.expenseDate ?? current.expenseDate,
-            merchant: data.merchant ?? current.merchant,
-            memo: data.memo !== undefined ? data.memo : current.memo,
-          };
-
-          if (data.customerContactId !== undefined) {
-            const [customer] = await tx
-              .select({ id: contacts.id, companyId: contacts.companyId })
-              .from(contacts)
-              .where(
-                and(eq(contacts.id, data.customerContactId), eq(contacts.accountId, accountId)),
-              )
-              .limit(1);
-            if (!customer) return c.json({ error: 'contact_not_found' }, 404);
-            if (customer.companyId !== current.companyId) {
-              return c.json({ error: 'customer_company_mismatch' }, 400);
-            }
-          }
-
-          // Vendor link: only (re)validated when the field is touched. Linking
-          // mirrors the contact's name into merchant and clears the review flag;
-          // an explicit unlink re-flags iff a receipt is attached (otherwise
-          // there's nothing to review). When untouched, vendor_review is left
-          // as-is so an edit to some other field never resurrects a dismissed
-          // flag.
-          let vendorReview = current.vendorReview;
-          if (data.vendorContactId !== undefined) {
-            const vendor = await resolveVendorLink(
-              tx,
-              accountId,
-              current.companyId,
-              data.vendorContactId,
-            );
-            if (vendor && 'error' in vendor) return c.json({ error: vendor.error }, vendor.status);
-            if (vendor) {
-              next.merchant = vendor.name;
-              vendorReview = null;
-            } else {
-              vendorReview = current.receiptStorageKey ? 'needs_review' : null;
-            }
-          }
-
-          // Resolve all four COA ids (old + new) in one round trip. The new
-          // pair is type-checked like create; the old pair supplies the codes
-          // for the reversal entry.
-          const coa = await resolveCoaAccounts(tx, accountId, current.companyId, [
-            current.categoryAccountId,
-            current.paymentAccountId,
-            next.categoryAccountId,
-            next.paymentAccountId,
-          ]);
-          const newCategory = coa.get(next.categoryAccountId);
-          const newPayment = coa.get(next.paymentAccountId);
-          if (!newCategory || newCategory.accountType !== 'expense') {
-            return c.json({ error: 'invalid_category_account' }, 400);
-          }
-          if (!newPayment || newPayment.accountType !== 'asset') {
-            return c.json({ error: 'invalid_payment_account' }, 400);
-          }
-          const oldCategory = coa.get(current.categoryAccountId);
-          const oldPayment = coa.get(current.paymentAccountId);
-          if (!oldCategory || !oldPayment) {
-            // ON DELETE RESTRICT keeps an in-use COA row alive, so a missing
-            // stored account is an integrity failure, not a user error.
-            throw new Error(`expense ${id}: stored COA accounts missing`);
-          }
-
-          const now = new Date();
-
-          // Edit = reversal of the prior posting (old accounts/amount, old
-          // period) + a fresh posting (new accounts/amount, new period). No
-          // amend-in-place keeps the GL append-only; every edit nets to the
-          // correct balance. (Locked decision: edit = reversal + new.)
-          await postExpenseReversal(tx, {
-            expense: { id, merchant: current.merchant, amount: current.amount },
-            categoryCode: oldCategory.code,
-            paymentCode: oldPayment.code,
-            accountId,
-            companyId: current.companyId,
-            postedAt: expenseDateToPostedAt(current.expenseDate),
-          });
-
-          const [updated] = await tx
-            .update(expenses)
-            .set({
-              customerContactId: next.customerContactId ?? null,
-              vendorContactId: next.vendorContactId ?? null,
-              categoryAccountId: next.categoryAccountId,
-              paymentAccountId: next.paymentAccountId,
-              amount: next.amount,
-              expenseDate: next.expenseDate,
-              merchant: next.merchant,
-              memo: next.memo ?? null,
-              vendorReview,
-              updatedAt: now,
-            })
-            .where(and(eq(expenses.id, id), eq(expenses.accountId, accountId)))
-            .returning();
-          if (!updated) return c.json({ error: 'expense_not_found' }, 404);
-
-          await c.var.audit({
-            entityType: 'expense',
-            entityId: id,
-            action: 'update',
-            before: current,
-            after: updated,
-            companyId: current.companyId,
-          });
-
-          await postExpenseCreate(tx, {
-            expense: { id, merchant: next.merchant, amount: next.amount },
-            categoryCode: newCategory.code,
-            paymentCode: newPayment.code,
-            accountId,
-            companyId: current.companyId,
-            postedAt: expenseDateToPostedAt(next.expenseDate),
-          });
-
-          return c.json(updated);
-        },
-      )
-      .delete('/api/expenses/:id', requireCapability('expenses:write'), async (c) => {
-        const id = c.req.param('id');
-        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
-
-        const [current] = await tx
-          .select()
-          .from(expenses)
-          .where(and(eq(expenses.id, id), eq(expenses.accountId, accountId)))
-          .limit(1);
-        if (!current || current.deletedAt) return c.json({ error: 'expense_not_found' }, 404);
-
-        const coa = await resolveCoaAccounts(tx, accountId, current.companyId, [
-          current.categoryAccountId,
-          current.paymentAccountId,
-        ]);
-        const category = coa.get(current.categoryAccountId);
-        const payment = coa.get(current.paymentAccountId);
-        if (!category || !payment) {
-          throw new Error(`expense ${id}: stored COA accounts missing`);
-        }
-
-        const now = new Date();
-        const [deleted] = await tx
-          .update(expenses)
-          .set({ deletedAt: now, updatedAt: now })
-          .where(and(eq(expenses.id, id), eq(expenses.accountId, accountId)))
-          .returning();
-        if (!deleted) return c.json({ error: 'expense_not_found' }, 404);
-
-        await c.var.audit({
-          entityType: 'expense',
-          entityId: id,
-          action: 'delete',
-          before: current,
-          after: deleted,
-          companyId: current.companyId,
-        });
-
-        // Soft delete keeps the row for history (deleted_at) but reverses the
-        // original posting so the GL nets to zero for this expense.
-        await postExpenseReversal(tx, {
-          expense: { id, merchant: current.merchant, amount: current.amount },
-          categoryCode: category.code,
-          paymentCode: payment.code,
-          accountId,
-          companyId: current.companyId,
-          postedAt: expenseDateToPostedAt(current.expenseDate),
-        });
-
-        return c.json(deleted);
-      })
-      // ---- Receipt capture (slice 8.9g) ---------------------------------
-      // All-tier: the image is always saved (extraction in 8.9h is the gated
-      // bit). Multipart upload, ≤10MB, jpeg/png/pdf. The object write is the
-      // LAST await so a storage failure rolls back the column update + audit
-      // together (rls-context rethrows c.error → tenant-tx rollback) — no
-      // orphaned object, no dangling key. The tx is briefly held during the
-      // upload, acceptable for occasional receipt-sized blobs. Audit rows
-      // carry the storage key, never the bytes.
-      .post('/api/expenses/:id/receipt', requireCapability('expenses:write'), async (c) => {
-        const id = c.req.param('id');
-        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
-        if (!deps.storage) return c.json({ error: 'storage_not_configured' }, 503);
-
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
-        const [expense] = await tx
-          .select()
-          .from(expenses)
-          .where(and(eq(expenses.id, id), eq(expenses.accountId, accountId)))
-          .limit(1);
-        if (!expense || expense.deletedAt) return c.json({ error: 'expense_not_found' }, 404);
-
-        const body = await c.req.parseBody();
-        const file = body.file;
-        if (!(file instanceof File)) return c.json({ error: 'file_required' }, 400);
-        const ext = RECEIPT_MIME_EXT[file.type];
-        if (!ext) {
-          return c.json(
-            { error: 'unsupported_media_type', allowed: Object.keys(RECEIPT_MIME_EXT) },
-            415,
-          );
-        }
-        if (file.size > RECEIPT_MAX_BYTES) {
-          return c.json({ error: 'file_too_large', maxBytes: RECEIPT_MAX_BYTES }, 413);
-        }
-        const bytes = new Uint8Array(await file.arrayBuffer());
-
-        // Re-upload overwrites the column with a fresh key; the prior object is
-        // left orphaned (rare, and harmless — keys are uuidv7 so no collision).
-        const key = `accounts/${accountId}/companies/${expense.companyId}/expenses/${id}/${uuidv7()}.${ext}`;
-        const now = new Date();
-
-        // Scan-and-forget review flag: a freshly-attached receipt with no vendor
-        // link goes to the "Needs review" queue so a human can link/create/
-        // dismiss the vendor later. A receipt on an already-linked expense needs
-        // no review.
-        const vendorReview = expense.vendorContactId ? null : 'needs_review';
-        const [updated] = await tx
-          .update(expenses)
-          .set({ receiptStorageKey: key, receiptUploadedAt: now, vendorReview, updatedAt: now })
-          .where(and(eq(expenses.id, id), eq(expenses.accountId, accountId)))
-          .returning();
-        if (!updated) return c.json({ error: 'expense_not_found' }, 404);
-
-        await c.var.audit({
-          entityType: 'expense',
-          entityId: id,
-          action: 'receipt-upload',
-          before: {
-            receiptStorageKey: expense.receiptStorageKey,
-            receiptUploadedAt: expense.receiptUploadedAt,
-          },
-          after: { receiptStorageKey: key, receiptUploadedAt: now },
-          companyId: expense.companyId,
-        });
-
-        await deps.storage.putObject({ key, body: bytes, contentType: file.type });
-
-        return c.json({ id, receiptStorageKey: key, receiptUploadedAt: now }, 201);
-      })
-      // Dismiss the needs-review flag without linking a vendor — the one-off
-      // "I'm not tracking this merchant as a contact" path. Clears the flag
-      // (vendor_review → null); never creates a contact. Idempotent.
-      .post('/api/expenses/:id/dismiss-review', requireCapability('expenses:write'), async (c) => {
-        const id = c.req.param('id');
-        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
-        const [expense] = await tx
-          .select()
-          .from(expenses)
-          .where(and(eq(expenses.id, id), eq(expenses.accountId, accountId)))
-          .limit(1);
-        if (!expense || expense.deletedAt) return c.json({ error: 'expense_not_found' }, 404);
-
-        if (expense.vendorReview !== null) {
-          const [updated] = await tx
-            .update(expenses)
-            .set({ vendorReview: null, updatedAt: new Date() })
-            .where(and(eq(expenses.id, id), eq(expenses.accountId, accountId)))
-            .returning();
-          await c.var.audit({
-            entityType: 'expense',
-            entityId: id,
-            action: 'dismiss-review',
-            before: { vendorReview: expense.vendorReview },
-            after: { vendorReview: null },
-            companyId: expense.companyId,
-          });
-          return c.json(updated);
-        }
-        return c.json(expense);
-      })
-      // 1-hour signed download URL. For s3 it's a presigned object-store URL
-      // the browser fetches directly; for local-FS it's a relative
-      // /api/files/<token> the api serves itself.
-      .get('/api/expenses/:id/receipt', async (c) => {
-        const id = c.req.param('id');
-        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
-        if (!deps.storage) return c.json({ error: 'storage_not_configured' }, 503);
-
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
-        const [expense] = await tx
-          .select({
-            receiptStorageKey: expenses.receiptStorageKey,
-            deletedAt: expenses.deletedAt,
-          })
-          .from(expenses)
-          .where(and(eq(expenses.id, id), eq(expenses.accountId, accountId)))
-          .limit(1);
-        if (!expense || expense.deletedAt) return c.json({ error: 'expense_not_found' }, 404);
-        if (!expense.receiptStorageKey) return c.json({ error: 'no_receipt' }, 404);
-
-        const url = await deps.storage.getSignedDownloadUrl(expense.receiptStorageKey, {
-          expiresInSeconds: 3600,
-        });
-        return c.json({ url, contentType: mimeForKey(expense.receiptStorageKey) });
-      })
-      // Delete the receipt: null the columns + audit, then drop the object as
-      // the LAST await so a storage failure rolls the nulling back (the key
-      // keeps pointing at a still-present object — consistent). deleteObject
-      // is idempotent.
-      .delete('/api/expenses/:id/receipt', requireCapability('expenses:write'), async (c) => {
-        const id = c.req.param('id');
-        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
-        if (!deps.storage) return c.json({ error: 'storage_not_configured' }, 503);
-
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
-        const [expense] = await tx
-          .select()
-          .from(expenses)
-          .where(and(eq(expenses.id, id), eq(expenses.accountId, accountId)))
-          .limit(1);
-        if (!expense || expense.deletedAt) return c.json({ error: 'expense_not_found' }, 404);
-        if (!expense.receiptStorageKey) return c.json({ error: 'no_receipt' }, 404);
-
-        const oldKey = expense.receiptStorageKey;
-        const now = new Date();
-        const [updated] = await tx
-          .update(expenses)
-          .set({ receiptStorageKey: null, receiptUploadedAt: null, updatedAt: now })
-          .where(and(eq(expenses.id, id), eq(expenses.accountId, accountId)))
-          .returning();
-        if (!updated) return c.json({ error: 'expense_not_found' }, 404);
-
-        await c.var.audit({
-          entityType: 'expense',
-          entityId: id,
-          action: 'receipt-delete',
-          before: { receiptStorageKey: oldKey, receiptUploadedAt: expense.receiptUploadedAt },
-          after: { receiptStorageKey: null, receiptUploadedAt: null },
-          companyId: expense.companyId,
-        });
-
-        await deps.storage.deleteObject(oldKey);
-
-        return c.json({ id, deleted: true });
-      })
-      // ---- Receipt extraction (slice 8.9h) ------------------------------
-      // Pro+/BYOK: a vision model reads the stored receipt and suggests
-      // merchant / total / date / tax / category. The user reviews + saves —
-      // the AI never writes the ledger directly. Opt-in like storage/stripe:
-      // 503 when no LLM provider is configured. Sync per locked decision #7
-      // (move behind pg-boss if P95 crosses ~3s). The model call runs inside
-      // the tenant tx; on failure we still commit extraction_status='failed'
-      // (the 8.5b email-path shape) so the throw doesn't roll back the status —
-      // the UI needs to see that it failed and let the user retry.
-      .post('/api/expenses/:id/extract', requireCapability('expenses:write'), async (c) => {
-        const id = c.req.param('id');
-        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
-        if (!deps.extractor) return c.json({ error: 'ai_not_configured' }, 503);
-        if (!deps.storage) return c.json({ error: 'storage_not_configured' }, 503);
-
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
-        const [expense] = await tx
-          .select()
-          .from(expenses)
-          .where(and(eq(expenses.id, id), eq(expenses.accountId, accountId)))
-          .limit(1);
-        if (!expense || expense.deletedAt) return c.json({ error: 'expense_not_found' }, 404);
-        // Extraction operates on the already-uploaded receipt (capture is 8.9g).
-        if (!expense.receiptStorageKey) return c.json({ error: 'no_receipt' }, 400);
-
-        // The company's active expense COA. The model's category suggestion is
-        // constrained to these codes (in the prompt and by post-hoc validation
-        // inside the extractor) so it can't return a code that wouldn't post.
-        const categories = await tx
-          .select({
-            id: chartOfAccounts.id,
-            code: chartOfAccounts.code,
-            name: chartOfAccounts.name,
-          })
-          .from(chartOfAccounts)
-          .where(
-            and(
-              eq(chartOfAccounts.accountId, accountId),
-              eq(chartOfAccounts.companyId, expense.companyId),
-              eq(chartOfAccounts.accountType, 'expense'),
-              eq(chartOfAccounts.isActive, true),
-            ),
-          )
-          .orderBy(asc(chartOfAccounts.code));
-
-        const bytes = await deps.storage.getObject(expense.receiptStorageKey);
-        const mimeType = mimeForKey(expense.receiptStorageKey);
-
-        const now = new Date();
-        let result: ExtractionResult | null = null;
-        let status: 'succeeded' | 'failed';
-        try {
-          result = await deps.extractor.extractReceipt({
-            bytes,
-            mimeType,
-            allowedCategories: categories.map((row) => ({ code: row.code, name: row.name })),
-          });
-          status = 'succeeded';
-        } catch (_err) {
-          status = 'failed';
-        }
-
-        const [updated] = await tx
-          .update(expenses)
-          .set({ extractionStatus: status, extractionPayload: result, updatedAt: now })
-          .where(and(eq(expenses.id, id), eq(expenses.accountId, accountId)))
-          .returning();
-        if (!updated) return c.json({ error: 'expense_not_found' }, 404);
-
-        await c.var.audit({
-          entityType: 'expense',
-          entityId: id,
-          action: 'receipt-extract',
-          before: { extractionStatus: expense.extractionStatus },
-          after: { extractionStatus: status, extraction: result },
-          companyId: expense.companyId,
-        });
-
-        if (status === 'failed' || !result) {
-          // Status committed as 'failed' above; surface a 502 without throwing
-          // so the tx still commits.
-          return c.json({ error: 'extraction_failed', extractionStatus: 'failed' as const }, 502);
-        }
-
-        // Resolve the suggested code → account id for the web prefill. Codes are
-        // the stable, persisted form; the edit form's category select is keyed
-        // by id. Null when the model suggested nothing or a now-removed code.
-        const suggestedCategoryAccountId = result.suggestedCategoryCode
-          ? (categories.find((row) => row.code === result?.suggestedCategoryCode)?.id ?? null)
-          : null;
-
-        // Telemetry (opt-in; no-op unless the account enabled it). The AI did
-        // the categorisation work when it returned a usable code; the user
-        // still confirms on save. expense_categorised{ai_suggested} is the
-        // documented event for this (TELEMETRY.md).
-        if (result.suggestedCategoryCode) {
-          await emit(tx, { name: 'expense_categorised', method: 'ai_suggested' });
-        }
-
-        return c.json({
-          extractionStatus: 'succeeded' as const,
-          extraction: result,
-          suggestedCategoryAccountId,
-        });
-      })
       .get('/api/public/invoices/:token', async (c) => {
         const token = c.req.param('token');
         const [invoice] = await bootstrapDb
@@ -4596,6 +3762,7 @@ export function createApp(deps: AppDeps) {
   app.route('/', locationsRoutes(deps));
   app.route('/', filesRoutes(deps));
   app.route('/', contactsRoutes(deps));
+  app.route('/', expensesRoutes(deps));
   app.route('/', invoicesRoutes(deps));
   app.route('/', recurringInvoicesRoutes(deps));
   app.route('/', estimatesRoutes(deps));
@@ -4613,6 +3780,7 @@ export type LocationsAppType = ReturnType<typeof locationsRoutes>;
 export type AuditEventsAppType = ReturnType<typeof auditEventsRoutes>;
 export type TelemetryAppType = ReturnType<typeof telemetryRoutes>;
 export type ContactsAppType = ReturnType<typeof contactsRoutes>;
+export type ExpensesAppType = ReturnType<typeof expensesRoutes>;
 export type InvoicesAppType = ReturnType<typeof invoicesRoutes>;
 export type RecurringInvoicesAppType = ReturnType<typeof recurringInvoicesRoutes>;
 export type EstimatesAppType = ReturnType<typeof estimatesRoutes>;
