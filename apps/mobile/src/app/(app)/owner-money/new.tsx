@@ -117,7 +117,7 @@ export default function NewOwnerMoney() {
         <ScrollView contentContainerClassName="px-6 pt-6 pb-16" keyboardShouldPersistTaps="handled">
           <Pressable onPress={() => router.back()}>
             <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
-              ← Owner money
+              ← My Money
             </Text>
           </Pressable>
           <Text className="mt-3 font-serif text-3xl font-light text-ink">Record money</Text>

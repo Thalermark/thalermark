@@ -77,7 +77,7 @@ const BILLS_ENTRY: Entry = {
 const OWNER_MONEY_ENTRY: Entry = {
   href: '/owner-money',
   icon: 'swap-vertical-outline',
-  title: 'Owner money',
+  title: 'My Money',
   subtitle: 'Money you put in from your own pocket, or take out to pay yourself.',
 };
 
