@@ -6,7 +6,10 @@ import type {
   AuditEventsAppType,
   BillsAppType,
   ContactsAppType,
+  EstimatesAppType,
+  InvoicesAppType,
   ItemsAppType,
+  RecurringInvoicesAppType,
   TaxPoliciesAppType,
 } from '@thalermark/api-contract';
 import { hc } from 'hono/client';
@@ -27,11 +30,17 @@ const mkItems = (...a: Parameters<typeof hc>) => hc<ItemsAppType>(...a);
 const mkTaxPolicies = (...a: Parameters<typeof hc>) => hc<TaxPoliciesAppType>(...a);
 const mkAuditEvents = (...a: Parameters<typeof hc>) => hc<AuditEventsAppType>(...a);
 const mkContacts = (...a: Parameters<typeof hc>) => hc<ContactsAppType>(...a);
+const mkInvoices = (...a: Parameters<typeof hc>) => hc<InvoicesAppType>(...a);
+const mkRecurring = (...a: Parameters<typeof hc>) => hc<RecurringInvoicesAppType>(...a);
+const mkEstimates = (...a: Parameters<typeof hc>) => hc<EstimatesAppType>(...a);
 type MainApi = ReturnType<typeof mkMain>['api'];
 type ItemsApi = ReturnType<typeof mkItems>['api'];
 type TaxPoliciesApi = ReturnType<typeof mkTaxPolicies>['api'];
 type AuditEventsApi = ReturnType<typeof mkAuditEvents>['api'];
 type ContactsApi = ReturnType<typeof mkContacts>['api'];
+type InvoicesApi = ReturnType<typeof mkInvoices>['api'];
+type RecurringApi = ReturnType<typeof mkRecurring>['api'];
+type EstimatesApi = ReturnType<typeof mkEstimates>['api'];
 
 // The unified server RPC client. Call sites still reach every domain as
 // client.api.<domain>; a Proxy routes the migrated domains to their own hc
@@ -44,6 +53,9 @@ export type ServerApiClient = {
     'tax-policies': TaxPoliciesApi['tax-policies'];
     'audit-events': AuditEventsApi['audit-events'];
     contacts: ContactsApi['contacts'];
+    invoices: InvoicesApi['invoices'];
+    'recurring-invoices': RecurringApi['recurring-invoices'];
+    estimates: EstimatesApi['estimates'];
   };
 };
 
@@ -60,6 +72,9 @@ export function serverApiClient(event: RequestEvent): ServerApiClient {
     'tax-policies': hc<TaxPoliciesAppType>(base, { headers }).api['tax-policies'],
     'audit-events': hc<AuditEventsAppType>(base, { headers }).api['audit-events'],
     contacts: hc<ContactsAppType>(base, { headers }).api.contacts,
+    invoices: hc<InvoicesAppType>(base, { headers }).api.invoices,
+    'recurring-invoices': hc<RecurringInvoicesAppType>(base, { headers }).api['recurring-invoices'],
+    estimates: hc<EstimatesAppType>(base, { headers }).api.estimates,
   };
   const api = new Proxy(main.api, {
     get(target, prop) {
