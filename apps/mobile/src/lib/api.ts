@@ -1,6 +1,7 @@
 import type {
   AppType,
   AuditEventsAppType,
+  CompaniesAppType,
   ContactsAppType,
   EstimatesAppType,
   ExpensesAppType,
@@ -57,6 +58,7 @@ function buildClients(baseUrl: string) {
     locations: hc<LocationsAppType>(baseUrl, { headers: authHeaders }),
     auditEvents: hc<AuditEventsAppType>(baseUrl, { headers: authHeaders }),
     telemetry: hc<TelemetryAppType>(baseUrl, { headers: authHeaders }),
+    companies: hc<CompaniesAppType>(baseUrl, { headers: authHeaders }),
     contacts: hc<ContactsAppType>(baseUrl, { headers: authHeaders }),
     invoices: hc<InvoicesAppType>(baseUrl, { headers: authHeaders }),
     recurringInvoices: hc<RecurringInvoicesAppType>(baseUrl, { headers: authHeaders }),
@@ -94,6 +96,7 @@ function facadeApi() {
     locations,
     auditEvents,
     telemetry,
+    companies,
     contacts,
     invoices,
     recurringInvoices,
@@ -107,6 +110,7 @@ function facadeApi() {
     locations: locations.api.locations,
     'audit-events': auditEvents.api['audit-events'],
     telemetry: telemetry.api.telemetry,
+    companies: companies.api.companies,
     contacts: contacts.api.contacts,
     invoices: invoices.api.invoices,
     'recurring-invoices': recurringInvoices.api['recurring-invoices'],
@@ -128,6 +132,7 @@ type SocialProvidersApi = ReturnType<typeof buildClients>['socialProviders']['ap
 type LocationsApi = ReturnType<typeof buildClients>['locations']['api'];
 type AuditEventsApi = ReturnType<typeof buildClients>['auditEvents']['api'];
 type TelemetryApi = ReturnType<typeof buildClients>['telemetry']['api'];
+type CompaniesApi = ReturnType<typeof buildClients>['companies']['api'];
 type ContactsApi = ReturnType<typeof buildClients>['contacts']['api'];
 type InvoicesApi = ReturnType<typeof buildClients>['invoices']['api'];
 type RecurringApi = ReturnType<typeof buildClients>['recurringInvoices']['api'];
@@ -141,6 +146,10 @@ type ApiClient = {
     locations: LocationsApi['locations'];
     'audit-events': AuditEventsApi['audit-events'];
     telemetry: TelemetryApi['telemetry'];
+    // Split-prefix domain: company CRUD / settings / logo / accounts moved to
+    // CompaniesAppType, but the company-scoped reports + AI insights still ride
+    // on AppType (MainApi). Intersect both so call sites reach either half.
+    companies: MainApi['companies'] & CompaniesApi['companies'];
     contacts: ContactsApi['contacts'];
     invoices: InvoicesApi['invoices'];
     'recurring-invoices': RecurringApi['recurring-invoices'];

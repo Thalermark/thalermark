@@ -5,6 +5,7 @@ import type {
   AppType,
   AuditEventsAppType,
   BillsAppType,
+  CompaniesAppType,
   ContactsAppType,
   EstimatesAppType,
   ExpensesAppType,
@@ -30,6 +31,7 @@ const mkMain = (...a: Parameters<typeof hc>) => hc<AppType>(...a);
 const mkItems = (...a: Parameters<typeof hc>) => hc<ItemsAppType>(...a);
 const mkTaxPolicies = (...a: Parameters<typeof hc>) => hc<TaxPoliciesAppType>(...a);
 const mkAuditEvents = (...a: Parameters<typeof hc>) => hc<AuditEventsAppType>(...a);
+const mkCompanies = (...a: Parameters<typeof hc>) => hc<CompaniesAppType>(...a);
 const mkContacts = (...a: Parameters<typeof hc>) => hc<ContactsAppType>(...a);
 const mkInvoices = (...a: Parameters<typeof hc>) => hc<InvoicesAppType>(...a);
 const mkRecurring = (...a: Parameters<typeof hc>) => hc<RecurringInvoicesAppType>(...a);
@@ -39,6 +41,7 @@ type MainApi = ReturnType<typeof mkMain>['api'];
 type ItemsApi = ReturnType<typeof mkItems>['api'];
 type TaxPoliciesApi = ReturnType<typeof mkTaxPolicies>['api'];
 type AuditEventsApi = ReturnType<typeof mkAuditEvents>['api'];
+type CompaniesApi = ReturnType<typeof mkCompanies>['api'];
 type ContactsApi = ReturnType<typeof mkContacts>['api'];
 type InvoicesApi = ReturnType<typeof mkInvoices>['api'];
 type RecurringApi = ReturnType<typeof mkRecurring>['api'];
@@ -50,11 +53,19 @@ type ExpensesApi = ReturnType<typeof mkExpenses>['api'];
 // client and everything else to the main client. As more domains migrate they
 // join the override map below — call sites never change. The runtime is one
 // server (createApp mounts every sub-app), so the split is purely type-level.
+// `companies` is the first split-prefix domain: the CRUD / settings / logo /
+// stripe-connect / ledger-export / accounts routes moved to CompaniesAppType,
+// but the company-scoped REPORTS + AI insights (`/api/companies/:id/dashboard`,
+// `/profit-loss`, `/cash-flow-nudges`, …) still ride on AppType. So `companies`
+// is left in MainApi here and the sub-app surface is *intersected* on top — TS
+// merges the two same-key object types, and the runtime hc client is a URL
+// builder, so the single override client reaches both halves' paths.
 export type ServerApiClient = {
   api: MainApi & {
     items: ItemsApi['items'];
     'tax-policies': TaxPoliciesApi['tax-policies'];
     'audit-events': AuditEventsApi['audit-events'];
+    companies: MainApi['companies'] & CompaniesApi['companies'];
     contacts: ContactsApi['contacts'];
     invoices: InvoicesApi['invoices'];
     'recurring-invoices': RecurringApi['recurring-invoices'];
@@ -75,6 +86,7 @@ export function serverApiClient(event: RequestEvent): ServerApiClient {
     items: hc<ItemsAppType>(base, { headers }).api.items,
     'tax-policies': hc<TaxPoliciesAppType>(base, { headers }).api['tax-policies'],
     'audit-events': hc<AuditEventsAppType>(base, { headers }).api['audit-events'],
+    companies: hc<CompaniesAppType>(base, { headers }).api.companies,
     contacts: hc<ContactsAppType>(base, { headers }).api.contacts,
     invoices: hc<InvoicesAppType>(base, { headers }).api.invoices,
     'recurring-invoices': hc<RecurringInvoicesAppType>(base, { headers }).api['recurring-invoices'],
