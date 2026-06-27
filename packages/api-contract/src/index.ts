@@ -9,11 +9,17 @@
 // TS type-serialization ceiling, TS7056). Each domain exposes its own XAppType;
 // clients build a dedicated hc<XAppType>() per domain and compose them behind a
 // unified facade. AppType still carries every not-yet-migrated domain.
+// The files sub-app (GET /api/files/:token) is intentionally absent: it's served
+// by a signed URL hit directly (img src / download), never through a typed hc
+// client, so no consumer needs its type. It's mounted at runtime in createApp
+// like every other sub-app; its surface just isn't part of the RPC contract.
 export type {
   AppType,
+  AuditEventsAppType,
   BillsAppType,
   ItemsAppType,
   LocationsAppType,
   SocialProvidersAppType,
   TaxPoliciesAppType,
+  TelemetryAppType,
 } from '@thalermark/api';

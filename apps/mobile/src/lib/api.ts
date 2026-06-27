@@ -1,9 +1,11 @@
 import type {
   AppType,
+  AuditEventsAppType,
   ItemsAppType,
   LocationsAppType,
   SocialProvidersAppType,
   TaxPoliciesAppType,
+  TelemetryAppType,
 } from '@thalermark/api-contract';
 import { hc } from 'hono/client';
 import { getActiveAccountId, getAuthToken } from './secure-store';
@@ -35,11 +37,11 @@ export async function authHeaders(): Promise<Record<string, string>> {
   return base;
 }
 
-// Per-domain RPC surfaces. The migrated domains (items, tax-policies,
-// social-providers, locations) are kept out of AppType to stay under the TS
-// type-serialization ceiling (TS7056 — see apps/api/src/app.ts); they live on
-// their own hc clients but are composed back behind the single `api` export so
-// call sites stay `api.api.<domain>`. All share authHeaders and the same base
+// Per-domain RPC surfaces. The migrated domains (apps/api/src/routes/*) are kept
+// out of AppType to stay under the TS type-serialization ceiling (TS7056 — see
+// apps/api/src/app.ts); they live on their own hc clients but are composed back
+// behind the single `api` export so call sites stay `api.api.<domain>`. As more
+// domains migrate they join the map below. All share authHeaders and the same base
 // URL — the runtime is one server, so the split is type-only.
 function buildClients(baseUrl: string) {
   return {
@@ -48,6 +50,8 @@ function buildClients(baseUrl: string) {
     taxPolicies: hc<TaxPoliciesAppType>(baseUrl, { headers: authHeaders }),
     socialProviders: hc<SocialProvidersAppType>(baseUrl, { headers: authHeaders }),
     locations: hc<LocationsAppType>(baseUrl, { headers: authHeaders }),
+    auditEvents: hc<AuditEventsAppType>(baseUrl, { headers: authHeaders }),
+    telemetry: hc<TelemetryAppType>(baseUrl, { headers: authHeaders }),
   };
 }
 
@@ -72,12 +76,15 @@ function liveClients() {
 // everything else to the main client. As more domains migrate they join the
 // override map — call sites never change.
 function facadeApi() {
-  const { main, items, taxPolicies, socialProviders, locations } = liveClients();
+  const { main, items, taxPolicies, socialProviders, locations, auditEvents, telemetry } =
+    liveClients();
   const overrides: Record<string, unknown> = {
     items: items.api.items,
     'tax-policies': taxPolicies.api['tax-policies'],
     'social-providers': socialProviders.api['social-providers'],
     locations: locations.api.locations,
+    'audit-events': auditEvents.api['audit-events'],
+    telemetry: telemetry.api.telemetry,
   };
   return new Proxy(main.api, {
     get(target, prop) {
@@ -92,12 +99,16 @@ type ItemsApi = ReturnType<typeof buildClients>['items']['api'];
 type TaxPoliciesApi = ReturnType<typeof buildClients>['taxPolicies']['api'];
 type SocialProvidersApi = ReturnType<typeof buildClients>['socialProviders']['api'];
 type LocationsApi = ReturnType<typeof buildClients>['locations']['api'];
+type AuditEventsApi = ReturnType<typeof buildClients>['auditEvents']['api'];
+type TelemetryApi = ReturnType<typeof buildClients>['telemetry']['api'];
 type ApiClient = {
   api: MainApi & {
     items: ItemsApi['items'];
     'tax-policies': TaxPoliciesApi['tax-policies'];
     'social-providers': SocialProvidersApi['social-providers'];
     locations: LocationsApi['locations'];
+    'audit-events': AuditEventsApi['audit-events'];
+    telemetry: TelemetryApi['telemetry'];
   };
 };
 

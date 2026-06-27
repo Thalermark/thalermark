@@ -36,7 +36,7 @@ import {
 } from '@thalermark/db';
 import type { AddressAutocompleteProvider } from '@thalermark/location';
 import { getLogger } from '@thalermark/logger';
-import { type StorageProvider, readLocalObject, verifyFileToken } from '@thalermark/storage';
+import type { StorageProvider } from '@thalermark/storage';
 import {
   disableTelemetry,
   emit,
@@ -70,7 +70,6 @@ import {
   invoiceUpdateSchema,
   recurringInvoiceCreateSchema,
   recurringInvoiceUpdateSchema,
-  telemetryIngestSchema,
   telemetryUpdateSchema,
   unknownPlaceholders,
 } from '@thalermark/validation';
@@ -120,15 +119,18 @@ import {
 import type { Mailer } from './lib/mailer.js';
 import { applyCursor, keysetOrderBy, parseLimit, slicePage } from './lib/pagination.js';
 import { generateOnce } from './lib/recurring.js';
-import { UUID_RE, escapeLike } from './lib/route-helpers.js';
+import { UUID_RE, escapeLike, mimeForKey } from './lib/route-helpers.js';
 import { sendStatementEmail } from './lib/statement-email.js';
 import { type StripeBundle, decimalDollarsToCents } from './lib/stripe.js';
 import { requireCapability } from './middleware/authz.js';
 import { type RlsVariables, rlsContext } from './middleware/rls-context.js';
+import { auditEventsRoutes } from './routes/audit-events.js';
+import { filesRoutes } from './routes/files.js';
 import { itemsRoutes } from './routes/items.js';
 import { locationsRoutes } from './routes/locations.js';
 import { socialProvidersRoutes } from './routes/social-providers.js';
 import { taxPoliciesRoutes } from './routes/tax-policies.js';
+import { telemetryRoutes } from './routes/telemetry.js';
 
 const log = getLogger(['api', 'app']);
 
@@ -254,12 +256,6 @@ const RECEIPT_MIME_EXT: Record<string, string> = {
   'image/png': 'png',
   'application/pdf': 'pdf',
 };
-const EXT_MIME: Record<string, string> = {
-  jpg: 'image/jpeg',
-  png: 'image/png',
-  pdf: 'application/pdf',
-  webp: 'image/webp',
-};
 
 // Company logo upload (shown on invoices). Smaller cap than a receipt — a logo
 // is a small raster — and a raster-only allowlist: SVG is deliberately excluded
@@ -271,12 +267,6 @@ const LOGO_MIME_EXT: Record<string, string> = {
   'image/png': 'png',
   'image/webp': 'webp',
 };
-// Content-type to serve a stored object with, inferred from its key extension
-// (the local-FS adapter doesn't persist content-type metadata).
-function mimeForKey(key: string): string {
-  const ext = key.slice(key.lastIndexOf('.') + 1).toLowerCase();
-  return EXT_MIME[ext] ?? 'application/octet-stream';
-}
 
 // Resolves chart_of_accounts row ids to their { code, accountType } within one
 // company (scoped by account for defense-in-depth per
@@ -1463,23 +1453,6 @@ function createMainApp(deps: AppDeps) {
         }
         await enableTelemetry(tx);
         return c.json({ enabled: true, decided: true, disabled: false });
-      })
-      // Client-ingest pipeline (TELEMETRY.md). Browser/app-only events (today
-      // just report_viewed) POST here in batches; each is staged via the same
-      // opt-in-gated emit() the server-side events use, so an opted-out account
-      // stages nothing even though the client posts best-effort. No capability
-      // gate — it's the member's own activity — but the standard tenant context
-      // (x-account-id → tx) applies. The schema rejects any unwired event shape.
-      .post('/api/telemetry/ingest', async (c) => {
-        const parsed = telemetryIngestSchema.safeParse(await c.req.json().catch(() => null));
-        if (!parsed.success) {
-          return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
-        }
-        const tx = c.get('tx');
-        for (const event of parsed.data.events) {
-          await emit(tx, event);
-        }
-        return c.json({ accepted: parsed.data.events.length });
       })
       .post('/api/invitations', requireCapability('team:manage'), async (c) => {
         const body = (await c.req.json().catch(() => null)) as {
@@ -6217,29 +6190,6 @@ function createMainApp(deps: AppDeps) {
           suggestedCategoryAccountId,
         });
       })
-      // Local-FS receipt serving. Public path (rls-context skips /api/files/*):
-      // the HMAC-signed token IS the credential. 404s when the local driver
-      // isn't active (s3 signed URLs never route here). The token already
-      // encodes + signs the key, so there's no per-tenant check — minting the
-      // token (the authenticated GET /receipt above) is the authorization
-      // gate.
-      .get('/api/files/:token', async (c) => {
-        const fileServe = deps.localFileServe;
-        if (!fileServe) return c.json({ error: 'not_found' }, 404);
-        const payload = verifyFileToken(c.req.param('token'), fileServe.secret);
-        if (!payload) return c.json({ error: 'invalid_or_expired_token' }, 403);
-
-        let bytes: Buffer;
-        try {
-          bytes = await readLocalObject(fileServe.baseDir, payload.key);
-        } catch {
-          return c.json({ error: 'not_found' }, 404);
-        }
-        return c.body(new Uint8Array(bytes), 200, {
-          'content-type': mimeForKey(payload.key),
-          'cache-control': 'private, max-age=3600',
-        });
-      })
       // Send the invoice via email. Distinct from /mark-sent (pure status
       // transition, no I/O) because this endpoint adds a real side-effect
       // and an optional recipient override. State machine: draft → sent +
@@ -6530,196 +6480,6 @@ function createMainApp(deps: AppDeps) {
           return c.json({ ...estimate, sentTo: to });
         },
       )
-      // Audit-events read endpoint. Two modes off the same surface:
-      //   - **Per-entity** (entityType + entityId): full history for one
-      //     record; used by the per-entity History sections on
-      //     customer/invoice/estimate detail pages (slice 8.8a).
-      //   - **Feed** (both omitted): account-wide recent activity, used by
-      //     the /activity page (slice 8.8b). Bounded by `limit` (default 50,
-      //     max 200) so a hot account doesn't ship the entire audit table.
-      // Both modes resolve actor_user_id → display name in one join; the
-      // synthetic system user (auth_user.is_system, seeded migration 0009)
-      // renders as "System" so provider-driven rows (stripe-paid,
-      // public-accept/decline) are attributed without leaking the system
-      // uuid. Feed mode additionally enriches each row with `entityLabel`
-      // — invoice/estimate `number` or customer `name` — via one inArray
-      // lookup per entity type (3 small queries, not N+1) so the feed UI
-      // can render "Invoice INV-0042" without the consumer doing per-row
-      // resolution.
-      .get('/api/audit-events', async (c) => {
-        const entityTypeRaw = c.req.query('entityType');
-        const entityIdRaw = c.req.query('entityId');
-        const limitRaw = c.req.query('limit');
-        const ALLOWED_TYPES = [
-          'contact',
-          'invoice',
-          'estimate',
-          'expense',
-          'bill',
-          'recurring_invoice',
-          'item',
-        ] as const;
-        type EntityType = (typeof ALLOWED_TYPES)[number];
-
-        // Validation: entityId requires entityType (a bare id is ambiguous);
-        // entityType alone is allowed but rare. Empty query = feed mode.
-        if (entityTypeRaw !== undefined) {
-          if (!(ALLOWED_TYPES as readonly string[]).includes(entityTypeRaw)) {
-            return c.json({ error: 'invalid_entity_type' }, 400);
-          }
-        }
-        if (entityIdRaw !== undefined) {
-          if (entityTypeRaw === undefined) {
-            return c.json({ error: 'entity_id_requires_entity_type' }, 400);
-          }
-          if (!UUID_RE.test(entityIdRaw)) {
-            return c.json({ error: 'invalid_entity_id' }, 400);
-          }
-        }
-        const limit = parseLimit(limitRaw);
-        if (limit === null) return c.json({ error: 'invalid_limit' }, 400);
-        const keys = [
-          { col: auditEvents.createdAt, revive: (v: unknown) => new Date(v as string) },
-          { col: auditEvents.id },
-        ];
-        const keyset = applyCursor(c.req.query('cursor'), keys, 'desc');
-        if (keyset === 'invalid') return c.json({ error: 'invalid_cursor' }, 400);
-
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
-
-        const conditions = [eq(auditEvents.accountId, accountId)];
-        if (entityTypeRaw !== undefined) {
-          conditions.push(eq(auditEvents.entityType, entityTypeRaw));
-        }
-        if (entityIdRaw !== undefined) {
-          conditions.push(eq(auditEvents.entityId, entityIdRaw));
-        }
-        if (keyset) conditions.push(keyset);
-
-        const fetched = await tx
-          .select({
-            id: auditEvents.id,
-            action: auditEvents.action,
-            entityType: auditEvents.entityType,
-            entityId: auditEvents.entityId,
-            actorName: authUser.name,
-            actorIsSystem: authUser.isSystem,
-            createdAt: auditEvents.createdAt,
-            before: auditEvents.before,
-            after: auditEvents.after,
-          })
-          .from(auditEvents)
-          .leftJoin(authUser, eq(authUser.id, auditEvents.actorUserId))
-          .where(and(...conditions))
-          .orderBy(keysetOrderBy(keys, 'desc'))
-          .limit(limit + 1);
-        const { rows, nextCursor } = slicePage(fetched, limit, (r) => [r.createdAt, r.id]);
-
-        // Entity-label enrichment — feed mode needs human labels next to
-        // the action; per-entity mode already knows the entity. Skip the
-        // lookups when no rows came back to dodge zero-id `inArray`.
-        const feedMode = entityTypeRaw === undefined;
-        const labelMap = new Map<string, string>();
-        if (feedMode && rows.length > 0) {
-          const idsByType: Record<EntityType, string[]> = {
-            contact: [],
-            invoice: [],
-            estimate: [],
-            expense: [],
-            bill: [],
-            recurring_invoice: [],
-            item: [],
-          };
-          for (const r of rows) {
-            if ((ALLOWED_TYPES as readonly string[]).includes(r.entityType)) {
-              idsByType[r.entityType as EntityType].push(r.entityId);
-            }
-          }
-          if (idsByType.invoice.length > 0) {
-            const invRows = await tx
-              .select({ id: invoices.id, label: invoices.number })
-              .from(invoices)
-              .where(
-                and(eq(invoices.accountId, accountId), inArray(invoices.id, idsByType.invoice)),
-              );
-            for (const r of invRows) labelMap.set(`invoice:${r.id}`, r.label);
-          }
-          if (idsByType.estimate.length > 0) {
-            const estRows = await tx
-              .select({ id: estimates.id, label: estimates.number })
-              .from(estimates)
-              .where(
-                and(eq(estimates.accountId, accountId), inArray(estimates.id, idsByType.estimate)),
-              );
-            for (const r of estRows) labelMap.set(`estimate:${r.id}`, r.label);
-          }
-          if (idsByType.contact.length > 0) {
-            const contactRows = await tx
-              .select({ id: contacts.id, label: contacts.name })
-              .from(contacts)
-              .where(
-                and(eq(contacts.accountId, accountId), inArray(contacts.id, idsByType.contact)),
-              );
-            for (const r of contactRows) labelMap.set(`contact:${r.id}`, r.label);
-          }
-          if (idsByType.expense.length > 0) {
-            const expRows = await tx
-              .select({ id: expenses.id, label: expenses.merchant })
-              .from(expenses)
-              .where(
-                and(eq(expenses.accountId, accountId), inArray(expenses.id, idsByType.expense)),
-              );
-            for (const r of expRows) labelMap.set(`expense:${r.id}`, r.label);
-          }
-          // Bills have no number of our own — label them by the vendor name
-          // (joined), like recurring schedules.
-          if (idsByType.bill.length > 0) {
-            const billRows = await tx
-              .select({ id: bills.id, label: contacts.name })
-              .from(bills)
-              .innerJoin(contacts, eq(contacts.id, bills.contactId))
-              .where(and(eq(bills.accountId, accountId), inArray(bills.id, idsByType.bill)));
-            for (const r of billRows) labelMap.set(`bill:${r.id}`, r.label);
-          }
-          // Schedules have no number — label them by customer name (joined).
-          if (idsByType.recurring_invoice.length > 0) {
-            const recRows = await tx
-              .select({ id: recurringInvoices.id, label: contacts.name })
-              .from(recurringInvoices)
-              .innerJoin(contacts, eq(contacts.id, recurringInvoices.contactId))
-              .where(
-                and(
-                  eq(recurringInvoices.accountId, accountId),
-                  inArray(recurringInvoices.id, idsByType.recurring_invoice),
-                ),
-              );
-            for (const r of recRows) labelMap.set(`recurring_invoice:${r.id}`, r.label);
-          }
-          if (idsByType.item.length > 0) {
-            const itemRows = await tx
-              .select({ id: items.id, label: items.name })
-              .from(items)
-              .where(and(eq(items.accountId, accountId), inArray(items.id, idsByType.item)));
-            for (const r of itemRows) labelMap.set(`item:${r.id}`, r.label);
-          }
-        }
-
-        return c.json({
-          events: rows.map((r) => ({
-            id: r.id,
-            action: r.action,
-            entityType: r.entityType,
-            entityId: r.entityId,
-            entityLabel: feedMode ? (labelMap.get(`${r.entityType}:${r.entityId}`) ?? null) : null,
-            actorName: r.actorIsSystem ? 'System' : (r.actorName ?? 'Unknown'),
-            createdAt: r.createdAt,
-            before: r.before,
-            after: r.after,
-          })),
-          nextCursor,
-        });
-      })
       // Public invoice view — unauthed, gated only by the random token in
       // the URL. rls-context skips this path entirely (no session, no
       // tenant), so the handler reads via bootstrapDb (RLS would hide
@@ -7233,10 +6993,14 @@ export function createApp(deps: AppDeps) {
   app.route('/', billsRoutes());
   app.route('/', itemsRoutes());
   app.route('/', taxPoliciesRoutes());
+  app.route('/', auditEventsRoutes());
+  app.route('/', telemetryRoutes());
   // Deps-taking sub-apps: they close over `deps` (social providers list, address
-  // provider) rather than the tenant tx, so they're constructed with deps here.
+  // provider, local-FS file serving) rather than the tenant tx, so they're
+  // constructed with deps here.
   app.route('/', socialProvidersRoutes(deps));
   app.route('/', locationsRoutes(deps));
+  app.route('/', filesRoutes(deps));
   return app;
 }
 
@@ -7248,3 +7012,8 @@ export type ItemsAppType = ReturnType<typeof itemsRoutes>;
 export type TaxPoliciesAppType = ReturnType<typeof taxPoliciesRoutes>;
 export type SocialProvidersAppType = ReturnType<typeof socialProvidersRoutes>;
 export type LocationsAppType = ReturnType<typeof locationsRoutes>;
+export type AuditEventsAppType = ReturnType<typeof auditEventsRoutes>;
+export type TelemetryAppType = ReturnType<typeof telemetryRoutes>;
+// filesRoutes has no XAppType export: GET /api/files/:token is served by a
+// signed URL hit directly (img src / download), never via a typed hc client, so
+// nothing consumes its type. It's still mounted in createApp like the rest.
