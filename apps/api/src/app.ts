@@ -22,6 +22,7 @@ import { filesRoutes } from './routes/files.js';
 import { invoicesRoutes } from './routes/invoices.js';
 import { itemsRoutes } from './routes/items.js';
 import { locationsRoutes } from './routes/locations.js';
+import { ownerMoneyRoutes } from './routes/owner-money.js';
 import { publicRoutes } from './routes/public.js';
 import { recurringInvoicesRoutes } from './routes/recurring.js';
 import { reportsRoutes } from './routes/reports.js';
@@ -153,6 +154,7 @@ function createMainApp(deps: AppDeps) {
 export function createApp(deps: AppDeps) {
   const app = createMainApp(deps);
   app.route('/', billsRoutes());
+  app.route('/', ownerMoneyRoutes());
   app.route('/', itemsRoutes());
   app.route('/', taxPoliciesRoutes());
   app.route('/', auditEventsRoutes());
@@ -182,6 +184,7 @@ export type AppType = ReturnType<typeof createMainApp>;
 // Per-domain RPC surfaces — each kept out of AppType (see the mount in createApp).
 // Web/mobile build a dedicated hc<XAppType>() client per domain.
 export type BillsAppType = ReturnType<typeof billsRoutes>;
+export type OwnerMoneyEventsAppType = ReturnType<typeof ownerMoneyRoutes>;
 export type ItemsAppType = ReturnType<typeof itemsRoutes>;
 export type TaxPoliciesAppType = ReturnType<typeof taxPoliciesRoutes>;
 export type SocialProvidersAppType = ReturnType<typeof socialProvidersRoutes>;

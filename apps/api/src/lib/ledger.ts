@@ -38,6 +38,12 @@ export const COA_AR = '1200';
 // the position dashboard is the AP balance, the mirror of "owed" (AR).
 export const COA_AP = '2000';
 const COA_SALES_TAX_PAYABLE = '2200';
+// Owner's Equity (credit-normal) + Owner's Draw (debit-normal). Owner money
+// events are the only thing that posts to these — a contribution credits
+// equity, a draw debits the draw account. Seeded into every company's COA from
+// the start (see SOLE_PROP_COA) but untouched until this entity landed.
+const COA_OWNERS_EQUITY = '3000';
+const COA_OWNERS_DRAW = '3100';
 const COA_SERVICE_REVENUE = '4000';
 const COA_PRODUCT_REVENUE = '4100';
 
@@ -402,6 +408,77 @@ export async function postBillPayment(
     postedAt: args.postedAt,
     memo: `Bill ${args.bill.label} paid`,
     lines: billPaymentLines({ paymentCode: args.paymentCode, amount: args.bill.amount }),
+  });
+}
+
+// --- Owner money event posting --------------------------------------------
+// The owner moving their own money in or out — the only path that posts to
+// Owner's Equity (3000) / Owner's Draw (3100). `kind` fully determines the two
+// balanced lines; there is no category or payment-account choice (cash is
+// always Cash 1000, the single-Cash MVP assumption):
+//   contribution → Dr Cash / Cr Owner's Equity
+//   draw         → Dr Owner's Draw / Cr Cash
+// Edit = reverse the prior entry + repost (like expenses); delete (soft) =
+// reverse only. Reversal reuses reverseLedgerLines.
+
+export type OwnerMoneyEventKind = 'contribution' | 'draw';
+
+export function ownerMoneyEventLines(kind: OwnerMoneyEventKind, amount: string): LedgerLine[] {
+  if (kind === 'contribution') {
+    return [
+      { code: COA_CASH, side: 'debit', amount },
+      { code: COA_OWNERS_EQUITY, side: 'credit', amount },
+    ];
+  }
+  return [
+    { code: COA_OWNERS_DRAW, side: 'debit', amount },
+    { code: COA_CASH, side: 'credit', amount },
+  ];
+}
+
+// Posts the entry for a newly recorded owner money event. Caller is inside the
+// tenant tx so the deferred sum-to-zero trigger fires at commit.
+export async function postOwnerMoneyEvent(
+  tx: Database | Transaction,
+  args: {
+    event: { id: string; kind: OwnerMoneyEventKind; amount: string };
+    accountId: string;
+    companyId: string;
+    postedAt: Date;
+  },
+): Promise<string | null> {
+  return postJournalEntry(tx, {
+    accountId: args.accountId,
+    companyId: args.companyId,
+    sourceEntityType: 'owner_money_event',
+    sourceEntityId: args.event.id,
+    postedAt: args.postedAt,
+    memo: args.event.kind === 'contribution' ? 'Owner contribution' : 'Owner draw',
+    lines: ownerMoneyEventLines(args.event.kind, args.event.amount),
+  });
+}
+
+// Reverses an owner money event's prior entry — used by edit (before reposting
+// the new values) and soft-delete. Just the original lines with sides flipped.
+export async function postOwnerMoneyEventReversal(
+  tx: Database | Transaction,
+  args: {
+    event: { id: string; kind: OwnerMoneyEventKind; amount: string };
+    accountId: string;
+    companyId: string;
+    postedAt: Date;
+  },
+): Promise<string | null> {
+  const lines = reverseLedgerLines(ownerMoneyEventLines(args.event.kind, args.event.amount));
+  return postJournalEntry(tx, {
+    accountId: args.accountId,
+    companyId: args.companyId,
+    sourceEntityType: 'owner_money_event',
+    sourceEntityId: args.event.id,
+    postedAt: args.postedAt,
+    memo:
+      args.event.kind === 'contribution' ? 'Owner contribution reversal' : 'Owner draw reversal',
+    lines,
   });
 }
 

@@ -12,6 +12,7 @@ import type {
   ExpensesAppType,
   InvoicesAppType,
   ItemsAppType,
+  OwnerMoneyEventsAppType,
   RecurringInvoicesAppType,
   ReportsAppType,
   TaxPoliciesAppType,
@@ -32,6 +33,7 @@ const baseUrl = () =>
 const mkMain = (...a: Parameters<typeof hc>) => hc<AppType>(...a);
 const mkAccount = (...a: Parameters<typeof hc>) => hc<AccountAppType>(...a);
 const mkBills = (...a: Parameters<typeof hc>) => hc<BillsAppType>(...a);
+const mkOwnerMoney = (...a: Parameters<typeof hc>) => hc<OwnerMoneyEventsAppType>(...a);
 const mkItems = (...a: Parameters<typeof hc>) => hc<ItemsAppType>(...a);
 const mkTaxPolicies = (...a: Parameters<typeof hc>) => hc<TaxPoliciesAppType>(...a);
 const mkAuditEvents = (...a: Parameters<typeof hc>) => hc<AuditEventsAppType>(...a);
@@ -45,6 +47,7 @@ const mkReports = (...a: Parameters<typeof hc>) => hc<ReportsAppType>(...a);
 type MainApi = ReturnType<typeof mkMain>['api'];
 type AccountApi = ReturnType<typeof mkAccount>['api'];
 type BillsApi = ReturnType<typeof mkBills>['api'];
+type OwnerMoneyApi = ReturnType<typeof mkOwnerMoney>['api'];
 type ItemsApi = ReturnType<typeof mkItems>['api'];
 type TaxPoliciesApi = ReturnType<typeof mkTaxPolicies>['api'];
 type AuditEventsApi = ReturnType<typeof mkAuditEvents>['api'];
@@ -78,6 +81,7 @@ export type ServerApiClient = {
     account: AccountApi['account'];
     team: AccountApi['team'];
     bills: BillsApi['bills'];
+    'owner-money': OwnerMoneyApi['owner-money'];
     items: ItemsApi['items'];
     'tax-policies': TaxPoliciesApi['tax-policies'];
     'audit-events': AuditEventsApi['audit-events'];
@@ -104,6 +108,7 @@ export function serverApiClient(event: RequestEvent): ServerApiClient {
     account: accountApi.account,
     team: accountApi.team,
     bills: hc<BillsAppType>(base, { headers }).api.bills,
+    'owner-money': hc<OwnerMoneyEventsAppType>(base, { headers }).api['owner-money'],
     items: hc<ItemsAppType>(base, { headers }).api.items,
     'tax-policies': hc<TaxPoliciesAppType>(base, { headers }).api['tax-policies'],
     'audit-events': hc<AuditEventsAppType>(base, { headers }).api['audit-events'],

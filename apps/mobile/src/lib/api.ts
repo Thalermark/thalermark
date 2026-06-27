@@ -10,6 +10,7 @@ import type {
   InvoicesAppType,
   ItemsAppType,
   LocationsAppType,
+  OwnerMoneyEventsAppType,
   RecurringInvoicesAppType,
   ReportsAppType,
   SocialProvidersAppType,
@@ -63,6 +64,7 @@ function buildClients(baseUrl: string) {
     telemetry: hc<TelemetryAppType>(baseUrl, { headers: authHeaders }),
     account: hc<AccountAppType>(baseUrl, { headers: authHeaders }),
     bills: hc<BillsAppType>(baseUrl, { headers: authHeaders }),
+    ownerMoney: hc<OwnerMoneyEventsAppType>(baseUrl, { headers: authHeaders }),
     companies: hc<CompaniesAppType>(baseUrl, { headers: authHeaders }),
     contacts: hc<ContactsAppType>(baseUrl, { headers: authHeaders }),
     invoices: hc<InvoicesAppType>(baseUrl, { headers: authHeaders }),
@@ -107,6 +109,7 @@ function facadeApi() {
     telemetry,
     account,
     bills,
+    ownerMoney,
     companies,
     contacts,
     invoices,
@@ -126,6 +129,7 @@ function facadeApi() {
     invitations: account.api.invitations,
     team: account.api.team,
     bills: bills.api.bills,
+    'owner-money': ownerMoney.api['owner-money'],
     companies: companies.api.companies,
     contacts: contacts.api.contacts,
     invoices: invoices.api.invoices,
@@ -150,6 +154,7 @@ type AuditEventsApi = ReturnType<typeof buildClients>['auditEvents']['api'];
 type TelemetryApi = ReturnType<typeof buildClients>['telemetry']['api'];
 type AccountApi = ReturnType<typeof buildClients>['account']['api'];
 type BillsApi = ReturnType<typeof buildClients>['bills']['api'];
+type OwnerMoneyApi = ReturnType<typeof buildClients>['ownerMoney']['api'];
 type CompaniesApi = ReturnType<typeof buildClients>['companies']['api'];
 type ContactsApi = ReturnType<typeof buildClients>['contacts']['api'];
 type InvoicesApi = ReturnType<typeof buildClients>['invoices']['api'];
@@ -171,6 +176,7 @@ type ApiClient = {
     invitations: AccountApi['invitations'];
     team: AccountApi['team'];
     bills: BillsApi['bills'];
+    'owner-money': OwnerMoneyApi['owner-money'];
     // Split-prefix domain: company CRUD / settings / logo / accounts on
     // CompaniesAppType, the company-scoped reports + AI insights on
     // ReportsAppType — both under /api/companies/:id. Intersect both surfaces so
