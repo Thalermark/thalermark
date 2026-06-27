@@ -50,9 +50,9 @@
 
 <div class="flex items-baseline justify-between gap-6">
   <div>
-    <span class="eyebrow">Owner money</span>
+    <span class="eyebrow">My Money</span>
     <h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-fg">
-      Your money in &amp; out<span class="text-accent">.</span>
+      Money in &amp; out<span class="text-accent">.</span>
     </h1>
   </div>
   {#if may(data.role, 'expenses:write')}
