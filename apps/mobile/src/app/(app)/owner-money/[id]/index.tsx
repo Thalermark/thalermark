@@ -94,7 +94,7 @@ export default function OwnerMoneyDetail() {
           onPress={() => router.push('/owner-money')}
           className="font-mono text-xs uppercase tracking-widest text-ink/60"
         >
-          ← Owner money
+          ← My Money
         </Text>
 
         {detail.state === 'loading' ? (
