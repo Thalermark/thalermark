@@ -11,6 +11,14 @@ export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
 // a Zod schema). Shared by the root app and the contacts sub-app.
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+// YYYY-MM-DD guard for date query/body params. isValidDateParam also rejects
+// impossible calendar dates (e.g. 2026-02-31) that match the shape. Shared by
+// the invoices + estimates sub-apps (issue/due date filters).
+const DATE_PARAM_RE = /^\d{4}-\d{2}-\d{2}$/;
+export function isValidDateParam(s: string): boolean {
+  return DATE_PARAM_RE.test(s) && !Number.isNaN(new Date(`${s}T00:00:00Z`).getTime());
+}
+
 // Escape the LIKE/ILIKE metacharacters so a search for "50%" or "a_b" matches
 // literally instead of as wildcards. Drizzle's ilike() uses the default
 // backslash escape character, so backslash itself is escaped too.

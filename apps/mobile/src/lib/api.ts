@@ -2,8 +2,11 @@ import type {
   AppType,
   AuditEventsAppType,
   ContactsAppType,
+  EstimatesAppType,
+  InvoicesAppType,
   ItemsAppType,
   LocationsAppType,
+  RecurringInvoicesAppType,
   SocialProvidersAppType,
   TaxPoliciesAppType,
   TelemetryAppType,
@@ -54,6 +57,9 @@ function buildClients(baseUrl: string) {
     auditEvents: hc<AuditEventsAppType>(baseUrl, { headers: authHeaders }),
     telemetry: hc<TelemetryAppType>(baseUrl, { headers: authHeaders }),
     contacts: hc<ContactsAppType>(baseUrl, { headers: authHeaders }),
+    invoices: hc<InvoicesAppType>(baseUrl, { headers: authHeaders }),
+    recurringInvoices: hc<RecurringInvoicesAppType>(baseUrl, { headers: authHeaders }),
+    estimates: hc<EstimatesAppType>(baseUrl, { headers: authHeaders }),
   };
 }
 
@@ -78,8 +84,19 @@ function liveClients() {
 // everything else to the main client. As more domains migrate they join the
 // override map — call sites never change.
 function facadeApi() {
-  const { main, items, taxPolicies, socialProviders, locations, auditEvents, telemetry, contacts } =
-    liveClients();
+  const {
+    main,
+    items,
+    taxPolicies,
+    socialProviders,
+    locations,
+    auditEvents,
+    telemetry,
+    contacts,
+    invoices,
+    recurringInvoices,
+    estimates,
+  } = liveClients();
   const overrides: Record<string, unknown> = {
     items: items.api.items,
     'tax-policies': taxPolicies.api['tax-policies'],
@@ -88,6 +105,9 @@ function facadeApi() {
     'audit-events': auditEvents.api['audit-events'],
     telemetry: telemetry.api.telemetry,
     contacts: contacts.api.contacts,
+    invoices: invoices.api.invoices,
+    'recurring-invoices': recurringInvoices.api['recurring-invoices'],
+    estimates: estimates.api.estimates,
   };
   return new Proxy(main.api, {
     get(target, prop) {
@@ -105,6 +125,9 @@ type LocationsApi = ReturnType<typeof buildClients>['locations']['api'];
 type AuditEventsApi = ReturnType<typeof buildClients>['auditEvents']['api'];
 type TelemetryApi = ReturnType<typeof buildClients>['telemetry']['api'];
 type ContactsApi = ReturnType<typeof buildClients>['contacts']['api'];
+type InvoicesApi = ReturnType<typeof buildClients>['invoices']['api'];
+type RecurringApi = ReturnType<typeof buildClients>['recurringInvoices']['api'];
+type EstimatesApi = ReturnType<typeof buildClients>['estimates']['api'];
 type ApiClient = {
   api: MainApi & {
     items: ItemsApi['items'];
@@ -114,6 +137,9 @@ type ApiClient = {
     'audit-events': AuditEventsApi['audit-events'];
     telemetry: TelemetryApi['telemetry'];
     contacts: ContactsApi['contacts'];
+    invoices: InvoicesApi['invoices'];
+    'recurring-invoices': RecurringApi['recurring-invoices'];
+    estimates: EstimatesApi['estimates'];
   };
 };
 
