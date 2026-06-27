@@ -3,7 +3,7 @@ import { useCallback, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FilterChips } from '../../../components/FilterChips';
-import { billsApi } from '../../../lib/bills-api';
+import { api } from '../../../lib/api';
 import { useMay } from '../../../lib/role';
 import { pageQuery, usePaginatedList } from '../../../lib/use-paginated-list';
 
@@ -41,7 +41,7 @@ export default function BillsList() {
     async (cursor: string | null) => {
       const query = pageQuery(cursor);
       if (status) query.status = status;
-      const res = await billsApi.api.bills.$get({ query });
+      const res = await api.api.bills.$get({ query });
       if (!res.ok) return null;
       const { bills, nextCursor } = await res.json();
       return {

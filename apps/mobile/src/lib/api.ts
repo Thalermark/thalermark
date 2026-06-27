@@ -2,6 +2,7 @@ import type {
   AccountAppType,
   AppType,
   AuditEventsAppType,
+  BillsAppType,
   CompaniesAppType,
   ContactsAppType,
   EstimatesAppType,
@@ -27,8 +28,8 @@ import { getServerUrl } from './server-url';
 const APP_ORIGIN = 'thalermark://';
 
 // The per-request headers every typed client stamps: Origin (CSRF/TRUSTED_ORIGINS)
-// + the bearer token + x-account-id. Shared so the second RPC surface (bills-api.ts,
-// hc<BillsAppType>) sends the identical contract without re-deriving it.
+// + the bearer token + x-account-id. Shared by every per-domain client in
+// buildClients so they all send the identical contract without re-deriving it.
 //
 // `x-account-id` scopes every tenant route to the active membership — the mobile
 // equivalent of web's `active_account_id` cookie → `x-account-id` stamping
@@ -61,6 +62,7 @@ function buildClients(baseUrl: string) {
     auditEvents: hc<AuditEventsAppType>(baseUrl, { headers: authHeaders }),
     telemetry: hc<TelemetryAppType>(baseUrl, { headers: authHeaders }),
     account: hc<AccountAppType>(baseUrl, { headers: authHeaders }),
+    bills: hc<BillsAppType>(baseUrl, { headers: authHeaders }),
     companies: hc<CompaniesAppType>(baseUrl, { headers: authHeaders }),
     contacts: hc<ContactsAppType>(baseUrl, { headers: authHeaders }),
     invoices: hc<InvoicesAppType>(baseUrl, { headers: authHeaders }),
@@ -104,6 +106,7 @@ function facadeApi() {
     auditEvents,
     telemetry,
     account,
+    bills,
     companies,
     contacts,
     invoices,
@@ -122,6 +125,7 @@ function facadeApi() {
     account: account.api.account,
     invitations: account.api.invitations,
     team: account.api.team,
+    bills: bills.api.bills,
     companies: companies.api.companies,
     contacts: contacts.api.contacts,
     invoices: invoices.api.invoices,
@@ -145,6 +149,7 @@ type LocationsApi = ReturnType<typeof buildClients>['locations']['api'];
 type AuditEventsApi = ReturnType<typeof buildClients>['auditEvents']['api'];
 type TelemetryApi = ReturnType<typeof buildClients>['telemetry']['api'];
 type AccountApi = ReturnType<typeof buildClients>['account']['api'];
+type BillsApi = ReturnType<typeof buildClients>['bills']['api'];
 type CompaniesApi = ReturnType<typeof buildClients>['companies']['api'];
 type ContactsApi = ReturnType<typeof buildClients>['contacts']['api'];
 type InvoicesApi = ReturnType<typeof buildClients>['invoices']['api'];
@@ -165,6 +170,7 @@ type ApiClient = {
     account: AccountApi['account'];
     invitations: AccountApi['invitations'];
     team: AccountApi['team'];
+    bills: BillsApi['bills'];
     // Split-prefix domain: company CRUD / settings / logo / accounts on
     // CompaniesAppType, the company-scoped reports + AI insights on
     // ReportsAppType — both under /api/companies/:id. Intersect both surfaces so

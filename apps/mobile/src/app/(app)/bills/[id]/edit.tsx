@@ -16,7 +16,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ContactField } from '../../../../components/ContactField';
 import { DateField } from '../../../../components/DateField';
 import { api } from '../../../../lib/api';
-import { billsApi } from '../../../../lib/bills-api';
 
 // Edit half of apps/web's /bills/[id]/edit. Only OPEN bills are editable — the
 // detail screen gates the Edit button, and this screen bounces paid/voided bills
@@ -53,7 +52,7 @@ export default function EditBill() {
       if (seed) return;
       let active = true;
       (async () => {
-        const res = await billsApi.api.bills[':id'].$get({ param: { id } });
+        const res = await api.api.bills[':id'].$get({ param: { id } });
         if (!active) return;
         if (!res.ok) {
           setFormError('load_failed');
@@ -127,7 +126,7 @@ export default function EditBill() {
 
     setSubmitting(true);
     try {
-      const res = await billsApi.api.bills[':id'].$patch({ param: { id }, json: parsed.data });
+      const res = await api.api.bills[':id'].$patch({ param: { id }, json: parsed.data });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
         const code = body?.error ?? 'save_failed';

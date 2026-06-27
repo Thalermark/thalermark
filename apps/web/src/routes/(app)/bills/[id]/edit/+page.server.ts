@@ -1,4 +1,4 @@
-import { serverApiClient, serverBillsApiClient } from '$lib/api.server';
+import { serverApiClient } from '$lib/api.server';
 import { error, fail, redirect } from '@sveltejs/kit';
 import { billUpdateSchema } from '@thalermark/validation';
 import type { Actions, PageServerLoad } from './$types';
@@ -7,9 +7,8 @@ type Account = { id: string; code: string; name: string };
 
 export const load: PageServerLoad = async (event) => {
   const client = serverApiClient(event);
-  const billsClient = serverBillsApiClient(event);
 
-  const billRes = await billsClient.api.bills[':id'].$get({ param: { id: event.params.id } });
+  const billRes = await client.api.bills[':id'].$get({ param: { id: event.params.id } });
   if (billRes.status === 404) throw error(404, 'bill not found');
   if (!billRes.ok) throw error(billRes.status, 'failed to load bill');
   const bill = await billRes.json();
@@ -31,7 +30,7 @@ export const load: PageServerLoad = async (event) => {
 
 export const actions: Actions = {
   default: async (event) => {
-    const billsClient = serverBillsApiClient(event);
+    const client = serverApiClient(event);
     const id = event.params.id;
     const data = await event.request.formData();
     const values = {
@@ -63,7 +62,7 @@ export const actions: Actions = {
       return fail(400, { values, fieldErrors });
     }
 
-    const res = await billsClient.api.bills[':id'].$patch({ param: { id }, json: parsed.data });
+    const res = await client.api.bills[':id'].$patch({ param: { id }, json: parsed.data });
     if (res.status === 404) throw error(404, 'bill not found');
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;

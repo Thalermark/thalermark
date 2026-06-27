@@ -17,7 +17,6 @@ import { ContactField } from '../../../components/ContactField';
 import { DateField } from '../../../components/DateField';
 import { pickActiveCompany } from '../../../lib/active-company';
 import { api } from '../../../lib/api';
-import { billsApi } from '../../../lib/bills-api';
 import { NEW_CONTACT, findEmailDupe } from '../../../lib/contact-dupes';
 
 // Mirror of apps/web's /bills/new. A bill is the accrual sibling of an expense:
@@ -193,7 +192,7 @@ export default function NewBill() {
 
     setSubmitting(true);
     try {
-      const res = await billsApi.api.bills.$post({ json: parsed.data });
+      const res = await api.api.bills.$post({ json: parsed.data });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
         const code = body?.error ?? 'create_failed';
