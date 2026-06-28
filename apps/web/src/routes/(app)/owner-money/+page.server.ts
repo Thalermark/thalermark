@@ -26,10 +26,17 @@ export const load: PageServerLoad = async (event) => {
   if (!res.ok) throw error(res.status, 'failed to load owner money');
   const { events, nextCursor } = await res.json();
 
+  // The company's starting balances (or null) for the summary card — best-effort.
+  const obRes = await client.api['owner-money']['opening-balance'].$get({
+    query: { companyId: company.id },
+  });
+  const openingBalance = obRes.ok ? (await obRes.json()).openingBalance : null;
+
   return {
     rows: mapOwnerMoneyRows(events),
     nextCursor,
     companyId: company.id,
     filters: { kind },
+    openingBalance,
   };
 };

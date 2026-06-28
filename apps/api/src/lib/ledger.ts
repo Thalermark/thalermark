@@ -482,6 +482,75 @@ export async function postOwnerMoneyEventReversal(
   });
 }
 
+// --- Opening balances ------------------------------------------------------
+// What the business already had at the start (surfaced plainly in "My Money").
+// Posts ONE combined balanced entry against the standard accounts, with Owner's
+// Equity (3000) as the balancing plug:
+//   Dr Cash 1000            = cash
+//   Dr Accounts Receivable  = receivables
+//   Cr Accounts Payable     = payables
+//   Owner's Equity 3000     = cash + receivables − payables (Cr if +, Dr if −)
+// Zero-amount legs are dropped by postJournalEntry, so a cash-only opening
+// balance posts the 2-line Dr Cash / Cr Owner's Equity (same shape as an owner
+// contribution). Edit = reverse + repost; clear = soft-delete + reverse.
+export function openingBalanceLines(args: {
+  cash: string;
+  receivables: string;
+  payables: string;
+}): LedgerLine[] {
+  const cents = (s: string) => Math.round(Number(s) * 100);
+  const equityCents = cents(args.cash) + cents(args.receivables) - cents(args.payables);
+  const fromCents = (c: number) => (Math.abs(c) / 100).toFixed(2);
+  return [
+    { code: COA_CASH, side: 'debit', amount: args.cash },
+    { code: COA_AR, side: 'debit', amount: args.receivables },
+    { code: COA_AP, side: 'credit', amount: args.payables },
+    equityCents >= 0
+      ? { code: COA_OWNERS_EQUITY, side: 'credit', amount: fromCents(equityCents) }
+      : { code: COA_OWNERS_EQUITY, side: 'debit', amount: fromCents(equityCents) },
+  ];
+}
+
+export async function postOpeningBalance(
+  tx: Database | Transaction,
+  args: {
+    openingBalance: { id: string; cash: string; receivables: string; payables: string };
+    accountId: string;
+    companyId: string;
+    postedAt: Date;
+  },
+): Promise<string | null> {
+  return postJournalEntry(tx, {
+    accountId: args.accountId,
+    companyId: args.companyId,
+    sourceEntityType: 'opening_balance',
+    sourceEntityId: args.openingBalance.id,
+    postedAt: args.postedAt,
+    memo: 'Opening balances',
+    lines: openingBalanceLines(args.openingBalance),
+  });
+}
+
+export async function postOpeningBalanceReversal(
+  tx: Database | Transaction,
+  args: {
+    openingBalance: { id: string; cash: string; receivables: string; payables: string };
+    accountId: string;
+    companyId: string;
+    postedAt: Date;
+  },
+): Promise<string | null> {
+  return postJournalEntry(tx, {
+    accountId: args.accountId,
+    companyId: args.companyId,
+    sourceEntityType: 'opening_balance',
+    sourceEntityId: args.openingBalance.id,
+    postedAt: args.postedAt,
+    memo: 'Opening balances reversal',
+    lines: reverseLedgerLines(openingBalanceLines(args.openingBalance)),
+  });
+}
+
 // --- Manual journal entries ("The Ledger" portal) --------------------------
 // The accountant persona's surface: balanced debit/credit lines the user posts
 // directly against the chart of accounts, exactly as their CPA dictated. Unlike
