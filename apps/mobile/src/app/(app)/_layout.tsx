@@ -203,6 +203,9 @@ export default function AppLayout() {
         <Tabs.Screen name="estimates" options={{ href: null }} />
         <Tabs.Screen name="bills" options={{ href: null }} />
         <Tabs.Screen name="owner-money" options={{ href: null }} />
+        {/* The Ledger is reached from the More hub's Accounting section, not the
+          tab bar. */}
+        <Tabs.Screen name="ledger" options={{ href: null }} />
         <Tabs.Screen name="select-company" options={{ href: null }} />
       </Tabs>
     </RoleProvider>

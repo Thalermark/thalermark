@@ -11,6 +11,10 @@
     companies?: Company[];
     activeCompanyId?: string | null;
     canManageCompanies?: boolean;
+    // "The Ledger" (manual journal adjustments) — gated to owner/admin/
+    // accountant. It lives here in the menu, not the primary nav: the deliberate
+    // accounting back room, reached on purpose.
+    canAdjustLedger?: boolean;
     currentPath?: string;
   };
 
@@ -20,6 +24,7 @@
     companies = [],
     activeCompanyId = null,
     canManageCompanies = false,
+    canAdjustLedger = false,
     currentPath = '/',
   }: Props = $props();
   let open = $state(false);
@@ -143,6 +148,16 @@
       >
         Items
       </a>
+      {#if canAdjustLedger}
+        <a
+          href="/ledger"
+          role="menuitem"
+          onclick={close}
+          class="block px-4 py-2 text-sm text-fg/80 transition-colors hover:bg-surface-2 hover:text-fg"
+        >
+          Ledger
+        </a>
+      {/if}
       <a
         href="/settings"
         role="menuitem"

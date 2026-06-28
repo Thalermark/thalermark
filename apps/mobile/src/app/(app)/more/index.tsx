@@ -21,6 +21,7 @@ type Entry = {
     | '/invoices/recurring'
     | '/bills'
     | '/owner-money'
+    | '/ledger'
     | '/more/team'
     | '/more/companies'
     | '/more/switch-account'
@@ -79,6 +80,15 @@ const OWNER_MONEY_ENTRY: Entry = {
   icon: 'swap-vertical-outline',
   title: 'My Money',
   subtitle: 'Money you put in from your own pocket, or take out to pay yourself.',
+};
+
+// "The Ledger" — the gated manual-journal-adjustment portal. Owner/admin/
+// accountant only (the deliberate accounting back room, reached on purpose).
+const LEDGER_ENTRY: Entry = {
+  href: '/ledger',
+  icon: 'journal-outline',
+  title: 'Ledger',
+  subtitle: 'Manual journal adjustments your accountant tells you to make.',
 };
 
 const ACCOUNT_ENTRY: Entry = {
@@ -173,6 +183,8 @@ export default function MoreHub() {
   // Business / Payments / Email all edit company settings — hide the whole
   // section for roles without settings:manage (the API 403s those writes).
   const canManageSettings = useMay('settings:manage');
+  // The Ledger (manual adjustments) — owner/admin/accountant only.
+  const canAdjustLedger = useMay('ledger:adjust');
 
   // Resolve the active account name (header) + whether the account/company
   // switchers are worth showing. /api/me is a bootstrap route (no x-account-id);
@@ -223,6 +235,13 @@ export default function MoreHub() {
           entries={CATALOG_ENTRIES}
           onOpen={(href) => router.push(href)}
         />
+        {canAdjustLedger ? (
+          <Section
+            label="Accounting"
+            entries={[LEDGER_ENTRY]}
+            onOpen={(href) => router.push(href)}
+          />
+        ) : null}
         {canManageSettings ? (
           <Section
             label="Settings"

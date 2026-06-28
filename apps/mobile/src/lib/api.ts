@@ -9,6 +9,7 @@ import type {
   ExpensesAppType,
   InvoicesAppType,
   ItemsAppType,
+  LedgerAppType,
   LocationsAppType,
   OwnerMoneyEventsAppType,
   RecurringInvoicesAppType,
@@ -65,6 +66,7 @@ function buildClients(baseUrl: string) {
     account: hc<AccountAppType>(baseUrl, { headers: authHeaders }),
     bills: hc<BillsAppType>(baseUrl, { headers: authHeaders }),
     ownerMoney: hc<OwnerMoneyEventsAppType>(baseUrl, { headers: authHeaders }),
+    ledger: hc<LedgerAppType>(baseUrl, { headers: authHeaders }),
     companies: hc<CompaniesAppType>(baseUrl, { headers: authHeaders }),
     contacts: hc<ContactsAppType>(baseUrl, { headers: authHeaders }),
     invoices: hc<InvoicesAppType>(baseUrl, { headers: authHeaders }),
@@ -110,6 +112,7 @@ function facadeApi() {
     account,
     bills,
     ownerMoney,
+    ledger,
     companies,
     contacts,
     invoices,
@@ -130,6 +133,7 @@ function facadeApi() {
     team: account.api.team,
     bills: bills.api.bills,
     'owner-money': ownerMoney.api['owner-money'],
+    ledger: ledger.api.ledger,
     companies: companies.api.companies,
     contacts: contacts.api.contacts,
     invoices: invoices.api.invoices,
@@ -155,6 +159,7 @@ type TelemetryApi = ReturnType<typeof buildClients>['telemetry']['api'];
 type AccountApi = ReturnType<typeof buildClients>['account']['api'];
 type BillsApi = ReturnType<typeof buildClients>['bills']['api'];
 type OwnerMoneyApi = ReturnType<typeof buildClients>['ownerMoney']['api'];
+type LedgerApi = ReturnType<typeof buildClients>['ledger']['api'];
 type CompaniesApi = ReturnType<typeof buildClients>['companies']['api'];
 type ContactsApi = ReturnType<typeof buildClients>['contacts']['api'];
 type InvoicesApi = ReturnType<typeof buildClients>['invoices']['api'];
@@ -177,6 +182,7 @@ type ApiClient = {
     team: AccountApi['team'];
     bills: BillsApi['bills'];
     'owner-money': OwnerMoneyApi['owner-money'];
+    ledger: LedgerApi['ledger'];
     // Split-prefix domain: company CRUD / settings / logo / accounts on
     // CompaniesAppType, the company-scoped reports + AI insights on
     // ReportsAppType — both under /api/companies/:id. Intersect both surfaces so
