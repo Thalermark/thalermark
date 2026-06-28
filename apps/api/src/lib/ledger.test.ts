@@ -7,9 +7,17 @@ import {
   expensePostingLines,
   flipManualLines,
   invoicePostingLines,
+  openingBalanceLines,
   ownerMoneyEventLines,
   reverseLedgerLines,
 } from './ledger.js';
+
+// Sum of debit amounts vs credit amounts — a posting is valid iff they're equal.
+function sides(lines: LedgerLine[]) {
+  const sum = (side: 'debit' | 'credit') =>
+    lines.filter((l) => l.side === side).reduce((s, l) => s + Number(l.amount), 0);
+  return { debit: sum('debit'), credit: sum('credit') };
+}
 
 // Pure-policy coverage for the invoice posting matrix. Integration coverage
 // (real Postgres, deferred trigger, RLS) lives in
@@ -231,6 +239,52 @@ describe('expense create + reversal composition', () => {
     for (const net of byCode.values()) {
       expect(net).toBe(0);
     }
+  });
+});
+
+describe('openingBalanceLines — combined opening entry', () => {
+  it('cash only: Dr Cash / Cr Owner’s Equity, balanced', () => {
+    const lines = openingBalanceLines({ cash: '100.00', receivables: '0.00', payables: '0.00' });
+    expect(sides(lines).debit).toBeCloseTo(sides(lines).credit, 2);
+    const cash = lines.find((l) => l.code === '1000');
+    const equity = lines.find((l) => l.code === '3000');
+    expect(cash).toMatchObject({ side: 'debit', amount: '100.00' });
+    expect(equity).toMatchObject({ side: 'credit', amount: '100.00' });
+  });
+
+  it('cash + receivables + payables: equity plug = cash + AR − AP (credit), balanced', () => {
+    const lines = openingBalanceLines({
+      cash: '500.00',
+      receivables: '200.00',
+      payables: '100.00',
+    });
+    expect(sides(lines).debit).toBeCloseTo(sides(lines).credit, 2);
+    const equity = lines.find((l) => l.code === '3000');
+    // 500 + 200 − 100 = 600
+    expect(equity).toMatchObject({ side: 'credit', amount: '600.00' });
+  });
+
+  it('payables exceed assets: equity plug flips to a debit, balanced', () => {
+    const lines = openingBalanceLines({ cash: '100.00', receivables: '0.00', payables: '300.00' });
+    expect(sides(lines).debit).toBeCloseTo(sides(lines).credit, 2);
+    const equity = lines.find((l) => l.code === '3000');
+    // 100 − 300 = −200 → a debit of 200 to Owner's Equity
+    expect(equity).toMatchObject({ side: 'debit', amount: '200.00' });
+  });
+
+  it('reversal nets the opening entry to zero per code', () => {
+    const lines = openingBalanceLines({
+      cash: '500.00',
+      receivables: '200.00',
+      payables: '100.00',
+    });
+    const combined = [...lines, ...reverseLedgerLines(lines)];
+    const byCode = new Map<string, number>();
+    for (const l of combined) {
+      const signed = l.side === 'debit' ? Number(l.amount) : -Number(l.amount);
+      byCode.set(l.code, (byCode.get(l.code) ?? 0) + signed);
+    }
+    for (const net of byCode.values()) expect(net).toBe(0);
   });
 });
 

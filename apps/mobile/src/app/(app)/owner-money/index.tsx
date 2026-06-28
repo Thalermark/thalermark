@@ -1,8 +1,9 @@
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FilterChips } from '../../../components/FilterChips';
+import { pickActiveCompany } from '../../../lib/active-company';
 import { api } from '../../../lib/api';
 import { useMay } from '../../../lib/role';
 import { pageQuery, usePaginatedList } from '../../../lib/use-paginated-list';
@@ -26,10 +27,38 @@ const KIND_OPTIONS = [
   { label: 'Money out', value: 'draw' },
 ];
 
+type OpeningBalance = { cash: string; receivables: string; payables: string } | null;
+
+const money = (s: string) =>
+  Number(s).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+
 export default function OwnerMoneyList() {
   const router = useRouter();
   const canCreate = useMay('expenses:write');
   const [kind, setKind] = useState('');
+  const [openingBalance, setOpeningBalance] = useState<OpeningBalance>(null);
+
+  // The company's starting balances for the summary card (best-effort). Reloads
+  // on focus so it refreshes after the user sets/edits them.
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      (async () => {
+        const compRes = await api.api.companies.$get();
+        if (!active || !compRes.ok) return;
+        const { companies } = await compRes.json();
+        const company = await pickActiveCompany(companies);
+        if (!company) return;
+        const obRes = await api.api['owner-money']['opening-balance'].$get({
+          query: { companyId: company.id },
+        });
+        if (active && obRes.ok) setOpeningBalance((await obRes.json()).openingBalance);
+      })().catch(() => {});
+      return () => {
+        active = false;
+      };
+    }, []),
+  );
 
   const fetchPage = useCallback(
     async (cursor: string | null) => {
@@ -74,6 +103,31 @@ export default function OwnerMoneyList() {
           </Pressable>
         ) : null}
       </View>
+
+      {canCreate ? (
+        <Pressable
+          onPress={() => router.push('/owner-money/opening-balance')}
+          className="mx-6 mt-5 flex-row items-center justify-between gap-3 rounded-sm border border-ink/10 bg-cream-warm px-5 py-4 active:bg-cream"
+        >
+          <View className="flex-1">
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+              Starting balances
+            </Text>
+            {openingBalance ? (
+              <Text className="mt-1 font-mono text-sm tabular-nums text-ink/80">
+                {money(openingBalance.cash)} in the bank
+              </Text>
+            ) : (
+              <Text className="mt-1 text-sm text-ink/60">
+                Tell us what your business started with.
+              </Text>
+            )}
+          </View>
+          <Text className="font-mono text-xs uppercase tracking-widest text-gold-deep">
+            {openingBalance ? 'Edit' : 'Set'}
+          </Text>
+        </Pressable>
+      ) : null}
 
       <View className="mt-4">
         <FilterChips options={KIND_OPTIONS} value={kind} onChange={setKind} />

@@ -46,6 +46,7 @@ export function auditEventsRoutes() {
       'expense',
       'bill',
       'owner_money_event',
+      'opening_balance',
       'manual_adjustment',
       'recurring_invoice',
       'item',
@@ -120,6 +121,7 @@ export function auditEventsRoutes() {
         expense: [],
         bill: [],
         owner_money_event: [],
+        opening_balance: [],
         manual_adjustment: [],
         recurring_invoice: [],
         item: [],
@@ -187,6 +189,10 @@ export function auditEventsRoutes() {
             r.kind === 'contribution' ? 'Money in' : 'Money out',
           );
         }
+      }
+      // Opening balances have a single label regardless of the row — no lookup.
+      for (const id of idsByType.opening_balance) {
+        labelMap.set(`opening_balance:${id}`, 'Starting balances');
       }
       // Manual journal adjustments are journal_entries rows (no domain table) —
       // label them by the entry's memo (the user's narrative), falling back to

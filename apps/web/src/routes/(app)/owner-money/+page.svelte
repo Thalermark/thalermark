@@ -11,6 +11,11 @@
   const { filters } = $derived(data);
   const companyId = $derived(data.companyId);
   const hasFilters = $derived(!!filters.kind);
+  const openingBalance = $derived(data.openingBalance);
+  const canWrite = $derived(may(data.role, 'expenses:write'));
+
+  const money = (s: string) =>
+    Number(s).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 
   // See /contacts for the untrack() seed-and-re-seed pattern. The filter is a
   // GET, so changing it navigates here, re-runs load(), and the $effect re-seeds
@@ -63,6 +68,35 @@
 <p class="mt-4 max-w-2xl text-sm text-fg/60">
   Money you put into the business from your own pocket, and money you take out to pay yourself.
 </p>
+
+<!-- Starting balances — what the business already had when it started. A
+     one-time setup that lives here in My Money; shows a summary once set. -->
+{#if canWrite}
+  <a
+    href="/owner-money/opening-balance"
+    class="mt-6 flex items-center justify-between gap-4 rounded-sm border border-fg/10 bg-surface-2 px-5 py-4 hover:border-accent"
+  >
+    {#if openingBalance}
+      <div>
+        <span class="label">Starting balances</span>
+        <p class="mt-1 font-mono text-sm tabular-nums text-fg/80">
+          {money(openingBalance.cash)} in the bank
+          {#if Number(openingBalance.receivables) > 0}
+            · {money(openingBalance.receivables)} owed to you{/if}
+          {#if Number(openingBalance.payables) > 0}
+            · {money(openingBalance.payables)} owed{/if}
+        </p>
+      </div>
+      <span class="font-mono text-xs uppercase tracking-widest text-accent">Edit</span>
+    {:else}
+      <div>
+        <span class="label">Starting balances</span>
+        <p class="mt-1 text-sm text-fg/60">Tell us what your business started with.</p>
+      </div>
+      <span class="font-mono text-xs uppercase tracking-widest text-accent">Set →</span>
+    {/if}
+  </a>
+{/if}
 
 <!-- Filter bar. Plain GET form so the filter lives in the URL (shareable, back-
      button friendly) and the page works without JS. -->
