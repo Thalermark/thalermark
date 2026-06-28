@@ -25,6 +25,11 @@ const SERVER_URL_KEY = 'thalermark.server-url';
 // nothing identifying; deliberately NOT cleared on sign-out so the next visit
 // still gets the hint.
 const LAST_AUTH_METHOD_KEY = 'thalermark.last-auth-method';
+// Whether this device has dismissed the "The Ledger" airlock warning ("don't
+// show again"). Per-device, the mobile equivalent of web's localStorage
+// `ledger-airlock-dismissed`. A UX nag flag, not a control — the API gates the
+// actual writes on the ledger:adjust capability.
+const LEDGER_AIRLOCK_KEY = 'thalermark.ledger-airlock-dismissed';
 
 export async function getAuthToken(): Promise<string | null> {
   return SecureStore.getItemAsync(AUTH_TOKEN_KEY);
@@ -68,6 +73,14 @@ export async function getLastAuthMethod(): Promise<string | null> {
 
 export async function setLastAuthMethod(method: string): Promise<void> {
   await SecureStore.setItemAsync(LAST_AUTH_METHOD_KEY, method);
+}
+
+export async function getLedgerAirlockDismissed(): Promise<boolean> {
+  return (await SecureStore.getItemAsync(LEDGER_AIRLOCK_KEY)) === 'true';
+}
+
+export async function setLedgerAirlockDismissed(): Promise<void> {
+  await SecureStore.setItemAsync(LEDGER_AIRLOCK_KEY, 'true');
 }
 
 export async function getStoredServerUrl(): Promise<string | null> {

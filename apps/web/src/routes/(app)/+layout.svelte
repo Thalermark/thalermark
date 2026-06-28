@@ -49,9 +49,6 @@
         <a href="/expenses" class="hover:text-fg">Expenses</a>
         <a href="/contacts" class="hover:text-fg">Contacts</a>
         <a href="/reports" class="hover:text-fg">Reports</a>
-        {#if canAdjustLedger}
-          <a href="/ledger" class="hover:text-fg">Ledger</a>
-        {/if}
       </nav>
       <UserMenu
         name={session.user.name}
@@ -59,6 +56,7 @@
         {companies}
         {activeCompanyId}
         canManageCompanies={canManageSettings}
+        {canAdjustLedger}
         currentPath={page.url.pathname + page.url.search}
       />
     {/if}
