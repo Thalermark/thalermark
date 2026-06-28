@@ -19,10 +19,13 @@ import { chartOfAccounts } from '../schema/chart_of_accounts.js';
 // Equity, Owner's Draw) have no Schedule C line — they live on the
 // balance sheet, not the P&L.
 //
+// Depreciation Expense (6350) + Accumulated Depreciation (1900) are seeded
+// so the manual-adjustment portal ("The Ledger") can post the year-end
+// depreciation figure an accountant dictates (Dr Dep Exp / Cr Acc Dep). A
+// fixed-asset workflow that computes depreciation automatically is still a
+// later add — this just gives the accounts somewhere to live in the interim.
+//
 // Intentionally omitted from MVP:
-// - Depreciation Expense + Accumulated Depreciation (Sch C line 13):
-//   needs a fixed-asset workflow to post correctly (Dr Dep Exp / Cr
-//   Acc Dep, not Cr Cash). Defer until equipment tracking lands.
 // - COGS: service-led trades pass materials through as a billed line
 //   item; treating materials cost as Supplies (line 22) is the Wave
 //   default for sole props. Revisit if real users want COGS.
@@ -44,6 +47,25 @@ export const SOLE_PROP_COA: readonly CoaSeed[] = [
   {
     code: '1200',
     name: 'Accounts Receivable',
+    accountType: 'asset',
+    normalBalance: 'debit',
+    taxMapping: null,
+  },
+  // Accumulated Depreciation — a CONTRA-asset: it carries a credit balance
+  // (it nets against gross fixed assets on the balance sheet). It is an asset
+  // by classification, but we seed normal_balance as 'debit', NOT 'credit',
+  // on purpose. The balance-sheet / P&L code (routes/reports.ts) nets every
+  // account in its normal_balance direction; with 'debit' a credit posting to
+  // this account comes out NEGATIVE, so it reduces total assets and
+  // Assets = Liabilities + Equity still holds with no contra-account special-
+  // casing. normal_balance is a display-direction hint only — the GL / trial-
+  // balance export reads the actual posting `side`, so the export is unaffected
+  // and an accountant still sees the real credit balance. Only the manual-
+  // adjustment portal ("The Ledger") posts here for now; the eventual fixed-
+  // asset/depreciation workflow will post here too.
+  {
+    code: '1900',
+    name: 'Accumulated Depreciation',
     accountType: 'asset',
     normalBalance: 'debit',
     taxMapping: null,
@@ -125,6 +147,20 @@ export const SOLE_PROP_COA: readonly CoaSeed[] = [
     accountType: 'expense',
     normalBalance: 'debit',
     taxMapping: 'Schedule C, Line 11',
+  },
+  // Depreciation is Schedule C line 13 (line 12, depletion, is unused), so its
+  // code slots between Contract Labor (line 11) and Insurance (line 15) to keep
+  // the code order aligned with Sch C line order — reports sort by code, so the
+  // GL/trial-balance prints in the order an accountant expects. Posted by hand
+  // from the manual-adjustment portal (the accountant dictates the year-end
+  // figure) until a fixed-asset workflow computes it; its credit leg lands on
+  // Accumulated Depreciation (1900).
+  {
+    code: '6350',
+    name: 'Depreciation Expense',
+    accountType: 'expense',
+    normalBalance: 'debit',
+    taxMapping: 'Schedule C, Line 13',
   },
   {
     code: '6400',

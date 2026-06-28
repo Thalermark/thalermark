@@ -14,7 +14,8 @@ import { z } from 'zod';
 //   member      — day-to-day: invoices/estimates/recurring, contacts, expenses.
 //                 Views reports but can't export the raw GL or touch settings.
 //   accountant  — the "give my CPA access at tax time" persona: manage/categorize
-//                 expenses + export the GL/tax data. NOT invoicing, settings, or
+//                 expenses, export the GL/tax data, and post manual journal
+//                 adjustments in the Ledger portal. NOT invoicing, settings, or
 //                 team. Feeds the Accountant monetization tier.
 //   viewer      — read-only.
 export const ROLES = ['owner', 'admin', 'member', 'accountant', 'viewer'] as const;
@@ -37,6 +38,7 @@ export const CAPABILITIES = [
   'contacts:write',
   'expenses:write', // expenses (create/edit/delete, receipts, categorize) + bills/AP
   'reports:export', // GL / ledger export
+  'ledger:adjust', // post manual journal entries in the "Ledger" portal (the accountant persona)
   'settings:manage', // company profile, logo, email, payments, Stripe Connect
   'team:manage', // invite, remove, change role
   'billing:manage', // reserved — SaaS billing is out-of-band today
@@ -53,11 +55,12 @@ export const ROLE_CAPABILITIES: Record<Role, readonly Capability[]> = {
     'contacts:write',
     'expenses:write',
     'reports:export',
+    'ledger:adjust',
     'settings:manage',
     'team:manage',
   ],
   member: ['sales:write', 'contacts:write', 'expenses:write'],
-  accountant: ['expenses:write', 'reports:export'],
+  accountant: ['expenses:write', 'reports:export', 'ledger:adjust'],
   viewer: [],
 };
 

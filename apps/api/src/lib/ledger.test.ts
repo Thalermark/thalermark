@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   type LedgerLine,
+  type ManualJournalLine,
   billOpenLines,
   billPaymentLines,
   expensePostingLines,
+  flipManualLines,
   invoicePostingLines,
   ownerMoneyEventLines,
   reverseLedgerLines,
@@ -227,6 +229,39 @@ describe('expense create + reversal composition', () => {
       byCode.set(l.code, (byCode.get(l.code) ?? 0) + signed);
     }
     for (const net of byCode.values()) {
+      expect(net).toBe(0);
+    }
+  });
+});
+
+describe('flipManualLines — manual journal entry reversal', () => {
+  // The coaAccountId-keyed sibling of reverseLedgerLines (manual entries pick
+  // accounts by id, not fixed code). Integration coverage of postManual/reverse
+  // lives in apps/api/tests/ledger-adjustments.integration.test.ts.
+  const entry: ManualJournalLine[] = [
+    { coaAccountId: 'acc-dep-exp', side: 'debit', amount: '500.00' },
+    { coaAccountId: 'acc-accum-dep', side: 'credit', amount: '500.00' },
+  ];
+
+  it('flips each side, preserving account + amount', () => {
+    expect(flipManualLines(entry)).toEqual([
+      { coaAccountId: 'acc-dep-exp', side: 'credit', amount: '500.00' },
+      { coaAccountId: 'acc-accum-dep', side: 'debit', amount: '500.00' },
+    ]);
+  });
+
+  it('is its own inverse — flip(flip(x)) === x', () => {
+    expect(flipManualLines(flipManualLines(entry))).toEqual(entry);
+  });
+
+  it('original + reversal net to zero per account', () => {
+    const combined = [...entry, ...flipManualLines(entry)];
+    const byAccount = new Map<string, number>();
+    for (const l of combined) {
+      const signed = l.side === 'debit' ? Number(l.amount) : -Number(l.amount);
+      byAccount.set(l.coaAccountId, (byAccount.get(l.coaAccountId) ?? 0) + signed);
+    }
+    for (const net of byAccount.values()) {
       expect(net).toBe(0);
     }
   });

@@ -7,6 +7,7 @@ export * from './expense.js';
 export * from './import.js';
 export * from './invoice.js';
 export * from './item.js';
+export * from './journal-entry.js';
 export * from './money.js';
 export * from './owner-money-event.js';
 export * from './password-strength.js';

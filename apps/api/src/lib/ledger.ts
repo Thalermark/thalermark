@@ -7,7 +7,7 @@ import {
   journalEntries,
   journalLines,
 } from '@thalermark/db';
-import { and, eq, gte, inArray, lt, ne, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
 
 // Hidden double-entry posting helper. Called from the invoice state machine
@@ -482,6 +482,134 @@ export async function postOwnerMoneyEventReversal(
   });
 }
 
+// --- Manual journal entries ("The Ledger" portal) --------------------------
+// The accountant persona's surface: balanced debit/credit lines the user posts
+// directly against the chart of accounts, exactly as their CPA dictated. Unlike
+// every other posting helper here, the lines reference chart_of_accounts by id
+// (the client picks accounts from the COA) rather than by fixed code, and an
+// original entry self-references its own id as source_entity_id. That self-
+// reference matters: a later reversal points at the same id, so the two share a
+// source group and cashFlowNet's per-source netting cancels them — the same
+// reversal-safety every other entity gets for free.
+//
+// source_entity_type carries the provenance, distinct from every system posting:
+//   'manual_adjustment'          — an original manual entry (source_entity_id = self)
+//   'manual_adjustment_reversal' — a reversal of one    (source_entity_id = original)
+// Append-only like the rest of the ledger: a correction is a reversing entry,
+// never an edit. The caller (routes/ledger.ts) validates balance + that every
+// coaAccountId belongs to the company before calling; this just writes the rows
+// inside the tenant tx so the deferred sum-to-zero trigger verifies the entry at
+// commit. No min-2 / amount filter here (unlike postJournalEntry) — the manual
+// schema already guarantees ≥2 balanced, positive lines.
+
+export const MANUAL_ADJUSTMENT_SOURCE = 'manual_adjustment';
+export const MANUAL_ADJUSTMENT_REVERSAL_SOURCE = 'manual_adjustment_reversal';
+
+export type ManualJournalLine = {
+  coaAccountId: string;
+  side: LedgerSide;
+  amount: string;
+};
+
+async function insertManualEntry(
+  tx: Database | Transaction,
+  spec: {
+    entryId: string;
+    accountId: string;
+    companyId: string;
+    sourceEntityType: string;
+    sourceEntityId: string;
+    postedAt: Date;
+    memo: string;
+    lines: ManualJournalLine[];
+  },
+): Promise<void> {
+  await tx.insert(journalEntries).values({
+    id: spec.entryId,
+    accountId: spec.accountId,
+    companyId: spec.companyId,
+    sourceEntityType: spec.sourceEntityType,
+    sourceEntityId: spec.sourceEntityId,
+    postedAt: spec.postedAt,
+    memo: spec.memo,
+  });
+  await tx.insert(journalLines).values(
+    spec.lines.map((l) => ({
+      id: uuidv7(),
+      accountId: spec.accountId,
+      journalEntryId: spec.entryId,
+      coaAccountId: l.coaAccountId,
+      side: l.side,
+      amount: l.amount,
+    })),
+  );
+}
+
+// Posts a new manual entry. Generates the entry id and self-references it (so a
+// future reversal can point at it and share its source group). Returns the id.
+export async function postManualJournalEntry(
+  tx: Database | Transaction,
+  args: {
+    accountId: string;
+    companyId: string;
+    postedAt: Date;
+    memo: string;
+    lines: ManualJournalLine[];
+  },
+): Promise<string> {
+  const entryId = uuidv7();
+  await insertManualEntry(tx, {
+    entryId,
+    accountId: args.accountId,
+    companyId: args.companyId,
+    sourceEntityType: MANUAL_ADJUSTMENT_SOURCE,
+    sourceEntityId: entryId,
+    postedAt: args.postedAt,
+    memo: args.memo,
+    lines: args.lines,
+  });
+  return entryId;
+}
+
+// Pure: the same lines with each side flipped (debit ↔ credit), account + amount
+// preserved. The coaAccountId-keyed sibling of reverseLedgerLines. Sum-to-zero
+// is preserved by symmetry, so a balanced original yields a balanced reversal.
+export function flipManualLines(lines: ManualJournalLine[]): ManualJournalLine[] {
+  return lines.map((l) => ({
+    coaAccountId: l.coaAccountId,
+    side: l.side === 'debit' ? 'credit' : 'debit',
+    amount: l.amount,
+  }));
+}
+
+// Posts the reversal of an existing manual entry: the original's lines flipped,
+// tagged 'manual_adjustment_reversal' and pointing at the original's id. Dated
+// at the original's posted_at so the period nets cleanly. Returns the reversal id.
+export async function reverseManualJournalEntry(
+  tx: Database | Transaction,
+  args: {
+    accountId: string;
+    companyId: string;
+    originalEntryId: string;
+    originalLines: ManualJournalLine[];
+    postedAt: Date;
+    memo: string;
+  },
+): Promise<string> {
+  const reversalId = uuidv7();
+  await insertManualEntry(tx, {
+    entryId: reversalId,
+    accountId: args.accountId,
+    companyId: args.companyId,
+    sourceEntityType: MANUAL_ADJUSTMENT_REVERSAL_SOURCE,
+    sourceEntityId: args.originalEntryId,
+    postedAt: args.postedAt,
+    memo: args.memo,
+    lines: flipManualLines(args.originalLines),
+  });
+  return reversalId;
+}
+
 // Thin wrapper: derives lines from the invoice + transition and posts.
 // Caller is responsible for being inside a tx (tenant tx for mark-* on
 // transitionInvoice, explicit bootstrap tx for the Stripe webhook path)
@@ -571,7 +699,15 @@ export async function repostInvoicePaymentDate(
 }
 
 // --- Ledger read helpers (position dashboard + cash-flow nudges) -----------
-// "cash" = asset accounts other than AR; "owed" = the AR balance.
+// "cash" = the Cash account (1000); "owed" = the AR balance.
+//
+// These used to scope cash as "every asset account except AR", which equalled
+// Cash only while Cash + AR were the sole asset accounts. The manual-adjustment
+// portal introduced the first NON-cash asset (Accumulated Depreciation, 1900,
+// a contra-asset), so the filter is now pinned to the Cash code explicitly:
+// otherwise a manual depreciation entry (Cr 1900) would read as cash leaving
+// the business. Single-Cash is the documented MVP assumption (see SOLE_PROP_COA)
+// — when multiple cash/bank accounts land, this becomes a set membership.
 
 type LedgerScope = { accountId: string; companyId: string };
 
@@ -599,8 +735,7 @@ export async function cashFlowNet(
       and(
         eq(journalEntries.companyId, scope.companyId),
         eq(journalEntries.accountId, scope.accountId),
-        eq(chartOfAccounts.accountType, 'asset'),
-        ne(chartOfAccounts.code, COA_AR),
+        eq(chartOfAccounts.code, COA_CASH),
         gte(journalEntries.postedAt, scope.fromDate),
         lt(journalEntries.postedAt, scope.toExclusive),
       ),
@@ -616,9 +751,11 @@ export async function cashFlowNet(
   return { moneyIn: row?.moneyIn ?? '0.00', moneyOut: row?.moneyOut ?? '0.00' };
 }
 
-// Cash on hand: signed balance (debits − credits) across asset accounts other
-// than AR, all-time. A point-in-time balance is reversal-safe by construction
-// (reversal pairs cancel), so no per-source netting is needed here.
+// Cash on hand: signed balance (debits − credits) on the Cash account (1000),
+// all-time. A point-in-time balance is reversal-safe by construction (reversal
+// pairs cancel), so no per-source netting is needed here. Pinned to the Cash
+// code for the same reason as cashFlowNet — a non-cash asset (e.g. accumulated
+// depreciation) must not count toward cash on hand.
 export async function cashOnHand(tx: Database | Transaction, scope: LedgerScope): Promise<string> {
   const [row] = await tx
     .select({
@@ -631,8 +768,7 @@ export async function cashOnHand(tx: Database | Transaction, scope: LedgerScope)
       and(
         eq(journalEntries.companyId, scope.companyId),
         eq(journalEntries.accountId, scope.accountId),
-        eq(chartOfAccounts.accountType, 'asset'),
-        ne(chartOfAccounts.code, COA_AR),
+        eq(chartOfAccounts.code, COA_CASH),
       ),
     );
   return row?.balance ?? '0.00';
