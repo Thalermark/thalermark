@@ -15,6 +15,9 @@
   // Creating a company + the account-wide telemetry decision are both
   // settings:manage (owner/admin); switching companies is open to every role.
   const canManageSettings = $derived(may(page.data.role, 'settings:manage'));
+  // "The Ledger" — the gated manual-adjustment portal. Owner/admin/accountant
+  // only; the link is the deliberate (and only) door into accounting vocabulary.
+  const canAdjustLedger = $derived(may(page.data.role, 'ledger:adjust'));
   // First-run telemetry consent: shown only to settings:manage roles (they own
   // the account-wide decision), once the account hasn't decided and the
   // deployment hasn't disabled it.
@@ -46,6 +49,9 @@
         <a href="/expenses" class="hover:text-fg">Expenses</a>
         <a href="/contacts" class="hover:text-fg">Contacts</a>
         <a href="/reports" class="hover:text-fg">Reports</a>
+        {#if canAdjustLedger}
+          <a href="/ledger" class="hover:text-fg">Ledger</a>
+        {/if}
       </nav>
       <UserMenu
         name={session.user.name}
