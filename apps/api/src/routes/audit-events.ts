@@ -7,6 +7,7 @@ import {
   expenses,
   invoices,
   items,
+  journalEntries,
   ownerMoneyEvents,
   recurringInvoices,
 } from '@thalermark/db';
@@ -45,6 +46,7 @@ export function auditEventsRoutes() {
       'expense',
       'bill',
       'owner_money_event',
+      'manual_adjustment',
       'recurring_invoice',
       'item',
     ] as const;
@@ -118,6 +120,7 @@ export function auditEventsRoutes() {
         expense: [],
         bill: [],
         owner_money_event: [],
+        manual_adjustment: [],
         recurring_invoice: [],
         item: [],
       };
@@ -183,6 +186,23 @@ export function auditEventsRoutes() {
             `owner_money_event:${r.id}`,
             r.kind === 'contribution' ? 'Money in' : 'Money out',
           );
+        }
+      }
+      // Manual journal adjustments are journal_entries rows (no domain table) —
+      // label them by the entry's memo (the user's narrative), falling back to
+      // a generic handle if somehow blank.
+      if (idsByType.manual_adjustment.length > 0) {
+        const jeRows = await tx
+          .select({ id: journalEntries.id, memo: journalEntries.memo })
+          .from(journalEntries)
+          .where(
+            and(
+              eq(journalEntries.accountId, accountId),
+              inArray(journalEntries.id, idsByType.manual_adjustment),
+            ),
+          );
+        for (const r of jeRows) {
+          labelMap.set(`manual_adjustment:${r.id}`, r.memo ?? 'Journal entry');
         }
       }
       // Schedules have no number — label them by customer name (joined).
