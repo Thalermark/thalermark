@@ -183,6 +183,18 @@ describe('capability gate — create routes', () => {
       path: '/api/expenses',
       allow: ['owner', 'admin', 'member', 'accountant'],
     },
+    {
+      name: 'POST /api/ledger/entries',
+      path: '/api/ledger/entries',
+      allow: ['owner', 'admin', 'accountant'],
+    },
+    {
+      name: 'POST /api/ledger/entries/:id/reverse',
+      // A well-formed (but non-existent) id: a forbidden role 403s at the gate
+      // before the lookup; an allowed role passes the gate and 404s — never 403.
+      path: '/api/ledger/entries/00000000-0000-0000-0000-000000000000/reverse',
+      allow: ['owner', 'admin', 'accountant'],
+    },
     { name: 'POST /api/invitations', path: '/api/invitations', allow: ['owner', 'admin'] },
   ];
 
