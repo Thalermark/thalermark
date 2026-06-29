@@ -25,10 +25,21 @@ export function filesRoutes(deps: AppDeps) {
     } catch {
       return c.json({ error: 'not_found' }, 404);
     }
-    return c.body(new Uint8Array(bytes), 200, {
-      'content-type': mimeForKey(payload.key),
+    const mime = mimeForKey(payload.key);
+    const headers: Record<string, string> = {
+      'content-type': mime,
       'cache-control': 'private, max-age=3600',
-    });
+      // Belt-and-suspenders against MIME sniffing (Caddy also sets this at the
+      // edge, but the api can be fronted by other proxies). The token route is
+      // same-origin, so a sniffed response is a minor phishing surface.
+      'x-content-type-options': 'nosniff',
+    };
+    // Force PDFs to download rather than render inline — an inline same-origin
+    // PDF is the phishing/sniffing surface called out in review. Images stay
+    // inline: company logos are served from this same route and rendered via
+    // <img> on invoices and the public pay view, so attachment would break them.
+    if (mime === 'application/pdf') headers['content-disposition'] = 'attachment';
+    return c.body(new Uint8Array(bytes), 200, headers);
   });
 }
 
