@@ -767,99 +767,121 @@ export function invoicesRoutes(deps: AppDeps) {
           const { to: toOverrideRaw } = c.req.valid('json');
           const toOverride = toOverrideRaw?.trim() || null;
 
-          const tx = c.get('tx');
           const accountId = c.get('accountId');
 
-          const [current] = await tx
-            .select()
-            .from(invoices)
-            .where(and(eq(invoices.id, id), eq(invoices.accountId, accountId)))
-            .limit(1);
-          if (!current) return c.json({ error: 'invoice_not_found' }, 404);
-          if (current.status === 'paid' || current.status === 'voided') {
-            return c.json({ error: 'invalid_transition', from: current.status, to: 'sent' }, 409);
-          }
-
-          const [customer] = await tx
-            .select({ id: contacts.id, name: contacts.name, email: contacts.email })
-            .from(contacts)
-            .where(and(eq(contacts.id, current.contactId), eq(contacts.accountId, accountId)))
-            .limit(1);
-          if (!customer) return c.json({ error: 'contact_not_found' }, 404);
-
-          const to = (toOverride ?? customer.email ?? '').trim();
-          if (!to || !EMAIL_RE.test(to)) return c.json({ error: 'invalid_recipient' }, 400);
-
-          const [company] = await tx
-            .select({ name: companies.name, replyToEmail: companies.replyToEmail })
-            .from(companies)
-            .where(and(eq(companies.id, current.companyId), eq(companies.accountId, accountId)))
-            .limit(1);
-
-          // First-send transition: draft → sent, stamps sent_at, mints the
-          // public token if missing (same idempotent pattern as mark-sent).
-          // Resend leaves status / sent_at / public_token untouched.
-          let invoice = current;
-          if (current.status === 'draft') {
-            const now = new Date();
-            const [updated] = await tx
-              .update(invoices)
-              .set({
-                status: 'sent',
-                sentAt: now,
-                updatedAt: now,
-                publicToken: current.publicToken ?? randomBytes(32).toString('hex'),
-              })
+          // tx1: reads + the first-send transition (status/token/audit), then
+          // release the connection before the Resend call below (deferred-tx
+          // route, see rls-context). The guard branches build their c.json error
+          // here and are returned via the `instanceof Response` check after.
+          const prep = await c.var.runInTx(async (tx, audit) => {
+            const [current] = await tx
+              .select()
+              .from(invoices)
               .where(and(eq(invoices.id, id), eq(invoices.accountId, accountId)))
-              .returning();
-            if (!updated) return c.json({ error: 'invoice_not_found' }, 404);
-            invoice = updated;
+              .limit(1);
+            if (!current) return c.json({ error: 'invoice_not_found' }, 404);
+            if (current.status === 'paid' || current.status === 'voided') {
+              return c.json({ error: 'invalid_transition', from: current.status, to: 'sent' }, 409);
+            }
 
-            await c.var.audit({
-              entityType: 'invoice',
-              entityId: id,
-              action: 'mark-sent',
-              before: {
-                status: current.status,
-                sentAt: current.sentAt,
-                paidAt: current.paidAt,
-                voidedAt: current.voidedAt,
-                publicToken: current.publicToken,
-              },
-              after: {
-                status: updated.status,
-                sentAt: updated.sentAt,
-                paidAt: updated.paidAt,
-                voidedAt: updated.voidedAt,
-                publicToken: updated.publicToken,
-              },
-              companyId: updated.companyId,
-            });
-          }
+            const [customer] = await tx
+              .select({ id: contacts.id, name: contacts.name, email: contacts.email })
+              .from(contacts)
+              .where(and(eq(contacts.id, current.contactId), eq(contacts.accountId, accountId)))
+              .limit(1);
+            if (!customer) return c.json({ error: 'contact_not_found' }, 404);
 
-          if (!invoice.publicToken) {
-            return c.json({ error: 'invoice_state_invalid' }, 500);
-          }
+            const to = (toOverride ?? customer.email ?? '').trim();
+            if (!to || !EMAIL_RE.test(to)) return c.json({ error: 'invalid_recipient' }, 400);
 
-          const companyName = company?.name ?? 'Thalermark';
-          const template = await resolveEmailTemplate(
-            c.get('tx'),
-            c.get('accountId'),
-            invoice.companyId,
-            'invoice',
-          );
-          // Shared builder (lib/invoice-email.ts) so this route and the
-          // recurring-invoice sweeper emit identical email. publicToken is
-          // guaranteed set by the guard above.
-          let subject: string;
-          try {
-            ({ subject } = await sendInvoiceEmail(deps.mailer, to, {
+            const [company] = await tx
+              .select({ name: companies.name, replyToEmail: companies.replyToEmail })
+              .from(companies)
+              .where(and(eq(companies.id, current.companyId), eq(companies.accountId, accountId)))
+              .limit(1);
+
+            // First-send transition: draft → sent, stamps sent_at, mints the
+            // public token if missing (same idempotent pattern as mark-sent).
+            // Resend leaves status / sent_at / public_token untouched.
+            let invoice = current;
+            if (current.status === 'draft') {
+              const now = new Date();
+              const [updated] = await tx
+                .update(invoices)
+                .set({
+                  status: 'sent',
+                  sentAt: now,
+                  updatedAt: now,
+                  publicToken: current.publicToken ?? randomBytes(32).toString('hex'),
+                })
+                .where(and(eq(invoices.id, id), eq(invoices.accountId, accountId)))
+                .returning();
+              if (!updated) return c.json({ error: 'invoice_not_found' }, 404);
+              invoice = updated;
+
+              await audit({
+                entityType: 'invoice',
+                entityId: id,
+                action: 'mark-sent',
+                before: {
+                  status: current.status,
+                  sentAt: current.sentAt,
+                  paidAt: current.paidAt,
+                  voidedAt: current.voidedAt,
+                  publicToken: current.publicToken,
+                },
+                after: {
+                  status: updated.status,
+                  sentAt: updated.sentAt,
+                  paidAt: updated.paidAt,
+                  voidedAt: updated.voidedAt,
+                  publicToken: updated.publicToken,
+                },
+                companyId: updated.companyId,
+              });
+            }
+
+            if (!invoice.publicToken) {
+              return c.json({ error: 'invoice_state_invalid' }, 500);
+            }
+
+            const companyName = company?.name ?? 'Thalermark';
+            const template = await resolveEmailTemplate(
+              tx,
+              accountId,
+              invoice.companyId,
+              'invoice',
+            );
+            return {
               invoice: { ...invoice, publicToken: invoice.publicToken },
               customerName: customer.name,
               companyName,
+              replyToEmail: company?.replyToEmail ?? null,
+              template,
+              to,
+              wasDraft: current.status === 'draft',
+            };
+          });
+          // A guard branch returned a built error response — pass it through.
+          if (prep instanceof Response) return prep;
+          const { invoice, customerName, companyName, replyToEmail, template, to, wasDraft } = prep;
+
+          // Email send — no DB connection held. Shared builder (lib/invoice-
+          // email.ts) so this route and the recurring-invoice sweeper emit
+          // identical email. NOTE: tx1 already committed the draft → sent
+          // transition, so unlike the old single-tx version an email failure now
+          // leaves the invoice 'sent' (not rolled back to draft). That's
+          // recoverable — a retry is an idempotent resend — and consistent with
+          // the mark-sent-without-email ("share a link") path.
+          let subject: string;
+          try {
+            ({ subject } = await sendInvoiceEmail(deps.mailer, to, {
+              invoice,
+              customerName,
+              companyName,
               publicAppUrl: deps.publicAppUrl,
               emailFrom: deps.emailFrom,
-              replyToEmail: company?.replyToEmail ?? null,
+              replyToEmail,
               template,
             }));
           } catch (err) {
@@ -867,21 +889,22 @@ export function invoicesRoutes(deps: AppDeps) {
             return c.json({ error: 'email_failed', detail: message }, 502);
           }
 
-          await c.var.audit({
-            entityType: 'invoice',
-            entityId: id,
-            action: 'email-sent',
-            after: { to, subject },
-            companyId: invoice.companyId,
-          });
-
-          // Telemetry (opt-in; no-op unless the account enabled it). Only the
+          // tx2: record the delivery (audit + first-send telemetry). Only the
           // first delivery counts — a resend (status was already 'sent') doesn't
           // re-emit, so each invoice yields one invoice_sent tagged with the
           // method that first delivered it (TELEMETRY.md).
-          if (current.status === 'draft') {
-            await emit(tx, { name: 'invoice_sent', delivery_method: 'email' });
-          }
+          await c.var.runInTx(async (tx, audit) => {
+            await audit({
+              entityType: 'invoice',
+              entityId: id,
+              action: 'email-sent',
+              after: { to, subject },
+              companyId: invoice.companyId,
+            });
+            if (wasDraft) {
+              await emit(tx, { name: 'invoice_sent', delivery_method: 'email' });
+            }
+          });
 
           return c.json({ ...invoice, sentTo: to });
         },

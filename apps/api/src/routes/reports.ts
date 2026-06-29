@@ -809,96 +809,110 @@ export function reportsRoutes(deps: AppDeps) {
         const id = c.req.param('id');
         if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
 
-        const tx = c.get('tx');
         const accountId = c.get('accountId');
 
-        const [company] = await tx
-          .select({
-            id: companies.id,
-            cachedNudges: companies.cashFlowNudges,
-            cachedHash: companies.nudgesInputHash,
-            generatedAt: companies.nudgesGeneratedAt,
-          })
-          .from(companies)
-          .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
-          .limit(1);
-        if (!company) return c.json({ error: 'company_not_found' }, 404);
+        // tx1: load the cache + compute the deterministic ledger signals, then
+        // release the connection before the model call (deferred-tx route, see
+        // rls-context).
+        const prep = await c.var.runInTx(async (tx) => {
+          const [company] = await tx
+            .select({
+              id: companies.id,
+              cachedNudges: companies.cashFlowNudges,
+              cachedHash: companies.nudgesInputHash,
+              generatedAt: companies.nudgesGeneratedAt,
+            })
+            .from(companies)
+            .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
+            .limit(1);
+          if (!company) return null;
 
-        // Window math (UTC, half-open upper bounds). MTD = month start → tomorrow;
-        // trailing = the 3 prior full calendar months (Date.UTC handles year
-        // underflow). overdue = sent invoices whose due date has passed.
-        const now = new Date();
-        const y = now.getUTCFullYear();
-        const m = now.getUTCMonth();
-        const d = now.getUTCDate();
-        const todayYmd = now.toISOString().slice(0, 10);
-        const monthStart = new Date(Date.UTC(y, m, 1));
-        const tomorrow = new Date(Date.UTC(y, m, d + 1));
+          // Window math (UTC, half-open upper bounds). MTD = month start → tomorrow;
+          // trailing = the 3 prior full calendar months (Date.UTC handles year
+          // underflow). overdue = sent invoices whose due date has passed.
+          const now = new Date();
+          const y = now.getUTCFullYear();
+          const m = now.getUTCMonth();
+          const d = now.getUTCDate();
+          const todayYmd = now.toISOString().slice(0, 10);
+          const monthStart = new Date(Date.UTC(y, m, 1));
+          const tomorrow = new Date(Date.UTC(y, m, d + 1));
 
-        const scope = { accountId, companyId: id };
-        const monthToDate = await cashFlowNet(tx, {
-          ...scope,
-          fromDate: monthStart,
-          toExclusive: tomorrow,
-        });
-        const trailingMonths: CashFlowSignals['trailingMonths'] = [];
-        for (let k = 3; k >= 1; k--) {
-          const start = new Date(Date.UTC(y, m - k, 1));
-          const end = new Date(Date.UTC(y, m - k + 1, 1));
-          const flow = await cashFlowNet(tx, { ...scope, fromDate: start, toExclusive: end });
-          trailingMonths.push({
-            month: start.toISOString().slice(0, 7),
-            moneyIn: flow.moneyIn,
-            moneyOut: flow.moneyOut,
+          const scope = { accountId, companyId: id };
+          const monthToDate = await cashFlowNet(tx, {
+            ...scope,
+            fromDate: monthStart,
+            toExclusive: tomorrow,
           });
-        }
-        const [overdue] = await tx
-          .select({ count: sql<number>`count(*)::int` })
-          .from(invoices)
-          .where(
-            and(
-              eq(invoices.accountId, accountId),
-              eq(invoices.companyId, id),
-              eq(invoices.status, 'sent'),
-              lt(invoices.dueDate, todayYmd),
-            ),
-          );
+          const trailingMonths: CashFlowSignals['trailingMonths'] = [];
+          for (let k = 3; k >= 1; k--) {
+            const start = new Date(Date.UTC(y, m - k, 1));
+            const end = new Date(Date.UTC(y, m - k + 1, 1));
+            const flow = await cashFlowNet(tx, { ...scope, fromDate: start, toExclusive: end });
+            trailingMonths.push({
+              month: start.toISOString().slice(0, 7),
+              moneyIn: flow.moneyIn,
+              moneyOut: flow.moneyOut,
+            });
+          }
+          const [overdue] = await tx
+            .select({ count: sql<number>`count(*)::int` })
+            .from(invoices)
+            .where(
+              and(
+                eq(invoices.accountId, accountId),
+                eq(invoices.companyId, id),
+                eq(invoices.status, 'sent'),
+                lt(invoices.dueDate, todayYmd),
+              ),
+            );
 
-        const signals: CashFlowSignals = {
-          asOf: todayYmd,
-          cashOnHand: await cashOnHand(tx, scope),
-          monthToDate,
-          trailingMonths,
-          owed: await arBalance(tx, scope),
-          overdueCount: overdue?.count ?? 0,
-        };
-        // Version-tag the cache key so a prompt/advisor change (CASH_FLOW_NUDGE_VERSION)
-        // regenerates cached nudges — the signals hash alone wouldn't change.
-        const hash = createHash('sha256')
-          .update(JSON.stringify({ v: CASH_FLOW_NUDGE_VERSION, signals }))
-          .digest('hex');
+          const signals: CashFlowSignals = {
+            asOf: todayYmd,
+            cashOnHand: await cashOnHand(tx, scope),
+            monthToDate,
+            trailingMonths,
+            owed: await arBalance(tx, scope),
+            overdueCount: overdue?.count ?? 0,
+          };
+          // Version-tag the cache key so a prompt/advisor change (CASH_FLOW_NUDGE_VERSION)
+          // regenerates cached nudges — the signals hash alone wouldn't change.
+          const hash = createHash('sha256')
+            .update(JSON.stringify({ v: CASH_FLOW_NUDGE_VERSION, signals }))
+            .digest('hex');
+          return {
+            cachedNudges: company.cachedNudges,
+            cachedHash: company.cachedHash,
+            cachedGeneratedAt: company.generatedAt,
+            signals,
+            hash,
+          };
+        });
+        if (!prep) return c.json({ error: 'company_not_found' }, 404);
+        const { cachedNudges, cachedHash, cachedGeneratedAt, signals, hash } = prep;
 
         // Cache hit: signals unchanged since the last generation → no model call.
-        if (company.cachedNudges && company.cachedHash === hash) {
+        if (cachedNudges && cachedHash === hash) {
           return c.json({
-            nudges: company.cachedNudges,
-            generatedAt: company.generatedAt?.toISOString() ?? null,
+            nudges: cachedNudges,
+            generatedAt: cachedGeneratedAt?.toISOString() ?? null,
           });
         }
 
         // No advisor configured: serve stale cache if we have it, else 503.
         if (!deps.advisor) {
-          if (company.cachedNudges) {
+          if (cachedNudges) {
             return c.json({
-              nudges: company.cachedNudges,
-              generatedAt: company.generatedAt?.toISOString() ?? null,
+              nudges: cachedNudges,
+              generatedAt: cachedGeneratedAt?.toISOString() ?? null,
             });
           }
           return c.json({ error: 'ai_not_configured' }, 503);
         }
 
-        // Cache miss: regenerate, persist, return. A model failure leaves the
-        // old cache intact and surfaces 502 (the streamed UI shows nothing).
+        // Cache miss: regenerate (no DB connection held), persist, return. A
+        // model failure leaves the old cache intact and surfaces 502 (the
+        // streamed UI shows nothing).
         let nudges: Awaited<ReturnType<CashFlowAdvisor['advise']>>;
         try {
           nudges = await deps.advisor.advise(signals);
@@ -906,10 +920,13 @@ export function reportsRoutes(deps: AppDeps) {
           return c.json({ error: 'nudges_failed' }, 502);
         }
         const generatedAt = new Date();
-        await tx
-          .update(companies)
-          .set({ cashFlowNudges: nudges, nudgesInputHash: hash, nudgesGeneratedAt: generatedAt })
-          .where(and(eq(companies.id, id), eq(companies.accountId, accountId)));
+        // tx2: persist the regenerated cache.
+        await c.var.runInTx(async (tx) => {
+          await tx
+            .update(companies)
+            .set({ cashFlowNudges: nudges, nudgesInputHash: hash, nudgesGeneratedAt: generatedAt })
+            .where(and(eq(companies.id, id), eq(companies.accountId, accountId)));
+        });
 
         return c.json({ nudges, generatedAt: generatedAt.toISOString() });
       })
