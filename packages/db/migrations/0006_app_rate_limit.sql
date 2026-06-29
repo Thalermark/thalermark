@@ -5,7 +5,7 @@ SET search_path TO public;--> statement-breakpoint
 CREATE TABLE "app_rate_limit" (
 	"key" text PRIMARY KEY NOT NULL,
 	"window_start" timestamp with time zone DEFAULT now() NOT NULL,
-	"count" integer DEFAULT 0 NOT NULL
+	"count" bigint DEFAULT 0 NOT NULL
 );--> statement-breakpoint
 -- Infrastructure counter, NOT tenant data: no RLS (the unauthenticated public
 -- payment routes hit it with no app.current_account_id set) and no account_id /

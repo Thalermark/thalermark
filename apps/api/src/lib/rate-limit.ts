@@ -34,7 +34,7 @@ export async function checkRateLimit(
         WHEN app_rate_limit.window_start < now() - make_interval(secs => ${windowSeconds})
         THEN now() ELSE app_rate_limit.window_start END
     RETURNING
-      count,
+      count::int AS count,
       GREATEST(
         0,
         ceil(extract(epoch FROM (window_start + make_interval(secs => ${windowSeconds})) - now()))
