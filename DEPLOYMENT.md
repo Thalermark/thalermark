@@ -291,10 +291,15 @@ docker compose --env-file .env -f docker/docker-compose.yml pull
 docker compose --env-file .env -f docker/docker-compose.yml up -d
 ```
 
-**Logs / health.** `docker compose ... logs -f api`. The api exposes `/health`
-(used by the container healthcheck). The boot log reports the active email
-transport, storage driver, Stripe, AI, and address-autocomplete config — the
-fastest way to confirm a deploy picked up your `.env`.
+**Logs / health.** `docker compose ... logs -f api`. The api exposes two probes:
+`/health` is liveness — cheap, DB-independent, always `{ "status": "ok" }` when
+the process is up (used by the container healthcheck). `/ready` is readiness — it
+pings the database and returns `503` when the DB is unreachable or the connection
+pool is exhausted, so a load balancer can pull the instance out of rotation;
+point your LB/orchestrator health check at `/ready`, not `/health`. The boot log
+reports the active email transport, storage driver, Stripe, AI, and
+address-autocomplete config — the fastest way to confirm a deploy picked up your
+`.env`.
 
 **Rotating secrets.** `THALERMARK_APP_PASSWORD` is re-applied on every boot (the
 `ALTER ROLE` is idempotent), so rotating it is just an `.env` change + redeploy.

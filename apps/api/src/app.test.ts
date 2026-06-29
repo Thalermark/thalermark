@@ -32,6 +32,30 @@ describe('health route', () => {
   });
 });
 
+describe('readiness route', () => {
+  type AppDb = Parameters<typeof createApp>[0]['db'];
+
+  it('returns 200 when the DB ping succeeds', async () => {
+    const db = { execute: async () => [] } as unknown as AppDb;
+    const app = createApp({ auth: stubAuth, db });
+    const res = await app.request('/ready');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: 'ok', checks: { db: 'ok' } });
+  });
+
+  it('returns 503 when the DB ping fails', async () => {
+    const db = {
+      execute: async () => {
+        throw new Error('connection refused');
+      },
+    } as unknown as AppDb;
+    const app = createApp({ auth: stubAuth, db });
+    const res = await app.request('/ready');
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ status: 'error', checks: { db: 'error' } });
+  });
+});
+
 describe('GET /api/social-providers (public)', () => {
   it('returns the configured provider ids without auth', async () => {
     const app = createApp({ auth: stubAuth, db: stubDb, socialProviders: ['google', 'facebook'] });
