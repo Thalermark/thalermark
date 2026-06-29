@@ -25,6 +25,7 @@ import { suggestNextEstimateNumber, suggestNextInvoiceNumber } from '../lib/invo
 import { applyCursor, keysetOrderBy, parseLimit, slicePage } from '../lib/pagination.js';
 import { EMAIL_RE, UUID_RE, escapeLike, isValidDateParam } from '../lib/route-helpers.js';
 import { requireCapability } from '../middleware/authz.js';
+import { RATE_LIMITS, rateLimit } from '../middleware/rate-limit.js';
 import type { RlsVariables } from '../middleware/rls-context.js';
 
 // estimates — quotes: CRUD + duplicate, next-number, draft-only PATCH, the
@@ -744,6 +745,7 @@ export function estimatesRoutes(deps: AppDeps) {
       .post(
         '/api/estimates/:id/send',
         requireCapability('sales:write'),
+        rateLimit(deps, RATE_LIMITS.email, (c) => c.get('accountId') as string | undefined),
         validator('json', (value, c) => {
           const parsed = estimateSendSchema.safeParse(value ?? {});
           if (!parsed.success) {

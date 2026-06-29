@@ -171,6 +171,7 @@ const app = createApp({
   auth,
   db: dbHandle.db,
   bootstrapDb: bootstrapDbHandle.db,
+  rateLimitEnabled: env.rateLimitEnabled,
   trustedOrigins: env.trustedOrigins,
   publicAppUrl: env.publicAppUrl,
   socialProviders: enabledSocialProviders(env),
