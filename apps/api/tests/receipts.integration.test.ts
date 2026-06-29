@@ -189,6 +189,9 @@ describe('receipt capture', () => {
       const served = await ctx.app.request(url);
       expect(served.status).toBe(200);
       expect(served.headers.get('content-type')).toBe('image/jpeg');
+      expect(served.headers.get('x-content-type-options')).toBe('nosniff');
+      // Images stay inline — company logos render via <img> from this route.
+      expect(served.headers.get('content-disposition')).toBeNull();
       expect(new Uint8Array(await served.arrayBuffer())).toEqual(bytes);
 
       // Delete nulls the columns + removes the object.
@@ -255,6 +258,35 @@ describe('receipt capture', () => {
     try {
       const res = await ctx.app.request('/api/files/not-a-real-token');
       expect(res.status).toBe(403);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('serves a PDF receipt as an attachment, not inline', async () => {
+    const ctx = buildApp();
+    try {
+      const cookie = await signUp(ctx.app, 'rcpt-pdf@example.com');
+      const { accountId, companyId } = await userContext('rcpt-pdf@example.com');
+      const expenseId = await createExpense(ctx.app, cookie, accountId, companyId);
+      const auth = { cookie, 'x-account-id': accountId };
+
+      const bytes = new TextEncoder().encode('%PDF-1.4 fake-pdf-bytes');
+      const up = await ctx.app.request(`/api/expenses/${expenseId}/receipt`, {
+        method: 'POST',
+        headers: auth,
+        body: uploadForm(bytes, 'application/pdf', 'receipt.pdf'),
+      });
+      expect(up.status).toBe(201);
+
+      const getUrl = await ctx.app.request(`/api/expenses/${expenseId}/receipt`, { headers: auth });
+      const { url } = (await getUrl.json()) as { url: string };
+      const served = await ctx.app.request(url);
+      expect(served.status).toBe(200);
+      expect(served.headers.get('content-type')).toBe('application/pdf');
+      expect(served.headers.get('x-content-type-options')).toBe('nosniff');
+      // An inline same-origin PDF is the phishing surface we're closing.
+      expect(served.headers.get('content-disposition')).toBe('attachment');
     } finally {
       await ctx.handle.close();
     }
