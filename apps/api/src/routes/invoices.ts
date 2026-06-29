@@ -20,6 +20,7 @@ import { postInvoiceTransition, repostInvoicePaymentDate } from '../lib/ledger.j
 import { applyCursor, keysetOrderBy, parseLimit, slicePage } from '../lib/pagination.js';
 import { EMAIL_RE, UUID_RE, escapeLike, isValidDateParam } from '../lib/route-helpers.js';
 import { requireCapability } from '../middleware/authz.js';
+import { RATE_LIMITS, rateLimit } from '../middleware/rate-limit.js';
 import type { RlsVariables } from '../middleware/rls-context.js';
 
 // invoices — the sales-invoice domain: CRUD + duplicate-as-template, the
@@ -746,6 +747,7 @@ export function invoicesRoutes(deps: AppDeps) {
       .post(
         '/api/invoices/:id/send',
         requireCapability('sales:write'),
+        rateLimit(deps, RATE_LIMITS.email, (c) => c.get('accountId') as string | undefined),
         // validator middleware needed for the same reason PATCH endpoints
         // use it (slice 8.4f): path-param routes type Input as `{ param }`
         // and TS rejects `{ param, json }` from hc<AppType>() without the

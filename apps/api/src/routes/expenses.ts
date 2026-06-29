@@ -22,6 +22,7 @@ import {
   resolveVendorLink,
 } from '../lib/route-helpers.js';
 import { requireCapability } from '../middleware/authz.js';
+import { RATE_LIMITS, rateLimit } from '../middleware/rate-limit.js';
 import type { RlsVariables } from '../middleware/rls-context.js';
 
 // expenses — the expense domain (slice 8.9c): the third MVP entity chain,
@@ -178,80 +179,85 @@ export function expensesRoutes(deps: AppDeps) {
       // the company's expense COA. The user reviews + saves — the AI never
       // writes the ledger. Opt-in like /extract: 503 when no LLM is configured.
       // A literal path, so it never collides with the /api/expenses/:id routes.
-      .post('/api/expenses/categorize', requireCapability('expenses:write'), async (c) => {
-        const body = await c.req.json().catch(() => null);
-        const parsed = expenseCategorizeSchema.safeParse(body);
-        if (!parsed.success) {
-          return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
-        }
-        if (!deps.categorizer) return c.json({ error: 'ai_not_configured' }, 503);
+      .post(
+        '/api/expenses/categorize',
+        requireCapability('expenses:write'),
+        rateLimit(deps, RATE_LIMITS.ai, (c) => c.get('accountId') as string | undefined),
+        async (c) => {
+          const body = await c.req.json().catch(() => null);
+          const parsed = expenseCategorizeSchema.safeParse(body);
+          if (!parsed.success) {
+            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+          }
+          if (!deps.categorizer) return c.json({ error: 'ai_not_configured' }, 503);
 
-        const accountId = c.get('accountId');
-        const { companyId, merchant, memo, amount } = parsed.data;
+          const accountId = c.get('accountId');
+          const { companyId, merchant, memo, amount } = parsed.data;
 
-        // tx1: validate the company + load the COA the model must choose from,
-        // then release the connection — this is a deferred-tx route (see
-        // rls-context) so the model call below never pins a pooled connection.
-        const categories = await c.var.runInTx(async (tx) => {
-          const [company] = await tx
-            .select({ id: companies.id })
-            .from(companies)
-            .where(and(eq(companies.id, companyId), eq(companies.accountId, accountId)))
-            .limit(1);
-          if (!company) return null;
-          // The company's active expense COA — the model's suggestion is
-          // constrained to these codes (in the prompt and by post-hoc validation
-          // inside the categorizer) so it can't return a code that wouldn't post.
-          return tx
-            .select({
-              id: chartOfAccounts.id,
-              code: chartOfAccounts.code,
-              name: chartOfAccounts.name,
-            })
-            .from(chartOfAccounts)
-            .where(
-              and(
-                eq(chartOfAccounts.accountId, accountId),
-                eq(chartOfAccounts.companyId, companyId),
-                eq(chartOfAccounts.accountType, 'expense'),
-                eq(chartOfAccounts.isActive, true),
-              ),
-            )
-            .orderBy(asc(chartOfAccounts.code));
-        });
-        if (!categories) return c.json({ error: 'company_not_found' }, 404);
-
-        // Model call — no DB connection held.
-        let suggestedCategoryCode: string | null;
-        try {
-          ({ suggestedCategoryCode } = await deps.categorizer.categorize({
-            merchant,
-            memo: memo ?? null,
-            amount: amount ?? null,
-            allowedCategories: categories.map((row) => ({ code: row.code, name: row.name })),
-          }));
-        } catch (_err) {
-          return c.json({ error: 'categorization_failed' }, 502);
-        }
-
-        // Resolve code → account id for the form prefill (the select is keyed by
-        // id; codes are the stable persisted form). Null when nothing fit.
-        const suggestedCategoryAccountId = suggestedCategoryCode
-          ? (categories.find((row) => row.code === suggestedCategoryCode)?.id ?? null)
-          : null;
-
-        // Telemetry (opt-in; no-op unless the account enabled it). Same event
-        // the receipt path emits — the AI did the categorisation work; the user
-        // still confirms on save (TELEMETRY.md). tx2: a short write, opened only
-        // when there's something to record.
-        if (suggestedCategoryCode) {
-          await c.var.runInTx(async (tx) => {
-            await emit(tx, { name: 'expense_categorised', method: 'ai_suggested' });
+          // tx1: validate the company + load the COA the model must choose from,
+          // then release the connection — this is a deferred-tx route (see
+          // rls-context) so the model call below never pins a pooled connection.
+          const categories = await c.var.runInTx(async (tx) => {
+            const [company] = await tx
+              .select({ id: companies.id })
+              .from(companies)
+              .where(and(eq(companies.id, companyId), eq(companies.accountId, accountId)))
+              .limit(1);
+            if (!company) return null;
+            // The company's active expense COA — the model's suggestion is
+            // constrained to these codes (in the prompt and by post-hoc validation
+            // inside the categorizer) so it can't return a code that wouldn't post.
+            return tx
+              .select({
+                id: chartOfAccounts.id,
+                code: chartOfAccounts.code,
+                name: chartOfAccounts.name,
+              })
+              .from(chartOfAccounts)
+              .where(
+                and(
+                  eq(chartOfAccounts.accountId, accountId),
+                  eq(chartOfAccounts.companyId, companyId),
+                  eq(chartOfAccounts.accountType, 'expense'),
+                  eq(chartOfAccounts.isActive, true),
+                ),
+              )
+              .orderBy(asc(chartOfAccounts.code));
           });
-        }
+          if (!categories) return c.json({ error: 'company_not_found' }, 404);
 
-        return c.json({ suggestedCategoryCode, suggestedCategoryAccountId });
-      })
+          // Model call — no DB connection held.
+          let suggestedCategoryCode: string | null;
+          try {
+            ({ suggestedCategoryCode } = await deps.categorizer.categorize({
+              merchant,
+              memo: memo ?? null,
+              amount: amount ?? null,
+              allowedCategories: categories.map((row) => ({ code: row.code, name: row.name })),
+            }));
+          } catch (_err) {
+            return c.json({ error: 'categorization_failed' }, 502);
+          }
+
+          // Resolve code → account id for the form prefill (the select is keyed by
+          // id; codes are the stable persisted form). Null when nothing fit.
+          const suggestedCategoryAccountId = suggestedCategoryCode
+            ? (categories.find((row) => row.code === suggestedCategoryCode)?.id ?? null)
+            : null;
+
+          // Telemetry (opt-in; no-op unless the account enabled it). Same event
+          // the receipt path emits — the AI did the categorisation work; the user
+          // still confirms on save (TELEMETRY.md). tx2: a short write, opened only
+          // when there's something to record.
+          if (suggestedCategoryCode) {
+            await c.var.runInTx(async (tx) => {
+              await emit(tx, { name: 'expense_categorised', method: 'ai_suggested' });
+            });
+          }
+
+          return c.json({ suggestedCategoryCode, suggestedCategoryAccountId });
+        },
+      )
       .get('/api/expenses', async (c) => {
         const tx = c.get('tx');
         const accountId = c.get('accountId');
@@ -709,115 +715,120 @@ export function expensesRoutes(deps: AppDeps) {
       // the tenant tx; on failure we still commit extraction_status='failed'
       // (the 8.5b email-path shape) so the throw doesn't roll back the status —
       // the UI needs to see that it failed and let the user retry.
-      .post('/api/expenses/:id/extract', requireCapability('expenses:write'), async (c) => {
-        const id = c.req.param('id');
-        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
-        if (!deps.extractor) return c.json({ error: 'ai_not_configured' }, 503);
-        if (!deps.storage) return c.json({ error: 'storage_not_configured' }, 503);
+      .post(
+        '/api/expenses/:id/extract',
+        requireCapability('expenses:write'),
+        rateLimit(deps, RATE_LIMITS.ai, (c) => c.get('accountId') as string | undefined),
+        async (c) => {
+          const id = c.req.param('id');
+          if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+          if (!deps.extractor) return c.json({ error: 'ai_not_configured' }, 503);
+          if (!deps.storage) return c.json({ error: 'storage_not_configured' }, 503);
 
-        const accountId = c.get('accountId');
+          const accountId = c.get('accountId');
 
-        // tx1: load the expense + its company's expense COA, then drop the
-        // connection before the storage fetch + vision call (both upstream —
-        // this is a deferred-tx route, see rls-context).
-        const loaded = await c.var.runInTx(async (tx) => {
-          const [expense] = await tx
-            .select()
-            .from(expenses)
-            .where(and(eq(expenses.id, id), eq(expenses.accountId, accountId)))
-            .limit(1);
-          if (!expense || expense.deletedAt) return null;
-          // The company's active expense COA. The model's category suggestion is
-          // constrained to these codes (in the prompt and by post-hoc validation
-          // inside the extractor) so it can't return a code that wouldn't post.
-          const categories = await tx
-            .select({
-              id: chartOfAccounts.id,
-              code: chartOfAccounts.code,
-              name: chartOfAccounts.name,
-            })
-            .from(chartOfAccounts)
-            .where(
-              and(
-                eq(chartOfAccounts.accountId, accountId),
-                eq(chartOfAccounts.companyId, expense.companyId),
-                eq(chartOfAccounts.accountType, 'expense'),
-                eq(chartOfAccounts.isActive, true),
-              ),
-            )
-            .orderBy(asc(chartOfAccounts.code));
-          return { expense, categories };
-        });
-        if (!loaded) return c.json({ error: 'expense_not_found' }, 404);
-        const { expense, categories } = loaded;
-        // Extraction operates on the already-uploaded receipt (capture is 8.9g).
-        if (!expense.receiptStorageKey) return c.json({ error: 'no_receipt' }, 400);
-
-        // Storage fetch + vision call — no DB connection held.
-        const bytes = await deps.storage.getObject(expense.receiptStorageKey);
-        const mimeType = mimeForKey(expense.receiptStorageKey);
-
-        const now = new Date();
-        let result: ExtractionResult | null = null;
-        let status: 'succeeded' | 'failed';
-        try {
-          result = await deps.extractor.extractReceipt({
-            bytes,
-            mimeType,
-            allowedCategories: categories.map((row) => ({ code: row.code, name: row.name })),
+          // tx1: load the expense + its company's expense COA, then drop the
+          // connection before the storage fetch + vision call (both upstream —
+          // this is a deferred-tx route, see rls-context).
+          const loaded = await c.var.runInTx(async (tx) => {
+            const [expense] = await tx
+              .select()
+              .from(expenses)
+              .where(and(eq(expenses.id, id), eq(expenses.accountId, accountId)))
+              .limit(1);
+            if (!expense || expense.deletedAt) return null;
+            // The company's active expense COA. The model's category suggestion is
+            // constrained to these codes (in the prompt and by post-hoc validation
+            // inside the extractor) so it can't return a code that wouldn't post.
+            const categories = await tx
+              .select({
+                id: chartOfAccounts.id,
+                code: chartOfAccounts.code,
+                name: chartOfAccounts.name,
+              })
+              .from(chartOfAccounts)
+              .where(
+                and(
+                  eq(chartOfAccounts.accountId, accountId),
+                  eq(chartOfAccounts.companyId, expense.companyId),
+                  eq(chartOfAccounts.accountType, 'expense'),
+                  eq(chartOfAccounts.isActive, true),
+                ),
+              )
+              .orderBy(asc(chartOfAccounts.code));
+            return { expense, categories };
           });
-          status = 'succeeded';
-        } catch (_err) {
-          status = 'failed';
-        }
+          if (!loaded) return c.json({ error: 'expense_not_found' }, 404);
+          const { expense, categories } = loaded;
+          // Extraction operates on the already-uploaded receipt (capture is 8.9g).
+          if (!expense.receiptStorageKey) return c.json({ error: 'no_receipt' }, 400);
 
-        // tx2: persist the outcome + audit + telemetry. extraction_status is
-        // committed even on failure (the throw is swallowed above) so the UI can
-        // show the failed state and let the user retry.
-        const persisted = await c.var.runInTx(async (tx, audit) => {
-          const [updated] = await tx
-            .update(expenses)
-            .set({ extractionStatus: status, extractionPayload: result, updatedAt: now })
-            .where(and(eq(expenses.id, id), eq(expenses.accountId, accountId)))
-            .returning();
-          if (!updated) return false;
+          // Storage fetch + vision call — no DB connection held.
+          const bytes = await deps.storage.getObject(expense.receiptStorageKey);
+          const mimeType = mimeForKey(expense.receiptStorageKey);
 
-          await audit({
-            entityType: 'expense',
-            entityId: id,
-            action: 'receipt-extract',
-            before: { extractionStatus: expense.extractionStatus },
-            after: { extractionStatus: status, extraction: result },
-            companyId: expense.companyId,
-          });
-
-          // The AI did the categorisation work when it returned a usable code;
-          // the user still confirms on save. expense_categorised{ai_suggested}
-          // is the documented event for this (TELEMETRY.md).
-          if (status === 'succeeded' && result?.suggestedCategoryCode) {
-            await emit(tx, { name: 'expense_categorised', method: 'ai_suggested' });
+          const now = new Date();
+          let result: ExtractionResult | null = null;
+          let status: 'succeeded' | 'failed';
+          try {
+            result = await deps.extractor.extractReceipt({
+              bytes,
+              mimeType,
+              allowedCategories: categories.map((row) => ({ code: row.code, name: row.name })),
+            });
+            status = 'succeeded';
+          } catch (_err) {
+            status = 'failed';
           }
-          return true;
-        });
-        if (!persisted) return c.json({ error: 'expense_not_found' }, 404);
 
-        if (status === 'failed' || !result) {
-          return c.json({ error: 'extraction_failed', extractionStatus: 'failed' as const }, 502);
-        }
+          // tx2: persist the outcome + audit + telemetry. extraction_status is
+          // committed even on failure (the throw is swallowed above) so the UI can
+          // show the failed state and let the user retry.
+          const persisted = await c.var.runInTx(async (tx, audit) => {
+            const [updated] = await tx
+              .update(expenses)
+              .set({ extractionStatus: status, extractionPayload: result, updatedAt: now })
+              .where(and(eq(expenses.id, id), eq(expenses.accountId, accountId)))
+              .returning();
+            if (!updated) return false;
 
-        // Resolve the suggested code → account id for the web prefill. Codes are
-        // the stable, persisted form; the edit form's category select is keyed
-        // by id. Null when the model suggested nothing or a now-removed code.
-        const suggestedCategoryAccountId = result.suggestedCategoryCode
-          ? (categories.find((row) => row.code === result?.suggestedCategoryCode)?.id ?? null)
-          : null;
+            await audit({
+              entityType: 'expense',
+              entityId: id,
+              action: 'receipt-extract',
+              before: { extractionStatus: expense.extractionStatus },
+              after: { extractionStatus: status, extraction: result },
+              companyId: expense.companyId,
+            });
 
-        return c.json({
-          extractionStatus: 'succeeded' as const,
-          extraction: result,
-          suggestedCategoryAccountId,
-        });
-      })
+            // The AI did the categorisation work when it returned a usable code;
+            // the user still confirms on save. expense_categorised{ai_suggested}
+            // is the documented event for this (TELEMETRY.md).
+            if (status === 'succeeded' && result?.suggestedCategoryCode) {
+              await emit(tx, { name: 'expense_categorised', method: 'ai_suggested' });
+            }
+            return true;
+          });
+          if (!persisted) return c.json({ error: 'expense_not_found' }, 404);
+
+          if (status === 'failed' || !result) {
+            return c.json({ error: 'extraction_failed', extractionStatus: 'failed' as const }, 502);
+          }
+
+          // Resolve the suggested code → account id for the web prefill. Codes are
+          // the stable, persisted form; the edit form's category select is keyed
+          // by id. Null when the model suggested nothing or a now-removed code.
+          const suggestedCategoryAccountId = result.suggestedCategoryCode
+            ? (categories.find((row) => row.code === result?.suggestedCategoryCode)?.id ?? null)
+            : null;
+
+          return c.json({
+            extractionStatus: 'succeeded' as const,
+            extraction: result,
+            suggestedCategoryAccountId,
+          });
+        },
+      )
   );
 }
 

@@ -52,6 +52,11 @@ export type AppDeps = {
   // and have nothing to distinguish; production server.ts passes both.
   bootstrapDb?: Database;
   scheduleFlush?: (db: Database, accountId: string) => void;
+  // Turns the app-level rate limiter (middleware/rate-limit.ts) on for the AI,
+  // email-send, and public-payment routes. Same RATE_LIMIT_ENABLED switch as
+  // Better Auth's limiter — prod-on, off elsewhere. Optional so test/embedder
+  // deps can omit it (limiter then no-ops). server.ts passes env.rateLimitEnabled.
+  rateLimitEnabled?: boolean;
   trustedOrigins?: string[];
   publicAppUrl?: string;
   // Configured social-login provider ids ('google' | 'facebook' | 'twitter'),

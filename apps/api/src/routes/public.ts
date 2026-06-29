@@ -18,6 +18,7 @@ import type { AppDeps } from '../app.js';
 import { postInvoiceTransition } from '../lib/ledger.js';
 import { UUID_RE } from '../lib/route-helpers.js';
 import { decimalDollarsToCents } from '../lib/stripe.js';
+import { RATE_LIMITS, rateLimit } from '../middleware/rate-limit.js';
 import type { RlsVariables } from '../middleware/rls-context.js';
 
 const log = getLogger(['api', 'public']);
@@ -231,70 +232,74 @@ export function publicRoutes(deps: AppDeps) {
       // GET's `payable` flag; the duplicate check is deliberate (the client
       // could be stale or hand-crafted). The post-payment return_url lives
       // client-side in confirmPayment, so this route no longer needs publicAppUrl.
-      .post('/api/public/invoices/:token/payment-intent', async (c) => {
-        if (!deps.stripe) return c.json({ error: 'stripe_not_configured' }, 503);
-        const token = c.req.param('token');
-        const [invoice] = await bootstrapDb
-          .select()
-          .from(invoices)
-          .where(eq(invoices.publicToken, token))
-          .limit(1);
-        if (!invoice) return c.json({ error: 'invoice_not_found' }, 404);
-        if (invoice.status !== 'sent') {
-          return c.json({ error: 'not_payable', status: invoice.status }, 409);
-        }
-        const amountCents = decimalDollarsToCents(invoice.total);
-        if (amountCents <= 0) return c.json({ error: 'invalid_amount' }, 400);
+      .post(
+        '/api/public/invoices/:token/payment-intent',
+        rateLimit(deps, RATE_LIMITS.publicPay, (c) => c.req.param('token')),
+        async (c) => {
+          if (!deps.stripe) return c.json({ error: 'stripe_not_configured' }, 503);
+          const token = c.req.param('token');
+          const [invoice] = await bootstrapDb
+            .select()
+            .from(invoices)
+            .where(eq(invoices.publicToken, token))
+            .limit(1);
+          if (!invoice) return c.json({ error: 'invoice_not_found' }, 404);
+          if (invoice.status !== 'sent') {
+            return c.json({ error: 'not_payable', status: invoice.status }, 409);
+          }
+          const amountCents = decimalDollarsToCents(invoice.total);
+          if (amountCents <= 0) return c.json({ error: 'invalid_amount' }, 400);
 
-        // Connect routing decision. A company that has onboarded Connect must
-        // have Stripe-side charges_enabled before we'll mint a session — Stripe
-        // will reject it otherwise, and a clean 503 here surfaces the wait
-        // state to the recipient instead of a generic Stripe error. Self-host
-        // companies (no stripeConnectAccountId) keep the 8.5c platform-account
-        // path: stripeAccount is not passed, so Checkout runs on the operator's
-        // own STRIPE_SECRET_KEY.
-        const [company] = await bootstrapDb
-          .select({
-            stripeConnectAccountId: companies.stripeConnectAccountId,
-            stripeConnectChargesEnabled: companies.stripeConnectChargesEnabled,
-          })
-          .from(companies)
-          .where(eq(companies.id, invoice.companyId))
-          .limit(1);
-        if (company?.stripeConnectAccountId && !company.stripeConnectChargesEnabled) {
-          return c.json({ error: 'connect_not_ready' }, 503);
-        }
-        const requestOptions = company?.stripeConnectAccountId
-          ? { stripeAccount: company.stripeConnectAccountId }
-          : undefined;
+          // Connect routing decision. A company that has onboarded Connect must
+          // have Stripe-side charges_enabled before we'll mint a session — Stripe
+          // will reject it otherwise, and a clean 503 here surfaces the wait
+          // state to the recipient instead of a generic Stripe error. Self-host
+          // companies (no stripeConnectAccountId) keep the 8.5c platform-account
+          // path: stripeAccount is not passed, so Checkout runs on the operator's
+          // own STRIPE_SECRET_KEY.
+          const [company] = await bootstrapDb
+            .select({
+              stripeConnectAccountId: companies.stripeConnectAccountId,
+              stripeConnectChargesEnabled: companies.stripeConnectChargesEnabled,
+            })
+            .from(companies)
+            .where(eq(companies.id, invoice.companyId))
+            .limit(1);
+          if (company?.stripeConnectAccountId && !company.stripeConnectChargesEnabled) {
+            return c.json({ error: 'connect_not_ready' }, 503);
+          }
+          const requestOptions = company?.stripeConnectAccountId
+            ? { stripeAccount: company.stripeConnectAccountId }
+            : undefined;
 
-        const intent = await deps.stripe.client.paymentIntents.create(
-          {
-            amount: amountCents,
-            currency: invoice.currency.toLowerCase(),
-            // Lets the Payment Element offer whatever methods the (connected
-            // or platform) account has enabled — card, Link, wallets — without
-            // us enumerating them here.
-            automatic_payment_methods: { enabled: true },
-            description: `Invoice ${invoice.number}`,
-            // Echoed on the payment_intent.succeeded webhook — the sole lookup
-            // for the invoice-id → mark-paid transition. Resolved purely by
-            // metadata regardless of which connected account ran the charge.
-            metadata: { invoiceId: invoice.id, accountId: invoice.accountId },
-          },
-          requestOptions,
-        );
+          const intent = await deps.stripe.client.paymentIntents.create(
+            {
+              amount: amountCents,
+              currency: invoice.currency.toLowerCase(),
+              // Lets the Payment Element offer whatever methods the (connected
+              // or platform) account has enabled — card, Link, wallets — without
+              // us enumerating them here.
+              automatic_payment_methods: { enabled: true },
+              description: `Invoice ${invoice.number}`,
+              // Echoed on the payment_intent.succeeded webhook — the sole lookup
+              // for the invoice-id → mark-paid transition. Resolved purely by
+              // metadata regardless of which connected account ran the charge.
+              metadata: { invoiceId: invoice.id, accountId: invoice.accountId },
+            },
+            requestOptions,
+          );
 
-        return c.json({
-          clientSecret: intent.client_secret,
-          publishableKey: deps.stripe.publishableKey,
-          // Direct charges live on the connected account, so the browser must
-          // init stripe.js in that account's context (loadStripe's stripeAccount
-          // option) for the Payment Element to resolve this intent. Null on the
-          // self-host / platform path, where the intent is on the operator key.
-          stripeAccountId: company?.stripeConnectAccountId ?? null,
-        });
-      })
+          return c.json({
+            clientSecret: intent.client_secret,
+            publishableKey: deps.stripe.publishableKey,
+            // Direct charges live on the connected account, so the browser must
+            // init stripe.js in that account's context (loadStripe's stripeAccount
+            // option) for the Payment Element to resolve this intent. Null on the
+            // self-host / platform path, where the intent is on the operator key.
+            stripeAccountId: company?.stripeConnectAccountId ?? null,
+          });
+        },
+      )
       // Public estimate view — mirror of the public invoice route, minus
       // payable / Stripe wiring (estimates aren't a debt). Bootstrap reads
       // for the same reason: rls-context skips /api/public/* and no tenant

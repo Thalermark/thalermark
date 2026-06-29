@@ -43,6 +43,13 @@
       "when": 1782691761023,
       "tag": "0005_capital_purchases",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1782800000000,
+      "tag": "0006_app_rate_limit",
+      "breakpoints": true
     }
   ]
 }
