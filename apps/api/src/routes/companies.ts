@@ -684,6 +684,12 @@ export function companiesRoutes(deps: AppDeps) {
                   transfers: { requested: true },
                 },
                 business_profile: { name: company.name },
+                // Stamp the tenant identity onto the Stripe-side account so an
+                // orphaned acct_xxx (e.g. its company row was deleted) can be
+                // reconciled back via accounts.list metadata. The mapping
+                // normally lives only in companies.stripeConnectAccountId; this
+                // is the recovery handle the SaaS layer keys re-linking off.
+                metadata: { company_id: id, account_id: accountId },
               },
               { idempotencyKey: `company-${id}-create-account` },
             );
