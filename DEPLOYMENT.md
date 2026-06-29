@@ -314,6 +314,16 @@ reports the active email transport, storage driver, Stripe, AI, and
 address-autocomplete config — the fastest way to confirm a deploy picked up your
 `.env`.
 
+**Background jobs (single box vs. multiple replicas).** The api runs pg-boss
+in-process for the recurring-invoice sweep (scheduler + worker). On a single box
+this is automatic — leave `JOBS_ENABLED` unset (defaults true). pg-boss is
+multi-instance-safe at the worker level: jobs are claimed with `FOR UPDATE SKIP
+LOCKED`, so a job is processed exactly once no matter how many api replicas are
+running. If you scale the api **horizontally**, run the scheduler on exactly one
+instance — set `JOBS_ENABLED=false` on every replica but one (or run a single
+dedicated worker container) — so the cron is asserted from one place and job load
+is isolated from request traffic. Don't run the sweep on zero instances: pick one.
+
 **Rotating secrets.** `THALERMARK_APP_PASSWORD` is re-applied on every boot (the
 `ALTER ROLE` is idempotent), so rotating it is just an `.env` change + redeploy.
 The same goes for `STORAGE_URL_SECRET` (rotating it invalidates outstanding

@@ -212,35 +212,46 @@ const server = serve(
 // integration-test suite never boots pg-boss.
 const SWEEP_QUEUE = 'recurring-invoice-sweep';
 let boss: PgBoss | null = null;
-try {
-  boss = new PgBoss({
-    // loadEnv already falls back to databaseUrl; repeat it here so the type's
-    // optional pgBossDatabaseUrl can't slip through as undefined.
-    connectionString: env.pgBossDatabaseUrl ?? env.databaseUrl,
-    schema: 'pgboss',
-    createSchema: false,
-  });
-  boss.on('error', (err: unknown) =>
-    log.error('pg-boss error: {msg}', {
-      msg: err instanceof Error ? err.message : JSON.stringify(err),
-    }),
-  );
-  await boss.start();
-  await boss.createQueue(SWEEP_QUEUE);
-  await boss.work(SWEEP_QUEUE, async () => {
-    await sweepRecurringInvoices({
-      bootstrapDb: bootstrapDbHandle.db,
-      tenantDb: dbHandle.db,
-      mail: { mailer, emailFrom: env.emailFrom, publicAppUrl: env.publicAppUrl },
+// JOBS_ENABLED gates the scheduler + worker. Default on, so a single-box install
+// runs the sweep in the api process exactly as before. For a multi-replica
+// deployment, run jobs on exactly ONE instance (or a dedicated worker) and set
+// JOBS_ENABLED=false on the rest: pg-boss workers are SKIP-LOCKED safe to run
+// many (a job is claimed + processed once), but keeping the scheduler on a
+// single instance makes the once-per-tick cron unambiguous and isolates job
+// load from request load. See DEPLOYMENT.md.
+if (env.jobsEnabled !== false) {
+  try {
+    boss = new PgBoss({
+      // loadEnv already falls back to databaseUrl; repeat it here so the type's
+      // optional pgBossDatabaseUrl can't slip through as undefined.
+      connectionString: env.pgBossDatabaseUrl ?? env.databaseUrl,
+      schema: 'pgboss',
+      createSchema: false,
     });
-  });
-  await boss.schedule(SWEEP_QUEUE, env.recurringSweepCron, undefined, { tz: 'UTC' });
-  log.info('recurring-invoice sweep scheduled ({cron} UTC)', { cron: env.recurringSweepCron });
-} catch (err) {
-  log.error('failed to start pg-boss scheduler: {msg}', {
-    msg: err instanceof Error ? err.message : String(err),
-  });
-  boss = null;
+    boss.on('error', (err: unknown) =>
+      log.error('pg-boss error: {msg}', {
+        msg: err instanceof Error ? err.message : JSON.stringify(err),
+      }),
+    );
+    await boss.start();
+    await boss.createQueue(SWEEP_QUEUE);
+    await boss.work(SWEEP_QUEUE, async () => {
+      await sweepRecurringInvoices({
+        bootstrapDb: bootstrapDbHandle.db,
+        tenantDb: dbHandle.db,
+        mail: { mailer, emailFrom: env.emailFrom, publicAppUrl: env.publicAppUrl },
+      });
+    });
+    await boss.schedule(SWEEP_QUEUE, env.recurringSweepCron, undefined, { tz: 'UTC' });
+    log.info('recurring-invoice sweep scheduled ({cron} UTC)', { cron: env.recurringSweepCron });
+  } catch (err) {
+    log.error('failed to start pg-boss scheduler: {msg}', {
+      msg: err instanceof Error ? err.message : String(err),
+    });
+    boss = null;
+  }
+} else {
+  log.info('background jobs disabled (JOBS_ENABLED=false)');
 }
 
 // Graceful shutdown: stop the scheduler, stop accepting new connections, drain

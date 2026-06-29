@@ -48,4 +48,14 @@ describe('loadEnv — empty-string env vars are treated as unset', () => {
       loadEnv({ ...base, NODE_ENV: 'production', RATE_LIMIT_ENABLED: 'false' }).rateLimitEnabled,
     ).toBe(false);
   });
+
+  it('JOBS_ENABLED defaults to true (unset or empty)', () => {
+    expect(loadEnv(base).jobsEnabled).toBe(true);
+    expect(loadEnv({ ...base, JOBS_ENABLED: '' }).jobsEnabled).toBe(true);
+  });
+
+  it('JOBS_ENABLED="false" disables the scheduler/worker', () => {
+    expect(loadEnv({ ...base, JOBS_ENABLED: 'false' }).jobsEnabled).toBe(false);
+    expect(loadEnv({ ...base, JOBS_ENABLED: 'true' }).jobsEnabled).toBe(true);
+  });
 });
