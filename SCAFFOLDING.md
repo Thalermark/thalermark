@@ -1,6 +1,6 @@
 # Scaffolding Plan
 
-**Status:** Phases 0–8 shipped; **Phase 9 (mobile catch-up) COMPLETE (2026-06-09)** — the RN/Expo app now mirrors every web MVP flow (slices M1–M11f, PRs #174–#190). Phase 8 (MVP features) slices 8.1–8.4f, 8.5a–8.5e, 8.6a–8.6c, 8.7a–8.7e, 8.8a–8.8b, L1–L4, 8.9a–8.9h, 8.10–8.15, R1–R4, I1–I5 merged (latest 2026-06-07). Invoice CRUD + status flow, the send-invoice chain (public view → email → Stripe self-host pay → SaaS Stripe Connect onboarding + connected payments), the customer-creation chain (inline create → dupe detection → address autocomplete), the full estimates chain (DB + RLS, CRUD/transitions, web pages, convert-to-invoice, public view + send + accept/decline), audit-history UI (per-entity tab + account-wide /activity feed with collapsible inline diffs), the hidden-double-entry ledger reshape (foundation + invoice-transition postings + business-type wizard + GL / trial-balance export), and the full expenses chain (DB + RLS → ledger posting policy → CRUD API → web list/create/detail/edit → object-storage package → receipt capture → vision-LLM receipt extraction) all complete; plus the position dashboard, the full AI insight layer (5 insights: receipt extraction, expense categorization, cash-flow nudges, late-payer detection, spending anomalies), duplicate-as-template across invoices/estimates/expenses, and the recurring-invoice chain (schema → CRUD → pg-boss generation engine + sweeper → web UI — the first pg-boss consumer); plus the items / products & services catalog (Slice I, scoped 2026-06-07 — table + provenance FK → CRUD API → management surface → line-item autocomplete → top-products report). The full locked MVP web scope is feature-complete, and the **mobile catch-up is now complete too (Phase 9)** — every web MVP flow has a native equivalent. **Remaining MVP product work is polish + ship.** **Post-MVP web polish (not slice-tracked here):** keyset pagination across the lists, the report lineup grown to 9, and **#237** — client-side CSV export on every report page + the GL/ledger export finally surfaced in the UI (detail on the **L4** row). **Pre-launch email overhaul (slice-tracked below):** the customer-facing emails got a branded shell (#251) then became **per-company editable** across web + mobile (#252–#255) — see *Post-MVP polish — editable email templates*. **Invoice & estimate "from" block (slice-tracked below):** per-invoice / per-estimate control over which company contact details (address / phone / a new business email) print in the public "from" block, with separate per-document-type company defaults, plus the company logo brought to the public estimate — across web + mobile (#257–#262); see *Post-MVP polish — invoice & estimate from-block*. **Post-Phase-9 tracks (all shipped api→web→mobile; cataloged in the *Post-MVP polish* sections below):** workspace-membership management + granular roles, onboarding welcome wizard, multi-company create/switch, social sign-in + email verification, the web design-system refactor, per-item tax, line-item product/service revenue split, password reset, login brute-force backoff, wrong-method sign-in rescue, **telemetry wiring** (consent + both emit paths, #280–#281), and the **contacts unification** (Xero-style `customers`→`contacts` rename + an expense vendor link with OCR scan-and-forget needs-review — its own *Post-MVP polish* section below). **Modular API sub-apps (refactor track, #316–#325):** the ~7,726-line `apps/api/src/app.ts` monolith carved into per-domain `routes/<domain>.ts` sub-apps behind a unified client facade — app.ts down to **201 lines** with no route handler left in it, and the Accounts Payable second-client point-patch folded away; see *Post-MVP polish — Modular API sub-apps*. **Owner money events (contributions + draws):** the plain-language flow that finally posts to Owner's Equity (3000) / Owner's Draw (3100) — closing the audit finding that they were seeded but never touched; api → web → mobile, on the unified facade; see *Post-MVP polish — Owner money events*. **Next: Phase 10 — production hardening + open-core seams** (public-repo prep for a real deploy; the managed layer that fills those seams is maintained out-of-repo).
+**Status:** Phases 0–8 shipped; **Phase 9 (mobile catch-up) COMPLETE (2026-06-09)** — the RN/Expo app now mirrors every web MVP flow (slices M1–M11f, PRs #174–#190). Phase 8 (MVP features) slices 8.1–8.4f, 8.5a–8.5e, 8.6a–8.6c, 8.7a–8.7e, 8.8a–8.8b, L1–L4, 8.9a–8.9h, 8.10–8.15, R1–R4, I1–I5 merged (latest 2026-06-07). Invoice CRUD + status flow, the send-invoice chain (public view → email → Stripe self-host pay → SaaS Stripe Connect onboarding + connected payments), the customer-creation chain (inline create → dupe detection → address autocomplete), the full estimates chain (DB + RLS, CRUD/transitions, web pages, convert-to-invoice, public view + send + accept/decline), audit-history UI (per-entity tab + account-wide /activity feed with collapsible inline diffs), the hidden-double-entry ledger reshape (foundation + invoice-transition postings + business-type wizard + GL / trial-balance export), and the full expenses chain (DB + RLS → ledger posting policy → CRUD API → web list/create/detail/edit → object-storage package → receipt capture → vision-LLM receipt extraction) all complete; plus the position dashboard, the full AI insight layer (5 insights: receipt extraction, expense categorization, cash-flow nudges, late-payer detection, spending anomalies), duplicate-as-template across invoices/estimates/expenses, and the recurring-invoice chain (schema → CRUD → pg-boss generation engine + sweeper → web UI — the first pg-boss consumer); plus the items / products & services catalog (Slice I, scoped 2026-06-07 — table + provenance FK → CRUD API → management surface → line-item autocomplete → top-products report). The full locked MVP web scope is feature-complete, and the **mobile catch-up is now complete too (Phase 9)** — every web MVP flow has a native equivalent. **Remaining MVP product work is polish + ship.** **Post-MVP web polish (not slice-tracked here):** keyset pagination across the lists, the report lineup grown to 9, and **#237** — client-side CSV export on every report page + the GL/ledger export finally surfaced in the UI (detail on the **L4** row). **Pre-launch email overhaul (slice-tracked below):** the customer-facing emails got a branded shell (#251) then became **per-company editable** across web + mobile (#252–#255) — see *Post-MVP polish — editable email templates*. **Invoice & estimate "from" block (slice-tracked below):** per-invoice / per-estimate control over which company contact details (address / phone / a new business email) print in the public "from" block, with separate per-document-type company defaults, plus the company logo brought to the public estimate — across web + mobile (#257–#262); see *Post-MVP polish — invoice & estimate from-block*. **Post-Phase-9 tracks (all shipped api→web→mobile; cataloged in the *Post-MVP polish* sections below):** workspace-membership management + granular roles, onboarding welcome wizard, multi-company create/switch, social sign-in + email verification, the web design-system refactor, per-item tax, line-item product/service revenue split, password reset, login brute-force backoff, wrong-method sign-in rescue, **telemetry wiring** (consent + both emit paths, #280–#281), and the **contacts unification** (Xero-style `customers`→`contacts` rename + an expense vendor link with OCR scan-and-forget needs-review — its own *Post-MVP polish* section below). **Modular API sub-apps (refactor track, #316–#325):** the ~7,726-line `apps/api/src/app.ts` monolith carved into per-domain `routes/<domain>.ts` sub-apps behind a unified client facade — app.ts down to **201 lines** with no route handler left in it, and the Accounts Payable second-client point-patch folded away; see *Post-MVP polish — Modular API sub-apps*. **Owner money events (contributions + draws):** the plain-language flow that finally posts to Owner's Equity (3000) / Owner's Draw (3100) — closing the audit finding that they were seeded but never touched; api → web → mobile, on the unified facade; see *Post-MVP polish — Owner money events*. **Ledger-adjustments track now fully complete:** "The Ledger" gated manual-adjustment portal (Prong B, #330–#333), plus "Starting balances" opening balances (Prong A's third piece, #334) — see *Post-MVP polish — The Ledger (Prong B) + opening balances*. **Next: Phase 10 — production hardening + open-core seams** (public-repo prep for a real deploy; the managed layer that fills those seams is maintained out-of-repo).
 **Reads:** Assumes you've read PROJECT.md and TECH-STACK.md.
 
 The shape of work between "all decisions locked" and shipping the MVP. Eight foundation phases (0–7), a Phase 8 for the MVP-feature slices, and a Phase 9 for the mobile catch-up — roughly sequential, each builds on the previous one. Phases 0–7 are the foundation; Phase 8 is where the product becomes visible on web; Phase 9 brings the mobile app to parity.
@@ -856,11 +856,94 @@ mobile), squash-merged to `main` as a single PR.
 | 2 — web | `(app)/owner-money` list (kind filter All / Money in / Money out + keyset `/more`), `new` (plain two-way "what happened?" choice + amount/date/note), `[id]` detail (+ **AuditHistory**), `[id]/edit`. Avatar-menu entry **"My Money"** (Company → Workspace → Bills → **My Money** → Items → Settings) — the user-facing label; the route/entity stay `owner-money` / `owner_money_event`. `'owner-money'` added to the `serverApiClient` facade + `AuditHistory` entity maps. |
 | 3 — mobile | Mirror of slice 2 under `(app)/owner-money/` (list w/ FilterChips + keyset infinite scroll, new, detail + Alert-confirmed delete + **AuditHistory**, edit). `'owner-money'` added to the `api.ts` facade + mobile `AuditHistory` maps + the More hub **Purchases** section. **Footgun (again):** the new route folder needs `<Tabs.Screen name="owner-money" options={{ href: null }} />` or it registers as a stray tab. Verified via typecheck + biome. |
 
-**Explicitly deferred (out of scope):** **opening balances** (an onboarding step posting opening
-cash / AR / AP against Owner's Equity — Prong A's third piece, a follow-on), the **accountant journal
-portal** (Prong B — a gated, airlock-warned area for CPA-dictated manual adjustments; powers the
-Accountant tier), multiple cash accounts (one Cash for MVP), and excluding owner activity from the
-dashboard in/out flow tiles (left flowing for now).
+**Deferred at the time, both since shipped (see *The Ledger* section below):** **opening balances**
+(Prong A's third piece — now "Starting balances", #334) and the **accountant journal portal** (Prong B
+— now "The Ledger", #330–#333). Still out of scope: multiple cash accounts (one Cash for MVP), and
+excluding owner activity from the dashboard in/out flow tiles (left flowing for now).
+
+---
+
+## Post-MVP polish — The Ledger (Prong B) + opening balances (Prong A)
+
+The two remaining pieces of the locked **ledger-adjustments** design, finishing the track the *Owner
+money events* section opened. **Not a numbered phase** (same deviation as the sections above). The
+audit finding had two halves the ethos splits along *who is acting*: a **landscaper** (plain language,
+Prong A) and an **accountant** (real accounting, deliberately walled, Prong B). Prong A's owner money
+events shipped first; this finishes both prongs. Sibling of [[project_ledger_decision]] — outside the
+walled portal the double-entry stays hidden; inside it is the one deliberate place accounting
+vocabulary is shown.
+
+### Prong B — "The Ledger" gated manual-adjustment portal (#330–#333)
+
+The reframe that drives it: *the CPA won't log into Thalermark — they tell the owner what to adjust.*
+So this is **not** a tool the accountant logs into; it's a **guarded portal the owner (or anyone
+granted access) enters to punch in what the CPA dictated** ("debit X, credit Y"). Named **"The
+Ledger"** (over "Accounting" / "Advanced"). Powers the **Accountant monetization tier** — it's what
+lets the books be *corrected*, completing the GL value-prop ([[project_ledger_decision]] built them so
+an accountant could *verify*).
+
+**Design (locked at build start):**
+- **A manual entry IS a `journal_entries` row** — no new domain table. Provenance rides the existing
+  polymorphic `source_entity_*`: an original is `source_entity_type='manual_adjustment'`
+  self-referencing its own id; a reversal is `'manual_adjustment_reversal'` pointing at the original.
+  They **share a source group**, so `cashFlowNet`'s per-source netting cancels a reversed cash entry
+  for free. **Append-only** like the rest of the ledger — a correction is a reversing entry, never an
+  edit; an entry gets exactly one reversal (409 on a second).
+- **New capability `ledger:adjust`** → **owner + admin + accountant** (member / viewer locked out);
+  reads ungated. Enforced by api `requireCapability`, gated in web `may()` + mobile `useMay()`.
+- **Balance up front:** `manualJournalEntryCreateSchema` requires ≥2 lines, positive amounts, and
+  **debits == credits** via the BigInt `sumMoney` (a clean 400, not a deferred-trigger abort). The same
+  `sumMoney` drives the **live running balance** on both clients' new-entry forms (submit disabled
+  until balanced).
+- **An airlock** preserves the ethos: an interstitial warning before the portal ("the accounting layer
+  under your books… debits, credits, journal entries") with a **"don't show again"** dismiss stored
+  **client-side per-device** (web `localStorage`, mobile `SecureStore`).
+- **Placement: not primary nav.** Web → the **avatar dropdown** (beside Bills / My Money / Items);
+  mobile → the **More hub** "Accounting" section (+ `href:null` so it's hidden from the tab bar).
+
+### Prong A — "Starting balances" (opening balances, #334)
+
+The third Prong-A piece: what the business already had when it started using Thalermark, so the
+numbers are right from day one. **In My Money** (a card + `/owner-money/opening-balance` form), plain
+language — "money in the bank", "money customers already owed you", "money you already owed" — the
+double-entry stays hidden.
+
+- **One active row per company** (`opening_balances`, migration 0004; partial unique index on
+  `deleted_at is null`), header-only, non-negative CHECK + RLS + grants. Upsert (PUT), not a
+  create/update pair.
+- **One combined balanced posting** — Dr Cash 1000 / Dr AR 1200 / Cr AP 2000 / **Owner's Equity 3000 as
+  the sign-aware plug** (`openingBalanceLines`); zero legs drop, so cash-only = the 2-line Dr Cash / Cr
+  Equity (same shape as a contribution). **Decision: reused Owner's Equity, not a dedicated Opening
+  Balance Equity account** — consistent with how a contribution credits 3000, and avoids an
+  accountant-facing "clear OBE" step (an accountant can still reclassify in The Ledger). Edit =
+  reverse + repost; clear = soft-delete + reverse. The figures flow into the position dashboard (cash
+  in / owed / owing) and the balance sheet (stays balanced).
+
+### COA expansion (rode in with Prong B, #330)
+
+The sole-prop seed deliberately omitted depreciation; the portal made it postable, so **6350
+Depreciation Expense** (Sch C line 13 — code chosen to keep the COA in Schedule-C-line order, *not*
+6950) + **1900 Accumulated Depreciation** were seeded, with backfill migration `0003` for existing
+companies. **Accumulated Depreciation is a contra-asset seeded `normal_balance='debit'` on purpose** —
+the balance-sheet/P&L code nets each account in its normal-balance direction, so debit-normal makes a
+credit posting read **negative**, reducing total assets with no contra special-casing; the
+GL/trial-balance export reads the actual `side`, so it's unaffected. Adding the first non-cash asset
+also forced tightening `cashOnHand` + `cashFlowNet` from "every asset except AR" → **Cash (1000) only**
+(behavior-identical then, robust now).
+
+| Slice | What landed |
+|---|---|
+| B1 — foundation (#330) | `ledger:adjust` capability; `manualJournalEntryCreateSchema` (balance superRefine); `postManualJournalEntry` / `reverseManualJournalEntry` / `flipManualLines` in `lib/ledger.ts`; COA 6350 + 1900 + backfill migration 0003; cash-aggregate tightening. |
+| B2 — api (#331) | `routes/ledger.ts` sub-app → `LedgerAppType` (deps-free, modular recipe), `POST/GET/GET :id/POST :id/reverse` under `/api/ledger/entries`; resolves chosen accounts to the company (any type, active); `manual_adjustment` in the activity feed (labelled by memo). Integration suite (create/list/get/reverse, unbalanced 400, cross-company 400, double-reverse 409, depreciation keeps the balance sheet balanced + dashboard cash untouched + reversal nets to zero). |
+| B3 — web (#332) | `/ledger` airlock layout + list (reversed badges) + new (multi-line, COA picker grouped by type, live balance) + detail (Account/Debit/Credit table) + gated Reverse. |
+| B4 — mobile + web menu move (#333) | RN mirror reached from More → Accounting (airlock, list, multi-line entry w/ bottom-sheet picker, detail + Alert-confirmed reverse); **web "Ledger" moved from the top nav into the avatar dropdown** to match. |
+| Starting balances (#334) | `opening_balances` table + migration 0004; `openingBalanceLines` + `openingBalanceUpsertSchema`; `GET/PUT/DELETE /api/owner-money/opening-balance` on the owner-money sub-app (before `/:id` — Hono first-match); `opening_balance` in the activity feed; web `/owner-money/opening-balance` form + My Money summary card; mobile mirror. |
+
+**Footguns (durable):** mobile new route files need the **expo-router typed routes regenerated** (boot
+metro on a throwaway port, kill that PID — never `pkill expo`); **zod v4 `.uuid()` validates
+version/variant nibbles** (all-zero fake UUIDs fail unit tests — use RFC-valid v4 shapes); the
+**balance-sheet/dashboard default to as-of-today**, so a year-end-dated integration entry needs
+explicit `asOf=` / `from=&to=` to be in-window.
 
 ---
 
