@@ -46,6 +46,17 @@ const COA_OWNERS_EQUITY = '3000';
 const COA_OWNERS_DRAW = '3100';
 const COA_SERVICE_REVENUE = '4000';
 const COA_PRODUCT_REVENUE = '4100';
+// Capital purchases ("big purchases"). Equipment (1500, debit-normal asset) is
+// the gross cost of durable gear; Accumulated Depreciation (1900, a contra-asset
+// seeded debit-normal — see SOLE_PROP_COA) nets it down. Loans Payable (2700,
+// credit-normal liability) is what's still owed on financed purchases. The §179
+// write-off + the spread-it-out path both post Depreciation Expense (6350);
+// loan-payment interest posts Interest Expense (6500).
+const COA_EQUIPMENT = '1500';
+const COA_ACCUM_DEPRECIATION = '1900';
+const COA_LOANS_PAYABLE = '2700';
+const COA_DEPRECIATION_EXPENSE = '6350';
+const COA_INTEREST_EXPENSE = '6500';
 
 // Exact 2-dp decimal subtraction over the cents domain — avoids the FP drift
 // of Number arithmetic on money strings. Both inputs are numeric(15,2), so
@@ -549,6 +560,184 @@ export async function postOpeningBalanceReversal(
     memo: 'Opening balances reversal',
     lines: reverseLedgerLines(openingBalanceLines(args.openingBalance)),
   });
+}
+
+// --- Capital purchases ("big purchases": equipment + financing) ------------
+// Durable gear the business buys and uses for years — a mower on payments. The
+// honest accounting the MVP couldn't do: a capital asset (not an expense),
+// optionally financed (a loan, not AP), and either written off this year (§179)
+// or depreciated over its life. All hidden behind plain language.
+//
+// At purchase, capitalize the full cost and fund it:
+//   Dr Equipment 1500        = amount (the whole cost goes on the books as an asset)
+//   Cr Cash 1000             = paidNow (down payment, or the full price if not financed)
+//   Cr Loans Payable 2700    = amount − paidNow (the financed remainder; 0 if paid in full)
+// Plus, when the user picks "deduct it all this year" (§179):
+//   Dr Depreciation Expense 6350 / Cr Accumulated Depreciation 1900 = amount
+// so the asset's book value is zero (fully written off) while it stays on the
+// books — real §179, not a hack that just expenses it. "Spread it out" omits
+// that pair here; the yearly depreciation is the deferred follow-on.
+//
+// The loan leg carries source_entity_id = the purchase id, so the per-purchase
+// balance is derived from the ledger (loanBalance below) — the bills/owner-money
+// source-group pattern, no balance column. Edit = reverse + repost; delete
+// (soft) = reverse, like the other ledger-aware entities.
+
+export type CapitalPurchaseTaxTreatment = 'deduct_now' | 'spread';
+
+export function capitalPurchaseLines(args: {
+  amount: string;
+  paidNow: string;
+  taxTreatment: CapitalPurchaseTaxTreatment;
+}): LedgerLine[] {
+  const financed = subtractMoney(args.amount, args.paidNow);
+  const lines: LedgerLine[] = [
+    { code: COA_EQUIPMENT, side: 'debit', amount: args.amount },
+    { code: COA_CASH, side: 'credit', amount: args.paidNow },
+    { code: COA_LOANS_PAYABLE, side: 'credit', amount: financed },
+  ];
+  if (args.taxTreatment === 'deduct_now') {
+    lines.push(
+      { code: COA_DEPRECIATION_EXPENSE, side: 'debit', amount: args.amount },
+      { code: COA_ACCUM_DEPRECIATION, side: 'credit', amount: args.amount },
+    );
+  }
+  return lines;
+}
+
+export async function postCapitalPurchase(
+  tx: Database | Transaction,
+  args: {
+    purchase: {
+      id: string;
+      amount: string;
+      paidNow: string;
+      taxTreatment: CapitalPurchaseTaxTreatment;
+      description: string;
+    };
+    accountId: string;
+    companyId: string;
+    postedAt: Date;
+  },
+): Promise<string | null> {
+  return postJournalEntry(tx, {
+    accountId: args.accountId,
+    companyId: args.companyId,
+    sourceEntityType: 'capital_purchase',
+    sourceEntityId: args.purchase.id,
+    postedAt: args.postedAt,
+    memo: `Purchase ${args.purchase.description}`,
+    lines: capitalPurchaseLines(args.purchase),
+  });
+}
+
+export async function postCapitalPurchaseReversal(
+  tx: Database | Transaction,
+  args: {
+    purchase: {
+      id: string;
+      amount: string;
+      paidNow: string;
+      taxTreatment: CapitalPurchaseTaxTreatment;
+      description: string;
+    };
+    accountId: string;
+    companyId: string;
+    postedAt: Date;
+  },
+): Promise<string | null> {
+  return postJournalEntry(tx, {
+    accountId: args.accountId,
+    companyId: args.companyId,
+    sourceEntityType: 'capital_purchase',
+    sourceEntityId: args.purchase.id,
+    postedAt: args.postedAt,
+    memo: `Purchase ${args.purchase.description} reversal`,
+    lines: reverseLedgerLines(capitalPurchaseLines(args.purchase)),
+  });
+}
+
+// A payment toward a financed purchase: pay down the loan, split out any
+// interest, from cash.
+//   Dr Loans Payable 2700      = principal (amount − interest)
+//   Dr Interest Expense 6500   = interest (0 if not split out)
+//   Cr Cash 1000               = amount
+// The loan leg is tagged with the purchase id (source group) so loanBalance
+// nets it against the original financed credit.
+export function loanPaymentLines(args: { amount: string; interest: string }): LedgerLine[] {
+  const principal = subtractMoney(args.amount, args.interest);
+  return [
+    { code: COA_LOANS_PAYABLE, side: 'debit', amount: principal },
+    { code: COA_INTEREST_EXPENSE, side: 'debit', amount: args.interest },
+    { code: COA_CASH, side: 'credit', amount: args.amount },
+  ];
+}
+
+export async function postLoanPayment(
+  tx: Database | Transaction,
+  args: {
+    purchaseId: string;
+    description: string;
+    amount: string;
+    interest: string;
+    accountId: string;
+    companyId: string;
+    postedAt: Date;
+  },
+): Promise<string | null> {
+  return postJournalEntry(tx, {
+    accountId: args.accountId,
+    companyId: args.companyId,
+    sourceEntityType: 'capital_purchase',
+    sourceEntityId: args.purchaseId,
+    postedAt: args.postedAt,
+    memo: `Payment toward ${args.description}`,
+    lines: loanPaymentLines({ amount: args.amount, interest: args.interest }),
+  });
+}
+
+// What's still owed on one financed purchase: the net credit balance on Loans
+// Payable (2700) across the entries tagged with this purchase id (the original
+// financed credit, less each payment's principal debit). Reversal-safe by
+// construction (a reversed purchase nets to zero). Returns a 2-dp decimal string.
+export async function loanBalance(
+  tx: Database | Transaction,
+  scope: LedgerScope & { purchaseId: string },
+): Promise<string> {
+  const [row] = await tx
+    .select({
+      owing: sql<string>`coalesce(sum(case when ${journalLines.side} = 'credit' then ${journalLines.amount} else -${journalLines.amount} end), 0)::numeric(15,2)`,
+    })
+    .from(journalLines)
+    .innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id))
+    .innerJoin(chartOfAccounts, eq(journalLines.coaAccountId, chartOfAccounts.id))
+    .where(
+      and(
+        eq(journalEntries.companyId, scope.companyId),
+        eq(journalEntries.accountId, scope.accountId),
+        eq(journalEntries.sourceEntityId, scope.purchaseId),
+        eq(chartOfAccounts.code, COA_LOANS_PAYABLE),
+      ),
+    );
+  return row?.owing ?? '0.00';
+}
+
+// Pure: the plain "spread it out" answer — straight-line depreciation of `cost`
+// over `lifeYears`, the per-year amount. Last year absorbs the rounding
+// remainder so the schedule sums exactly to cost. No posting here; this just
+// powers the surfaced answer ("about $X/year for N years").
+export function depreciationSchedule(
+  cost: string,
+  lifeYears: number,
+): { perYear: string; years: number; total: string } {
+  const years = Math.max(1, Math.round(lifeYears));
+  const totalCents = Math.round(Number(cost) * 100);
+  const perYearCents = Math.round(totalCents / years);
+  return {
+    perYear: (perYearCents / 100).toFixed(2),
+    years,
+    total: (totalCents / 100).toFixed(2),
+  };
 }
 
 // --- Manual journal entries ("The Ledger" portal) --------------------------

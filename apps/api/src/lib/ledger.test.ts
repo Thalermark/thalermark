@@ -4,13 +4,25 @@ import {
   type ManualJournalLine,
   billOpenLines,
   billPaymentLines,
+  capitalPurchaseLines,
+  depreciationSchedule,
   expensePostingLines,
   flipManualLines,
   invoicePostingLines,
+  loanPaymentLines,
   openingBalanceLines,
   ownerMoneyEventLines,
   reverseLedgerLines,
 } from './ledger.js';
+
+// Sum the non-zero legs the way postJournalEntry would (it drops amount<=0
+// lines before the balance check), so these assertions match what's persisted.
+function nonZeroSides(lines: LedgerLine[]) {
+  const kept = lines.filter((l) => Number(l.amount) > 0);
+  const sum = (side: 'debit' | 'credit') =>
+    kept.filter((l) => l.side === side).reduce((s, l) => s + Number(l.amount), 0);
+  return { debit: sum('debit'), credit: sum('credit'), count: kept.length };
+}
 
 // Sum of debit amounts vs credit amounts — a posting is valid iff they're equal.
 function sides(lines: LedgerLine[]) {
@@ -285,6 +297,120 @@ describe('openingBalanceLines — combined opening entry', () => {
       byCode.set(l.code, (byCode.get(l.code) ?? 0) + signed);
     }
     for (const net of byCode.values()) expect(net).toBe(0);
+  });
+});
+
+describe('capitalPurchaseLines — big purchase posting', () => {
+  it('paid in full, deduct now: Dr Equipment + §179 write-off, balanced, no loan leg', () => {
+    const lines = capitalPurchaseLines({
+      amount: '3600.00',
+      paidNow: '3600.00',
+      taxTreatment: 'deduct_now',
+    });
+    const s = nonZeroSides(lines);
+    expect(s.debit).toBeCloseTo(s.credit, 2);
+    // Dr Equipment 3600 / Cr Cash 3600 / Dr DepExp 3600 / Cr AccumDep 3600 — the
+    // zero loan leg drops.
+    expect(s.count).toBe(4);
+    expect(lines.find((l) => l.code === '2700')).toMatchObject({ amount: '0.00' });
+    expect(lines.find((l) => l.code === '1500')).toMatchObject({
+      side: 'debit',
+      amount: '3600.00',
+    });
+    expect(lines.find((l) => l.code === '6350')).toMatchObject({
+      side: 'debit',
+      amount: '3600.00',
+    });
+    expect(lines.find((l) => l.code === '1900')).toMatchObject({
+      side: 'credit',
+      amount: '3600.00',
+    });
+  });
+
+  it('paid in full, spread: capitalize only (no depreciation legs), balanced', () => {
+    const lines = capitalPurchaseLines({
+      amount: '3600.00',
+      paidNow: '3600.00',
+      taxTreatment: 'spread',
+    });
+    const s = nonZeroSides(lines);
+    expect(s.debit).toBeCloseTo(s.credit, 2);
+    expect(s.count).toBe(2); // Dr Equipment / Cr Cash
+    expect(lines.find((l) => l.code === '6350')).toBeUndefined();
+  });
+
+  it('financed with a down payment: splits Cash + Loans Payable, balanced', () => {
+    const lines = capitalPurchaseLines({
+      amount: '3600.00',
+      paidNow: '600.00',
+      taxTreatment: 'spread',
+    });
+    const s = nonZeroSides(lines);
+    expect(s.debit).toBeCloseTo(s.credit, 2);
+    expect(lines.find((l) => l.code === '1000')).toMatchObject({
+      side: 'credit',
+      amount: '600.00',
+    });
+    // 3600 − 600 = 3000 financed
+    expect(lines.find((l) => l.code === '2700')).toMatchObject({
+      side: 'credit',
+      amount: '3000.00',
+    });
+  });
+
+  it('fully financed: no cash leg, full amount to Loans Payable', () => {
+    const lines = capitalPurchaseLines({
+      amount: '3600.00',
+      paidNow: '0.00',
+      taxTreatment: 'deduct_now',
+    });
+    const s = nonZeroSides(lines);
+    expect(s.debit).toBeCloseTo(s.credit, 2);
+    expect(lines.find((l) => l.code === '1000')).toMatchObject({ amount: '0.00' }); // dropped
+    expect(lines.find((l) => l.code === '2700')).toMatchObject({
+      side: 'credit',
+      amount: '3600.00',
+    });
+  });
+});
+
+describe('loanPaymentLines — payment toward a financed purchase', () => {
+  it('no interest: Dr Loans / Cr Cash, balanced', () => {
+    const lines = loanPaymentLines({ amount: '300.00', interest: '0.00' });
+    const s = nonZeroSides(lines);
+    expect(s.debit).toBeCloseTo(s.credit, 2);
+    expect(s.count).toBe(2);
+    expect(lines.find((l) => l.code === '2700')).toMatchObject({ side: 'debit', amount: '300.00' });
+  });
+
+  it('with interest: principal to Loans, interest to Interest Expense, balanced', () => {
+    const lines = loanPaymentLines({ amount: '300.00', interest: '20.00' });
+    const s = nonZeroSides(lines);
+    expect(s.debit).toBeCloseTo(s.credit, 2);
+    expect(lines.find((l) => l.code === '2700')).toMatchObject({ side: 'debit', amount: '280.00' });
+    expect(lines.find((l) => l.code === '6500')).toMatchObject({ side: 'debit', amount: '20.00' });
+    expect(lines.find((l) => l.code === '1000')).toMatchObject({
+      side: 'credit',
+      amount: '300.00',
+    });
+  });
+});
+
+describe('depreciationSchedule — the plain "spread it out" answer', () => {
+  it('divides cost evenly over the life', () => {
+    expect(depreciationSchedule('3600.00', 5)).toEqual({
+      perYear: '720.00',
+      years: 5,
+      total: '3600.00',
+    });
+  });
+
+  it('clamps a non-positive life to one year', () => {
+    expect(depreciationSchedule('1000.00', 0)).toEqual({
+      perYear: '1000.00',
+      years: 1,
+      total: '1000.00',
+    });
   });
 });
 
