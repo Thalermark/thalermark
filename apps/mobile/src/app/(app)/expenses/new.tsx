@@ -205,6 +205,25 @@ export default function NewExpense() {
           </Pressable>
           <Text className="mt-3 font-serif text-3xl font-light text-ink">New expense</Text>
 
+          {/* Plain front door for capital purchases — durable gear is handled
+              differently underneath (kept as an asset, optionally financed,
+              written off or spread), so route a "yes" into the big-purchase
+              flow rather than booking it as a normal cost. */}
+          <Pressable
+            onPress={() => router.push('/purchases/new')}
+            className="mt-6 flex-row items-center justify-between gap-3 rounded-sm border border-ink/15 bg-cream-warm px-5 py-4 active:bg-cream"
+          >
+            <View className="flex-1">
+              <Text className="font-serif text-ink">Will you use this for years?</Text>
+              <Text className="mt-0.5 text-xs text-ink/55">
+                Something big like a mower, trailer, or truck — log it as a big purchase instead.
+              </Text>
+            </View>
+            <Text className="font-mono text-xs uppercase tracking-widest text-gold-deep">
+              Big →
+            </Text>
+          </Pressable>
+
           {formError ? (
             <View className="mt-6 rounded-sm border border-oxblood/30 bg-oxblood/5 px-4 py-3">
               <Text className="text-sm text-oxblood">{formError}</Text>
