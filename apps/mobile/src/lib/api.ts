@@ -12,6 +12,7 @@ import type {
   LedgerAppType,
   LocationsAppType,
   OwnerMoneyEventsAppType,
+  PurchasesAppType,
   RecurringInvoicesAppType,
   ReportsAppType,
   SocialProvidersAppType,
@@ -66,6 +67,7 @@ function buildClients(baseUrl: string) {
     account: hc<AccountAppType>(baseUrl, { headers: authHeaders }),
     bills: hc<BillsAppType>(baseUrl, { headers: authHeaders }),
     ownerMoney: hc<OwnerMoneyEventsAppType>(baseUrl, { headers: authHeaders }),
+    purchases: hc<PurchasesAppType>(baseUrl, { headers: authHeaders }),
     ledger: hc<LedgerAppType>(baseUrl, { headers: authHeaders }),
     companies: hc<CompaniesAppType>(baseUrl, { headers: authHeaders }),
     contacts: hc<ContactsAppType>(baseUrl, { headers: authHeaders }),
@@ -112,6 +114,7 @@ function facadeApi() {
     account,
     bills,
     ownerMoney,
+    purchases,
     ledger,
     companies,
     contacts,
@@ -133,6 +136,7 @@ function facadeApi() {
     team: account.api.team,
     bills: bills.api.bills,
     'owner-money': ownerMoney.api['owner-money'],
+    purchases: purchases.api.purchases,
     ledger: ledger.api.ledger,
     companies: companies.api.companies,
     contacts: contacts.api.contacts,
@@ -159,6 +163,7 @@ type TelemetryApi = ReturnType<typeof buildClients>['telemetry']['api'];
 type AccountApi = ReturnType<typeof buildClients>['account']['api'];
 type BillsApi = ReturnType<typeof buildClients>['bills']['api'];
 type OwnerMoneyApi = ReturnType<typeof buildClients>['ownerMoney']['api'];
+type PurchasesApi = ReturnType<typeof buildClients>['purchases']['api'];
 type LedgerApi = ReturnType<typeof buildClients>['ledger']['api'];
 type CompaniesApi = ReturnType<typeof buildClients>['companies']['api'];
 type ContactsApi = ReturnType<typeof buildClients>['contacts']['api'];
@@ -182,6 +187,7 @@ type ApiClient = {
     team: AccountApi['team'];
     bills: BillsApi['bills'];
     'owner-money': OwnerMoneyApi['owner-money'];
+    purchases: PurchasesApi['purchases'];
     ledger: LedgerApi['ledger'];
     // Split-prefix domain: company CRUD / settings / logo / accounts on
     // CompaniesAppType, the company-scoped reports + AI insights on
