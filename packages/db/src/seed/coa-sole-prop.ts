@@ -51,6 +51,18 @@ export const SOLE_PROP_COA: readonly CoaSeed[] = [
     normalBalance: 'debit',
     taxMapping: null,
   },
+  // Durable gear the business owns and uses for years — a mower, trailer, truck.
+  // Posted to by the "log a big purchase" flow (a capital asset, carried here at
+  // cost rather than expensed on day one). Gross cost lives here; the wear-down
+  // nets against it via Accumulated Depreciation (1900). The user never sees
+  // "fixed asset" — that's internal; they see "things you bought".
+  {
+    code: '1500',
+    name: 'Vehicles & Equipment',
+    accountType: 'asset',
+    normalBalance: 'debit',
+    taxMapping: null,
+  },
   // Accumulated Depreciation — a CONTRA-asset: it carries a credit balance
   // (it nets against gross fixed assets on the balance sheet). It is an asset
   // by classification, but we seed normal_balance as 'debit', NOT 'credit',
@@ -82,6 +94,18 @@ export const SOLE_PROP_COA: readonly CoaSeed[] = [
   {
     code: '2200',
     name: 'Sales Tax Payable',
+    accountType: 'liability',
+    normalBalance: 'credit',
+    taxMapping: null,
+  },
+  // What the business still owes on financed purchases — a mower bought on
+  // payments. The remainder after any down payment lands here at purchase; each
+  // payment pays it down. Distinct from Accounts Payable (2000, short-term
+  // supplier credit). Internal name "Loans Payable"; the user sees "you still
+  // owe $X on the mower".
+  {
+    code: '2700',
+    name: 'Loans Payable',
     accountType: 'liability',
     normalBalance: 'credit',
     taxMapping: null,

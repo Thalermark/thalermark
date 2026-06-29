@@ -1,0 +1,81 @@
+import { bigint, date, index, numeric, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { accounts } from './accounts.js';
+import { companies } from './companies.js';
+import { contacts } from './contacts.js';
+
+// Capital purchases — "big purchases" in plain language: durable gear the
+// business buys and uses for years (a mower, trailer, truck). The honest
+// accounting the MVP couldn't do before: this is a capital ASSET (not an
+// expense), optionally bought with a LOAN (not accounts payable), and either
+// written off this year (§179) or depreciated over its life. Per
+// [[project_ledger_decision]] + [[project_plain_language_money_out]] the
+// double-entry AND the accountant vocabulary stay hidden — the user answers
+// "what did you buy / how much / paid now or over time / how to handle on taxes"
+// and never sees "fixed asset", "capitalize", "note payable", or "depreciate".
+//
+// Captured from a branch in the Expenses flow ("will you use this for years?").
+// Header-only, like its expenses/bills siblings. The postings live in
+// lib/ledger.ts (capitalPurchaseLines): Dr 1500 Vehicles & Equipment = amount;
+// Cr Cash 1000 = paid now (down payment / full); Cr 2700 Loans Payable =
+// financed remainder; plus, when tax_treatment='deduct_now', Dr 6350 / Cr 1900
+// for the full §179 write-off. The per-purchase loan balance is DERIVED from the
+// ledger (postings on 2700 tagged with this row's id), the bills/owner-money
+// source-group pattern — there is no balance column. Edit/clear follow the
+// reverse-then-repost / soft-delete+reverse discipline.
+export const capitalPurchases = pgTable(
+  'capital_purchases',
+  {
+    id: uuid('id').primaryKey(),
+    accountId: uuid('account_id')
+      .notNull()
+      .references(() => accounts.id, { onDelete: 'cascade' }),
+    companyId: uuid('company_id')
+      .notNull()
+      .references(() => companies.id, { onDelete: 'cascade' }),
+    // What they bought, in their own words ("Mower"). The display label.
+    description: text('description').notNull(),
+    // Total cost (the capitalized amount). numeric(15,2) as a decimal string
+    // ([[architecture_money_decimal_strings]]).
+    amount: numeric('amount', { precision: 15, scale: 2 }).notNull(),
+    purchaseDate: date('purchase_date', { mode: 'string' }).notNull(),
+    // 'paid_in_full' | 'financed' — app-layer enum (CHECK deferred like the
+    // invoice/bill status columns). Drives whether a loan leg is posted.
+    funding: text('funding').notNull(),
+    // Cash paid up front. 0 for a fully financed purchase; == amount for
+    // paid_in_full. The financed remainder (amount − down_payment) becomes the
+    // loan.
+    downPayment: numeric('down_payment', { precision: 15, scale: 2 }).notNull().default('0'),
+    // 'deduct_now' | 'spread' — the plain tax choice ("deduct it all this year"
+    // vs "spread it out"). deduct_now posts the full §179 write-off at purchase;
+    // spread leaves the asset on the books for the (deferred) yearly depreciation.
+    taxTreatment: text('tax_treatment').notNull(),
+    // Useful life in years for the 'spread' path's depreciation schedule. A
+    // sensible default (5) the user never has to think about; surfaced only as
+    // the plain answer ("about $X/year for 5 years").
+    usefulLifeYears: bigint('useful_life_years', { mode: 'number' }).notNull().default(5),
+    // Who they bought from (optional) — a contact with is_vendor set, like bills.
+    vendorContactId: uuid('vendor_contact_id').references(() => contacts.id, {
+      onDelete: 'set null',
+    }),
+    memo: text('memo'),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    accountIdIdx: index('capital_purchases_account_id_idx').on(table.accountId),
+    companyIdIdx: index('capital_purchases_company_id_idx').on(table.companyId),
+    vendorContactIdIdx: index('capital_purchases_vendor_contact_id_idx').on(table.vendorContactId),
+    // Backs the keyset list query: WHERE account_id ORDER BY purchase_date DESC,
+    // created_at DESC, id DESC.
+    accountPurchaseAtIdx: index('capital_purchases_account_purchase_at_idx').on(
+      table.accountId,
+      table.purchaseDate.desc(),
+      table.createdAt.desc(),
+      table.id.desc(),
+    ),
+  }),
+);
+
+export type CapitalPurchase = typeof capitalPurchases.$inferSelect;
+export type NewCapitalPurchase = typeof capitalPurchases.$inferInsert;
