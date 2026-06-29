@@ -2,6 +2,7 @@ import {
   auditEvents,
   authUser,
   bills,
+  capitalPurchases,
   contacts,
   estimates,
   expenses,
@@ -47,6 +48,7 @@ export function auditEventsRoutes() {
       'bill',
       'owner_money_event',
       'opening_balance',
+      'capital_purchase',
       'manual_adjustment',
       'recurring_invoice',
       'item',
@@ -122,6 +124,7 @@ export function auditEventsRoutes() {
         bill: [],
         owner_money_event: [],
         opening_balance: [],
+        capital_purchase: [],
         manual_adjustment: [],
         recurring_invoice: [],
         item: [],
@@ -160,6 +163,19 @@ export function auditEventsRoutes() {
           .from(expenses)
           .where(and(eq(expenses.accountId, accountId), inArray(expenses.id, idsByType.expense)));
         for (const r of expRows) labelMap.set(`expense:${r.id}`, r.label);
+      }
+      // Big purchases — label by what they bought (the description).
+      if (idsByType.capital_purchase.length > 0) {
+        const cpRows = await tx
+          .select({ id: capitalPurchases.id, label: capitalPurchases.description })
+          .from(capitalPurchases)
+          .where(
+            and(
+              eq(capitalPurchases.accountId, accountId),
+              inArray(capitalPurchases.id, idsByType.capital_purchase),
+            ),
+          );
+        for (const r of cpRows) labelMap.set(`capital_purchase:${r.id}`, r.label);
       }
       // Bills have no number of our own — label them by the vendor name
       // (joined), like recurring schedules.

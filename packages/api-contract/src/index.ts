@@ -27,6 +27,7 @@ export type {
   LedgerAppType,
   LocationsAppType,
   OwnerMoneyEventsAppType,
+  PurchasesAppType,
   RecurringInvoicesAppType,
   ReportsAppType,
   SocialProvidersAppType,

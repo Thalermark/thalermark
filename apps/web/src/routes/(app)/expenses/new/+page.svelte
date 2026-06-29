@@ -51,6 +51,23 @@
   New expense<span class="text-accent">.</span>
 </h1>
 
+<!-- The plain front door for capital purchases: durable gear gets handled
+     differently underneath (kept as an asset, optionally financed, written off
+     or spread over time), so route a "yes" into the big-purchase flow rather
+     than booking it as a normal cost. -->
+<a
+  href="/purchases/new"
+  class="mt-6 flex items-center justify-between gap-4 rounded-sm border border-fg/15 bg-surface-2 px-5 py-4 hover:border-accent"
+>
+  <div>
+    <span class="font-serif text-fg">Will you use this for years?</span>
+    <p class="mt-0.5 text-xs text-fg/55">
+      Something big like a mower, trailer, or truck — log it as a big purchase instead.
+    </p>
+  </div>
+  <span class="font-mono text-xs uppercase tracking-widest text-accent">Big purchase →</span>
+</a>
+
 {#if form?.formError}
   <div class="mt-6 rounded-sm border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
     {form.formError}

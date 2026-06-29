@@ -25,6 +25,7 @@ import { ledgerRoutes } from './routes/ledger.js';
 import { locationsRoutes } from './routes/locations.js';
 import { ownerMoneyRoutes } from './routes/owner-money.js';
 import { publicRoutes } from './routes/public.js';
+import { purchasesRoutes } from './routes/purchases.js';
 import { recurringInvoicesRoutes } from './routes/recurring.js';
 import { reportsRoutes } from './routes/reports.js';
 import { socialProvidersRoutes } from './routes/social-providers.js';
@@ -156,6 +157,7 @@ export function createApp(deps: AppDeps) {
   const app = createMainApp(deps);
   app.route('/', billsRoutes());
   app.route('/', ownerMoneyRoutes());
+  app.route('/', purchasesRoutes());
   app.route('/', ledgerRoutes());
   app.route('/', itemsRoutes());
   app.route('/', taxPoliciesRoutes());
@@ -187,6 +189,7 @@ export type AppType = ReturnType<typeof createMainApp>;
 // Web/mobile build a dedicated hc<XAppType>() client per domain.
 export type BillsAppType = ReturnType<typeof billsRoutes>;
 export type OwnerMoneyEventsAppType = ReturnType<typeof ownerMoneyRoutes>;
+export type PurchasesAppType = ReturnType<typeof purchasesRoutes>;
 export type LedgerAppType = ReturnType<typeof ledgerRoutes>;
 export type ItemsAppType = ReturnType<typeof itemsRoutes>;
 export type TaxPoliciesAppType = ReturnType<typeof taxPoliciesRoutes>;
