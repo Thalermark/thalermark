@@ -4,6 +4,7 @@ import type { Database } from '@thalermark/db';
 import type { AddressAutocompleteProvider } from '@thalermark/location';
 import { getLogger } from '@thalermark/logger';
 import type { StorageProvider } from '@thalermark/storage';
+import { sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { HTTPException } from 'hono/http-exception';
@@ -33,6 +34,11 @@ import { taxPoliciesRoutes } from './routes/tax-policies.js';
 import { telemetryRoutes } from './routes/telemetry.js';
 
 const log = getLogger(['api', 'app']);
+
+// Readiness probe gives up on the DB ping after this long so an exhausted or
+// hung pool returns 503 fast instead of waiting out the pool's connection-
+// acquisition timeout (lib/db.ts).
+const READINESS_TIMEOUT_MS = 2_000;
 
 export type AppDeps = {
   auth: ApiAuth;
@@ -118,7 +124,40 @@ function createMainApp(deps: AppDeps) {
         });
         return c.json({ error: 'internal_server_error' }, 500);
       })
+      // Liveness: cheap, DB-independent, CORS-free. Used by the image
+      // HEALTHCHECK and probed by the mobile app to validate a self-host server
+      // URL — must stay { status: 'ok' } and must NOT depend on the DB (a
+      // liveness probe that fails on a transient DB blip would force pointless
+      // restarts). Readiness lives on /ready below.
       .get('/health', (c) => c.json({ status: 'ok' }))
+      // Readiness: can this instance actually serve traffic? Pings the runtime
+      // DB pool so a load balancer / orchestrator can pull an instance whose DB
+      // is unreachable (or whose pool is exhausted) out of rotation. `select 1`
+      // touches no RLS table, so the thalermark_app role needs no tenant
+      // context. Raced against a short timeout so a hung/saturated pool fails
+      // fast instead of waiting out the pool's connection-acquisition timeout.
+      .get('/ready', async (c) => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([
+            deps.db.execute(sql`select 1`),
+            new Promise((_resolve, reject) => {
+              timer = setTimeout(
+                () => reject(new Error('readiness timeout')),
+                READINESS_TIMEOUT_MS,
+              );
+            }),
+          ]);
+          return c.json({ status: 'ok', checks: { db: 'ok' } });
+        } catch (err) {
+          log.warn('readiness check failed: {msg}', {
+            msg: err instanceof Error ? err.message : String(err),
+          });
+          return c.json({ status: 'error', checks: { db: 'error' } }, 503);
+        } finally {
+          if (timer) clearTimeout(timer);
+        }
+      })
       .use(
         '/api/*',
         cors({
