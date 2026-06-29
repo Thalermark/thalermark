@@ -21,6 +21,13 @@ export type Env = {
   // (created in migration 0005). RLS policies fire as the primary tenancy
   // fence; the explicit account_id filter in every SELECT is the second.
   appDatabaseUrl: string;
+  // Max connections per runtime pool (the api opens two: tenant + bootstrap).
+  // Defaults to pg's historical 10; raise for a bigger box, but keep the total
+  // across both pools + pg-boss under the server's max_connections. The pool
+  // timeouts that go with it are fixed in lib/db.ts. Optional on the type so
+  // test/embedder Env literals needn't list it (loadEnv always resolves it; the
+  // createApiDatabase default absorbs undefined).
+  dbPoolMax?: number;
   // When set, server.ts runs `ALTER ROLE thalermark_app WITH LOGIN PASSWORD`
   // at boot. Leave blank if the role is provisioned out-of-band.
   appRolePassword: string | undefined;
@@ -109,6 +116,7 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     release: source.RELEASE || undefined,
     databaseUrl,
     appDatabaseUrl,
+    dbPoolMax: parsePositiveInt(source.DB_POOL_MAX, 10, 'DB_POOL_MAX'),
     appRolePassword: source.THALERMARK_APP_PASSWORD || undefined,
     pgBossDatabaseUrl: source.PGBOSS_DATABASE_URL || databaseUrl,
     pgBossRolePassword: source.THALERMARK_PGBOSS_PASSWORD || undefined,
@@ -148,6 +156,15 @@ function parsePort(raw: string | undefined): number {
   const n = Number.parseInt(raw, 10);
   if (!Number.isFinite(n) || n <= 0 || n > 65535) {
     throw new Error(`API_PORT must be a positive integer ≤ 65535; got '${raw}'`);
+  }
+  return n;
+}
+
+function parsePositiveInt(raw: string | undefined, fallback: number, name: string): number {
+  if (!raw) return fallback;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n) || n <= 0) {
+    throw new Error(`${name} must be a positive integer; got '${raw}'`);
   }
   return n;
 }
