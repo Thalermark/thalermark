@@ -18,6 +18,15 @@ export type RlsContextDeps = {
   scheduleFlush?: (db: Database, accountId: string) => void;
 };
 
+// Opens a short tenant transaction on demand and hands the handler both the tx
+// and an audit writer bound to it. Set on context for deferred-tx routes (see
+// DEFERRED_TX_PATH_PATTERNS) in place of the always-on `tx`/`audit` so those
+// handlers can bracket just their DB work — read, release the connection across
+// the upstream call, then persist — instead of pinning a connection for the
+// whole request. Telemetry flush is scheduled after a committed audit write,
+// exactly as the wrapping tenant tx does.
+export type RunInTx = <T>(fn: (tx: Transaction, audit: AuditWriter) => Promise<T>) => Promise<T>;
+
 export type RlsVariables = {
   tx: Transaction;
   accountId: string;
@@ -28,6 +37,9 @@ export type RlsVariables = {
   // never read it.
   role: Role;
   audit: AuditWriter;
+  // Only set on deferred-tx routes; the wrapping tenant tx sets `tx`/`audit`
+  // instead. A handler reads one or the other depending on its path.
+  runInTx: RunInTx;
 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -80,8 +92,57 @@ const PUBLIC_PATH_PATTERNS: RegExp[] = [
   /^\/api\/invitations\/[^/]+$/,
 ];
 
+// Account-scoped routes that must NOT run inside the per-request tenant tx
+// because the handler awaits a slow upstream call — a vision/text LLM (receipt
+// extraction, expense categorization, cash-flow nudges) or Resend (invoice /
+// estimate email send). Wrapping these in withAccountContext would pin a pooled
+// DB connection across that call; ~poolMax concurrent ones drain the pool and
+// stall every other request. Same reasoning the /locations/autocomplete comment
+// above spells out, applied to the AI + email paths. They still get auth + the
+// membership probe + role, but instead of a wrapping tx they receive
+// c.var.runInTx to open short txs around just the DB work.
+const DEFERRED_TX_PATH_PATTERNS: RegExp[] = [
+  /^\/api\/expenses\/categorize$/,
+  /^\/api\/expenses\/[^/]+\/extract$/,
+  /^\/api\/invoices\/[^/]+\/send$/,
+  /^\/api\/estimates\/[^/]+\/send$/,
+  /^\/api\/companies\/[^/]+\/cash-flow-nudges$/,
+];
+
 function isBootstrapPath(path: string): boolean {
   return BOOTSTRAP_PATH_PATTERNS.some((p) => p.test(path));
+}
+
+function isDeferredTxPath(path: string): boolean {
+  return DEFERRED_TX_PATH_PATTERNS.some((p) => p.test(path));
+}
+
+// Builds the per-request runInTx helper. Each call opens its own short tenant
+// transaction (GUCs set so RLS fires) with a fresh audit writer, and schedules
+// the telemetry flush after the tx commits iff something was audited — mirroring
+// the wrapping tenant tx in rlsContext so deferred routes keep identical
+// audit/telemetry behaviour.
+function makeRunInTx(
+  db: Database,
+  ctx: { accountId: string; userId: string },
+  scheduleFlush: (db: Database, accountId: string) => void,
+): RunInTx {
+  return async (fn) => {
+    let didWrite = false;
+    const result = await withAccountContext(db, ctx, async (tx) => {
+      const audit = createAuditWriter({
+        tx,
+        accountId: ctx.accountId,
+        actorUserId: ctx.userId,
+        onWrite: () => {
+          didWrite = true;
+        },
+      });
+      return fn(tx, audit);
+    });
+    if (didWrite) scheduleFlush(db, ctx.accountId);
+    return result;
+  };
 }
 
 function isPublicPath(path: string): boolean {
@@ -122,6 +183,16 @@ export function rlsContext({
     // role is text in the DB but the CHECK constraint guarantees it's one of the
     // five Role values; cast rather than re-validate on every request.
     c.set('role', membership.role as Role);
+
+    // Deferred-tx routes (LLM / email) skip the wrapping tenant tx so they don't
+    // pin a connection across the upstream call. They still need accountId +
+    // role for the handler and its capability gate; the handler brackets its DB
+    // work with c.var.runInTx (which opens short tenant txs on demand).
+    if (isDeferredTxPath(c.req.path)) {
+      c.set('accountId', accountId);
+      c.set('runInTx', makeRunInTx(db, { accountId, userId: session.user.id }, scheduleFlush));
+      return next();
+    }
 
     let didWrite = false;
     try {

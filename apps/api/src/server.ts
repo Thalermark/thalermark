@@ -65,14 +65,14 @@ if (env.pgBossRolePassword) {
   await provisionPgBossRole(env.databaseUrl, env.pgBossRolePassword);
 }
 
-const dbHandle = createApiDatabase(env.appDatabaseUrl);
+const dbHandle = createApiDatabase(env.appDatabaseUrl, env.dbPoolMax);
 // Superuser handle for the narrow bootstrap surface: the BA signup hook
 // (creates accounts/companies/memberships before any tenant context exists)
 // plus the reads in /api/me and rls-context's membership probe (both run
 // before x-account-id, and the RLS policies on accounts/memberships gate
 // visibility on `app.current_account_id`, which isn't set yet). Tenant
 // routes still use dbHandle (thalermark_app) so RLS fires as designed.
-const bootstrapDbHandle = createApiDatabase(env.databaseUrl);
+const bootstrapDbHandle = createApiDatabase(env.databaseUrl, env.dbPoolMax);
 
 // Resend when an API key is configured; console driver otherwise. The console
 // driver is the dev / self-host fallback so operators can grab the message

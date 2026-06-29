@@ -759,102 +759,123 @@ export function estimatesRoutes(deps: AppDeps) {
           const { to: toOverrideRaw } = c.req.valid('json');
           const toOverride = toOverrideRaw?.trim() || null;
 
-          const tx = c.get('tx');
           const accountId = c.get('accountId');
 
-          const [current] = await tx
-            .select()
-            .from(estimates)
-            .where(and(eq(estimates.id, id), eq(estimates.accountId, accountId)))
-            .limit(1);
-          if (!current) return c.json({ error: 'estimate_not_found' }, 404);
-          // Accepted / declined / expired are operationally closed — sending
-          // again would muddle the audit trail. Operator who wants a fresh
-          // round of correspondence should duplicate the estimate.
-          if (
-            current.status === 'accepted' ||
-            current.status === 'declined' ||
-            current.status === 'expired'
-          ) {
-            return c.json({ error: 'invalid_transition', from: current.status, to: 'sent' }, 409);
-          }
-
-          const [customer] = await tx
-            .select({ id: contacts.id, name: contacts.name, email: contacts.email })
-            .from(contacts)
-            .where(and(eq(contacts.id, current.contactId), eq(contacts.accountId, accountId)))
-            .limit(1);
-          if (!customer) return c.json({ error: 'contact_not_found' }, 404);
-
-          const to = (toOverride ?? customer.email ?? '').trim();
-          if (!to || !EMAIL_RE.test(to)) return c.json({ error: 'invalid_recipient' }, 400);
-
-          const [company] = await tx
-            .select({ name: companies.name, replyToEmail: companies.replyToEmail })
-            .from(companies)
-            .where(and(eq(companies.id, current.companyId), eq(companies.accountId, accountId)))
-            .limit(1);
-
-          let estimate = current;
-          if (current.status === 'draft') {
-            const now = new Date();
-            const [updated] = await tx
-              .update(estimates)
-              .set({
-                status: 'sent',
-                sentAt: now,
-                updatedAt: now,
-                publicToken: current.publicToken ?? randomBytes(32).toString('hex'),
-              })
+          // tx1: reads + the first-send transition (status/token/audit), then
+          // release the connection before the Resend call below (deferred-tx
+          // route, see rls-context). Guard branches build their c.json error
+          // here and are returned via the `instanceof Response` check after.
+          const prep = await c.var.runInTx(async (tx, audit) => {
+            const [current] = await tx
+              .select()
+              .from(estimates)
               .where(and(eq(estimates.id, id), eq(estimates.accountId, accountId)))
-              .returning();
-            if (!updated) return c.json({ error: 'estimate_not_found' }, 404);
-            estimate = updated;
+              .limit(1);
+            if (!current) return c.json({ error: 'estimate_not_found' }, 404);
+            // Accepted / declined / expired are operationally closed — sending
+            // again would muddle the audit trail. Operator who wants a fresh
+            // round of correspondence should duplicate the estimate.
+            if (
+              current.status === 'accepted' ||
+              current.status === 'declined' ||
+              current.status === 'expired'
+            ) {
+              return c.json({ error: 'invalid_transition', from: current.status, to: 'sent' }, 409);
+            }
 
-            await c.var.audit({
-              entityType: 'estimate',
-              entityId: id,
-              action: 'mark-sent',
-              before: {
-                status: current.status,
-                sentAt: current.sentAt,
-                acceptedAt: current.acceptedAt,
-                declinedAt: current.declinedAt,
-                publicToken: current.publicToken,
-              },
-              after: {
-                status: updated.status,
-                sentAt: updated.sentAt,
-                acceptedAt: updated.acceptedAt,
-                declinedAt: updated.declinedAt,
-                publicToken: updated.publicToken,
-              },
-              companyId: updated.companyId,
-            });
-          }
+            const [customer] = await tx
+              .select({ id: contacts.id, name: contacts.name, email: contacts.email })
+              .from(contacts)
+              .where(and(eq(contacts.id, current.contactId), eq(contacts.accountId, accountId)))
+              .limit(1);
+            if (!customer) return c.json({ error: 'contact_not_found' }, 404);
 
-          if (!estimate.publicToken) {
-            return c.json({ error: 'estimate_state_invalid' }, 500);
-          }
+            const to = (toOverride ?? customer.email ?? '').trim();
+            if (!to || !EMAIL_RE.test(to)) return c.json({ error: 'invalid_recipient' }, 400);
 
-          const companyName = company?.name ?? 'Thalermark';
-          const template = await resolveEmailTemplate(
-            tx,
-            accountId,
-            estimate.companyId,
-            'estimate',
-          );
-          // Shared builder (lib/estimate-email.ts) so this route and the
-          // template-preview endpoint emit identical email.
-          let subject: string;
-          try {
-            ({ subject } = await sendEstimateEmail(deps.mailer, to, {
+            const [company] = await tx
+              .select({ name: companies.name, replyToEmail: companies.replyToEmail })
+              .from(companies)
+              .where(and(eq(companies.id, current.companyId), eq(companies.accountId, accountId)))
+              .limit(1);
+
+            let estimate = current;
+            if (current.status === 'draft') {
+              const now = new Date();
+              const [updated] = await tx
+                .update(estimates)
+                .set({
+                  status: 'sent',
+                  sentAt: now,
+                  updatedAt: now,
+                  publicToken: current.publicToken ?? randomBytes(32).toString('hex'),
+                })
+                .where(and(eq(estimates.id, id), eq(estimates.accountId, accountId)))
+                .returning();
+              if (!updated) return c.json({ error: 'estimate_not_found' }, 404);
+              estimate = updated;
+
+              await audit({
+                entityType: 'estimate',
+                entityId: id,
+                action: 'mark-sent',
+                before: {
+                  status: current.status,
+                  sentAt: current.sentAt,
+                  acceptedAt: current.acceptedAt,
+                  declinedAt: current.declinedAt,
+                  publicToken: current.publicToken,
+                },
+                after: {
+                  status: updated.status,
+                  sentAt: updated.sentAt,
+                  acceptedAt: updated.acceptedAt,
+                  declinedAt: updated.declinedAt,
+                  publicToken: updated.publicToken,
+                },
+                companyId: updated.companyId,
+              });
+            }
+
+            if (!estimate.publicToken) {
+              return c.json({ error: 'estimate_state_invalid' }, 500);
+            }
+
+            const companyName = company?.name ?? 'Thalermark';
+            const template = await resolveEmailTemplate(
+              tx,
+              accountId,
+              estimate.companyId,
+              'estimate',
+            );
+            return {
               estimate: { ...estimate, publicToken: estimate.publicToken },
               customerName: customer.name,
               companyName,
+              replyToEmail: company?.replyToEmail ?? null,
+              template,
+              to,
+            };
+          });
+          // A guard branch returned a built error response — pass it through.
+          if (prep instanceof Response) return prep;
+          const { estimate, customerName, companyName, replyToEmail, template, to } = prep;
+
+          // Email send — no DB connection held. Shared builder (lib/estimate-
+          // email.ts) so this route and the template-preview endpoint emit
+          // identical email. NOTE: tx1 already committed the draft → sent
+          // transition, so an email failure now leaves the estimate 'sent' (not
+          // rolled back to draft) — recoverable via an idempotent resend, and
+          // consistent with the mark-sent path.
+          let subject: string;
+          try {
+            ({ subject } = await sendEstimateEmail(deps.mailer, to, {
+              estimate,
+              customerName,
+              companyName,
               publicAppUrl: deps.publicAppUrl,
               emailFrom: deps.emailFrom,
-              replyToEmail: company?.replyToEmail ?? null,
+              replyToEmail,
               template,
             }));
           } catch (err) {
@@ -862,12 +883,15 @@ export function estimatesRoutes(deps: AppDeps) {
             return c.json({ error: 'email_failed', detail: message }, 502);
           }
 
-          await c.var.audit({
-            entityType: 'estimate',
-            entityId: id,
-            action: 'email-sent',
-            after: { to, subject },
-            companyId: estimate.companyId,
+          // tx2: record the delivery.
+          await c.var.runInTx(async (_tx, audit) => {
+            await audit({
+              entityType: 'estimate',
+              entityId: id,
+              action: 'email-sent',
+              after: { to, subject },
+              companyId: estimate.companyId,
+            });
           });
 
           return c.json({ ...estimate, sentTo: to });
