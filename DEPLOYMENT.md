@@ -291,6 +291,19 @@ docker compose --env-file .env -f docker/docker-compose.yml pull
 docker compose --env-file .env -f docker/docker-compose.yml up -d
 ```
 
+**Migration baseline policy.** The migration history was collapsed once, to
+`packages/db/migrations/0000_baseline.sql`. From that baseline forward the chain
+is append-only and is **never squashed or rewritten again** — doing so changes
+the recorded hashes and breaks in-place upgrades for any DB that applied the old
+chain. The practical rules:
+
+- The first GA release tag is the permanent migration floor; upgrades are
+  supported from there forward.
+- Pre-GA `alpha`/`beta` builds are **reinstall-only**, not upgrade-supported.
+  (The pre-baseline `v0.1.0-alpha.1` tag + images were removed for exactly this
+  reason — they carried the old granular chain and couldn't migrate onto the
+  baseline. `v0.1.0-alpha.2` onward is post-baseline.)
+
 **Logs / health.** `docker compose ... logs -f api`. The api exposes two probes:
 `/health` is liveness — cheap, DB-independent, always `{ "status": "ok" }` when
 the process is up (used by the container healthcheck). `/ready` is readiness — it
