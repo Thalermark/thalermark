@@ -85,6 +85,13 @@ export type Env = {
   // 06:00 UTC daily. Override via RECURRING_SWEEP_CRON for a different cadence
   // (e.g. more frequent in dev to exercise the path).
   recurringSweepCron: string;
+  // Run the pg-boss scheduler + worker in this process. Default true, so a
+  // single-box install runs the recurring-invoice sweep in the api. For a
+  // multi-replica deploy, set JOBS_ENABLED=false on the extra replicas so jobs
+  // run on exactly one instance. Optional on the type so test/embedder Env
+  // literals needn't list it (loadEnv always resolves it; pg-boss boots only in
+  // server.ts, never in tests).
+  jobsEnabled?: boolean;
 };
 
 const DEFAULT_PORT = 3000;
@@ -148,6 +155,9 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     stripePublishableKey: source.STRIPE_PUBLISHABLE_KEY || undefined,
     stripeWebhookSecret: source.STRIPE_WEBHOOK_SECRET || undefined,
     recurringSweepCron: source.RECURRING_SWEEP_CRON || '0 6 * * *',
+    // Empty string (a bare JOBS_ENABLED= in compose env_file) → unset → default
+    // true, same tri-state trap handled above for the other boolean flags.
+    jobsEnabled: source.JOBS_ENABLED ? parseBool(source.JOBS_ENABLED) : true,
   });
 }
 
