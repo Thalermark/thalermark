@@ -19,9 +19,9 @@
   },
   "devDependencies": {
     "@testcontainers/postgresql": "11.14.0",
-    "@types/node": "25.9.1",
+    "@types/node": "25.9.4",
     "@types/pg": "8.20.0",
     "@types/uuid": "11.0.0",
-    "vitest": "4.1.8"
+    "vitest": "4.1.9"
   }
 }
