@@ -15,14 +15,14 @@
     "clean": "rm -rf .turbo .svelte-kit build *.tsbuildinfo"
   },
   "dependencies": {
-    "@sentry/sveltekit": "10.55.0",
-    "@stripe/stripe-js": "9.7.0",
+    "@sentry/sveltekit": "10.63.0",
+    "@stripe/stripe-js": "9.8.0",
     "@thalermark/api-contract": "workspace:*",
     "@thalermark/brand": "workspace:*",
     "@thalermark/location": "workspace:*",
     "@thalermark/validation": "workspace:*",
-    "better-auth": "1.6.13",
-    "hono": "4.12.25",
+    "better-auth": "1.6.23",
+    "hono": "4.12.27",
     "papaparse": "5.5.4"
   },
   "devDependencies": {

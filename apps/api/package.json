@@ -17,8 +17,8 @@
     "clean": "rm -rf .turbo dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@hono/node-server": "2.0.4",
-    "@sentry/node": "10.55.0",
+    "@hono/node-server": "2.0.6",
+    "@sentry/node": "10.63.0",
     "@thalermark/ai": "workspace:*",
     "@thalermark/auth": "workspace:*",
     "@thalermark/db": "workspace:*",
@@ -28,11 +28,11 @@
     "@thalermark/telemetry": "workspace:*",
     "@thalermark/validation": "workspace:*",
     "drizzle-orm": "0.45.2",
-    "hono": "4.12.25",
-    "pg": "8.21.0",
-    "pg-boss": "^12.18.2",
-    "stripe": "22.2.0",
-    "uuid": "14.0.0"
+    "hono": "4.12.27",
+    "pg": "8.22.0",
+    "pg-boss": "^12.24.1",
+    "stripe": "22.3.0",
+    "uuid": "14.0.1"
   },
   "devDependencies": {
     "@testcontainers/postgresql": "11.14.0",
