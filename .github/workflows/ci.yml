@@ -23,7 +23,7 @@ jobs:
       NODE_ENV: test
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # Cache the Postgres image used by testcontainers (~700MB).
       # Update the cache key if the image tag changes in
