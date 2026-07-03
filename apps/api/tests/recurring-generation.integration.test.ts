@@ -230,7 +230,7 @@ describe('sweepRecurringInvoices', () => {
       await makeDue(id, dueOn);
 
       const result = await sweep(ctx, mailer);
-      expect(result).toEqual({ due: 1, generated: 1, failed: 0 });
+      expect(result).toEqual({ due: 1, generated: 1, skipped: 0, failed: 0 });
 
       const db = getTestDb();
       const [inv] = await db.select().from(invoices).where(eq(invoices.recurringInvoiceId, id));
@@ -271,6 +271,47 @@ describe('sweepRecurringInvoices', () => {
       const audits = await db.select().from(auditEvents).where(eq(auditEvents.entityId, inv!.id));
       const actions = audits.map((a) => a.action).sort();
       expect(actions).toEqual(['create', 'email-sent'].sort());
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('skips a due schedule when the account is not entitled to documents:write (freeze)', async () => {
+    const mailer = stubMailer();
+    const ctx = buildApp(mailer);
+    try {
+      const cookie = await signUp(ctx.app, 'frozen@example.com');
+      const { accountId, companyId } = await userContext('frozen@example.com');
+      const contactId = await createContact(ctx, cookie, accountId, companyId, 'pay@example.com');
+      const id = await createSchedule(ctx, cookie, accountId, companyId, contactId);
+      const dueOn = todayIso();
+      await makeDue(id, dueOn);
+
+      // A deny-all provider stands in for the commercial side flipping
+      // documents:write off on a frozen (lapsed) account. The sweep must skip
+      // the schedule: generate nothing, email nothing, and leave it due so it
+      // resumes on a later sweep once the account is entitled again.
+      const result = await sweepRecurringInvoices({
+        bootstrapDb: getTestDb(),
+        tenantDb: ctx.handle.db,
+        mail: { mailer, emailFrom: testEnv.emailFrom, publicAppUrl: testEnv.publicAppUrl },
+        entitlement: { can: () => false, limit: () => 0 },
+      });
+      expect(result).toEqual({ due: 1, generated: 0, skipped: 1, failed: 0 });
+
+      const db = getTestDb();
+      const generatedInvoices = await db
+        .select()
+        .from(invoices)
+        .where(eq(invoices.recurringInvoiceId, id));
+      expect(generatedInvoices).toHaveLength(0);
+      expect(mailer.sent).toHaveLength(0);
+
+      // Schedule untouched: still due on the same date, not advanced.
+      const [sched] = await db.select().from(recurringInvoices).where(eq(recurringInvoices.id, id));
+      expect(sched?.nextRunDate).toBe(dueOn);
+      expect(sched?.occurrenceCount).toBe(0);
+      expect(sched?.status).toBe('active');
     } finally {
       await ctx.handle.close();
     }

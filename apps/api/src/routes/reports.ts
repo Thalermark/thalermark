@@ -22,6 +22,7 @@ import { validator } from 'hono/validator';
 import type { AppDeps } from '../app.js';
 import { apBalance, arBalance, cashFlowNet, cashOnHand } from '../lib/ledger.js';
 import { UUID_RE } from '../lib/route-helpers.js';
+import { requireEntitlement } from '../middleware/entitlement.js';
 import { RATE_LIMITS, rateLimit } from '../middleware/rate-limit.js';
 import type { RlsVariables } from '../middleware/rls-context.js';
 
@@ -808,6 +809,7 @@ export function reportsRoutes(deps: AppDeps) {
       // cached. The cache write on a GET is deliberate read-through memoisation.
       .get(
         '/api/companies/:id/cash-flow-nudges',
+        requireEntitlement(deps, 'ai'),
         rateLimit(deps, RATE_LIMITS.ai, (c) => c.get('accountId') as string | undefined),
         async (c) => {
           const id = c.req.param('id');

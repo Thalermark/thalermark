@@ -22,6 +22,7 @@ import {
   resolveVendorLink,
 } from '../lib/route-helpers.js';
 import { requireCapability } from '../middleware/authz.js';
+import { requireEntitlement } from '../middleware/entitlement.js';
 import { RATE_LIMITS, rateLimit } from '../middleware/rate-limit.js';
 import type { RlsVariables } from '../middleware/rls-context.js';
 
@@ -63,116 +64,121 @@ const RECEIPT_MIME_EXT: Record<string, string> = {
 export function expensesRoutes(deps: AppDeps) {
   return (
     new Hono<{ Variables: RlsVariables }>()
-      .post('/api/expenses', requireCapability('expenses:write'), async (c) => {
-        const body = await c.req.json().catch(() => null);
-        const parsed = expenseCreateSchema.safeParse(body);
-        if (!parsed.success) {
-          return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
-        }
-
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
-        const {
-          companyId,
-          customerContactId,
-          vendorContactId,
-          categoryAccountId,
-          paymentAccountId,
-          ...rest
-        } = parsed.data;
-
-        const [company] = await tx
-          .select({ id: companies.id })
-          .from(companies)
-          .where(and(eq(companies.id, companyId), eq(companies.accountId, accountId)))
-          .limit(1);
-        if (!company) return c.json({ error: 'company_not_found' }, 404);
-
-        // customerContactId is optional (carried for v1.x job-costing, not surfaced
-        // in MVP). When present it must belong to this account AND match the
-        // expense's company — the same invariant the invoice create enforces.
-        if (customerContactId) {
-          const [customer] = await tx
-            .select({ id: contacts.id, companyId: contacts.companyId })
-            .from(contacts)
-            .where(and(eq(contacts.id, customerContactId), eq(contacts.accountId, accountId)))
-            .limit(1);
-          if (!customer) return c.json({ error: 'contact_not_found' }, 404);
-          if (customer.companyId !== companyId) {
-            return c.json({ error: 'customer_company_mismatch' }, 400);
+      .post(
+        '/api/expenses',
+        requireCapability('expenses:write'),
+        requireEntitlement(deps, 'documents:write'),
+        async (c) => {
+          const body = await c.req.json().catch(() => null);
+          const parsed = expenseCreateSchema.safeParse(body);
+          if (!parsed.success) {
+            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
           }
-        }
 
-        // vendorContactId is the optional buy-from link (same account+company
-        // invariant). Linking resolves the single on-screen "Vendor" field:
-        // merchant is mirrored from the contact's name (the always-present
-        // display string) and the contact is marked is_vendor so it shows on
-        // the buy-from side of the relationship. The needs-review flag is left
-        // null (a linked expense needs no review).
-        let merchant = rest.merchant;
-        const vendor = await resolveVendorLink(tx, accountId, companyId, vendorContactId);
-        if (vendor && 'error' in vendor) return c.json({ error: vendor.error }, vendor.status);
-        if (vendor) merchant = vendor.name;
-
-        const coa = await resolveCoaAccounts(tx, accountId, companyId, [
-          categoryAccountId,
-          paymentAccountId,
-        ]);
-        const category = coa.get(categoryAccountId);
-        const payment = coa.get(paymentAccountId);
-        if (!category || category.accountType !== 'expense') {
-          return c.json({ error: 'invalid_category_account' }, 400);
-        }
-        if (!payment || payment.accountType !== 'asset') {
-          return c.json({ error: 'invalid_payment_account' }, 400);
-        }
-
-        const expenseId = uuidv7();
-        const [created] = await tx
-          .insert(expenses)
-          .values({
-            id: expenseId,
-            accountId,
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+          const {
             companyId,
-            customerContactId: customerContactId ?? null,
-            vendorContactId: vendorContactId ?? null,
+            customerContactId,
+            vendorContactId,
             categoryAccountId,
             paymentAccountId,
-            amount: rest.amount,
-            expenseDate: rest.expenseDate,
-            merchant,
-            memo: rest.memo ?? null,
-          })
-          .returning();
+            ...rest
+          } = parsed.data;
 
-        await c.var.audit({
-          entityType: 'expense',
-          entityId: expenseId,
-          action: 'create',
-          after: created,
-          companyId,
-        });
+          const [company] = await tx
+            .select({ id: companies.id })
+            .from(companies)
+            .where(and(eq(companies.id, companyId), eq(companies.accountId, accountId)))
+            .limit(1);
+          if (!company) return c.json({ error: 'company_not_found' }, 404);
 
-        await postExpenseCreate(tx, {
-          expense: { id: expenseId, merchant, amount: rest.amount },
-          categoryCode: category.code,
-          paymentCode: payment.code,
-          accountId,
-          companyId,
-          postedAt: expenseDateToPostedAt(rest.expenseDate),
-        });
+          // customerContactId is optional (carried for v1.x job-costing, not surfaced
+          // in MVP). When present it must belong to this account AND match the
+          // expense's company — the same invariant the invoice create enforces.
+          if (customerContactId) {
+            const [customer] = await tx
+              .select({ id: contacts.id, companyId: contacts.companyId })
+              .from(contacts)
+              .where(and(eq(contacts.id, customerContactId), eq(contacts.accountId, accountId)))
+              .limit(1);
+            if (!customer) return c.json({ error: 'contact_not_found' }, 404);
+            if (customer.companyId !== companyId) {
+              return c.json({ error: 'customer_company_mismatch' }, 400);
+            }
+          }
 
-        // Telemetry (opt-in; no-op unless the account enabled it). Read off the
-        // created row, not a literal — today receipts attach via a follow-up
-        // /:id/receipt upload so this is ~always false, but it stays correct if
-        // the create flow ever carries a receipt inline. No amounts (TELEMETRY.md).
-        await emit(tx, {
-          name: 'expense_logged',
-          has_receipt_attached: !!created?.receiptStorageKey,
-        });
+          // vendorContactId is the optional buy-from link (same account+company
+          // invariant). Linking resolves the single on-screen "Vendor" field:
+          // merchant is mirrored from the contact's name (the always-present
+          // display string) and the contact is marked is_vendor so it shows on
+          // the buy-from side of the relationship. The needs-review flag is left
+          // null (a linked expense needs no review).
+          let merchant = rest.merchant;
+          const vendor = await resolveVendorLink(tx, accountId, companyId, vendorContactId);
+          if (vendor && 'error' in vendor) return c.json({ error: vendor.error }, vendor.status);
+          if (vendor) merchant = vendor.name;
 
-        return c.json(created, 201);
-      })
+          const coa = await resolveCoaAccounts(tx, accountId, companyId, [
+            categoryAccountId,
+            paymentAccountId,
+          ]);
+          const category = coa.get(categoryAccountId);
+          const payment = coa.get(paymentAccountId);
+          if (!category || category.accountType !== 'expense') {
+            return c.json({ error: 'invalid_category_account' }, 400);
+          }
+          if (!payment || payment.accountType !== 'asset') {
+            return c.json({ error: 'invalid_payment_account' }, 400);
+          }
+
+          const expenseId = uuidv7();
+          const [created] = await tx
+            .insert(expenses)
+            .values({
+              id: expenseId,
+              accountId,
+              companyId,
+              customerContactId: customerContactId ?? null,
+              vendorContactId: vendorContactId ?? null,
+              categoryAccountId,
+              paymentAccountId,
+              amount: rest.amount,
+              expenseDate: rest.expenseDate,
+              merchant,
+              memo: rest.memo ?? null,
+            })
+            .returning();
+
+          await c.var.audit({
+            entityType: 'expense',
+            entityId: expenseId,
+            action: 'create',
+            after: created,
+            companyId,
+          });
+
+          await postExpenseCreate(tx, {
+            expense: { id: expenseId, merchant, amount: rest.amount },
+            categoryCode: category.code,
+            paymentCode: payment.code,
+            accountId,
+            companyId,
+            postedAt: expenseDateToPostedAt(rest.expenseDate),
+          });
+
+          // Telemetry (opt-in; no-op unless the account enabled it). Read off the
+          // created row, not a literal — today receipts attach via a follow-up
+          // /:id/receipt upload so this is ~always false, but it stays correct if
+          // the create flow ever carries a receipt inline. No amounts (TELEMETRY.md).
+          await emit(tx, {
+            name: 'expense_logged',
+            has_receipt_attached: !!created?.receiptStorageKey,
+          });
+
+          return c.json(created, 201);
+        },
+      )
       // ---- Text expense categorization (AI) -----------------------------
       // Stateless suggestion for the new/edit expense form: given the typed
       // merchant (+ optional memo/amount) the fast model picks a category from
@@ -182,6 +188,7 @@ export function expensesRoutes(deps: AppDeps) {
       .post(
         '/api/expenses/categorize',
         requireCapability('expenses:write'),
+        requireEntitlement(deps, 'ai'),
         rateLimit(deps, RATE_LIMITS.ai, (c) => c.get('accountId') as string | undefined),
         async (c) => {
           const body = await c.req.json().catch(() => null);
@@ -718,6 +725,7 @@ export function expensesRoutes(deps: AppDeps) {
       .post(
         '/api/expenses/:id/extract',
         requireCapability('expenses:write'),
+        requireEntitlement(deps, 'ai'),
         rateLimit(deps, RATE_LIMITS.ai, (c) => c.get('accountId') as string | undefined),
         async (c) => {
           const id = c.req.param('id');

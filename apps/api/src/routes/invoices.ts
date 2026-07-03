@@ -20,6 +20,7 @@ import { postInvoiceTransition, repostInvoicePaymentDate } from '../lib/ledger.j
 import { applyCursor, keysetOrderBy, parseLimit, slicePage } from '../lib/pagination.js';
 import { EMAIL_RE, UUID_RE, escapeLike, isValidDateParam } from '../lib/route-helpers.js';
 import { requireCapability } from '../middleware/authz.js';
+import { requireEntitlement } from '../middleware/entitlement.js';
 import { RATE_LIMITS, rateLimit } from '../middleware/rate-limit.js';
 import type { RlsVariables } from '../middleware/rls-context.js';
 
@@ -175,100 +176,105 @@ async function transitionInvoice(
 export function invoicesRoutes(deps: AppDeps) {
   return (
     new Hono<{ Variables: RlsVariables }>()
-      .post('/api/invoices', requireCapability('sales:write'), async (c) => {
-        const body = await c.req.json().catch(() => null);
-        const parsed = invoiceCreateSchema.safeParse(body);
-        if (!parsed.success) {
-          return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
-        }
+      .post(
+        '/api/invoices',
+        requireCapability('sales:write'),
+        requireEntitlement(deps, 'documents:write'),
+        async (c) => {
+          const body = await c.req.json().catch(() => null);
+          const parsed = invoiceCreateSchema.safeParse(body);
+          if (!parsed.success) {
+            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+          }
 
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
-        const { companyId, contactId, lineItems, ...header } = parsed.data;
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+          const { companyId, contactId, lineItems, ...header } = parsed.data;
 
-        // Customer must belong to this account AND match the requested companyId.
-        // The schema does not enforce the customer↔company link at the DB level
-        // (contacts carry companyId; invoices independently set companyId), so
-        // we check it here to avoid an invoice that disagrees with its customer.
-        const [customer] = await tx
-          .select({ id: contacts.id, companyId: contacts.companyId })
-          .from(contacts)
-          .where(and(eq(contacts.id, contactId), eq(contacts.accountId, accountId)))
-          .limit(1);
-        if (!customer) return c.json({ error: 'contact_not_found' }, 404);
-        if (customer.companyId !== companyId) {
-          return c.json({ error: 'customer_company_mismatch' }, 400);
-        }
+          // Customer must belong to this account AND match the requested companyId.
+          // The schema does not enforce the customer↔company link at the DB level
+          // (contacts carry companyId; invoices independently set companyId), so
+          // we check it here to avoid an invoice that disagrees with its customer.
+          const [customer] = await tx
+            .select({ id: contacts.id, companyId: contacts.companyId })
+            .from(contacts)
+            .where(and(eq(contacts.id, contactId), eq(contacts.accountId, accountId)))
+            .limit(1);
+          if (!customer) return c.json({ error: 'contact_not_found' }, 404);
+          if (customer.companyId !== companyId) {
+            return c.json({ error: 'customer_company_mismatch' }, 400);
+          }
 
-        // Pre-check the (company_id, number) unique constraint so we can return
-        // a clean 409 without aborting the tenant tx (a constraint violation
-        // would poison the tx and force the rls-context wrapper to roll back
-        // everything, including any audit row we'd want to write).
-        const [taken] = await tx
-          .select({ id: invoices.id })
-          .from(invoices)
-          .where(
-            and(
-              eq(invoices.accountId, accountId),
-              eq(invoices.companyId, companyId),
-              eq(invoices.number, header.number),
-            ),
-          )
-          .limit(1);
-        if (taken) return c.json({ error: 'invoice_number_taken' }, 409);
+          // Pre-check the (company_id, number) unique constraint so we can return
+          // a clean 409 without aborting the tenant tx (a constraint violation
+          // would poison the tx and force the rls-context wrapper to roll back
+          // everything, including any audit row we'd want to write).
+          const [taken] = await tx
+            .select({ id: invoices.id })
+            .from(invoices)
+            .where(
+              and(
+                eq(invoices.accountId, accountId),
+                eq(invoices.companyId, companyId),
+                eq(invoices.number, header.number),
+              ),
+            )
+            .limit(1);
+          if (taken) return c.json({ error: 'invoice_number_taken' }, 409);
 
-        // Seed the per-invoice from-block "show" flags from the company's
-        // defaults when the client didn't send them (e.g. an API client that
-        // doesn't render the toggles). The web/mobile forms send explicit
-        // values, which win via the ?? below. The customer↔company check above
-        // guarantees this company exists.
-        const [companyDefaults] = await tx
-          .select({
-            showAddressOnInvoice: companies.showAddressOnInvoice,
-            showPhoneOnInvoice: companies.showPhoneOnInvoice,
-            showEmailOnInvoice: companies.showEmailOnInvoice,
-          })
-          .from(companies)
-          .where(and(eq(companies.id, companyId), eq(companies.accountId, accountId)))
-          .limit(1);
-        if (!companyDefaults) return c.json({ error: 'company_not_found' }, 404);
-        const showFlags = {
-          showAddress: header.showAddress ?? companyDefaults.showAddressOnInvoice,
-          showPhone: header.showPhone ?? companyDefaults.showPhoneOnInvoice,
-          showEmail: header.showEmail ?? companyDefaults.showEmailOnInvoice,
-        };
+          // Seed the per-invoice from-block "show" flags from the company's
+          // defaults when the client didn't send them (e.g. an API client that
+          // doesn't render the toggles). The web/mobile forms send explicit
+          // values, which win via the ?? below. The customer↔company check above
+          // guarantees this company exists.
+          const [companyDefaults] = await tx
+            .select({
+              showAddressOnInvoice: companies.showAddressOnInvoice,
+              showPhoneOnInvoice: companies.showPhoneOnInvoice,
+              showEmailOnInvoice: companies.showEmailOnInvoice,
+            })
+            .from(companies)
+            .where(and(eq(companies.id, companyId), eq(companies.accountId, accountId)))
+            .limit(1);
+          if (!companyDefaults) return c.json({ error: 'company_not_found' }, 404);
+          const showFlags = {
+            showAddress: header.showAddress ?? companyDefaults.showAddressOnInvoice,
+            showPhone: header.showPhone ?? companyDefaults.showPhoneOnInvoice,
+            showEmail: header.showEmail ?? companyDefaults.showEmailOnInvoice,
+          };
 
-        const invoiceId = uuidv7();
-        await tx.insert(invoices).values({
-          id: invoiceId,
-          accountId,
-          companyId,
-          contactId,
-          ...header,
-          ...showFlags,
-        });
-        const lineRows = lineItems.map((li) => ({
-          id: uuidv7(),
-          accountId,
-          invoiceId,
-          ...li,
-        }));
-        await tx.insert(invoiceLineItems).values(lineRows);
+          const invoiceId = uuidv7();
+          await tx.insert(invoices).values({
+            id: invoiceId,
+            accountId,
+            companyId,
+            contactId,
+            ...header,
+            ...showFlags,
+          });
+          const lineRows = lineItems.map((li) => ({
+            id: uuidv7(),
+            accountId,
+            invoiceId,
+            ...li,
+          }));
+          await tx.insert(invoiceLineItems).values(lineRows);
 
-        await c.var.audit({
-          entityType: 'invoice',
-          entityId: invoiceId,
-          action: 'create',
-          after: { id: invoiceId, ...parsed.data, ...showFlags },
-          companyId,
-        });
+          await c.var.audit({
+            entityType: 'invoice',
+            entityId: invoiceId,
+            action: 'create',
+            after: { id: invoiceId, ...parsed.data, ...showFlags },
+            companyId,
+          });
 
-        // Telemetry (opt-in; no-op unless the account enabled it). Count only —
-        // no amounts (TELEMETRY.md).
-        await emit(tx, { name: 'invoice_created', line_item_count: lineItems.length });
+          // Telemetry (opt-in; no-op unless the account enabled it). Count only —
+          // no amounts (TELEMETRY.md).
+          await emit(tx, { name: 'invoice_created', line_item_count: lineItems.length });
 
-        return c.json({ id: invoiceId, ...parsed.data, ...showFlags }, 201);
-      })
+          return c.json({ id: invoiceId, ...parsed.data, ...showFlags }, 201);
+        },
+      )
       // Duplicate-as-template: clone any invoice into a fresh draft to reuse as
       // a starting point. Copies customer + line items + header amounts/notes;
       // gives it a new number and today/Net-30 dates; status, stamps, and the
@@ -747,6 +753,7 @@ export function invoicesRoutes(deps: AppDeps) {
       .post(
         '/api/invoices/:id/send',
         requireCapability('sales:write'),
+        requireEntitlement(deps, 'documents:write'),
         rateLimit(deps, RATE_LIMITS.email, (c) => c.get('accountId') as string | undefined),
         // validator middleware needed for the same reason PATCH endpoints
         // use it (slice 8.4f): path-param routes type Input as `{ param }`

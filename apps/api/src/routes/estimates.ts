@@ -25,6 +25,7 @@ import { suggestNextEstimateNumber, suggestNextInvoiceNumber } from '../lib/invo
 import { applyCursor, keysetOrderBy, parseLimit, slicePage } from '../lib/pagination.js';
 import { EMAIL_RE, UUID_RE, escapeLike, isValidDateParam } from '../lib/route-helpers.js';
 import { requireCapability } from '../middleware/authz.js';
+import { requireEntitlement } from '../middleware/entitlement.js';
 import { RATE_LIMITS, rateLimit } from '../middleware/rate-limit.js';
 import type { RlsVariables } from '../middleware/rls-context.js';
 
@@ -130,92 +131,97 @@ export function estimatesRoutes(deps: AppDeps) {
       // customer↔company invariant, (company_id, number) uniqueness pre-
       // check, draft-only PATCH). Public route + email send + accept/decline
       // land in slice 8.7e; convert-to-invoice in 8.7d.
-      .post('/api/estimates', requireCapability('sales:write'), async (c) => {
-        const body = await c.req.json().catch(() => null);
-        const parsed = estimateCreateSchema.safeParse(body);
-        if (!parsed.success) {
-          return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
-        }
+      .post(
+        '/api/estimates',
+        requireCapability('sales:write'),
+        requireEntitlement(deps, 'documents:write'),
+        async (c) => {
+          const body = await c.req.json().catch(() => null);
+          const parsed = estimateCreateSchema.safeParse(body);
+          if (!parsed.success) {
+            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+          }
 
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
-        const { companyId, contactId, lineItems, ...header } = parsed.data;
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+          const { companyId, contactId, lineItems, ...header } = parsed.data;
 
-        const [customer] = await tx
-          .select({ id: contacts.id, companyId: contacts.companyId })
-          .from(contacts)
-          .where(and(eq(contacts.id, contactId), eq(contacts.accountId, accountId)))
-          .limit(1);
-        if (!customer) return c.json({ error: 'contact_not_found' }, 404);
-        if (customer.companyId !== companyId) {
-          return c.json({ error: 'customer_company_mismatch' }, 400);
-        }
+          const [customer] = await tx
+            .select({ id: contacts.id, companyId: contacts.companyId })
+            .from(contacts)
+            .where(and(eq(contacts.id, contactId), eq(contacts.accountId, accountId)))
+            .limit(1);
+          if (!customer) return c.json({ error: 'contact_not_found' }, 404);
+          if (customer.companyId !== companyId) {
+            return c.json({ error: 'customer_company_mismatch' }, 400);
+          }
 
-        // (company_id, number) pre-check — same reasoning as invoice POST: a
-        // constraint throw would poison the tenant tx and roll back the
-        // audit row alongside the business write.
-        const [taken] = await tx
-          .select({ id: estimates.id })
-          .from(estimates)
-          .where(
-            and(
-              eq(estimates.accountId, accountId),
-              eq(estimates.companyId, companyId),
-              eq(estimates.number, header.number),
-            ),
-          )
-          .limit(1);
-        if (taken) return c.json({ error: 'estimate_number_taken' }, 409);
+          // (company_id, number) pre-check — same reasoning as invoice POST: a
+          // constraint throw would poison the tenant tx and roll back the
+          // audit row alongside the business write.
+          const [taken] = await tx
+            .select({ id: estimates.id })
+            .from(estimates)
+            .where(
+              and(
+                eq(estimates.accountId, accountId),
+                eq(estimates.companyId, companyId),
+                eq(estimates.number, header.number),
+              ),
+            )
+            .limit(1);
+          if (taken) return c.json({ error: 'estimate_number_taken' }, 409);
 
-        // Seed the per-estimate from-block "show" flags from the company's
-        // estimate-side defaults when the client didn't send them. The form
-        // sends explicit values, which win via the ?? below.
-        const [companyDefaults] = await tx
-          .select({
-            showAddressOnEstimate: companies.showAddressOnEstimate,
-            showPhoneOnEstimate: companies.showPhoneOnEstimate,
-            showEmailOnEstimate: companies.showEmailOnEstimate,
-          })
-          .from(companies)
-          .where(and(eq(companies.id, companyId), eq(companies.accountId, accountId)))
-          .limit(1);
-        if (!companyDefaults) return c.json({ error: 'company_not_found' }, 404);
-        const showFlags = {
-          showAddress: header.showAddress ?? companyDefaults.showAddressOnEstimate,
-          showPhone: header.showPhone ?? companyDefaults.showPhoneOnEstimate,
-          showEmail: header.showEmail ?? companyDefaults.showEmailOnEstimate,
-        };
+          // Seed the per-estimate from-block "show" flags from the company's
+          // estimate-side defaults when the client didn't send them. The form
+          // sends explicit values, which win via the ?? below.
+          const [companyDefaults] = await tx
+            .select({
+              showAddressOnEstimate: companies.showAddressOnEstimate,
+              showPhoneOnEstimate: companies.showPhoneOnEstimate,
+              showEmailOnEstimate: companies.showEmailOnEstimate,
+            })
+            .from(companies)
+            .where(and(eq(companies.id, companyId), eq(companies.accountId, accountId)))
+            .limit(1);
+          if (!companyDefaults) return c.json({ error: 'company_not_found' }, 404);
+          const showFlags = {
+            showAddress: header.showAddress ?? companyDefaults.showAddressOnEstimate,
+            showPhone: header.showPhone ?? companyDefaults.showPhoneOnEstimate,
+            showEmail: header.showEmail ?? companyDefaults.showEmailOnEstimate,
+          };
 
-        const estimateId = uuidv7();
-        await tx.insert(estimates).values({
-          id: estimateId,
-          accountId,
-          companyId,
-          contactId,
-          ...header,
-          ...showFlags,
-        });
-        const lineRows = lineItems.map((li) => ({
-          id: uuidv7(),
-          accountId,
-          estimateId,
-          ...li,
-        }));
-        await tx.insert(estimateLineItems).values(lineRows);
+          const estimateId = uuidv7();
+          await tx.insert(estimates).values({
+            id: estimateId,
+            accountId,
+            companyId,
+            contactId,
+            ...header,
+            ...showFlags,
+          });
+          const lineRows = lineItems.map((li) => ({
+            id: uuidv7(),
+            accountId,
+            estimateId,
+            ...li,
+          }));
+          await tx.insert(estimateLineItems).values(lineRows);
 
-        await c.var.audit({
-          entityType: 'estimate',
-          entityId: estimateId,
-          action: 'create',
-          after: { id: estimateId, ...parsed.data, ...showFlags },
-          companyId,
-        });
+          await c.var.audit({
+            entityType: 'estimate',
+            entityId: estimateId,
+            action: 'create',
+            after: { id: estimateId, ...parsed.data, ...showFlags },
+            companyId,
+          });
 
-        // Telemetry (opt-in; no-op unless the account enabled it).
-        await emit(tx, { name: 'estimate_created' });
+          // Telemetry (opt-in; no-op unless the account enabled it).
+          await emit(tx, { name: 'estimate_created' });
 
-        return c.json({ id: estimateId, ...parsed.data, ...showFlags }, 201);
-      })
+          return c.json({ id: estimateId, ...parsed.data, ...showFlags }, 201);
+        },
+      )
       // Duplicate-as-template (mirrors the invoice route): clone any estimate
       // into a fresh draft. Copies customer + line items + amounts/notes; new
       // number, today issue date + Net-30 expiry; status, send/accept/decline
@@ -745,6 +751,7 @@ export function estimatesRoutes(deps: AppDeps) {
       .post(
         '/api/estimates/:id/send',
         requireCapability('sales:write'),
+        requireEntitlement(deps, 'documents:write'),
         rateLimit(deps, RATE_LIMITS.email, (c) => c.get('accountId') as string | undefined),
         validator('json', (value, c) => {
           const parsed = estimateSendSchema.safeParse(value ?? {});

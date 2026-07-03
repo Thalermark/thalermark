@@ -18,6 +18,7 @@ import { and, asc, eq, lte } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
 import { type AuditWriter, createAuditWriter } from '../middleware/audit.js';
 import { resolveEmailTemplate } from './email-templates.js';
+import { type EntitlementProvider, communityEntitlements } from './entitlement.js';
 import { sendInvoiceEmail } from './invoice-email.js';
 import { suggestNextInvoiceNumber } from './invoice-number.js';
 import { postInvoiceTransition } from './ledger.js';
@@ -355,7 +356,7 @@ function maxNumber(numbers: string[]): string | undefined {
   return best;
 }
 
-export type SweepResult = { due: number; generated: number; failed: number };
+export type SweepResult = { due: number; generated: number; skipped: number; failed: number };
 
 // Scan ALL tenants for due schedules (status=active, next_run_date <= today)
 // via the bootstrap (BYPASSRLS) handle, then generate each inside its own
@@ -366,10 +367,18 @@ export async function sweepRecurringInvoices(args: {
   bootstrapDb: Database;
   tenantDb: Database;
   mail: RecurringMailDeps;
+  // Plan-entitlement gate (open-core seam). Recurring generation is a freeze
+  // door: a lapsed account must stop auto-generating + emailing invoices while
+  // its data stays readable (§5). Community default (self-host) allows every
+  // account, so the sweep is unchanged without a provider. A denied schedule is
+  // skipped and left due, so it resumes on the next sweep once the account is
+  // entitled again.
+  entitlement?: EntitlementProvider;
   now?: Date;
 }): Promise<SweepResult> {
   const now = args.now ?? new Date();
   const todayIso = isoDate(now);
+  const entitlement = args.entitlement ?? communityEntitlements;
 
   const due = await args.bootstrapDb
     .select()
@@ -379,8 +388,13 @@ export async function sweepRecurringInvoices(args: {
     );
 
   let generated = 0;
+  let skipped = 0;
   let failed = 0;
   for (const schedule of due) {
+    if (!entitlement.can({ accountId: schedule.accountId }, 'documents:write')) {
+      skipped += 1;
+      continue;
+    }
     try {
       await withAccountContext(args.tenantDb, { accountId: schedule.accountId }, async (tx) => {
         const audit = createAuditWriter({
@@ -402,11 +416,12 @@ export async function sweepRecurringInvoices(args: {
   }
 
   if (due.length > 0) {
-    log.info('recurring sweep: {generated}/{due} generated ({failed} failed)', {
+    log.info('recurring sweep: {generated}/{due} generated ({skipped} skipped, {failed} failed)', {
       generated,
       due: due.length,
+      skipped,
       failed,
     });
   }
-  return { due: due.length, generated, failed };
+  return { due: due.length, generated, skipped, failed };
 }
