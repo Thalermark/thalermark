@@ -10,6 +10,7 @@ import { applyCursor, keysetOrderBy, parseLimit, slicePage } from '../lib/pagina
 import { generateOnce } from '../lib/recurring.js';
 import { UUID_RE } from '../lib/route-helpers.js';
 import { requireCapability } from '../middleware/authz.js';
+import { requireEntitlement } from '../middleware/entitlement.js';
 import type { RlsVariables } from '../middleware/rls-context.js';
 
 // recurring-invoices — recurring schedules: a template + cadence the
@@ -354,31 +355,36 @@ export function recurringInvoicesRoutes(deps: AppDeps) {
       // to the requesting user rather than the system user. Doubles as the test
       // path (no waiting for cron) and a "send the next one now" UX action.
       // Only an active schedule can run — paused/ended return 409.
-      .post('/api/recurring-invoices/:id/run-now', requireCapability('sales:write'), async (c) => {
-        const id = c.req.param('id');
-        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
-        const [schedule] = await tx
-          .select()
-          .from(recurringInvoices)
-          .where(and(eq(recurringInvoices.id, id), eq(recurringInvoices.accountId, accountId)))
-          .limit(1);
-        if (!schedule) return c.json({ error: 'recurring_invoice_not_found' }, 404);
-        if (schedule.status !== 'active') {
-          return c.json({ error: 'invalid_transition', from: schedule.status, to: 'run' }, 409);
-        }
-        const result = await generateOnce(tx, {
-          schedule,
-          audit: c.var.audit,
-          mail: {
-            mailer: deps.mailer,
-            emailFrom: deps.emailFrom,
-            publicAppUrl: deps.publicAppUrl,
-          },
-        });
-        return c.json(result, 201);
-      })
+      .post(
+        '/api/recurring-invoices/:id/run-now',
+        requireCapability('sales:write'),
+        requireEntitlement(deps, 'documents:write'),
+        async (c) => {
+          const id = c.req.param('id');
+          if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+          const [schedule] = await tx
+            .select()
+            .from(recurringInvoices)
+            .where(and(eq(recurringInvoices.id, id), eq(recurringInvoices.accountId, accountId)))
+            .limit(1);
+          if (!schedule) return c.json({ error: 'recurring_invoice_not_found' }, 404);
+          if (schedule.status !== 'active') {
+            return c.json({ error: 'invalid_transition', from: schedule.status, to: 'run' }, 409);
+          }
+          const result = await generateOnce(tx, {
+            schedule,
+            audit: c.var.audit,
+            mail: {
+              mailer: deps.mailer,
+              emailFrom: deps.emailFrom,
+              publicAppUrl: deps.publicAppUrl,
+            },
+          });
+          return c.json(result, 201);
+        },
+      )
   );
 }
 

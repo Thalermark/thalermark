@@ -9,6 +9,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { HTTPException } from 'hono/http-exception';
 import type { ApiAuth } from './lib/auth.js';
+import type { EntitlementProvider } from './lib/entitlement.js';
 import type { Mailer } from './lib/mailer.js';
 import type { StripeBundle } from './lib/stripe.js';
 import { type RlsVariables, rlsContext } from './middleware/rls-context.js';
@@ -51,6 +52,14 @@ export type AppDeps = {
   // Optional because integration tests run as the testcontainer superuser
   // and have nothing to distinguish; production server.ts passes both.
   bootstrapDb?: Database;
+  // Plan-entitlement gate — the open-core seam (spikes/SAAS-AND-PRODUCTION.md
+  // §6.5). Core asks entitlement.can(account, feature) at the freeze doors
+  // (create/send invoice·estimate·expense, recurring generation) and the AI
+  // doors; this provider answers. Omitted on self-host and in tests, so the
+  // freeze/AI gates fall back to the always-yes community default
+  // (communityEntitlements) and the public build stays unrestricted. The
+  // commercial composition root injects a plan-aware provider.
+  entitlement?: EntitlementProvider;
   scheduleFlush?: (db: Database, accountId: string) => void;
   // Turns the app-level rate limiter (middleware/rate-limit.ts) on for the AI,
   // email-send, and public-payment routes. Same RATE_LIMIT_ENABLED switch as

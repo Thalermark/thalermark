@@ -22,6 +22,7 @@ import { createApp } from './app.js';
 import { loadEnv } from './env.js';
 import { createApiAuth, enabledSocialProviders } from './lib/auth.js';
 import { createApiDatabase } from './lib/db.js';
+import { communityEntitlements } from './lib/entitlement.js';
 import { initErrorTracking } from './lib/error-tracking.js';
 import { type Mailer, createConsoleMailer, createResendMailer } from './lib/mailer.js';
 import { sweepRecurringInvoices } from './lib/recurring.js';
@@ -171,6 +172,11 @@ const app = createApp({
   auth,
   db: dbHandle.db,
   bootstrapDb: bootstrapDbHandle.db,
+  // Public / self-host composition root: inject the always-yes community
+  // provider explicitly. This is the open-core seam — the commercial entrypoint
+  // (thalermark-cloud) swaps in a plan-aware provider right here. See
+  // spikes/SAAS-AND-PRODUCTION.md §6.5.
+  entitlement: communityEntitlements,
   rateLimitEnabled: env.rateLimitEnabled,
   trustedOrigins: env.trustedOrigins,
   publicAppUrl: env.publicAppUrl,
@@ -240,6 +246,7 @@ if (env.jobsEnabled !== false) {
         bootstrapDb: bootstrapDbHandle.db,
         tenantDb: dbHandle.db,
         mail: { mailer, emailFrom: env.emailFrom, publicAppUrl: env.publicAppUrl },
+        entitlement: communityEntitlements,
       });
     });
     await boss.schedule(SWEEP_QUEUE, env.recurringSweepCron, undefined, { tz: 'UTC' });
