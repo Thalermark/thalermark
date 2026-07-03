@@ -1,7 +1,7 @@
 import { generateObject } from 'ai';
 import { z } from 'zod';
 import { constrainCode } from './normalize.js';
-import { type LlmEnv, resolveModel } from './provider.js';
+import { type LlmCredential, resolveModel } from './provider.js';
 import type { CategorizeInput, CategorizeResult, ExpenseCategorizer } from './types.js';
 
 // Text categorization is a fast/cheap task — it uses the 'fast' model role
@@ -36,16 +36,17 @@ function buildPrompt(input: CategorizeInput): string {
   ].join('\n');
 }
 
-// Build an expense categorizer from env, or null when no usable provider is
-// configured (anthropic/openai with no LLM_API_KEY, or an unknown provider).
-// The api treats null as "AI disabled" and 503s the categorize route — same
-// opt-in model as the receipt extractor.
-export function createExpenseCategorizer(env: LlmEnv): ExpenseCategorizer | null {
-  const model = resolveModel(env, 'fast');
-  if (!model) return null;
-
+// Build an expense categorizer. Stateless: the fast model is resolved per call
+// from the credential the api passes, so one process serves many accounts'
+// keys. AI availability for the account is decided upstream (a null credential
+// 503s the route); a null model here is a misconfiguration. Same shape as the
+// receipt extractor.
+export function createExpenseCategorizer(): ExpenseCategorizer {
   return {
-    async categorize(input: CategorizeInput): Promise<CategorizeResult> {
+    async categorize(input: CategorizeInput, credential: LlmCredential): Promise<CategorizeResult> {
+      const model = resolveModel(credential, 'fast');
+      if (!model) throw new Error('no fast model for the provided LLM credential');
+
       const { object } = await generateObject({
         model,
         schema,

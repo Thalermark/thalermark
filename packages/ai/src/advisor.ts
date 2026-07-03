@@ -1,6 +1,6 @@
 import { generateObject } from 'ai';
 import { z } from 'zod';
-import { type LlmEnv, resolveModel } from './provider.js';
+import { type LlmCredential, resolveModel } from './provider.js';
 import type { CashFlowAdvisor, CashFlowNudge, CashFlowSignals } from './types.js';
 
 // Bump whenever the prompt or the CashFlowSignals shape changes. The API folds
@@ -59,16 +59,17 @@ function buildPrompt(s: CashFlowSignals): string {
   ].join('\n');
 }
 
-// Build a cash-flow advisor from env, or null when no usable provider is
-// configured (anthropic/openai with no LLM_API_KEY, or an unknown provider).
-// The api treats null as "AI disabled" — same opt-in model as the extractor and
-// categorizer.
-export function createCashFlowAdvisor(env: LlmEnv): CashFlowAdvisor | null {
-  const model = resolveModel(env, 'reasoning');
-  if (!model) return null;
-
+// Build a cash-flow advisor. Stateless: the reasoning model is resolved per
+// call from the credential the api passes, so one process serves many accounts'
+// keys. AI availability for the account is decided upstream (a null credential
+// 503s the route); a null model here is a misconfiguration. Same shape as the
+// extractor and categorizer.
+export function createCashFlowAdvisor(): CashFlowAdvisor {
   return {
-    async advise(signals: CashFlowSignals): Promise<CashFlowNudge[]> {
+    async advise(signals: CashFlowSignals, credential: LlmCredential): Promise<CashFlowNudge[]> {
+      const model = resolveModel(credential, 'reasoning');
+      if (!model) throw new Error('no reasoning model for the provided LLM credential');
+
       const { object } = await generateObject({
         model,
         schema,

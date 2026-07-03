@@ -2,7 +2,7 @@ import { generateObject } from 'ai';
 import { z } from 'zod';
 import { type RawExtraction, normalizeExtraction } from './normalize.js';
 import { renderPdfFirstPageToPng } from './pdf.js';
-import { type LlmEnv, resolveModel } from './provider.js';
+import { type LlmCredential, resolveModel } from './provider.js';
 import type { ExtractionInput, ExtractionResult, ReceiptExtractor } from './types.js';
 
 // What the model is asked to emit. Money as numbers (models emit JSON numbers
@@ -29,15 +29,21 @@ function buildPrompt(allowed: ExtractionInput['allowedCategories']): string {
   ].join('\n');
 }
 
-// Build a receipt extractor from env, or null when no usable provider is
-// configured. The api treats null as "AI disabled" and 503s the extract route —
-// same opt-in model as stripe/storage.
-export function createReceiptExtractor(env: LlmEnv): ReceiptExtractor | null {
-  const model = resolveModel(env, 'vision');
-  if (!model) return null;
-
+// Build a receipt extractor. Stateless: the vision model is resolved per call
+// from the credential the api passes (managed or a tenant's BYOK key), so one
+// process serves many accounts' keys. Whether AI is available for a given
+// account is decided upstream by the credential resolver (a null credential
+// 503s the route); a credential that reaches extractReceipt is expected to
+// resolve, so a null model here is a misconfiguration.
+export function createReceiptExtractor(): ReceiptExtractor {
   return {
-    async extractReceipt(input: ExtractionInput): Promise<ExtractionResult> {
+    async extractReceipt(
+      input: ExtractionInput,
+      credential: LlmCredential,
+    ): Promise<ExtractionResult> {
+      const model = resolveModel(credential, 'vision');
+      if (!model) throw new Error('no vision model for the provided LLM credential');
+
       // PDFs render to PNG first so every provider gets an image; images pass
       // through untouched.
       const image =

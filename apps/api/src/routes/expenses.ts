@@ -1,4 +1,8 @@
-import type { ExtractionResult } from '@thalermark/ai';
+import {
+  type ExtractionResult,
+  createExpenseCategorizer,
+  createReceiptExtractor,
+} from '@thalermark/ai';
 import { chartOfAccounts, companies, contacts, expenses } from '@thalermark/db';
 import { emit } from '@thalermark/telemetry';
 import {
@@ -12,6 +16,7 @@ import { validator } from 'hono/validator';
 import { v7 as uuidv7 } from 'uuid';
 import type { AppDeps } from '../app.js';
 import { postExpenseCreate, postExpenseReversal } from '../lib/ledger.js';
+import { resolveAccountCredential } from '../lib/llm-credentials.js';
 import { applyCursor, keysetOrderBy, parseLimit, slicePage } from '../lib/pagination.js';
 import {
   UUID_RE,
@@ -60,6 +65,13 @@ const RECEIPT_MIME_EXT: Record<string, string> = {
   'image/png': 'png',
   'application/pdf': 'pdf',
 };
+
+// Stateless AI callers — the model is resolved per call from the account's
+// credential, so these hold no key and are safe to build once. deps.extractor /
+// deps.categorizer override them (tests inject stubs); otherwise the real caller
+// is used and availability is decided by the credential resolver.
+const defaultExtractor = createReceiptExtractor();
+const defaultCategorizer = createExpenseCategorizer();
 
 export function expensesRoutes(deps: AppDeps) {
   return (
@@ -196,9 +208,11 @@ export function expensesRoutes(deps: AppDeps) {
           if (!parsed.success) {
             return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
           }
-          if (!deps.categorizer) return c.json({ error: 'ai_not_configured' }, 503);
 
           const accountId = c.get('accountId');
+          const credential = await resolveAccountCredential(deps, accountId);
+          if (!credential) return c.json({ error: 'ai_not_configured' }, 503);
+          const categorizer = deps.categorizer ?? defaultCategorizer;
           const { companyId, merchant, memo, amount } = parsed.data;
 
           // tx1: validate the company + load the COA the model must choose from,
@@ -236,12 +250,15 @@ export function expensesRoutes(deps: AppDeps) {
           // Model call — no DB connection held.
           let suggestedCategoryCode: string | null;
           try {
-            ({ suggestedCategoryCode } = await deps.categorizer.categorize({
-              merchant,
-              memo: memo ?? null,
-              amount: amount ?? null,
-              allowedCategories: categories.map((row) => ({ code: row.code, name: row.name })),
-            }));
+            ({ suggestedCategoryCode } = await categorizer.categorize(
+              {
+                merchant,
+                memo: memo ?? null,
+                amount: amount ?? null,
+                allowedCategories: categories.map((row) => ({ code: row.code, name: row.name })),
+              },
+              credential,
+            ));
           } catch (_err) {
             return c.json({ error: 'categorization_failed' }, 502);
           }
@@ -730,10 +747,16 @@ export function expensesRoutes(deps: AppDeps) {
         async (c) => {
           const id = c.req.param('id');
           if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
-          if (!deps.extractor) return c.json({ error: 'ai_not_configured' }, 503);
-          if (!deps.storage) return c.json({ error: 'storage_not_configured' }, 503);
 
           const accountId = c.get('accountId');
+          // Resolve this account's LLM credential (managed or its own BYOK key).
+          // Null → no usable key for the account → 503, same as an unconfigured
+          // global key used to give. The entitlement 'ai' gate above already
+          // answered "may the plan use AI"; this answers "with which key".
+          const credential = await resolveAccountCredential(deps, accountId);
+          if (!credential) return c.json({ error: 'ai_not_configured' }, 503);
+          if (!deps.storage) return c.json({ error: 'storage_not_configured' }, 503);
+          const extractor = deps.extractor ?? defaultExtractor;
 
           // tx1: load the expense + its company's expense COA, then drop the
           // connection before the storage fetch + vision call (both upstream —
@@ -779,11 +802,14 @@ export function expensesRoutes(deps: AppDeps) {
           let result: ExtractionResult | null = null;
           let status: 'succeeded' | 'failed';
           try {
-            result = await deps.extractor.extractReceipt({
-              bytes,
-              mimeType,
-              allowedCategories: categories.map((row) => ({ code: row.code, name: row.name })),
-            });
+            result = await extractor.extractReceipt(
+              {
+                bytes,
+                mimeType,
+                allowedCategories: categories.map((row) => ({ code: row.code, name: row.name })),
+              },
+              credential,
+            );
             status = 'succeeded';
           } catch (_err) {
             status = 'failed';
