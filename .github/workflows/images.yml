@@ -113,9 +113,14 @@ jobs:
         run: |
           docker network create smoke
 
+          # Non-default passwords on purpose: NODE_ENV=production below means the
+          # api's weak-secret boot guard (env.ts) refuses to start on the shipped
+          # `thalermark` / `thalermark_app` / `thalermark_pgboss` defaults. Using
+          # throwaway-but-non-default creds here mirrors a real deploy and keeps
+          # the smoke boot green.
           docker run -d --name pg --network smoke \
             -e POSTGRES_USER=thalermark \
-            -e POSTGRES_PASSWORD=thalermark \
+            -e POSTGRES_PASSWORD=smoke-superuser-pw \
             -e POSTGRES_DB=thalermark \
             pgvector/pgvector:pg17
 
@@ -128,11 +133,11 @@ jobs:
 
           docker run -d --name api --network smoke -p 3000:3000 \
             -e NODE_ENV=production \
-            -e DATABASE_URL=postgres://thalermark:thalermark@pg:5432/thalermark \
-            -e APP_DATABASE_URL=postgres://thalermark_app:thalermark_app@pg:5432/thalermark \
-            -e THALERMARK_APP_PASSWORD=thalermark_app \
-            -e PGBOSS_DATABASE_URL=postgres://thalermark_pgboss:thalermark_pgboss@pg:5432/thalermark \
-            -e THALERMARK_PGBOSS_PASSWORD=thalermark_pgboss \
+            -e DATABASE_URL=postgres://thalermark:smoke-superuser-pw@pg:5432/thalermark \
+            -e APP_DATABASE_URL=postgres://thalermark_app:smoke-app-pw@pg:5432/thalermark \
+            -e THALERMARK_APP_PASSWORD=smoke-app-pw \
+            -e PGBOSS_DATABASE_URL=postgres://thalermark_pgboss:smoke-pgboss-pw@pg:5432/thalermark \
+            -e THALERMARK_PGBOSS_PASSWORD=smoke-pgboss-pw \
             -e MIGRATE_ON_BOOT=true \
             -e BETTER_AUTH_SECRET=ci-smoke-not-a-real-secret \
             -e BETTER_AUTH_URL=http://localhost:3000 \
