@@ -115,6 +115,7 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
   if (!betterAuthSecret) throw new Error('BETTER_AUTH_SECRET is required');
   const betterAuthUrl = source.BETTER_AUTH_URL;
   if (!betterAuthUrl) throw new Error('BETTER_AUTH_URL is required');
+  assertNoWeakSecretsInProduction(source);
   return Object.freeze({
     nodeEnv: nodeEnv as Env['nodeEnv'],
     port: parsePort(source.API_PORT),
@@ -159,6 +160,54 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     // true, same tri-state trap handled above for the other boolean flags.
     jobsEnabled: source.JOBS_ENABLED ? parseBool(source.JOBS_ENABLED) : true,
   });
+}
+
+// The dev/self-host defaults that `.env.example` and docker-compose.yml ship so a
+// bare `docker compose up` runs locally. In production these same values are an
+// account-takeover risk — a known BETTER_AUTH_SECRET lets an attacker forge
+// sessions, a known DB password hands them the database — so we refuse to boot on
+// them (audit S5). No escape hatch by design: a bypass flag would undo the guard.
+// install.sh generates strong secrets and passes cleanly.
+const WEAK_BETTER_AUTH_SECRET = 'replace-me-with-a-long-random-string';
+const WEAK_DB_PASSWORDS = new Set(['thalermark', 'thalermark_app', 'thalermark_pgboss']);
+
+function passwordFromUrl(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  try {
+    return new URL(raw).password || undefined;
+  } catch {
+    // Malformed URL — loadEnv's callers will surface the real connection error;
+    // we just can't inspect a password we can't parse.
+    return undefined;
+  }
+}
+
+export function assertNoWeakSecretsInProduction(source: NodeJS.ProcessEnv): void {
+  if (source.NODE_ENV !== 'production') return;
+
+  const violations: string[] = [];
+
+  if (source.BETTER_AUTH_SECRET === WEAK_BETTER_AUTH_SECRET) {
+    violations.push('BETTER_AUTH_SECRET (shipped placeholder)');
+  }
+  for (const name of ['DATABASE_URL', 'APP_DATABASE_URL', 'PGBOSS_DATABASE_URL'] as const) {
+    const pw = passwordFromUrl(source[name]);
+    if (pw && WEAK_DB_PASSWORDS.has(pw)) {
+      violations.push(`${name} (default password '${pw}')`);
+    }
+  }
+  for (const name of ['THALERMARK_APP_PASSWORD', 'THALERMARK_PGBOSS_PASSWORD'] as const) {
+    const pw = source[name];
+    if (pw && WEAK_DB_PASSWORDS.has(pw)) {
+      violations.push(`${name} (default value '${pw}')`);
+    }
+  }
+
+  if (violations.length > 0) {
+    throw new Error(
+      `Refusing to start in production with weak default secrets: ${violations.join('; ')}. These ship for local dev only and enable account takeover in production. Set strong values (install.sh generates these).`,
+    );
+  }
 }
 
 function parsePort(raw: string | undefined): number {
