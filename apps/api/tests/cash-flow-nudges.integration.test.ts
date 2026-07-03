@@ -67,17 +67,25 @@ const throwingAdvisor: CashFlowAdvisor = {
   },
 };
 
-function buildApp(opts: { advisor?: CashFlowAdvisor | null } = {}) {
+// ai defaults true → the resolver hands the route a dummy credential so it
+// reaches the injected stub advisor. ai:false → the resolver returns null (no
+// usable credential), so a cache miss 503s — the path that moved from a null
+// advisor to a null credential.
+function buildApp(opts: { advisor?: CashFlowAdvisor; ai?: boolean } = {}) {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL not set');
   const handle = createApiDatabase(appDatabaseUrl());
   const auth = createApiAuth(getTestDb(), { ...testEnv, databaseUrl: url });
+  const ai = opts.ai ?? true;
   const app = createApp({
     auth,
     db: handle.db,
     bootstrapDb: getTestDb(),
     publicAppUrl: testEnv.publicAppUrl,
-    advisor: opts.advisor === undefined ? okAdvisor() : opts.advisor,
+    advisor: opts.advisor ?? okAdvisor(),
+    llmCredentials: {
+      resolve: async () => (ai ? { provider: 'anthropic', apiKey: 'test-key' } : null),
+    },
   });
   return { app, handle };
 }
@@ -223,8 +231,8 @@ describe('cash-flow nudges', () => {
     }
   });
 
-  it('503s when no advisor is configured and nothing is cached', async () => {
-    const ctx = buildApp({ advisor: null });
+  it('503s when the account has no usable LLM credential and nothing is cached', async () => {
+    const ctx = buildApp({ ai: false });
     try {
       const cookie = await signUp(ctx.app, 'nudge-off@example.com');
       const { accountId, companyId } = await userContext('nudge-off@example.com');

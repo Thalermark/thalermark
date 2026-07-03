@@ -1,3 +1,5 @@
+import type { LlmCredential } from './provider.js';
+
 // Receipt extraction (slice 8.9h). Pro+/BYOK vision-LLM auto-fill: given a
 // receipt image (or PDF, rendered to an image first) the extractor reads back
 // the merchant, total, date, tax, and a suggested expense category — the user
@@ -6,7 +8,9 @@
 // The interface is intentionally provider-agnostic and dependency-light at the
 // call site: the api depends on this shape, not on the Vercel AI SDK, so the
 // extract route stays testable with a plain stub (no live model in tests),
-// matching the stripe/storage/mailer opt-in pattern.
+// matching the stripe/storage/mailer opt-in pattern. Each call takes the
+// LlmCredential to run under — resolved per account by the api (managed or a
+// tenant's BYOK key) rather than bound to one global key at boot.
 
 // One allowed category the model may suggest, scoped to the company's expense
 // chart of accounts. The model is constrained to these codes (both in the
@@ -42,7 +46,7 @@ export interface ExtractionResult {
 }
 
 export interface ReceiptExtractor {
-  extractReceipt(input: ExtractionInput): Promise<ExtractionResult>;
+  extractReceipt(input: ExtractionInput, credential: LlmCredential): Promise<ExtractionResult>;
 }
 
 // Text-based expense categorization. The complement to receipt extraction's
@@ -67,7 +71,7 @@ export interface CategorizeResult {
 }
 
 export interface ExpenseCategorizer {
-  categorize(input: CategorizeInput): Promise<CategorizeResult>;
+  categorize(input: CategorizeInput, credential: LlmCredential): Promise<CategorizeResult>;
 }
 
 // Cash-flow nudges (AI insight). Deterministic ledger figures are computed by
@@ -94,5 +98,5 @@ export interface CashFlowNudge {
 
 export interface CashFlowAdvisor {
   // Returns up to ~3 nudges; an empty array when there's too little to say.
-  advise(signals: CashFlowSignals): Promise<CashFlowNudge[]>;
+  advise(signals: CashFlowSignals, credential: LlmCredential): Promise<CashFlowNudge[]>;
 }

@@ -76,12 +76,19 @@ const throwingExtractor: ReceiptExtractor = {
   },
 };
 
-function buildApp(opts: { extractor?: ReceiptExtractor | null; withStorage?: boolean } = {}) {
+// ai defaults true → the resolver hands the route a dummy credential so it
+// reaches the injected stub extractor (no live model). ai:false → the resolver
+// returns null, so the route 503s (the "AI not configured" path, which moved
+// from a null extractor to a null credential).
+function buildApp(
+  opts: { extractor?: ReceiptExtractor; withStorage?: boolean; ai?: boolean } = {},
+) {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL not set');
   const handle = createApiDatabase(appDatabaseUrl());
   const auth = createApiAuth(getTestDb(), { ...testEnv, databaseUrl: url });
   const withStorage = opts.withStorage ?? true;
+  const ai = opts.ai ?? true;
   const app = createApp({
     auth,
     db: handle.db,
@@ -89,7 +96,10 @@ function buildApp(opts: { extractor?: ReceiptExtractor | null; withStorage?: boo
     publicAppUrl: testEnv.publicAppUrl,
     storage: withStorage ? createLocalFsProvider({ baseDir: storageDir, secret: SECRET }) : null,
     localFileServe: withStorage ? { secret: SECRET, baseDir: storageDir } : null,
-    extractor: opts.extractor === undefined ? okExtractor() : opts.extractor,
+    extractor: opts.extractor ?? okExtractor(),
+    llmCredentials: {
+      resolve: async () => (ai ? { provider: 'anthropic', apiKey: 'test-key' } : null),
+    },
   });
   return { app, handle };
 }
@@ -224,8 +234,8 @@ describe('receipt extraction', () => {
     }
   });
 
-  it('503s when no extractor is configured', async () => {
-    const ctx = buildApp({ extractor: null });
+  it('503s when the account has no usable LLM credential', async () => {
+    const ctx = buildApp({ ai: false });
     try {
       const cookie = await signUp(ctx.app, 'ext-off@example.com');
       const { accountId, companyId } = await userContext('ext-off@example.com');

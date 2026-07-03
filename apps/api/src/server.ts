@@ -2,14 +2,7 @@
 // Better Auth) captures it at import time. See load-env.ts for the full why.
 import './load-env.js';
 import { serve } from '@hono/node-server';
-import {
-  type CashFlowAdvisor,
-  type ExpenseCategorizer,
-  type ReceiptExtractor,
-  createCashFlowAdvisor,
-  createExpenseCategorizer,
-  createReceiptExtractor,
-} from '@thalermark/ai';
+import { isCredentialUsable } from '@thalermark/ai';
 import { runMigrations } from '@thalermark/db';
 import {
   type AddressAutocompleteProvider,
@@ -24,6 +17,7 @@ import { createApiAuth, enabledSocialProviders } from './lib/auth.js';
 import { createApiDatabase } from './lib/db.js';
 import { communityEntitlements } from './lib/entitlement.js';
 import { initErrorTracking } from './lib/error-tracking.js';
+import { credentialFromEnv, envLlmCredentials } from './lib/llm-credentials.js';
 import { type Mailer, createConsoleMailer, createResendMailer } from './lib/mailer.js';
 import { sweepRecurringInvoices } from './lib/recurring.js';
 import { provisionAppRole, provisionPgBossRole } from './lib/role-provision.js';
@@ -123,34 +117,19 @@ try {
   log.info('storage disabled: {msg}', { msg: err instanceof Error ? err.message : String(err) });
 }
 
-// Receipt extraction is opt-in like storage/stripe: createReceiptExtractor
-// returns null when no LLM provider is usable (anthropic/openai with no
-// LLM_API_KEY, or an unknown LLM_PROVIDER), in which case the /extract endpoint
-// 503s and the rest of the app runs. Ollama needs no key — the AGPL-pure
-// self-host path — so it stays enabled once selected. Env is read from
-// process.env (the AI config's single home, mirroring the storage factory).
-const extractor: ReceiptExtractor | null = createReceiptExtractor(process.env);
+// AI credential resolution. The extractor/categorizer/advisor are now stateless
+// (the model is resolved per call from the account's credential), so they're no
+// longer built here — the routes construct the default callers. This composition
+// root injects the community resolver: one global credential from LLM_* env for
+// every account (envLlmCredentials returns null per account when no provider is
+// usable, so the AI routes 503 exactly as they did when the extractor was built
+// null at boot). Ollama needs no key — the AGPL-pure self-host path. The
+// commercial root swaps this for a per-account BYOK resolver.
+const llmCredentials = envLlmCredentials(process.env);
 log.info(
-  extractor
-    ? `receipt extraction enabled (LLM_PROVIDER=${process.env.LLM_PROVIDER ?? 'anthropic'})`
-    : 'receipt extraction disabled (LLM_API_KEY unset or LLM_PROVIDER unsupported)',
-);
-
-// Text expense categorization — same opt-in model as the extractor, but uses
-// the 'fast' text model role rather than vision.
-const categorizer: ExpenseCategorizer | null = createExpenseCategorizer(process.env);
-log.info(
-  categorizer
-    ? `expense categorization enabled (LLM_PROVIDER=${process.env.LLM_PROVIDER ?? 'anthropic'})`
-    : 'expense categorization disabled (LLM_API_KEY unset or LLM_PROVIDER unsupported)',
-);
-
-// Cash-flow nudges — uses the 'reasoning' model role.
-const advisor: CashFlowAdvisor | null = createCashFlowAdvisor(process.env);
-log.info(
-  advisor
-    ? `cash-flow nudges enabled (LLM_PROVIDER=${process.env.LLM_PROVIDER ?? 'anthropic'})`
-    : 'cash-flow nudges disabled (LLM_API_KEY unset or LLM_PROVIDER unsupported)',
+  isCredentialUsable(credentialFromEnv(process.env))
+    ? `AI enabled (LLM_PROVIDER=${process.env.LLM_PROVIDER ?? 'anthropic'})`
+    : 'AI disabled (LLM_API_KEY unset or LLM_PROVIDER unsupported)',
 );
 
 // Address autocomplete (mobile customer form). Construction reads the same
@@ -177,6 +156,11 @@ const app = createApp({
   // (thalermark-cloud) swaps in a plan-aware provider right here. See
   // spikes/SAAS-AND-PRODUCTION.md §6.5.
   entitlement: communityEntitlements,
+  // AI credential resolver — the public root's global-key-for-every-account
+  // default. The commercial root swaps in a per-account BYOK resolver. The
+  // extractor/categorizer/advisor are no longer injected: they're stateless and
+  // the routes build the default callers, resolving the model per call from this.
+  llmCredentials,
   rateLimitEnabled: env.rateLimitEnabled,
   trustedOrigins: env.trustedOrigins,
   publicAppUrl: env.publicAppUrl,
@@ -186,9 +170,6 @@ const app = createApp({
   stripe,
   storage,
   localFileServe,
-  extractor,
-  categorizer,
-  advisor,
   addressProvider,
 });
 

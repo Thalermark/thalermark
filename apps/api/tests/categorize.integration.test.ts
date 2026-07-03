@@ -62,17 +62,25 @@ const throwingCategorizer: ExpenseCategorizer = {
   },
 };
 
-function buildApp(opts: { categorizer?: ExpenseCategorizer | null } = {}) {
+// ai defaults true → the resolver hands the route a dummy credential so it
+// reaches the injected stub categorizer. ai:false → the resolver returns null,
+// so the route 503s (the "AI not configured" path moved from a null categorizer
+// to a null credential).
+function buildApp(opts: { categorizer?: ExpenseCategorizer; ai?: boolean } = {}) {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL not set');
   const handle = createApiDatabase(appDatabaseUrl());
   const auth = createApiAuth(getTestDb(), { ...testEnv, databaseUrl: url });
+  const ai = opts.ai ?? true;
   const app = createApp({
     auth,
     db: handle.db,
     bootstrapDb: getTestDb(),
     publicAppUrl: testEnv.publicAppUrl,
-    categorizer: opts.categorizer === undefined ? okCategorizer() : opts.categorizer,
+    categorizer: opts.categorizer ?? okCategorizer(),
+    llmCredentials: {
+      resolve: async () => (ai ? { provider: 'anthropic', apiKey: 'test-key' } : null),
+    },
   });
   return { app, handle };
 }
@@ -186,8 +194,8 @@ describe('expense categorization', () => {
     }
   });
 
-  it('503s when no categorizer is configured', async () => {
-    const ctx = buildApp({ categorizer: null });
+  it('503s when the account has no usable LLM credential', async () => {
+    const ctx = buildApp({ ai: false });
     try {
       const cookie = await signUp(ctx.app, 'cat-off@example.com');
       const { accountId, companyId } = await userContext('cat-off@example.com');

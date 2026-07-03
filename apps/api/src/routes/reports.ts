@@ -3,6 +3,7 @@ import {
   CASH_FLOW_NUDGE_VERSION,
   type CashFlowAdvisor,
   type CashFlowSignals,
+  createCashFlowAdvisor,
 } from '@thalermark/ai';
 import {
   chartOfAccounts,
@@ -21,6 +22,7 @@ import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 import type { AppDeps } from '../app.js';
 import { apBalance, arBalance, cashFlowNet, cashOnHand } from '../lib/ledger.js';
+import { resolveAccountCredential } from '../lib/llm-credentials.js';
 import { UUID_RE } from '../lib/route-helpers.js';
 import { requireEntitlement } from '../middleware/entitlement.js';
 import { RATE_LIMITS, rateLimit } from '../middleware/rate-limit.js';
@@ -97,6 +99,11 @@ function parseAsOf(
   asOfExclusive.setUTCDate(asOfExclusive.getUTCDate() + 1);
   return { asOf, asOfExclusive };
 }
+
+// Stateless cash-flow advisor — the reasoning model is resolved per call from
+// the account's credential. deps.advisor overrides it (tests inject a stub);
+// otherwise the real caller is used and availability rides on the credential.
+const defaultAdvisor = createCashFlowAdvisor();
 
 export function reportsRoutes(deps: AppDeps) {
   return (
@@ -816,6 +823,10 @@ export function reportsRoutes(deps: AppDeps) {
           if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
 
           const accountId = c.get('accountId');
+          // This account's LLM credential (managed or its own BYOK key). Resolved
+          // but not gated yet: a cache hit below serves cached nudges even with no
+          // usable key; only a cache MISS with no credential 503s.
+          const credential = await resolveAccountCredential(deps, accountId);
 
           // tx1: load the cache + compute the deterministic ledger signals, then
           // release the connection before the model call (deferred-tx route, see
@@ -905,8 +916,9 @@ export function reportsRoutes(deps: AppDeps) {
             });
           }
 
-          // No advisor configured: serve stale cache if we have it, else 503.
-          if (!deps.advisor) {
+          // No usable credential for this account: serve stale cache if we have
+          // it, else 503 — same shape as the old advisor-null branch.
+          if (!credential) {
             if (cachedNudges) {
               return c.json({
                 nudges: cachedNudges,
@@ -919,9 +931,10 @@ export function reportsRoutes(deps: AppDeps) {
           // Cache miss: regenerate (no DB connection held), persist, return. A
           // model failure leaves the old cache intact and surfaces 502 (the
           // streamed UI shows nothing).
+          const advisor = deps.advisor ?? defaultAdvisor;
           let nudges: Awaited<ReturnType<CashFlowAdvisor['advise']>>;
           try {
-            nudges = await deps.advisor.advise(signals);
+            nudges = await advisor.advise(signals, credential);
           } catch (_err) {
             return c.json({ error: 'nudges_failed' }, 502);
           }

@@ -10,6 +10,7 @@ import { cors } from 'hono/cors';
 import { HTTPException } from 'hono/http-exception';
 import type { ApiAuth } from './lib/auth.js';
 import type { EntitlementProvider } from './lib/entitlement.js';
+import type { LlmCredentialResolver } from './lib/llm-credentials.js';
 import type { Mailer } from './lib/mailer.js';
 import type { StripeBundle } from './lib/stripe.js';
 import { type RlsVariables, rlsContext } from './middleware/rls-context.js';
@@ -93,21 +94,26 @@ export type AppDeps = {
   // from `baseDir`. Null for the s3 driver, whose signed URLs point at the
   // object store directly so /api/files is never hit.
   localFileServe?: { secret: string; baseDir: string } | null;
-  // Vision-LLM receipt extractor (slice 8.9h). Null when no LLM provider is
-  // configured (anthropic/openai with no LLM_API_KEY, or an unknown provider) —
-  // the /extract endpoint 503s in that state. Same opt-in model as
-  // stripe/storage. Tests inject a plain stub so no live model is called.
-  extractor?: ReceiptExtractor | null;
-  // Text-based expense categorizer (AI). Null when no LLM provider is
-  // configured — the /categorize endpoint 503s in that state, same opt-in
-  // model as the extractor. Distinct from extractor: this reads typed text
-  // (fast model), not a receipt image (vision model). Tests inject a stub.
-  categorizer?: ExpenseCategorizer | null;
-  // Cash-flow nudge advisor (AI, reasoning model). Null when no LLM is
-  // configured — the cash-flow-nudges endpoint then 503s unless cached nudges
-  // already exist. Tests inject a stub. Generated nudges are cached on the
-  // company row and regenerated only when the computed signals change.
-  advisor?: CashFlowAdvisor | null;
+  // Vision-LLM receipt extractor (slice 8.9h). Stateless — the model is
+  // resolved per call from the account's llmCredentials, so this is always
+  // present (no longer null-when-no-key; that decision moved to llmCredentials).
+  // Omitted → the /extract route builds the default caller. Tests inject a plain
+  // stub so no live model is called.
+  extractor?: ReceiptExtractor;
+  // Text-based expense categorizer (AI). Same stateless shape as extractor;
+  // reads typed text (fast model) not a receipt image. Omitted → default caller.
+  categorizer?: ExpenseCategorizer;
+  // Cash-flow nudge advisor (AI, reasoning model). Same stateless shape.
+  // Omitted → default caller. Generated nudges are cached on the company row and
+  // regenerated only when the computed signals change.
+  advisor?: CashFlowAdvisor;
+  // Per-account LLM credential resolver — the open-core credential-resolution
+  // door (lib/llm-credentials.ts). The AI routes ask it "what key does this
+  // account run under?" per call and 503 when it returns null. Omitted → routes
+  // fall back to nullLlmCredentials (no AI). server.ts (public root) injects
+  // envLlmCredentials(process.env) — one global key for every account; the
+  // commercial root injects a per-account BYOK resolver.
+  llmCredentials?: LlmCredentialResolver;
   // Address autocomplete provider for the mobile customer form's
   // /api/locations/autocomplete route (the web client uses its own same-origin
   // SvelteKit proxy). Null when construction failed (e.g. LOCATION_PROVIDER set
