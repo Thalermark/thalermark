@@ -43,6 +43,23 @@ const PASSWORD_BODY_FIELD: Record<string, string> = {
 // (Better Auth provider key `twitter`) all share this shape.
 export type SocialProviderCreds = { clientId: string; clientSecret: string };
 
+// The transaction the signup provisioning runs in — the same `tx` that inserts
+// the account/company/membership/COA rows. A commercial onAccountCreated hook
+// runs on it so its per-account provisioning commits (or rolls back) atomically
+// with the account itself.
+type SignupTx = Parameters<Parameters<Database['transaction']>[0]>[0];
+
+// Handed to onAccountCreated when a brand-new tenant account is provisioned.
+// Deliberately minimal — mirrors the EntitlementProvider / LlmCredentialResolver
+// seams, which pass just the account id and let the provider look up the rest:
+// the freshly created account's id, its owner (the signing-up user's id), and the
+// live signup transaction to write within.
+export type AccountCreatedContext = {
+  accountId: string;
+  ownerUserId: string;
+  tx: SignupTx;
+};
+
 export type CreateAuthOptions = {
   secret: string;
   baseURL: string;
@@ -83,6 +100,17 @@ export type CreateAuthOptions = {
   // so they survive restarts with no second datastore. The per-path ceilings are
   // fixed in the rateLimit config below — this flag only gates the whole thing.
   rateLimitEnabled?: boolean;
+  // Open-core account-lifecycle door (SAAS-AND-PRODUCTION.md §8.3, door #3).
+  // Fired inside the signup transaction the moment a NEW tenant account is
+  // provisioned — fresh solo signup only; an invited user joins an EXISTING
+  // account and never fires this. Self-host leaves it unset (a no-op: there are
+  // no plans to provision), so the public build is byte-identical. The commercial
+  // composition root injects a hook that writes the account's initial
+  // subscription/trial row. It runs on the SAME transaction as the
+  // account/company/membership/COA inserts, so provisioning is atomic: if the
+  // hook throws, the whole signup rolls back and no half-provisioned tenant is
+  // left behind.
+  onAccountCreated?: (ctx: AccountCreatedContext) => Promise<void>;
 };
 
 // Wires Better Auth to our auth_* Drizzle tables. Email/password ON; the
@@ -315,6 +343,12 @@ export function createAuth(db: Database, options: CreateAuthOptions) {
                 .insert(memberships)
                 .values({ id: uuidv7(), userId: user.id, accountId, role: 'owner' });
               await seedChartOfAccounts(tx, { accountId, companyId });
+              // Open-core account-lifecycle door: let a commercial layer
+              // provision its own per-account state (e.g. a trial subscription
+              // row) in this same transaction. No-op on self-host (unset). Runs
+              // last, so the account/company/membership/COA it may read all
+              // exist; a throw here rolls the entire signup back.
+              await options.onAccountCreated?.({ accountId, ownerUserId: user.id, tx });
             });
           },
         },
