@@ -8,6 +8,15 @@
   let { children, data } = $props();
 
   const session = $derived(page.data.session);
+  // Account notice — the open-core seam. Null on self-host (no banner); the
+  // managed backend surfaces a frozen/lapsed → upgrade notice. Warning variant
+  // uses the copper status tint, info the gold accent (matching .callout).
+  const notice = $derived(page.data.notice ?? null);
+  const noticeClass = $derived(
+    notice?.variant === 'warning'
+      ? 'border-warning/30 bg-warning/5 text-warning'
+      : 'border-accent/30 bg-accent/5 text-fg/80',
+  );
   // Company switcher data from the (app) layout server load. Empty on the
   // exempt paths (e.g. /select-company) — UserMenu hides the section then.
   const companies = $derived(data?.companies ?? []);
@@ -64,6 +73,15 @@
 </header>
 
 <main class="mx-auto max-w-5xl px-6 py-12">
+  {#if notice}
+    <div
+      class="mb-8 flex flex-wrap items-center justify-between gap-3 rounded-sm border px-4 py-3 text-sm {noticeClass}"
+      role="status"
+    >
+      <span>{notice.message}</span>
+      <a href={notice.ctaHref} class="link whitespace-nowrap font-medium">{notice.ctaLabel}</a>
+    </div>
+  {/if}
   {#if showTelemetryConsent}
     <TelemetryConsent />
   {/if}

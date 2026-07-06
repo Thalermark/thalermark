@@ -8,6 +8,7 @@ import { sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { HTTPException } from 'hono/http-exception';
+import type { AccountNoticeProvider } from './lib/account-notice.js';
 import type { ApiAuth } from './lib/auth.js';
 import type { EntitlementProvider } from './lib/entitlement.js';
 import type { LlmCredentialResolver } from './lib/llm-credentials.js';
@@ -61,6 +62,15 @@ export type AppDeps = {
   // (communityEntitlements) and the public build stays unrestricted. The
   // commercial composition root injects a plan-aware provider.
   entitlement?: EntitlementProvider;
+  // Account-notice provider — the open-core seam that renders in web
+  // (spikes/ACCOUNT-NOTICE-SEAM.md). GET /api/me asks it for a short notice per
+  // membership (message + CTA link); the web app renders a banner when one is
+  // present. Omitted on self-host and in tests, so /api/me falls back to the
+  // community default (communityAccountNotices), which returns null for every
+  // account — no banner, no extra call, byte-identical public build. The
+  // commercial composition root injects a plan-aware provider that surfaces the
+  // frozen/lapsed → upgrade notice.
+  accountNotice?: AccountNoticeProvider;
   scheduleFlush?: (db: Database, accountId: string) => void;
   // Turns the app-level rate limiter (middleware/rate-limit.ts) on for the AI,
   // email-send, and public-payment routes. Same RATE_LIMIT_ENABLED switch as

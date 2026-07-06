@@ -102,6 +102,7 @@ const appHandle: Handle = async ({ event, resolve }) => {
     if (only) {
       event.locals.activeAccountId = only.accountId;
       event.locals.role = only.role;
+      event.locals.notice = only.notice;
     }
     return resolve(event);
   }
@@ -110,6 +111,7 @@ const appHandle: Handle = async ({ event, resolve }) => {
   if (cookieValue && active) {
     event.locals.activeAccountId = active.accountId;
     event.locals.role = active.role;
+    event.locals.notice = active.notice;
     return resolve(event);
   }
 
