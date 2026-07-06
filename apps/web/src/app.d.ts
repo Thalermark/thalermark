@@ -13,19 +13,37 @@ declare global {
       // activeAccountId in hooks.server.ts. Drives UX capability gating; the
       // API stays authoritative. Absent until an active workspace is resolved.
       role?: Role;
+      // The active account's notice, if any — the open-core account-notice seam
+      // (spikes/ACCOUNT-NOTICE-SEAM.md). Resolved from the active membership in
+      // hooks.server.ts and rendered as a banner in the (app) shell. Always null
+      // on self-host (the community provider returns nothing).
+      notice?: AccountNotice | null;
     }
     interface PageData {
       session: Session | null;
       activeAccountId?: string;
       role?: Role;
+      notice?: AccountNotice | null;
     }
   }
 }
+
+// A short notice a plan-aware backend may attach to an account — the open-core
+// account-notice seam. Mirrors the API's AccountNotice (apps/api/src/lib/
+// account-notice.ts). Null on self-host; the commercial backend surfaces the
+// frozen/lapsed → upgrade notice.
+export type AccountNotice = {
+  message: string;
+  ctaLabel: string;
+  ctaHref: string;
+  variant?: 'info' | 'warning';
+};
 
 export type Membership = {
   accountId: string;
   name: string;
   role: Role;
+  notice: AccountNotice | null;
 };
 
 export type SessionUser = {

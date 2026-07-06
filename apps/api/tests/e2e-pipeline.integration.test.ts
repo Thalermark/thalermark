@@ -112,9 +112,13 @@ describe('Phase 3 e2e pipeline', () => {
 
       const meAfter = await app.request('/api/me', { headers: { cookie } });
       const meAfterBody = (await meAfter.json()) as {
-        memberships: { accountId: string; name: string; role: string }[];
+        memberships: { accountId: string; name: string; role: string; notice: unknown }[];
       };
-      expect(meAfterBody.memberships).toEqual([{ accountId, name: 'Pipeline Co', role: 'owner' }]);
+      // notice is the open-core account-notice seam; the community default (no
+      // provider wired in tests) resolves null for every membership.
+      expect(meAfterBody.memberships).toEqual([
+        { accountId, name: 'Pipeline Co', role: 'owner', notice: null },
+      ]);
 
       const res = await app.request('/api/__test/pipeline-write', {
         method: 'POST',

@@ -7,6 +7,7 @@ import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 import { v7 as uuidv7 } from 'uuid';
 import type { AppDeps } from '../app.js';
+import { communityAccountNotices } from '../lib/account-notice.js';
 import { emailFooterText, renderEmailHtml } from '../lib/email-layout.js';
 import { EMAIL_RE, UUID_RE } from '../lib/route-helpers.js';
 import { requireCapability } from '../middleware/authz.js';
@@ -31,6 +32,10 @@ const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 export function accountRoutes(deps: AppDeps) {
   const bootstrapDb = deps.bootstrapDb ?? deps.db;
+  // Open-core account-notice seam. Community default returns null for every
+  // account, so the /api/me payload is unchanged on self-host; the commercial
+  // root injects a plan-aware provider. See lib/account-notice.ts.
+  const accountNotice = deps.accountNotice ?? communityAccountNotices;
   return (
     new Hono<{ Variables: RlsVariables }>()
       .get('/api/me', async (c) => {
@@ -54,7 +59,17 @@ export function accountRoutes(deps: AppDeps) {
           .from(memberships)
           .innerJoin(accounts, eq(memberships.accountId, accounts.id))
           .where(eq(memberships.userId, userId));
-        return c.json({ user, memberships: rows });
+        // Resolve the account notice per membership: /api/me runs before an
+        // active account is chosen (the web hook picks it from the cookie), so
+        // each account carries its own notice and the web renders the active
+        // one's. Community default → null everywhere (no banner, no cost).
+        const withNotices = await Promise.all(
+          rows.map(async (row) => ({
+            ...row,
+            notice: await accountNotice.get({ accountId: row.accountId }),
+          })),
+        );
+        return c.json({ user, memberships: withNotices });
       })
       .get('/api/me/invitations', async (c) => {
         // Pending invitations addressed to the session user's email. Bootstrap

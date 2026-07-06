@@ -13,6 +13,7 @@ import { type StorageProvider, createStorageProvider } from '@thalermark/storage
 import { PgBoss } from 'pg-boss';
 import { createApp } from './app.js';
 import { loadEnv } from './env.js';
+import { communityAccountNotices } from './lib/account-notice.js';
 import { createApiAuth, enabledSocialProviders } from './lib/auth.js';
 import { createApiDatabase } from './lib/db.js';
 import { communityEntitlements } from './lib/entitlement.js';
@@ -156,6 +157,11 @@ const app = createApp({
   // (thalermark-cloud) swaps in a plan-aware provider right here. See
   // spikes/SAAS-AND-PRODUCTION.md §6.5.
   entitlement: communityEntitlements,
+  // Account-notice provider — the open-core seam that renders a banner in web.
+  // The community default returns null for every account (no banner, no extra
+  // call); the commercial entrypoint swaps in a plan-aware provider that returns
+  // the frozen → upgrade notice. See spikes/ACCOUNT-NOTICE-SEAM.md.
+  accountNotice: communityAccountNotices,
   // AI credential resolver — the public root's global-key-for-every-account
   // default. The commercial root swaps in a per-account BYOK resolver. The
   // extractor/categorizer/advisor are no longer injected: they're stateless and
