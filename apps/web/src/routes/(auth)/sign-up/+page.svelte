@@ -11,6 +11,18 @@
   const apiUrl = env.PUBLIC_API_URL ?? 'http://localhost:3000';
   const inviteToken = $derived(page.url.searchParams.get('invite'));
 
+  // Optional legal-consent clickwrap. When the deploy provides BOTH a Terms and
+  // a Privacy URL, a required checkbox gates account creation on every path on
+  // this page (email/password, social, invited). Leave them unset (the default)
+  // ⇒ showConsent is false ⇒ nothing renders and no path is gated, so the form
+  // stays byte-identical to today. Any deploy that needs its own sign-up terms
+  // sets these. (Empty-string env vars are falsy, so a blank value counts as
+  // unset.)
+  const termsUrl = env.PUBLIC_TERMS_URL;
+  const privacyUrl = env.PUBLIC_PRIVACY_URL;
+  const showConsent = Boolean(termsUrl && privacyUrl);
+  let agreed = $state(false);
+
   let name = $state('');
   let email = $state('');
   let password = $state('');
@@ -62,6 +74,9 @@
   async function onSubmit(event: SubmitEvent) {
     event.preventDefault();
     error = null;
+    // Belt-and-suspenders: the submit button is already disabled until the box
+    // is checked, but guard the handler too in case of implicit submission.
+    if (showConsent && !agreed) return;
     const pwCheck = checkPassword(password);
     if (!pwCheck.ok) {
       error = pwCheck.message;
@@ -159,7 +174,22 @@
   {#if error}
     <p class="label text-danger">{error}</p>
   {/if}
-  <button type="submit" disabled={submitting} class="btn w-full py-3">
+  {#if showConsent}
+    <label class="flex items-start gap-3 text-sm text-fg/80">
+      <input type="checkbox" bind:checked={agreed} class="mt-0.5 size-4 accent-accent" />
+      <span>
+        I agree to the
+        <a href={termsUrl} target="_blank" rel="noopener" class="link">Terms of Service</a>
+        and
+        <a href={privacyUrl} target="_blank" rel="noopener" class="link">Privacy Policy</a>.
+      </span>
+    </label>
+  {/if}
+  <button
+    type="submit"
+    disabled={submitting || (showConsent && !agreed)}
+    class="btn w-full py-3"
+  >
     {invite ? 'Join workspace' : COPY.signUp.submit}
   </button>
 </form>
@@ -170,6 +200,7 @@
   providers={inviteToken ? [] : (page.data.socialProviders ?? [])}
   callbackPath="/"
   lastUsed={inviteToken ? null : (page.data.lastAuthMethod ?? null)}
+  disabled={showConsent && !agreed}
 />
 
 <p class="mt-8 text-center text-sm text-fg/70">
