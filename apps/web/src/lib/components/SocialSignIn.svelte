@@ -10,11 +10,21 @@
   // lastUsed: this device's last sign-in method (provider id), read from a local
   // cookie server-side. The matching button gets a "Last used" badge — a
   // non-authoritative hint, never a reorder (the ORDER below stays fixed).
+  // disabled: an external gate (e.g. the sign-up legal-consent clickwrap). Social
+  // sign-in creates an account just like the email form, so when consent is
+  // required the caller must be able to lock these buttons too — otherwise the
+  // clickwrap only guards one of the account-creation paths.
   let {
     providers = [],
     callbackPath = '/',
     lastUsed = null,
-  }: { providers?: string[]; callbackPath?: string; lastUsed?: string | null } = $props();
+    disabled = false,
+  }: {
+    providers?: string[];
+    callbackPath?: string;
+    lastUsed?: string | null;
+    disabled?: boolean;
+  } = $props();
 
   // Render order is fixed here (not the api's array order) so the buttons are
   // stable. Only ids present in `providers` are shown.
@@ -94,7 +104,7 @@
       <button
         type="button"
         onclick={() => signIn(provider)}
-        disabled={submitting}
+        disabled={submitting || disabled}
         class="relative flex w-full items-center justify-center gap-3 rounded-sm border border-fg/25 bg-surface px-3 py-3 text-sm font-medium text-fg transition-colors hover:border-fg disabled:opacity-50"
       >
         {@render icon(provider)}
