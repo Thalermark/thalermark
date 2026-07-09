@@ -1,4 +1,4 @@
-import { type SocialProviderCreds, createAuth } from '@thalermark/auth';
+import { type AccountCreatedContext, type SocialProviderCreds, createAuth } from '@thalermark/auth';
 import type { Database } from '@thalermark/db';
 import { getLogger } from '@thalermark/logger';
 import type { Env } from '../env.js';
@@ -64,7 +64,20 @@ export function verifyUrlWithAppCallback(url: string, appUrl: string): string {
 // Thin wrapper around @thalermark/auth's createAuth: pulls config out of the
 // loaded env. server.ts holds the resulting handle and passes it into the
 // Hono factory.
-export function createApiAuth(db: Database, env: Env, mailer?: Mailer) {
+//
+// `hooks` is the open-core account-lifecycle seam: the public composition root
+// (server.ts) passes none, so onAccountCreated stays undefined and signup is
+// byte-identical to today. A commercial composition root injects a hook that
+// provisions the account's initial subscription/trial row inside the signup
+// transaction. It's a bag (not a bare positional) so a second lifecycle hook
+// later doesn't grow the parameter list. See @thalermark/auth for the seam
+// contract (AccountCreatedContext, atomic-with-signup semantics).
+export function createApiAuth(
+  db: Database,
+  env: Env,
+  mailer?: Mailer,
+  hooks?: { onAccountCreated?: (ctx: AccountCreatedContext) => Promise<void> },
+) {
   return createAuth(db, {
     secret: env.betterAuthSecret,
     baseURL: env.betterAuthUrl,
@@ -76,6 +89,9 @@ export function createApiAuth(db: Database, env: Env, mailer?: Mailer) {
       ? Array.from(new Set([...env.trustedOrigins, env.publicAppUrl]))
       : env.trustedOrigins,
     rateLimitEnabled: env.rateLimitEnabled,
+    // Open-core seam (see the `hooks` param above). Undefined on self-host, so
+    // signup runs exactly as it does with no hook.
+    onAccountCreated: hooks?.onAccountCreated,
     ...socialCreds(env),
     // Require email verification when there's a real way to deliver the email,
     // so a self-host install without a mailer isn't locked out. Default = on iff
