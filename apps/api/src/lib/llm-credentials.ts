@@ -37,7 +37,7 @@ export function credentialFromEnv(env: LlmEnvVars): LlmCredential {
     modelVision: env.LLM_MODEL_VISION,
     modelReasoning: env.LLM_MODEL_REASONING,
     modelFast: env.LLM_MODEL_FAST,
-    ollamaBaseUrl: env.OLLAMA_BASE_URL,
+    baseUrl: env.OLLAMA_BASE_URL,
   };
 }
 
