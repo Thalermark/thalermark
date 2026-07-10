@@ -4,6 +4,8 @@ export { createExpenseCategorizer } from './categorizer.js';
 export { createCashFlowAdvisor, CASH_FLOW_NUDGE_VERSION } from './advisor.js';
 export type { LlmCredential, ModelRole, ProviderPreset } from './provider.js';
 export { isCredentialUsable, PRESETS } from './provider.js';
+export type { ProbeResult, ProbeRunner } from './probe.js';
+export { probeCredential } from './probe.js';
 export { normalizeExtraction, constrainCode } from './normalize.js';
 export type { RawExtraction } from './normalize.js';
 export { renderPdfFirstPageToPng } from './pdf.js';
