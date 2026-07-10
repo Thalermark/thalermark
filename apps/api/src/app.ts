@@ -1,5 +1,11 @@
 import * as Sentry from '@sentry/node';
-import type { CashFlowAdvisor, ExpenseCategorizer, ReceiptExtractor } from '@thalermark/ai';
+import type {
+  CashFlowAdvisor,
+  ExpenseCategorizer,
+  LlmCredential,
+  ProbeResult,
+  ReceiptExtractor,
+} from '@thalermark/ai';
 import type { Database } from '@thalermark/db';
 import type { AddressAutocompleteProvider } from '@thalermark/location';
 import { getLogger } from '@thalermark/logger';
@@ -11,6 +17,7 @@ import { HTTPException } from 'hono/http-exception';
 import type { AccountNoticeProvider } from './lib/account-notice.js';
 import type { ApiAuth } from './lib/auth.js';
 import type { EntitlementProvider } from './lib/entitlement.js';
+import type { LlmConnectionStore } from './lib/llm-connection.js';
 import type { LlmCredentialResolver } from './lib/llm-credentials.js';
 import type { Mailer } from './lib/mailer.js';
 import type { StripeBundle } from './lib/stripe.js';
@@ -32,6 +39,7 @@ import { publicRoutes } from './routes/public.js';
 import { purchasesRoutes } from './routes/purchases.js';
 import { recurringInvoicesRoutes } from './routes/recurring.js';
 import { reportsRoutes } from './routes/reports.js';
+import { settingsAiRoutes } from './routes/settings-ai.js';
 import { socialProvidersRoutes } from './routes/social-providers.js';
 import { taxPoliciesRoutes } from './routes/tax-policies.js';
 import { telemetryRoutes } from './routes/telemetry.js';
@@ -121,9 +129,27 @@ export type AppDeps = {
   // door (lib/llm-credentials.ts). The AI routes ask it "what key does this
   // account run under?" per call and 503 when it returns null. Omitted → routes
   // fall back to nullLlmCredentials (no AI). server.ts (public root) injects
-  // envLlmCredentials(process.env) — one global key for every account; the
-  // commercial root injects a per-account BYOK resolver.
+  // settingsLlmCredentials(store) — the account's own stored connection; the
+  // commercial root injects a per-account BYOK/managed resolver.
   llmCredentials?: LlmCredentialResolver;
+  // The store behind that resolver, for Settings → AI (read/write/verify) and,
+  // later, live-call health recording. Community root injects the same store the
+  // resolver reads (createLlmConnectionStore); omitted → the settings route 503s
+  // ('ai_not_available') and the resolver falls back to null. A commercial BYOK
+  // deployment injects core's store here too so its tenants share one settings
+  // surface. See spikes/AI-CONNECTION.md and thalermark-ai-commercial-seam.md.
+  llmConnections?: LlmConnectionStore;
+  // The Settings → AI verify probe. Omitted → the real probeCredential, a live
+  // model round-trip. Injected as a stub in integration tests so the settings
+  // route is exercised end-to-end without a model, exactly as extractor/
+  // categorizer/advisor are stubbed.
+  llmProbe?: (credential: LlmCredential) => Promise<ProbeResult>;
+  // Operator SSRF policy for a user-supplied AI base URL (AI_ALLOW_PRIVATE_ENDPOINTS).
+  // Default (undefined/false): private + link-local addresses are rejected by the
+  // settings route's checkBaseUrl. A self-hoster pointing at Ollama or a LAN model
+  // server sets it true. NOT AI config and NOT a per-account setting — a host-level
+  // security control, so it lives here, not in the connection row.
+  aiAllowPrivateEndpoints?: boolean;
   // Address autocomplete provider for the mobile customer form's
   // /api/locations/autocomplete route (the web client uses its own same-origin
   // SvelteKit proxy). Null when construction failed (e.g. LOCATION_PROVIDER set
@@ -246,6 +272,7 @@ export function createApp(deps: AppDeps) {
   app.route('/', recurringInvoicesRoutes(deps));
   app.route('/', estimatesRoutes(deps));
   app.route('/', reportsRoutes(deps));
+  app.route('/', settingsAiRoutes(deps));
   // public/webhook surface — mounted like the rest, but mount-only (no XAppType,
   // no facade): the routes are reached by URL from the unauthenticated web pay/
   // view pages and by Stripe, never via a typed hc client.
@@ -274,6 +301,7 @@ export type InvoicesAppType = ReturnType<typeof invoicesRoutes>;
 export type RecurringInvoicesAppType = ReturnType<typeof recurringInvoicesRoutes>;
 export type EstimatesAppType = ReturnType<typeof estimatesRoutes>;
 export type ReportsAppType = ReturnType<typeof reportsRoutes>;
+export type SettingsAiAppType = ReturnType<typeof settingsAiRoutes>;
 // filesRoutes has no XAppType export: GET /api/files/:token is served by a
 // signed URL hit directly (img src / download), never via a typed hc client, so
 // nothing consumes its type. It's still mounted in createApp like the rest.

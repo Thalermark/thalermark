@@ -2,7 +2,6 @@
 // Better Auth) captures it at import time. See load-env.ts for the full why.
 import './load-env.js';
 import { serve } from '@hono/node-server';
-import { isCredentialUsable } from '@thalermark/ai';
 import { runMigrations } from '@thalermark/db';
 import {
   type AddressAutocompleteProvider,
@@ -15,10 +14,11 @@ import { createApp } from './app.js';
 import { loadEnv } from './env.js';
 import { communityAccountNotices } from './lib/account-notice.js';
 import { createApiAuth, enabledSocialProviders } from './lib/auth.js';
+import { deriveConnectionKey } from './lib/crypto.js';
 import { createApiDatabase } from './lib/db.js';
 import { communityEntitlements } from './lib/entitlement.js';
 import { initErrorTracking } from './lib/error-tracking.js';
-import { credentialFromEnv, envLlmCredentials } from './lib/llm-credentials.js';
+import { createLlmConnectionStore, settingsLlmCredentials } from './lib/llm-connection.js';
 import { type Mailer, createConsoleMailer, createResendMailer } from './lib/mailer.js';
 import { sweepRecurringInvoices } from './lib/recurring.js';
 import { provisionAppRole, provisionPgBossRole } from './lib/role-provision.js';
@@ -118,19 +118,22 @@ try {
   log.info('storage disabled: {msg}', { msg: err instanceof Error ? err.message : String(err) });
 }
 
-// AI credential resolution. The extractor/categorizer/advisor are now stateless
-// (the model is resolved per call from the account's credential), so they're no
-// longer built here — the routes construct the default callers. This composition
-// root injects the community resolver: one global credential from LLM_* env for
-// every account (envLlmCredentials returns null per account when no provider is
-// usable, so the AI routes 503 exactly as they did when the extractor was built
-// null at boot). Ollama needs no key — the AGPL-pure self-host path. The
-// commercial root swaps this for a per-account BYOK resolver.
-const llmCredentials = envLlmCredentials(process.env);
+// AI credential resolution — the community root's default for the open-core seam
+// (door #4). The LLM_* env is gone: an account's connection is a row it owns,
+// written from Settings → AI, and the resolver reads it per call (null → the AI
+// routes 503, exactly as a missing global key used to). The extractor/
+// categorizer/advisor stay stateless — the model is resolved per call from the
+// resolved credential. The commercial root swaps the resolver for a per-account
+// BYOK/managed one; it may reuse this same store (see the commercial brief).
+//
+// The store's key-encryption master is DERIVED from BETTER_AUTH_SECRET (already
+// required + prod-guarded), so no new env var and no restart to configure AI.
+const llmStore = createLlmConnectionStore(dbHandle.db, deriveConnectionKey(env.betterAuthSecret));
+const llmCredentials = settingsLlmCredentials(llmStore);
 log.info(
-  isCredentialUsable(credentialFromEnv(process.env))
-    ? `AI enabled (LLM_PROVIDER=${process.env.LLM_PROVIDER ?? 'anthropic'})`
-    : 'AI disabled (LLM_API_KEY unset or LLM_PROVIDER unsupported)',
+  env.aiAllowPrivateEndpoints
+    ? 'AI connections: private/LAN endpoints allowed (AI_ALLOW_PRIVATE_ENDPOINTS=true)'
+    : 'AI connections: configure from Settings → AI (private endpoints blocked)',
 );
 
 // Address autocomplete (mobile customer form). Construction reads the same
@@ -167,6 +170,10 @@ const app = createApp({
   // extractor/categorizer/advisor are no longer injected: they're stateless and
   // the routes build the default callers, resolving the model per call from this.
   llmCredentials,
+  // The store behind the resolver, for Settings → AI. Same instance, so a saved
+  // connection takes effect on the next resolve with no restart.
+  llmConnections: llmStore,
+  aiAllowPrivateEndpoints: env.aiAllowPrivateEndpoints,
   rateLimitEnabled: env.rateLimitEnabled,
   trustedOrigins: env.trustedOrigins,
   publicAppUrl: env.publicAppUrl,
