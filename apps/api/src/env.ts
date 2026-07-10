@@ -92,6 +92,11 @@ export type Env = {
   // literals needn't list it (loadEnv always resolves it; pg-boss boots only in
   // server.ts, never in tests).
   jobsEnabled?: boolean;
+  // AI_ALLOW_PRIVATE_ENDPOINTS — operator SSRF policy for a user-supplied AI base
+  // URL (Settings → AI). Default false: private + link-local addresses are
+  // rejected. A self-hoster pointing at Ollama or a LAN model server sets it
+  // true. A host-level security control, not AI config.
+  aiAllowPrivateEndpoints?: boolean;
 };
 
 const DEFAULT_PORT = 3000;
@@ -159,6 +164,12 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     // Empty string (a bare JOBS_ENABLED= in compose env_file) → unset → default
     // true, same tri-state trap handled above for the other boolean flags.
     jobsEnabled: source.JOBS_ENABLED ? parseBool(source.JOBS_ENABLED) : true,
+    // Default false (fail closed): reject private/link-local AI endpoints unless
+    // the operator opts in. `? : false` so a bare `AI_ALLOW_PRIVATE_ENDPOINTS=`
+    // reads as unset, not as an accidental enable.
+    aiAllowPrivateEndpoints: source.AI_ALLOW_PRIVATE_ENDPOINTS
+      ? parseBool(source.AI_ALLOW_PRIVATE_ENDPOINTS)
+      : false,
   });
 }
 

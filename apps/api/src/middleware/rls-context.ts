@@ -107,6 +107,11 @@ const DEFERRED_TX_PATH_PATTERNS: RegExp[] = [
   /^\/api\/invoices\/[^/]+\/send$/,
   /^\/api\/estimates\/[^/]+\/send$/,
   /^\/api\/companies\/[^/]+\/cash-flow-nudges$/,
+  // Settings → AI. /verify runs the model probe (up to 60s), so it must not pin
+  // a wrapping connection; the store's own short txs are the only DB work, so
+  // the sibling GET/PUT/DELETE ride the deferred path too rather than each
+  // opening a second tx inside a wrapping one.
+  /^\/api\/settings\/ai(\/verify)?$/,
 ];
 
 function isBootstrapPath(path: string): boolean {

@@ -28,7 +28,11 @@ const PROBE_PROMPT = 'Return {"ok": true}';
 const PROBE_TIMEOUT_MS = 60_000;
 
 export type ProbeResult =
-  | { ok: true; latencyMs: number; structured: boolean }
+  // `structured` is present ONLY when the probe measured it — i.e. for a custom
+  // endpoint we had no prior knowledge of. For a preset it is absent, so the
+  // stored connection keeps `structured` NULL ("trust the preset") rather than
+  // freezing the preset's current value into the row.
+  | { ok: true; latencyMs: number; structured?: boolean }
   | { ok: false; latencyMs: number; error: string };
 
 // The provider's own error is what makes this useful ("invalid x-api-key",
@@ -98,11 +102,14 @@ export async function probeCredential(
   // first attempt deliberately overrides it to true to see whether that holds.
   const preset = PRESETS[(cred.provider ?? 'anthropic').trim().toLowerCase()];
   const detect = preset?.requiresBaseUrl === true && cred.structured === undefined;
-  const declared = cred.structured ?? preset?.structured ?? false;
 
   const first = await run(detect ? { ...cred, structured: true } : cred);
   if (first.ok) {
-    return { ok: true, latencyMs: elapsed(), structured: detect ? true : declared };
+    // Report `structured` only when we measured it (detect). For a preset, omit
+    // it so the stored row stays NULL and keeps tracking the preset in code.
+    return detect
+      ? { ok: true, latencyMs: elapsed(), structured: true }
+      : { ok: true, latencyMs: elapsed() };
   }
 
   // The failure may be a rejected `response_format` rather than a bad key. One

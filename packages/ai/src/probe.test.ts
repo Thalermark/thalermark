@@ -27,9 +27,11 @@ describe('probeCredential', () => {
     expect(run).not.toHaveBeenCalled();
   });
 
-  it('reports healthy with the preset structured value for a known provider', async () => {
+  it('reports healthy for a known provider without freezing a structured value', async () => {
     const result = await probeCredential(anthropic, { run: ok });
-    expect(result).toMatchObject({ ok: true, structured: true });
+    expect(result.ok).toBe(true);
+    // Omitted for presets so the stored row keeps tracking the preset in code.
+    if (result.ok) expect(result.structured).toBeUndefined();
   });
 
   it('probes a known provider exactly once', async () => {
@@ -113,7 +115,10 @@ describe('probeCredential — structured detection on custom endpoints', () => {
   it('does not re-detect once structured is already stored', async () => {
     const run = vi.fn<ProbeRunner>(ok);
     const result = await probeCredential(custom({ structured: false }), { run });
-    expect(result).toMatchObject({ ok: true, structured: false });
+    // Probes with the stored value, once — and does not re-report it (the column
+    // already holds it; recordProbeResult leaves it untouched).
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.structured).toBeUndefined();
     expect(run).toHaveBeenCalledTimes(1);
     expect(run.mock.calls[0]?.[0]).toMatchObject({ structured: false });
   });
