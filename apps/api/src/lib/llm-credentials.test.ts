@@ -25,7 +25,7 @@ describe('credentialFromEnv', () => {
       modelVision: 'gpt-4o',
       modelReasoning: 'o1',
       modelFast: 'gpt-4o-mini',
-      ollamaBaseUrl: 'http://ollama:11434',
+      baseUrl: 'http://ollama:11434',
     });
   });
 });
@@ -39,7 +39,7 @@ describe('envLlmCredentials', () => {
       modelVision: undefined,
       modelReasoning: undefined,
       modelFast: undefined,
-      ollamaBaseUrl: undefined,
+      baseUrl: undefined,
     });
     // Same answer for any account — this is the one-global-key self-host model.
     expect(await resolver.resolve({ accountId: 'other' })).not.toBeNull();
