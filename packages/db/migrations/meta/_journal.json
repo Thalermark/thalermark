@@ -50,6 +50,13 @@
       "when": 1782800000000,
       "tag": "0006_app_rate_limit",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1783696245693,
+      "tag": "0007_llm_connections",
+      "breakpoints": true
     }
   ]
 }

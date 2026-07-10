@@ -14,6 +14,7 @@ export * from './invoices.js';
 export * from './items.js';
 export * from './journal_entries.js';
 export * from './journal_lines.js';
+export * from './llm_connections.js';
 export * from './memberships.js';
 export * from './opening_balances.js';
 export * from './owner_money_events.js';
