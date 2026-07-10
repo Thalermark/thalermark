@@ -144,8 +144,14 @@ function baseUrlFor(cred: LlmCredential, preset: ProviderPreset): string | undef
 // Exported for its own test: the append-when-absent rule is the one behaviour
 // the ollama → preset refactor must not regress. Not re-exported from index.
 export function normalizeBaseUrl(raw: string): string {
-  const trimmed = raw.trim().replace(/\/+$/, '');
-  return trimmed.endsWith('/v1') ? trimmed : `${trimmed}/v1`;
+  const trimmed = raw.trim();
+  // Strip trailing slashes by index, not by regex: /\/+$/ backtracks
+  // quadratically on a run of slashes (CodeQL js/polynomial-redos), and this
+  // string is user input once the settings UI lands.
+  let end = trimmed.length;
+  while (end > 0 && trimmed[end - 1] === '/') end -= 1;
+  const base = trimmed.slice(0, end);
+  return base.endsWith('/v1') ? base : `${base}/v1`;
 }
 
 // Can this credential actually run a model? A preset must exist (an unknown

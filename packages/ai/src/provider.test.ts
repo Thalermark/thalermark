@@ -121,6 +121,16 @@ describe('normalizeBaseUrl', () => {
     expect(normalizeBaseUrl('https://api.x.ai/v1')).toBe('https://api.x.ai/v1');
     expect(normalizeBaseUrl('https://api.x.ai/v1/')).toBe('https://api.x.ai/v1');
   });
+
+  // The base url is user input once the settings UI lands. A trailing-strip
+  // regex (/\/+$/) backtracks quadratically on an interior run of slashes that
+  // does not reach the end — CodeQL js/polynomial-redos. Index-scan instead.
+  it('stays linear on a long interior slash run', () => {
+    const hostile = `http://h/${'/'.repeat(100_000)}x`;
+    const started = performance.now();
+    expect(normalizeBaseUrl(hostile)).toBe(`${hostile}/v1`);
+    expect(performance.now() - started).toBeLessThan(500);
+  });
 });
 
 describe('PRESETS', () => {
