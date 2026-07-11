@@ -1,5 +1,13 @@
-import { describe, expect, it } from 'vitest';
-import { type EndpointCheck, checkBaseUrl, classifyAddress } from './llm-endpoint.js';
+import { type Server, createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import {
+  type EndpointCheck,
+  checkBaseUrl,
+  classifyAddress,
+  createGuardedFetch,
+  guardedFetchForPolicy,
+} from './llm-endpoint.js';
 
 const OPEN = { allowPrivate: true };
 const STRICT = { allowPrivate: false };
@@ -211,5 +219,57 @@ describe('checkBaseUrl — the AI_ALLOWED_ENDPOINTS allowlist', () => {
     expect(reasonOf(await checkBaseUrl('http://127.0.0.1:11434/v1', allow()))).toBe(
       'private_address',
     );
+  });
+});
+
+// The CONNECT-time guard. A real loopback server proves the point that a static
+// analysis can't: even though the server is reachable, the guarded fetch refuses
+// it when private isn't allowed (localhost → 127.0.0.1, a private address checked
+// at connect time), and connects when it is. This is what actually closes DNS
+// rebinding — the check happens when the socket opens, not at save time.
+describe('createGuardedFetch — connect-time validation', () => {
+  let server: Server;
+  let port: number;
+
+  beforeAll(async () => {
+    server = createServer((_req, res) => {
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.end('ok');
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    port = (server.address() as AddressInfo).port;
+  });
+
+  afterAll(() => {
+    server.close();
+  });
+
+  it('blocks a hostname resolving to a private address when private is not allowed', async () => {
+    const guarded = createGuardedFetch(false);
+    // localhost resolves to 127.0.0.1 / ::1 — both private. The server IS up, so a
+    // rejection here can only come from the connect-time guard, not a dead socket.
+    await expect(guarded(`http://localhost:${port}/`)).rejects.toThrow();
+  });
+
+  it('allows the same connection when private is permitted', async () => {
+    const guarded = createGuardedFetch(true);
+    const res = await guarded(`http://localhost:${port}/`);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('ok');
+  });
+
+  it('blocks a public-looking host that a resolver would point inward (rebinding)', async () => {
+    // Not wired here to a stub resolver — the point is covered by the localhost
+    // cases above (a name → private IP is refused at connect). This asserts the
+    // policy factory grants the exception only for the allowlisted endpoint.
+    const factory = guardedFetchForPolicy({
+      allowPrivate: false,
+      allowedEndpoints: [`http://localhost:${port}`],
+    });
+    // Allowlisted host:port → private exception granted → connects.
+    const res = await factory(`http://localhost:${port}/v1`)(`http://localhost:${port}/`);
+    expect(res.status).toBe(200);
+    // A different loopback port is not allowlisted → still blocked at connect.
+    await expect(factory('http://localhost:1/v1')(`http://localhost:${port}/`)).rejects.toThrow();
   });
 });

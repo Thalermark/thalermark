@@ -19,6 +19,7 @@ import { createApiDatabase } from './lib/db.js';
 import { communityEntitlements } from './lib/entitlement.js';
 import { initErrorTracking } from './lib/error-tracking.js';
 import { createLlmConnectionStore, settingsLlmCredentials } from './lib/llm-connection.js';
+import { guardedFetchForPolicy } from './lib/llm-endpoint.js';
 import { type Mailer, createConsoleMailer, createResendMailer } from './lib/mailer.js';
 import { sweepRecurringInvoices } from './lib/recurring.js';
 import { provisionAppRole, provisionPgBossRole } from './lib/role-provision.js';
@@ -128,7 +129,17 @@ try {
 //
 // The store's key-encryption master is DERIVED from BETTER_AUTH_SECRET (already
 // required + prod-guarded), so no new env var and no restart to configure AI.
-const llmStore = createLlmConnectionStore(dbHandle.db, deriveConnectionKey(env.betterAuthSecret));
+const llmStore = createLlmConnectionStore(
+  dbHandle.db,
+  deriveConnectionKey(env.betterAuthSecret),
+  // Attaches a connect-time SSRF-guarded fetch to any credential with a
+  // user-supplied endpoint, under the same operator policy the settings route
+  // uses. This is the request-time half of the rebinding defense.
+  guardedFetchForPolicy({
+    allowPrivate: env.aiAllowPrivateEndpoints ?? false,
+    allowedEndpoints: env.aiAllowedEndpoints,
+  }),
+);
 const llmCredentials = settingsLlmCredentials(llmStore);
 log.info(
   env.aiAllowPrivateEndpoints

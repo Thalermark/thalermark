@@ -1,5 +1,7 @@
+import { lookup as dnsLookupCb } from 'node:dns';
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
+import { Agent, fetch as undiciFetch } from 'undici';
 
 // Guard for the one place a user hands us a URL that the *server* then requests:
 // the `custom` provider's base_url, and a base_url override on any openai-wire
@@ -203,11 +205,11 @@ function isAllowlisted(url: URL, entries: string[] | undefined): boolean {
 // address it answers with — a hostname check alone is useless, because
 // evil.example.com can simply publish an A record of 127.0.0.1.
 //
-// Residual risk, stated rather than hidden: this is a check-time guarantee, not a
-// request-time one. A hostname whose DNS answer changes between the probe and a
-// later AI call (DNS rebinding) is not covered. Closing that needs a dispatcher
-// pinning the resolved address for the fetch the Vercel AI SDK performs — out of
-// scope here, and tracked in spikes/AI-CONNECTION.md §12.
+// This is the CHECK-time guard (save/verify): it stops an endpoint that resolves
+// somewhere bad right now. The complementary CONNECT-time guard is
+// createGuardedFetch below, attached to the credential's fetch — it re-validates
+// at the moment the AI SDK connects, which is what actually closes DNS rebinding
+// (a name that passes here but flips before the call). The two run together.
 export async function checkBaseUrl(
   raw: string,
   policy: EndpointPolicy,
@@ -246,4 +248,76 @@ export async function checkBaseUrl(
   if (addresses.length === 0) return { ok: false, reason: 'dns_failed' };
 
   return verdictFor(addresses, privateAllowed, url);
+}
+
+// The request-time half of the SSRF defense. checkBaseUrl is a CHECK-time
+// guarantee (save/verify); this is the CONNECT-time one. A guarded fetch resolves
+// the hostname and re-classifies every candidate IP at the moment it connects, so
+// a name that passed checkBaseUrl but later rebinds to an internal / metadata
+// address is refused when the AI SDK actually calls it. undici (not URL
+// rewriting) so the connection goes to the validated IP while the hostname is
+// kept for TLS SNI + Host — rewriting to the IP would break https cert checks.
+//
+// Same rule as verdictFor: `blocked` (metadata/link-local) is always refused;
+// `private` is refused unless this endpoint's privateAllowed was granted.
+export function createGuardedFetch(privateAllowed: boolean): typeof globalThis.fetch {
+  const agent = new Agent({
+    connect: {
+      // A dns.lookup-compatible function undici calls per connection. Resolve
+      // ALL addresses, reject if ANY is disallowed (matching checkBaseUrl's
+      // all-must-pass rule), then hand back the shape undici asked for.
+      lookup(hostname, options, callback) {
+        dnsLookupCb(hostname, { all: true, verbatim: true }, (err, addresses) => {
+          if (err) return callback(err, '', 0);
+          for (const entry of addresses) {
+            const category = classifyAddress(entry.address);
+            if (category === 'blocked' || (category === 'private' && !privateAllowed)) {
+              return callback(new Error(`blocked AI endpoint address (${category})`), '', 0);
+            }
+          }
+          if (options?.all) return callback(null, addresses as never);
+          const first = addresses[0];
+          if (!first) return callback(new Error('no address'), '', 0);
+          return callback(null, first.address, first.family);
+        });
+      },
+    },
+  });
+  // undici's fetch is spec-compatible with global fetch but nominally distinct
+  // (its RequestInit carries `dispatcher`), so bridge through unknown.
+  return ((input: Parameters<typeof globalThis.fetch>[0], init?: RequestInit) =>
+    undiciFetch(
+      input as never,
+      { ...init, dispatcher: agent } as never,
+    )) as unknown as typeof globalThis.fetch;
+}
+
+// A factory that turns an endpoint's base URL into a guarded fetch under a fixed
+// operator policy — the per-endpoint privateAllowed (allowPrivate OR allowlisted)
+// baked in. Cached by base URL so repeated AI calls reuse one undici Agent
+// (connection pool) instead of building one per call. server.ts hands this to the
+// connection store; the store attaches the fetch to any credential that carries a
+// user-supplied base URL.
+export function guardedFetchForPolicy(
+  policy: EndpointPolicy,
+): (baseUrl: string) => typeof globalThis.fetch {
+  const cache = new Map<string, typeof globalThis.fetch>();
+  return (baseUrl) => {
+    let privateAllowed = policy.allowPrivate;
+    if (!privateAllowed) {
+      try {
+        privateAllowed = isAllowlisted(new URL(baseUrl), policy.allowedEndpoints);
+      } catch {
+        // A malformed base URL never reaches here (checkBaseUrl vetted it), but
+        // fail closed regardless: no allowlist match.
+      }
+    }
+    const key = `${privateAllowed}:${baseUrl}`;
+    let fetch = cache.get(key);
+    if (!fetch) {
+      fetch = createGuardedFetch(privateAllowed);
+      cache.set(key, fetch);
+    }
+    return fetch;
+  };
 }

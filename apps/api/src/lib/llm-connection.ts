@@ -190,7 +190,17 @@ function toDisplay(row: ConnectionRow, masterKey: Buffer): ConnectionDisplay {
 // account_id is also filtered explicitly, per the house rule — defense in depth,
 // and it is what makes the query correct under the BYPASSRLS superuser the
 // integration tests run as.
-export function createLlmConnectionStore(db: Database, masterKey: Buffer): LlmConnectionStore {
+// endpointFetch (server.ts injects guardedFetchForPolicy) turns a user-supplied
+// base URL into an SSRF-guarded fetch. Attached to any credential that carries a
+// base URL — the user-configurable endpoints (custom / an Ollama override); the
+// fixed public presets have no base URL on the credential and so run on the SDK's
+// default fetch. This is what makes the connect-time rebinding guard actually
+// apply to real AI calls and the verify probe.
+export function createLlmConnectionStore(
+  db: Database,
+  masterKey: Buffer,
+  endpointFetch?: (baseUrl: string) => typeof globalThis.fetch,
+): LlmConnectionStore {
   const load = (accountId: string): Promise<ConnectionRow | undefined> =>
     withAccountContext(db, { accountId }, async (tx) => {
       const [row] = await tx
@@ -201,10 +211,15 @@ export function createLlmConnectionStore(db: Database, masterKey: Buffer): LlmCo
       return row;
     });
 
+  const withGuard = (cred: LlmCredential | null): LlmCredential | null => {
+    if (cred?.baseUrl && endpointFetch) cred.fetch = endpointFetch(cred.baseUrl);
+    return cred;
+  };
+
   return {
     async getUsable(accountId) {
       const row = await load(accountId);
-      return row ? rowToCredential(row, masterKey) : null;
+      return withGuard(row ? rowToCredential(row, masterKey) : null);
     },
 
     async getDisplay(accountId) {
@@ -214,7 +229,7 @@ export function createLlmConnectionStore(db: Database, masterKey: Buffer): LlmCo
 
     async getProbeCredential(accountId) {
       const row = await load(accountId);
-      return row ? decryptRow(row, masterKey) : null;
+      return withGuard(row ? decryptRow(row, masterKey) : null);
     },
 
     async upsert(accountId, input, actorUserId) {
