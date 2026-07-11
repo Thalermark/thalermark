@@ -16,6 +16,7 @@ import { validator } from 'hono/validator';
 import { v7 as uuidv7 } from 'uuid';
 import type { AppDeps } from '../app.js';
 import { postExpenseCreate, postExpenseReversal } from '../lib/ledger.js';
+import { recordLlmCallHealth } from '../lib/llm-connection.js';
 import { resolveAccountCredential } from '../lib/llm-credentials.js';
 import { applyCursor, keysetOrderBy, parseLimit, slicePage } from '../lib/pagination.js';
 import {
@@ -259,9 +260,12 @@ export function expensesRoutes(deps: AppDeps) {
               },
               credential,
             ));
-          } catch (_err) {
+          } catch (err) {
+            await recordLlmCallHealth(deps.llmConnections, accountId, credential, err);
             return c.json({ error: 'categorization_failed' }, 502);
           }
+          // Success (the catch returns) → clear any prior error, state-change-only.
+          await recordLlmCallHealth(deps.llmConnections, accountId, credential);
 
           // Resolve code → account id for the form prefill (the select is keyed by
           // id; codes are the stable persisted form). Null when nothing fit.
@@ -801,6 +805,7 @@ export function expensesRoutes(deps: AppDeps) {
           const now = new Date();
           let result: ExtractionResult | null = null;
           let status: 'succeeded' | 'failed';
+          let callError: unknown;
           try {
             result = await extractor.extractReceipt(
               {
@@ -811,9 +816,19 @@ export function expensesRoutes(deps: AppDeps) {
               credential,
             );
             status = 'succeeded';
-          } catch (_err) {
+          } catch (err) {
             status = 'failed';
+            callError = err;
           }
+          // Live-call health, state-change-only. A permanent failure (bad key /
+          // model) reddens the chip; a transient one (provider 5xx, timeout) is
+          // ignored so a blip doesn't demote a working connection.
+          await recordLlmCallHealth(
+            deps.llmConnections,
+            accountId,
+            credential,
+            status === 'succeeded' ? undefined : callError,
+          );
 
           // tx2: persist the outcome + audit + telemetry. extraction_status is
           // committed even on failure (the throw is swallowed above) so the UI can

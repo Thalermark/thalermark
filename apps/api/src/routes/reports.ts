@@ -22,6 +22,7 @@ import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 import type { AppDeps } from '../app.js';
 import { apBalance, arBalance, cashFlowNet, cashOnHand } from '../lib/ledger.js';
+import { recordLlmCallHealth } from '../lib/llm-connection.js';
 import { resolveAccountCredential } from '../lib/llm-credentials.js';
 import { UUID_RE } from '../lib/route-helpers.js';
 import { requireEntitlement } from '../middleware/entitlement.js';
@@ -935,9 +936,12 @@ export function reportsRoutes(deps: AppDeps) {
           let nudges: Awaited<ReturnType<CashFlowAdvisor['advise']>>;
           try {
             nudges = await advisor.advise(signals, credential);
-          } catch (_err) {
+          } catch (err) {
+            await recordLlmCallHealth(deps.llmConnections, accountId, credential, err);
             return c.json({ error: 'nudges_failed' }, 502);
           }
+          // Success → clear any prior error, state-change-only.
+          await recordLlmCallHealth(deps.llmConnections, accountId, credential);
           const generatedAt = new Date();
           // tx2: persist the regenerated cache.
           await c.var.runInTx(async (tx) => {

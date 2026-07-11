@@ -220,6 +220,44 @@ describe('Settings → AI', () => {
     }
   });
 
+  it('records live-call health only on a state change (no per-call churn)', async () => {
+    const ctx = buildApp();
+    if (!ctx.store) throw new Error('store expected');
+    try {
+      const cookie = await signUp(ctx.app, 'churn@example.com');
+      const accountId = await accountFor('churn@example.com');
+      await req(ctx.app, 'PUT', cookie, accountId, { provider: 'anthropic', apiKey: 'sk-a-1234' });
+      await req(ctx.app, 'POST', cookie, accountId, {}, '/api/settings/ai/verify');
+
+      // ready → recordOk is a no-op: already healthy, so nothing is written (the
+      // "last ok" timestamp doesn't advance on every successful call).
+      const ready = await ctx.store.getDisplay(accountId);
+      await ctx.store.recordOk(accountId);
+      expect((await ctx.store.getDisplay(accountId))?.lastOkAt).toBe(ready?.lastOkAt);
+
+      // ready → error flips (a permanent failure reddens the chip).
+      await ctx.store.recordError(accountId, 'invalid x-api-key');
+      const err1 = await ctx.store.getDisplay(accountId);
+      expect(err1?.status).toBe('error');
+      expect(err1?.lastError).toBe('invalid x-api-key');
+
+      // error → error is a no-op: a second failure doesn't churn the row.
+      await ctx.store.recordError(accountId, 'a different message');
+      const err2 = await ctx.store.getDisplay(accountId);
+      expect(err2?.lastErrorAt).toBe(err1?.lastErrorAt);
+      expect(err2?.lastError).toBe('invalid x-api-key');
+
+      // error → ready recovers, and AI was sticky (served) the whole time.
+      await ctx.store.recordOk(accountId);
+      const recovered = await ctx.store.getDisplay(accountId);
+      expect(recovered?.status).toBe('ready');
+      expect(recovered?.lastError).toBeNull();
+      expect(await ctx.store.getUsable(accountId)).not.toBeNull();
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
   it('re-saving resets health — a changed connection must be re-verified', async () => {
     const ctx = buildApp();
     if (!ctx.store) throw new Error('store expected');

@@ -1,5 +1,6 @@
 import { generateObject } from 'ai';
 import { z } from 'zod';
+import { describeLlmError } from './health.js';
 import { type LlmCredential, PRESETS, isCredentialUsable, resolveModel } from './provider.js';
 
 // The save-time credential probe. A connection is not trusted until it has been
@@ -34,16 +35,6 @@ export type ProbeResult =
   // freezing the preset's current value into the row.
   | { ok: true; latencyMs: number; structured?: boolean }
   | { ok: false; latencyMs: number; error: string };
-
-// The provider's own error is what makes this useful ("invalid x-api-key",
-// "model not found", "connection refused"), so it reaches the admin verbatim —
-// minus the key, which some SDKs echo back inside the failing request, and minus
-// any tail long enough to be a response body.
-function sanitize(error: unknown, apiKey: string | undefined): string {
-  const raw = error instanceof Error ? error.message : String(error);
-  const redacted = apiKey?.trim() ? raw.split(apiKey.trim()).join('••••') : raw;
-  return redacted.slice(0, 300);
-}
 
 // `aborted` distinguishes "the endpoint never answered" from "the endpoint said
 // no". Only the latter is evidence about structured-output support.
@@ -125,5 +116,5 @@ export async function probeCredential(
     if (second.ok) return { ok: true, latencyMs: elapsed(), structured: false };
   }
 
-  return { ok: false, latencyMs: elapsed(), error: sanitize(first.error, cred.apiKey) };
+  return { ok: false, latencyMs: elapsed(), error: describeLlmError(first.error, cred.apiKey) };
 }

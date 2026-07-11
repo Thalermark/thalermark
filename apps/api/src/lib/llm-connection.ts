@@ -1,4 +1,9 @@
-import type { LlmCredential, ProbeResult } from '@thalermark/ai';
+import {
+  type LlmCredential,
+  type ProbeResult,
+  describeLlmError,
+  isConnectionHealthError,
+} from '@thalermark/ai';
 import { type Database, llmConnections, withAccountContext } from '@thalermark/db';
 import { eq } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
@@ -80,10 +85,13 @@ export interface LlmConnectionStore extends LlmConnectionReader {
   // last_error, with last_ok_at untouched so a once-healthy connection keeps
   // owning the account.
   recordProbeResult(accountId: string, result: ProbeResult): Promise<void>;
-  // The live-call health primitives. Not wired into the AI routes in this slice
-  // (a follow-up records health from real extraction/nudge calls); present
-  // because the commercial BYOK path records through them — see
-  // thalermark-ai-commercial-seam.md §3.1b.
+  // The live-call health primitives, called by the AI routes on every real call
+  // (via recordLlmCallHealth). STATE-CHANGE-ONLY: each writes only when the
+  // computed status actually flips (ready↔error), so a connection serving a
+  // steady stream writes nothing until something changes — no per-call churn.
+  // recordOk is a recovery (error→ready); recordError is a regression
+  // (ready→error) and never clears last_ok_at (sticky). The commercial BYOK path
+  // records through these too — see thalermark-ai-commercial-seam.md §3.1b.
   recordOk(accountId: string): Promise<void>;
   recordError(accountId: string, message: string): Promise<void>;
 }
@@ -276,6 +284,14 @@ export function createLlmConnectionStore(db: Database, masterKey: Buffer): LlmCo
 
     async recordOk(accountId) {
       await withAccountContext(db, { accountId }, async (tx) => {
+        const [row] = await tx
+          .select()
+          .from(llmConnections)
+          .where(eq(llmConnections.accountId, accountId))
+          .limit(1);
+        // Only a real recovery writes: error → ready. A row that is already
+        // ready (or was never verified) needs no write.
+        if (!row || statusOf(row) !== 'error') return;
         await tx
           .update(llmConnections)
           .set({ lastOkAt: new Date(), lastErrorAt: null, lastError: null })
@@ -285,10 +301,17 @@ export function createLlmConnectionStore(db: Database, masterKey: Buffer): LlmCo
 
     async recordError(accountId, message) {
       await withAccountContext(db, { accountId }, async (tx) => {
+        const [row] = await tx
+          .select()
+          .from(llmConnections)
+          .where(eq(llmConnections.accountId, accountId))
+          .limit(1);
+        // Only a real regression writes: ready → error. Already error (or
+        // unverified) → no churn. last_ok_at is left alone (sticky): a connection
+        // that has ever worked keeps owning the account.
+        if (!row || statusOf(row) !== 'ready') return;
         await tx
           .update(llmConnections)
-          // lastOkAt is deliberately left alone: it is the gate, and a
-          // connection that has ever worked keeps owning the account.
           .set({ lastErrorAt: new Date(), lastError: message.slice(0, 300) })
           .where(eq(llmConnections.accountId, accountId));
       });
@@ -303,4 +326,29 @@ export function settingsLlmCredentials(reader: LlmConnectionReader): LlmCredenti
   return {
     resolve: (account) => reader.getUsable(account.accountId),
   };
+}
+
+// Record the outcome of a live AI call on the connection's health, for the AI
+// routes (categorize / extract / nudges). Pass no error on success (a recovery),
+// or the thrown error on failure — only a PERMANENT, connection-level failure
+// (isConnectionHealthError) is recorded; a transient one is ignored so a blip
+// never reddens the chip. Best-effort: a health-write failure is swallowed,
+// because it must never turn into a failure of the AI feature itself. A no-op
+// when no store is wired (embedders / tests that don't exercise health).
+export async function recordLlmCallHealth(
+  store: LlmConnectionStore | undefined,
+  accountId: string,
+  credential: Pick<LlmCredential, 'apiKey'>,
+  error?: unknown,
+): Promise<void> {
+  if (!store) return;
+  try {
+    if (error === undefined) {
+      await store.recordOk(accountId);
+    } else if (isConnectionHealthError(error)) {
+      await store.recordError(accountId, describeLlmError(error, credential.apiKey));
+    }
+  } catch {
+    // swallow — health is a side signal, never a reason to fail the call
+  }
 }

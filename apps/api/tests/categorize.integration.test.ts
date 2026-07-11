@@ -1,11 +1,13 @@
-import type { CategorizeInput, ExpenseCategorizer } from '@thalermark/ai';
+import { APICallError, type CategorizeInput, type ExpenseCategorizer } from '@thalermark/ai';
 import { authUser, chartOfAccounts, companies, memberships } from '@thalermark/db';
 import { and, eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
 import type { Env } from '../src/env.js';
 import { createApiAuth } from '../src/lib/auth.js';
+import { deriveConnectionKey } from '../src/lib/crypto.js';
 import { createApiDatabase } from '../src/lib/db.js';
+import { type LlmConnectionStore, createLlmConnectionStore } from '../src/lib/llm-connection.js';
 import { appDatabaseUrl, getTestDb, resetDb } from './test-helper.js';
 
 // Text expense categorization. Exercises POST /api/expenses/categorize against a
@@ -66,12 +68,18 @@ const throwingCategorizer: ExpenseCategorizer = {
 // reaches the injected stub categorizer. ai:false → the resolver returns null,
 // so the route 503s (the "AI not configured" path moved from a null categorizer
 // to a null credential).
-function buildApp(opts: { categorizer?: ExpenseCategorizer; ai?: boolean } = {}) {
+function buildApp(
+  opts: { categorizer?: ExpenseCategorizer; ai?: boolean; withHealth?: boolean } = {},
+) {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL not set');
   const handle = createApiDatabase(appDatabaseUrl());
   const auth = createApiAuth(getTestDb(), { ...testEnv, databaseUrl: url });
   const ai = opts.ai ?? true;
+  // Only the live-call-health tests need the store; the rest run without it.
+  const store: LlmConnectionStore | undefined = opts.withHealth
+    ? createLlmConnectionStore(handle.db, deriveConnectionKey(testEnv.betterAuthSecret))
+    : undefined;
   const app = createApp({
     auth,
     db: handle.db,
@@ -81,8 +89,37 @@ function buildApp(opts: { categorizer?: ExpenseCategorizer; ai?: boolean } = {})
     llmCredentials: {
       resolve: async () => (ai ? { provider: 'anthropic', apiKey: 'test-key' } : null),
     },
+    llmConnections: store,
   });
-  return { app, handle };
+  return { app, handle, store };
+}
+
+// The synthetic system user seeded by resetDb — a valid actor for upsert.
+const SYSTEM_USER = '00000000-0000-7000-8000-000000000001';
+
+function throwingWith(error: unknown): ExpenseCategorizer {
+  return {
+    async categorize(input) {
+      lastInput = input;
+      throw error;
+    },
+  };
+}
+
+function apiError(statusCode: number, isRetryable: boolean, message: string): APICallError {
+  return new APICallError({
+    message,
+    url: 'https://api.example.com/v1/chat/completions',
+    requestBodyValues: {},
+    statusCode,
+    isRetryable,
+  });
+}
+
+// Seed a verified (ready) connection so a live-call failure has something to flip.
+async function seedReadyConnection(store: LlmConnectionStore, accountId: string) {
+  await store.upsert(accountId, { provider: 'anthropic', apiKey: 'test-key' }, SYSTEM_USER);
+  await store.recordProbeResult(accountId, { ok: true, latencyMs: 1 });
 }
 
 async function signUp(app: ReturnType<typeof createApp>, email: string) {
@@ -258,6 +295,60 @@ describe('expense categorization', () => {
       );
       expect(res.status).toBe(404);
       expect(((await res.json()) as { error: string }).error).toBe('company_not_found');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+});
+
+describe('expense categorization — live-call health', () => {
+  it('a permanent failure (401) reddens the connection', async () => {
+    const ctx = buildApp({
+      withHealth: true,
+      categorizer: throwingWith(apiError(401, false, 'invalid x-api-key')),
+    });
+    if (!ctx.store) throw new Error('store expected');
+    try {
+      const cookie = await signUp(ctx.app, 'h401@example.com');
+      const { accountId, companyId } = await userContext('h401@example.com');
+      await seedReadyConnection(ctx.store, accountId);
+      expect((await ctx.store.getDisplay(accountId))?.status).toBe('ready');
+
+      const res = await categorize(
+        ctx.app,
+        { cookie, 'x-account-id': accountId },
+        { companyId, merchant: 'Shell', amount: '40.00' },
+      );
+      expect(res.status).toBe(502);
+      const conn = await ctx.store.getDisplay(accountId);
+      expect(conn?.status).toBe('error');
+      expect(conn?.lastError).toContain('invalid x-api-key');
+      // Sticky — a bad key reddens the chip but AI is not knocked out.
+      expect(await ctx.store.getUsable(accountId)).not.toBeNull();
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('a transient failure (503) leaves the connection healthy', async () => {
+    const ctx = buildApp({
+      withHealth: true,
+      categorizer: throwingWith(apiError(503, true, 'overloaded')),
+    });
+    if (!ctx.store) throw new Error('store expected');
+    try {
+      const cookie = await signUp(ctx.app, 'h503@example.com');
+      const { accountId, companyId } = await userContext('h503@example.com');
+      await seedReadyConnection(ctx.store, accountId);
+
+      const res = await categorize(
+        ctx.app,
+        { cookie, 'x-account-id': accountId },
+        { companyId, merchant: 'Shell', amount: '40.00' },
+      );
+      expect(res.status).toBe(502);
+      // A blip must NOT demote a working connection.
+      expect((await ctx.store.getDisplay(accountId))?.status).toBe('ready');
     } finally {
       await ctx.handle.close();
     }
