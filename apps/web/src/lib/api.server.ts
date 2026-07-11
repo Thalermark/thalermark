@@ -17,6 +17,7 @@ import type {
   PurchasesAppType,
   RecurringInvoicesAppType,
   ReportsAppType,
+  SettingsAiAppType,
   TaxPoliciesAppType,
 } from '@thalermark/api-contract';
 import { hc } from 'hono/client';
@@ -48,6 +49,7 @@ const mkRecurring = (...a: Parameters<typeof hc>) => hc<RecurringInvoicesAppType
 const mkEstimates = (...a: Parameters<typeof hc>) => hc<EstimatesAppType>(...a);
 const mkExpenses = (...a: Parameters<typeof hc>) => hc<ExpensesAppType>(...a);
 const mkReports = (...a: Parameters<typeof hc>) => hc<ReportsAppType>(...a);
+const mkSettingsAi = (...a: Parameters<typeof hc>) => hc<SettingsAiAppType>(...a);
 type MainApi = ReturnType<typeof mkMain>['api'];
 type AccountApi = ReturnType<typeof mkAccount>['api'];
 type BillsApi = ReturnType<typeof mkBills>['api'];
@@ -64,6 +66,7 @@ type RecurringApi = ReturnType<typeof mkRecurring>['api'];
 type EstimatesApi = ReturnType<typeof mkEstimates>['api'];
 type ExpensesApi = ReturnType<typeof mkExpenses>['api'];
 type ReportsApi = ReturnType<typeof mkReports>['api'];
+type SettingsAiApi = ReturnType<typeof mkSettingsAi>['api'];
 
 // The unified server RPC client. Call sites still reach every domain as
 // client.api.<domain>; a Proxy routes the migrated domains to their own hc
@@ -99,6 +102,7 @@ export type ServerApiClient = {
     'recurring-invoices': RecurringApi['recurring-invoices'];
     estimates: EstimatesApi['estimates'];
     expenses: ExpensesApi['expenses'];
+    settings: SettingsAiApi['settings'];
   };
 };
 
@@ -128,6 +132,7 @@ export function serverApiClient(event: RequestEvent): ServerApiClient {
     'recurring-invoices': hc<RecurringInvoicesAppType>(base, { headers }).api['recurring-invoices'],
     estimates: hc<EstimatesAppType>(base, { headers }).api.estimates,
     expenses: hc<ExpensesAppType>(base, { headers }).api.expenses,
+    settings: hc<SettingsAiAppType>(base, { headers }).api.settings,
   };
   const api = new Proxy(main.api, {
     get(target, prop) {

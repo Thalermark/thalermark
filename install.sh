@@ -261,37 +261,22 @@ if [ "$THALERMARK_DOMAIN" != "localhost" ] && printf '%s' "$THALERMARK_DOMAIN" |
 fi
 ok "Domain set to $THALERMARK_DOMAIN"
 
-# --- 7. AI / LLM -------------------------------------------------------------
+# --- 7. AI -------------------------------------------------------------------
 section "AI features (receipt extraction, expense categorization, cash-flow nudges)"
-say "${DIM}1) Anthropic Claude   2) OpenAI   3) Ollama (local, free)   4) None (disable AI)${R}"
-ask LLM_CHOICE "Choose an LLM provider [1-4]?" "4"
-case "$LLM_CHOICE" in
-	1)
-		kv_set "$ENV_FILE" LLM_PROVIDER "anthropic"
-		ask_secret LLM_KEY "  Anthropic API key (sk-ant-...):"
-		kv_set "$ENV_FILE" LLM_API_KEY "$LLM_KEY"
-		ok "Anthropic configured" ;;
-	2)
-		kv_set "$ENV_FILE" LLM_PROVIDER "openai"
-		ask_secret LLM_KEY "  OpenAI API key (sk-...):"
-		kv_set "$ENV_FILE" LLM_API_KEY "$LLM_KEY"
-		ok "OpenAI configured" ;;
-	3)
-		kv_set "$ENV_FILE" LLM_PROVIDER "ollama"
-		say "${DIM}  From inside the api container, reach a host Ollama via host.docker.internal."
-		say "  On Linux you may need 'extra_hosts: host-gateway' on the api service.${R}"
-		ask OLLAMA_URL "  Ollama base URL?" "http://host.docker.internal:11434"
-		kv_set "$ENV_FILE" OLLAMA_BASE_URL "$OLLAMA_URL"
-		ask OLM_VIS "  Vision model (optional)?" ""
-		ask OLM_REA "  Reasoning model (optional)?" ""
-		ask OLM_FAST "  Fast model (optional)?" ""
-		[ -n "$OLM_VIS" ]  && kv_set "$ENV_FILE" LLM_MODEL_VISION "$OLM_VIS"
-		[ -n "$OLM_REA" ]  && kv_set "$ENV_FILE" LLM_MODEL_REASONING "$OLM_REA"
-		[ -n "$OLM_FAST" ] && kv_set "$ENV_FILE" LLM_MODEL_FAST "$OLM_FAST"
-		ok "Ollama configured" ;;
+say "${DIM}AI is configured in the app, not here: sign in and open Settings → AI to pick a"
+say "provider (Anthropic / OpenAI / Ollama / custom), paste a key, and click Verify. The"
+say "connection is stored encrypted and takes effect with no restart. Until then the AI"
+say "endpoints return 503 and the rest of the app runs normally.${R}"
+say ""
+say "${DIM}To point AI at a private/LAN address (e.g. a local Ollama), answer yes below — it"
+say "relaxes the endpoint-safety guard for private ranges.${R}"
+ask ALLOW_PRIVATE "Allow AI to reach private/LAN endpoints (e.g. local Ollama)? [y/N]" "N"
+case "$ALLOW_PRIVATE" in
+	[Yy]*)
+		kv_set "$ENV_FILE" AI_ALLOW_PRIVATE_ENDPOINTS "true"
+		ok "Private AI endpoints allowed" ;;
 	*)
-		kv_set "$ENV_FILE" LLM_API_KEY ""
-		warn "AI features disabled — the AI endpoints return 503; the rest of the app runs normally." ;;
+		ok "AI configured in-app (Settings → AI after sign-in)" ;;
 esac
 
 # --- 8. email ----------------------------------------------------------------
