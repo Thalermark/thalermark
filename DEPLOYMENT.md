@@ -124,8 +124,9 @@ Optional integrations, each disabled-but-safe when blank:
   console driver logs outgoing mail to stdout (fine for testing; customers won't
   receive invoices).
 - **AI** (receipt auto-fill, expense categorization, cash-flow nudges) —
-  `LLM_PROVIDER` + `LLM_API_KEY`. Blank ⇒ the AI endpoints return 503, the rest
-  of the app runs. See [AI / LLM options](#ai--llm-options).
+  configured in-app under **Settings → AI**, not by env. Until a connection is
+  saved and verified, the AI endpoints return 503 and the rest of the app runs.
+  See [AI options](#ai-options).
 - **Payments** — all three `STRIPE_*` keys. Blank ⇒ the Pay button hides and the
   webhook 503s.
 - **Address autocomplete** — `MAPBOX_ACCESS_TOKEN` upgrades the customer-form
@@ -247,20 +248,33 @@ everything else → `web:3000`. Two things to keep right:
 
 ---
 
-## AI / LLM options
+## AI options
 
-AI is opt-in and provider-agnostic via `LLM_PROVIDER`:
+AI is configured **in the app**, not by environment variables. Sign in as an
+owner or admin and open **Settings → AI**: pick a provider, paste a key, and
+click **Verify**. The connection is stored per workspace, encrypted at rest
+(under a key derived from `BETTER_AUTH_SECRET`), and takes effect on the next AI
+call with no restart. Until a connection is saved and verified, the AI endpoints
+return 503 and every non-AI flow works normally.
 
-- **`anthropic`** (default) or **`openai`** — set `LLM_API_KEY`. One multimodal
-  model serves every task role, so the per-role overrides stay blank.
-- **`ollama`** — no key, fully local/self-contained (the AGPL-pure path). Point
-  `OLLAMA_BASE_URL` at your Ollama server and set the per-role models
-  (`LLM_MODEL_VISION` / `LLM_MODEL_REASONING` / `LLM_MODEL_FAST`) — vision and
-  text are separate models in Ollama. Note small local models are weak at
-  expense categorization; a capable model (e.g. `qwen2.5:14b`) is worth it.
+Providers:
 
-Leave `LLM_API_KEY` blank to ship without AI — the AI endpoints return 503 and
-every non-AI flow works normally.
+- **Anthropic** (default) or **OpenAI** — paste an API key. One multimodal model
+  serves every task role, so the per-role model overrides (under *Advanced*) stay
+  blank.
+- **Ollama** — no key, fully local/self-contained (the AGPL-pure path). Point the
+  endpoint at your Ollama server and set the per-role models — vision and text are
+  separate models in Ollama. Small local models are weak at expense
+  categorization; a capable model (e.g. `qwen2.5:14b`) is worth it.
+- **Custom endpoint** — any OpenAI-compatible API (xAI, DeepSeek, a proxy): supply
+  the base URL and model ids.
+
+**`AI_ALLOW_PRIVATE_ENDPOINTS`** (env, default off) is the one AI-related server
+setting. Set it `true` only to let AI reach a private/LAN address — a local
+Ollama at `http://ollama:11434`, or a model box at `http://192.168.1.10:11434`.
+It relaxes the endpoint-safety (SSRF) guard for private ranges; link-local and
+cloud-metadata addresses stay blocked regardless. Leave it off on a public
+deployment.
 
 ---
 

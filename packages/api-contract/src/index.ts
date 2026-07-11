@@ -30,6 +30,7 @@ export type {
   PurchasesAppType,
   RecurringInvoicesAppType,
   ReportsAppType,
+  SettingsAiAppType,
   SocialProvidersAppType,
   TaxPoliciesAppType,
   TelemetryAppType,
