@@ -269,12 +269,23 @@ Providers:
 - **Custom endpoint** — any OpenAI-compatible API (xAI, DeepSeek, a proxy): supply
   the base URL and model ids.
 
-**`AI_ALLOW_PRIVATE_ENDPOINTS`** (env, default off) is the one AI-related server
-setting. Set it `true` only to let AI reach a private/LAN address — a local
-Ollama at `http://ollama:11434`, or a model box at `http://192.168.1.10:11434`.
-It relaxes the endpoint-safety (SSRF) guard for private ranges; link-local and
-cloud-metadata addresses stay blocked regardless. Leave it off on a public
-deployment.
+Reaching a private/LAN AI endpoint (a local Ollama, a model box) is the one
+AI-related *server* setting — a host-level security control, not per-account AI
+config, so it lives in env. Two forms, both relaxing the endpoint-safety (SSRF)
+guard for **private ranges only** (link-local and cloud-metadata stay blocked
+regardless):
+
+- **`AI_ALLOWED_ENDPOINTS`** (preferred) — a comma-separated allowlist of the
+  exact endpoints permitted, e.g.
+  `AI_ALLOWED_ENDPOINTS=http://ollama:11434,http://192.168.1.10:11434`. Matched by
+  host:port (path ignored). This opens *only those boxes*, not the whole LAN, so
+  it's the safe choice on a box where others can sign up. The allowed list is
+  shown (read-only) on Settings → AI so an admin knows what they can enter.
+- **`AI_ALLOW_PRIVATE_ENDPOINTS`** — the blunt switch: `true` opens *all* private
+  ranges to any account owner. Fine for a single-user box; prefer the allowlist
+  otherwise.
+
+Leave both off on a public deployment.
 
 ---
 

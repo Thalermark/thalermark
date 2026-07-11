@@ -156,3 +156,60 @@ describe('checkBaseUrl', () => {
     expect(check.ok).toBe(true);
   });
 });
+
+describe('checkBaseUrl — the AI_ALLOWED_ENDPOINTS allowlist', () => {
+  const allow = (...allowedEndpoints: string[]) => ({ allowPrivate: false, allowedEndpoints });
+
+  it('permits a private literal on the allowlist, without opening the LAN', async () => {
+    const policy = allow('http://192.168.1.10:11434');
+    expect((await checkBaseUrl('http://192.168.1.10:11434/v1', policy)).ok).toBe(true);
+    // A different private box is still blocked — this is the whole point vs the boolean.
+    expect(reasonOf(await checkBaseUrl('http://192.168.1.11:11434/v1', policy))).toBe(
+      'private_address',
+    );
+  });
+
+  it('matches by host:port, ignoring path and scheme', async () => {
+    const policy = allow('http://ollama:11434/anything');
+    expect(
+      (await checkBaseUrl('https://ollama:11434/v1', policy, { lookup: resolvesTo('172.18.0.5') }))
+        .ok,
+    ).toBe(true);
+  });
+
+  it('does NOT match a different port', async () => {
+    const policy = allow('http://ollama:11434');
+    expect(
+      reasonOf(
+        await checkBaseUrl('http://ollama:8080/v1', policy, { lookup: resolvesTo('172.18.0.5') }),
+      ),
+    ).toBe('private_address');
+  });
+
+  // The invariant: an allowlisted host that (somehow) resolves to metadata is
+  // STILL blocked. The allowlist grants the private exception, never the blocked one.
+  it('never lets an allowlisted host reach a blocked address', async () => {
+    const policy = allow('http://ollama:11434');
+    expect(
+      reasonOf(
+        await checkBaseUrl('http://ollama:11434/v1', policy, {
+          lookup: resolvesTo('169.254.169.254'),
+        }),
+      ),
+    ).toBe('blocked_address');
+  });
+
+  it('ignores a malformed allowlist entry (never widens access)', async () => {
+    const policy = allow('not a url', 'http://192.168.1.10:11434');
+    expect((await checkBaseUrl('http://192.168.1.10:11434/v1', policy)).ok).toBe(true);
+    expect(reasonOf(await checkBaseUrl('http://127.0.0.1:11434/v1', policy))).toBe(
+      'private_address',
+    );
+  });
+
+  it('an empty allowlist changes nothing', async () => {
+    expect(reasonOf(await checkBaseUrl('http://127.0.0.1:11434/v1', allow()))).toBe(
+      'private_address',
+    );
+  });
+});

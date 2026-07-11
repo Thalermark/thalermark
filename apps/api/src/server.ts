@@ -174,6 +174,7 @@ const app = createApp({
   // connection takes effect on the next resolve with no restart.
   llmConnections: llmStore,
   aiAllowPrivateEndpoints: env.aiAllowPrivateEndpoints,
+  aiAllowedEndpoints: env.aiAllowedEndpoints,
   rateLimitEnabled: env.rateLimitEnabled,
   trustedOrigins: env.trustedOrigins,
   publicAppUrl: env.publicAppUrl,

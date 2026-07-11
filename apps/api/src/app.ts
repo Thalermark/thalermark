@@ -150,6 +150,10 @@ export type AppDeps = {
   // server sets it true. NOT AI config and NOT a per-account setting — a host-level
   // security control, so it lives here, not in the connection row.
   aiAllowPrivateEndpoints?: boolean;
+  // The precise alternative (AI_ALLOWED_ENDPOINTS): specific host:port endpoints
+  // that may resolve private, instead of opening the whole LAN. Same host-level
+  // control; metadata/link-local stay blocked regardless.
+  aiAllowedEndpoints?: string[];
   // Address autocomplete provider for the mobile customer form's
   // /api/locations/autocomplete route (the web client uses its own same-origin
   // SvelteKit proxy). Null when construction failed (e.g. LOCATION_PROVIDER set

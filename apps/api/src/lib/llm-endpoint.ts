@@ -18,8 +18,17 @@ export type EndpointPolicy = {
   // Operator security control (AI_ALLOW_PRIVATE_ENDPOINTS), not AI config. A
   // self-hoster running Ollama or a LAN model server must opt in, because
   // http://ollama:11434 resolves into a private range. Managed never sets it.
-  // It does NOT unblock link-local / metadata — see IpClass below.
+  // It does NOT unblock link-local / metadata — see IpClass below. Blunt: it
+  // opens the WHOLE private range to any account owner.
   allowPrivate: boolean;
+  // The precise alternative (AI_ALLOWED_ENDPOINTS): a specific set of host:port
+  // endpoints that may resolve private. Grants the same private exception as
+  // allowPrivate but scoped to exactly these endpoints, so a self-hoster can
+  // reach one Ollama box without opening the rest of the LAN. Still never
+  // bypasses the `blocked` class (metadata/link-local) — those stay rejected
+  // even for an allowlisted host. Entries are `scheme://host:port` URLs (path
+  // ignored); matched by host + effective port.
+  allowedEndpoints?: string[];
 };
 
 // Stable codes: the route returns these and the UI maps them to copy. A raw
@@ -153,15 +162,41 @@ export function classifyAddress(ip: string): IpClass {
 
 // Every address the name answers with must pass. One bad answer in a round-robin
 // is enough to reject the endpoint.
-function verdictFor(addresses: string[], policy: EndpointPolicy, url: URL): EndpointCheck {
+function verdictFor(addresses: string[], privateAllowed: boolean, url: URL): EndpointCheck {
   for (const address of addresses) {
     const category = classifyAddress(address);
+    // `blocked` is absolute: never permitted, not by allowPrivate nor the
+    // allowlist. That is what keeps the cloud metadata endpoint unreachable even
+    // for an operator-blessed host.
     if (category === 'blocked') return { ok: false, reason: 'blocked_address' };
-    if (category === 'private' && !policy.allowPrivate) {
+    if (category === 'private' && !privateAllowed) {
       return { ok: false, reason: 'private_address' };
     }
   }
   return { ok: true, url: url.toString() };
+}
+
+// scheme://host:port → "host:port" (lowercased host, brackets stripped, default
+// port filled from the scheme). The comparison key for the allowlist; path,
+// query, and scheme itself are ignored (an http vs https mismatch on the same
+// host:port just fails later at connect time, not a security concern).
+function originKey(hostname: string, port: string, protocol: string): string {
+  const host = hostname.replace(/^\[/, '').replace(/\]$/, '').toLowerCase();
+  return `${host}:${port || (protocol === 'https:' ? '443' : '80')}`;
+}
+
+function isAllowlisted(url: URL, entries: string[] | undefined): boolean {
+  if (!entries || entries.length === 0) return false;
+  const target = originKey(url.hostname, url.port, url.protocol);
+  for (const entry of entries) {
+    try {
+      const parsed = new URL(entry.trim());
+      if (originKey(parsed.hostname, parsed.port, parsed.protocol) === target) return true;
+    } catch {
+      // A malformed allowlist entry is ignored (never widens access).
+    }
+  }
+  return false;
 }
 
 // Validate a user-supplied base URL. Resolves the hostname and inspects every
@@ -193,9 +228,13 @@ export async function checkBaseUrl(
   const hostname = url.hostname.replace(/^\[/, '').replace(/\]$/, '');
   if (!hostname) return { ok: false, reason: 'invalid_url' };
 
+  // The private exception is granted globally (allowPrivate) OR per-endpoint (the
+  // allowlist). Either way, `blocked` addresses stay rejected inside verdictFor.
+  const privateAllowed = policy.allowPrivate || isAllowlisted(url, policy.allowedEndpoints);
+
   // A literal IP needs no resolution — and must not be handed to the resolver,
   // which would happily answer with the address itself.
-  if (isIP(hostname) !== 0) return verdictFor([hostname], policy, url);
+  if (isIP(hostname) !== 0) return verdictFor([hostname], privateAllowed, url);
 
   let addresses: string[];
   try {
@@ -206,5 +245,5 @@ export async function checkBaseUrl(
   }
   if (addresses.length === 0) return { ok: false, reason: 'dns_failed' };
 
-  return verdictFor(addresses, policy, url);
+  return verdictFor(addresses, privateAllowed, url);
 }

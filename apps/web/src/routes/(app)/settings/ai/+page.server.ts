@@ -10,8 +10,8 @@ export const load: PageServerLoad = async (event) => {
   // 503 → no store wired (an embedder build); render an unavailable state.
   if (res.status === 503) return { unavailable: true as const };
   if (!res.ok) throw error(res.status, 'failed to load AI settings');
-  const { connection, presets, allowPrivate } = await res.json();
-  return { unavailable: false as const, connection, presets, allowPrivate };
+  const { connection, presets, allowPrivate, allowedEndpoints } = await res.json();
+  return { unavailable: false as const, connection, presets, allowPrivate, allowedEndpoints };
 };
 
 // Endpoint-rejection reasons → copy. private_address gets a pointer to the
@@ -19,7 +19,7 @@ export const load: PageServerLoad = async (event) => {
 function endpointMessage(reason: string): string {
   switch (reason) {
     case 'private_address':
-      return 'That looks like a private/LAN address. Your server administrator can allow it by setting AI_ALLOW_PRIVATE_ENDPOINTS on the server.';
+      return 'That looks like a private/LAN address. Your server administrator can allow it by adding it to AI_ALLOWED_ENDPOINTS (or open all private ranges with AI_ALLOW_PRIVATE_ENDPOINTS).';
     case 'blocked_address':
       return 'That address is blocked for safety (link-local / cloud metadata) and can never be used.';
     case 'unsupported_scheme':

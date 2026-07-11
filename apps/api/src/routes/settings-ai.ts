@@ -31,14 +31,17 @@ function presetList() {
 export function settingsAiRoutes(deps: AppDeps) {
   const store = deps.llmConnections;
   const allowPrivate = deps.aiAllowPrivateEndpoints === true;
+  const allowedEndpoints = deps.aiAllowedEndpoints ?? [];
 
   return new Hono<{ Variables: RlsVariables }>()
     .get('/api/settings/ai', requireCapability('settings:manage'), async (c) => {
       if (!store) return c.json({ error: 'ai_not_available' }, 503);
       const connection = await store.getDisplay(c.get('accountId'));
-      // allowPrivate tells the UI whether a private base URL will be accepted,
-      // so it can explain the operator flag instead of a bare rejection.
-      return c.json({ connection, presets: presetList(), allowPrivate });
+      // allowPrivate + allowedEndpoints are operator config, surfaced READ-ONLY so
+      // the UI can turn a private-address rejection into "here's what your server
+      // permits" instead of a dead end. They are never editable from the client —
+      // widening what the server may reach is an operator (env) decision.
+      return c.json({ connection, presets: presetList(), allowPrivate, allowedEndpoints });
     })
 
     .put('/api/settings/ai', requireCapability('settings:manage'), async (c) => {
@@ -60,7 +63,7 @@ export function settingsAiRoutes(deps: AppDeps) {
       // from a stale save.
       const baseUrl = input.baseUrl?.trim() || null;
       if (baseUrl) {
-        const check = await checkBaseUrl(baseUrl, { allowPrivate });
+        const check = await checkBaseUrl(baseUrl, { allowPrivate, allowedEndpoints });
         if (!check.ok) return c.json({ error: 'endpoint_rejected', reason: check.reason }, 400);
       } else if (preset.requiresBaseUrl) {
         return c.json({ error: 'base_url_required' }, 400);
