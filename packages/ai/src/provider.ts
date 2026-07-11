@@ -94,8 +94,22 @@ export const PRESETS: Record<string, ProviderPreset> = {
     baseUrl: 'http://localhost:11434',
     models: { vision: 'llama3.2-vision', reasoning: 'llama3.2', fast: 'llama3.2' },
   },
-  // The escape hatch for any OpenAI-compatible endpoint we haven't blessed
-  // (xAI, DeepSeek, Together, …). Declared, not smuggled: the user supplies the
+  // xAI's Grok API is OpenAI-compatible, so it rides the openai-wire adapter.
+  // grok-4.5 is xAI's recommended model for chat and accepts image input
+  // (multimodal), so it serves every role — one model, like the cloud presets.
+  // structured:true because Grok 4.x honours response_format json_schema; if a
+  // future model regresses, this is the one field to flip (or the user overrides
+  // per-role under Advanced).
+  xai: {
+    label: 'xAI (Grok)',
+    adapter: 'openai-wire',
+    needsKey: true,
+    structured: true,
+    baseUrl: 'https://api.x.ai/v1',
+    models: { vision: 'grok-4.5', reasoning: 'grok-4.5', fast: 'grok-4.5' },
+  },
+  // The escape hatch for any OTHER OpenAI-compatible endpoint we haven't blessed
+  // (DeepSeek, Together, …). Declared, not smuggled: the user supplies the
   // endpoint and every model id, so no release is needed to reach a new vendor.
   custom: {
     label: 'Custom endpoint',
