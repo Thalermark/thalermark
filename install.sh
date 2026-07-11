@@ -268,16 +268,16 @@ say "provider (Anthropic / OpenAI / Ollama / custom), paste a key, and click Ver
 say "connection is stored encrypted and takes effect with no restart. Until then the AI"
 say "endpoints return 503 and the rest of the app runs normally.${R}"
 say ""
-say "${DIM}To point AI at a private/LAN address (e.g. a local Ollama), answer yes below — it"
-say "relaxes the endpoint-safety guard for private ranges.${R}"
-ask ALLOW_PRIVATE "Allow AI to reach private/LAN endpoints (e.g. local Ollama)? [y/N]" "N"
-case "$ALLOW_PRIVATE" in
-	[Yy]*)
-		kv_set "$ENV_FILE" AI_ALLOW_PRIVATE_ENDPOINTS "true"
-		ok "Private AI endpoints allowed" ;;
-	*)
-		ok "AI configured in-app (Settings → AI after sign-in)" ;;
-esac
+say "${DIM}If you'll point AI at a private/LAN address (e.g. a local Ollama), enter it below"
+say "to allow just that endpoint — leaving the rest of your network blocked. Blank to skip."
+say "e.g. http://ollama:11434 or http://192.168.1.10:11434${R}"
+ask ALLOWED_ENDPOINT "  Private AI endpoint to allow (optional)?" ""
+if [ -n "$ALLOWED_ENDPOINT" ]; then
+	kv_set "$ENV_FILE" AI_ALLOWED_ENDPOINTS "$ALLOWED_ENDPOINT"
+	ok "Allowed private AI endpoint: $ALLOWED_ENDPOINT"
+else
+	ok "AI configured in-app (Settings → AI after sign-in)"
+fi
 
 # --- 8. email ----------------------------------------------------------------
 section "Outbound email (invite/verification/password-reset/invoice emails)"

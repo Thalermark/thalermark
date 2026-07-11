@@ -18,6 +18,9 @@
   const needsKey = $derived(preset?.needsKey ?? true);
   const showBaseUrl = $derived(!!preset && (preset.requiresBaseUrl || preset.baseUrl != null));
   const connection = $derived(data.unavailable ? null : data.connection);
+  // Operator SSRF config, read-only. Lets the endpoint hint say what the server
+  // permits instead of a bare "blocked".
+  const allowedEndpoints = $derived(data.unavailable ? [] : (data.allowedEndpoints ?? []));
 
   let showAdvanced = $state(false);
 
@@ -115,10 +118,23 @@
           placeholder={preset?.baseUrl ?? 'https://…/v1'}
           value={connection?.baseUrl ?? ''}
         />
-        {#if !data.allowPrivate}
+        {#if allowedEndpoints.length > 0}
           <p class="mt-1 text-xs text-fg/50">
-            Private/LAN addresses are blocked unless the server sets
-            <code>AI_ALLOW_PRIVATE_ENDPOINTS</code>.
+            Your server allows these private endpoints:
+            {#each allowedEndpoints as ep, i (ep)}<code>{ep}</code>{i <
+              allowedEndpoints.length - 1
+              ? ', '
+              : ''}{/each}. Others on a private/LAN address are blocked.
+          </p>
+        {:else if data.allowPrivate}
+          <p class="mt-1 text-xs text-fg/50">
+            This server allows private/LAN endpoints (e.g. a local Ollama).
+          </p>
+        {:else}
+          <p class="mt-1 text-xs text-fg/50">
+            Private/LAN addresses are blocked. Your server administrator can allow one by setting
+            <code>AI_ALLOWED_ENDPOINTS</code> (or open all with
+            <code>AI_ALLOW_PRIVATE_ENDPOINTS</code>).
           </p>
         {/if}
       </div>

@@ -97,6 +97,11 @@ export type Env = {
   // rejected. A self-hoster pointing at Ollama or a LAN model server sets it
   // true. A host-level security control, not AI config.
   aiAllowPrivateEndpoints?: boolean;
+  // AI_ALLOWED_ENDPOINTS — the precise alternative to the blunt boolean above: a
+  // comma-separated list of scheme://host:port endpoints that may resolve
+  // private (e.g. http://ollama:11434). Opens exactly those, not the whole LAN.
+  // Metadata/link-local stay blocked regardless.
+  aiAllowedEndpoints?: string[];
 };
 
 const DEFAULT_PORT = 3000;
@@ -170,6 +175,12 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     aiAllowPrivateEndpoints: source.AI_ALLOW_PRIVATE_ENDPOINTS
       ? parseBool(source.AI_ALLOW_PRIVATE_ENDPOINTS)
       : false,
+    // Comma-separated; blank/unset → []. Entries are trimmed and empties dropped
+    // so a trailing comma is harmless.
+    aiAllowedEndpoints: (source.AI_ALLOWED_ENDPOINTS ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0),
   });
 }
 

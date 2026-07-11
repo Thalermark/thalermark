@@ -57,6 +57,7 @@ type BuildOpts = {
   withStore?: boolean; // default true
   probe?: (c: LlmCredential) => Promise<ProbeResult>;
   allowPrivate?: boolean;
+  allowedEndpoints?: string[];
 };
 
 function buildApp(opts: BuildOpts = {}) {
@@ -74,6 +75,7 @@ function buildApp(opts: BuildOpts = {}) {
     llmConnections: store,
     llmProbe: opts.probe ?? okProbe,
     aiAllowPrivateEndpoints: opts.allowPrivate ?? false,
+    aiAllowedEndpoints: opts.allowedEndpoints,
   });
   return { app, store, handle };
 }
@@ -429,6 +431,40 @@ describe('Settings → AI — SSRF guard on the write path', () => {
         error: 'endpoint_rejected',
         reason: 'blocked_address',
       });
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('allows just an allowlisted private endpoint, and exposes the list read-only', async () => {
+    const ctx = buildApp({ allowedEndpoints: ['http://192.168.1.10:11434'] });
+    try {
+      const cookie = await signUp(ctx.app, 'allowlist@example.com');
+      const accountId = await accountFor('allowlist@example.com');
+
+      // GET surfaces the operator's allowlist so the UI can hint (read-only).
+      const get = await req(ctx.app, 'GET', cookie, accountId);
+      expect((await get.json()) as { allowedEndpoints: string[] }).toMatchObject({
+        allowPrivate: false,
+        allowedEndpoints: ['http://192.168.1.10:11434'],
+      });
+
+      // The allowlisted endpoint saves.
+      const ok = await req(ctx.app, 'PUT', cookie, accountId, {
+        provider: 'custom',
+        baseUrl: 'http://192.168.1.10:11434/v1',
+        modelVision: 'm',
+        modelReasoning: 'm',
+        modelFast: 'm',
+      });
+      expect(ok.status).toBe(200);
+
+      // A different private box is still blocked — not the whole LAN.
+      const other = await req(ctx.app, 'PUT', cookie, accountId, {
+        provider: 'custom',
+        baseUrl: 'http://192.168.1.11:11434/v1',
+      });
+      expect(await other.json()).toEqual({ error: 'endpoint_rejected', reason: 'private_address' });
     } finally {
       await ctx.handle.close();
     }
