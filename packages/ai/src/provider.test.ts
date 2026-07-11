@@ -157,4 +157,17 @@ describe('PRESETS', () => {
     expect(PRESETS.custom?.structured).toBe(false);
     expect(PRESETS.ollama?.structured).toBe(true);
   });
+
+  it('xai is a ready-to-use preset (key + models + default endpoint, openai-wire)', () => {
+    expect(PRESETS.xai).toMatchObject({
+      adapter: 'openai-wire',
+      needsKey: true,
+      structured: true,
+      baseUrl: 'https://api.x.ai/v1',
+    });
+    // Usable with just a key — every role resolves from the preset's models.
+    const cred: LlmCredential = { provider: 'xai', apiKey: 'xai-key' };
+    expect(isCredentialUsable(cred)).toBe(true);
+    for (const role of ROLES) expect(resolveModel(cred, role)).not.toBeNull();
+  });
 });
