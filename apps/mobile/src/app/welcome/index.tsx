@@ -1,4 +1,4 @@
-import { BUSINESS_TYPES } from '@thalermark/validation';
+import { BUSINESS_TYPES, isSelectableBusinessType } from '@thalermark/validation';
 import { Redirect, useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
@@ -147,15 +147,20 @@ export default function WelcomeBusiness() {
               <View className="mt-3 overflow-hidden rounded-sm border border-ink/10 bg-cream-warm">
                 {BUSINESS_TYPES.map((bt, i) => {
                   const selected = bt === businessType;
+                  const available = isSelectableBusinessType(bt);
                   return (
                     <Pressable
                       key={bt}
-                      onPress={() => setBusinessType(bt)}
-                      className={`flex-row items-center justify-between px-5 py-4 active:bg-cream ${
-                        i > 0 ? 'border-t border-ink/10' : ''
-                      }`}
+                      onPress={available ? () => setBusinessType(bt) : undefined}
+                      disabled={!available}
+                      className={`flex-row items-center justify-between px-5 py-4 ${
+                        available ? 'active:bg-cream' : 'opacity-40'
+                      } ${i > 0 ? 'border-t border-ink/10' : ''}`}
                     >
-                      <Text className="text-sm text-ink">{BUSINESS_TYPE_LABELS[bt]}</Text>
+                      <Text className="text-sm text-ink">
+                        {BUSINESS_TYPE_LABELS[bt]}
+                        {available ? '' : ' — coming soon'}
+                      </Text>
                       {selected ? <Text className="text-gold-deep">✓</Text> : null}
                     </Pressable>
                   );
