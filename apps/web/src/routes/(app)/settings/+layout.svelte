@@ -25,6 +25,7 @@
     { href: '/settings/ai', label: 'AI', cap: 'settings:manage' },
     { href: '/settings/team', label: 'Team' },
     { href: '/settings/import', label: 'Import', cap: 'contacts:write' },
+    { href: '/settings/export', label: 'Export', cap: 'reports:export' },
     { href: '/settings/activity', label: 'Activity' },
     { href: '/settings/privacy', label: 'Privacy', cap: 'settings:manage' },
     { href: '/settings/about', label: 'About' },

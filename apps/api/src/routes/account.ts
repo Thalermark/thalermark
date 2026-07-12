@@ -7,6 +7,7 @@ import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 import { v7 as uuidv7 } from 'uuid';
 import type { AppDeps } from '../app.js';
+import { buildAccountExport } from '../lib/account-export.js';
 import { communityAccountNotices } from '../lib/account-notice.js';
 import { emailFooterText, renderEmailHtml } from '../lib/email-layout.js';
 import { EMAIL_RE, UUID_RE } from '../lib/route-helpers.js';
@@ -148,6 +149,16 @@ export function accountRoutes(deps: AppDeps) {
         }
         await enableTelemetry(tx);
         return c.json({ enabled: true, decided: true, disabled: false });
+      })
+      .get('/api/account/export', requireCapability('reports:export'), async (c) => {
+        // Full-account data export ("Settings → Export"). Bulk read of every
+        // business record across ALL the account's companies; the web layer zips
+        // it as CSV or JSON. Gated on reports:export (owner/admin/accountant),
+        // the same cap as the GL export. Assembly + the scoping/exclusion rules
+        // live in lib/account-export.ts.
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+        return c.json(await buildAccountExport(tx, accountId));
       })
       .post('/api/invitations', requireCapability('team:manage'), async (c) => {
         const body = (await c.req.json().catch(() => null)) as {
