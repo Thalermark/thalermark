@@ -22,7 +22,7 @@ Domain: `thalermark.com` (registered).
 
 Business requirements complete. Tech stack locked. **Phases 0–9 shipped — the locked MVP is feature-complete on web and mobile** (invoicing, estimates, expenses + receipt OCR, customers, hidden double-entry ledger, audit trail, position dashboard, the full AI insight layer, recurring invoices, items catalog, reports, pagination, and workspace roles). See SCAFFOLDING.md for the realized 0–9 phase record.
 
-**Now:** production hardening + commercialization. The product in this repo is AGPL/public; the managed **Cloud/SaaS** layer is planned as a separate private repo (open-core), so it lives outside this repo. Next public-repo work: the open-core *seam* (provider interfaces + community defaults) plus production hardening — a new SCAFFOLDING phase.
+**Now:** production hardening + commercialization (SCAFFOLDING Phase 10, in progress). The product in this repo is AGPL/public; the managed **Cloud/SaaS** layer is planned as a separate private repo (open-core), so it lives outside this repo. Shipped so far: scale/security hardening, the five open-core *seam* doors (provider interfaces + community defaults), and the **AI-connection track** — which moved LLM configuration out of `.env` and into a per-account, encrypted, in-app connection (Settings → AI). See SCAFFOLDING.md's Phase-10 / *Post-MVP polish* sections.
 
 ---
 
@@ -50,7 +50,7 @@ This is the official product name. Use it everywhere.
 - **Backend framework:** Hono (via `@hono/node-server`)
 - **ORM:** Drizzle (clean RLS interplay, first-class pgvector, SQL-transparent)
 - **Auth:** Better Auth (cookies for web, bearer tokens for mobile, self-hosted in our DB). The organizations plugin is **off** — multi-tenancy (accounts/companies/memberships) is Thalermark's own domain, not Better Auth's.
-- **LLM:** Anthropic Claude default (Sonnet 4.6 + Haiku 4.5) via Vercel AI SDK; BYOK on self-host from day one (env-var: Anthropic, OpenAI, or local Ollama)
+- **LLM:** Anthropic Claude default (Sonnet 4.6 + Haiku 4.5) via Vercel AI SDK; BYOK on self-host from day one (Anthropic, OpenAI, Ollama, or a custom endpoint — configured **in-app** at Settings → AI, per account, encrypted at rest; the old `LLM_*` env was removed in the AI-connection track)
 - **API contract:** Hono RPC (end-to-end types from server to web + mobile)
 - **Validation:** Zod (shared schemas in `packages/validation/`)
 - **Repo shape:** monorepo with `apps/` (web, mobile, api) + `packages/` for shared types, validation schemas, brand constants
@@ -63,7 +63,7 @@ This is the official product name. Use it everywhere.
 - **Email:** Resend (SaaS), SMTP via nodemailer (self-host)
 - **Object storage:** S3-compatible interface (R2 SaaS, MinIO dev, local FS adapter for self-host)
 - **PDF handling:** No invoice PDFs — invoices ship as a public web view + email + Stripe pay link. Uploaded **receipt** PDFs render page-1 → PNG via `pdf-to-png-converter` (pure JS: pdfjs-dist + a native canvas, no browser/system binary) so the vision LLM can read them. *(Playwright/Chromium was in the original plan for HTML→PDF + shared E2E but was never adopted — the runtime image carries no browser.)*
-- **Receipt OCR:** capture (core, all tiers — image always saved) + extraction (Pro+/BYOK, vision LLM auto-fills merchant/total/date/category). Same `LLM_API_KEY` powers OCR and insights; no separate vendor for MVP.
+- **Receipt OCR:** capture (core, all tiers — image always saved) + extraction (Pro+/BYOK, vision LLM auto-fills merchant/total/date/category). The account's one configured AI connection powers OCR and insights alike; no separate vendor for MVP.
 - **License:** AGPL v3 + Commercial Dual. CLA via CLA Assistant on GitHub. Commercial license available for white-label / proprietary embedders who can't AGPL.
 
 **All technical and licensing decisions are locked.** See TECH-STACK.md for the full table.
@@ -123,7 +123,7 @@ Not a chatbot in the corner. Woven into the core:
 - Tax readiness estimates (US-first, not financial advice)
 - Expense categorisation suggestions
 
-LLM: Anthropic Claude default (Sonnet 4.6 for reasoning, Haiku 4.5 for fast/cheap) via Vercel AI SDK. Self-hosters can swap to OpenAI or run local Ollama via env var. BYOK on SaaS Pro is post-MVP.
+LLM: Anthropic Claude default (Sonnet 4.6 for reasoning, Haiku 4.5 for fast/cheap) via Vercel AI SDK. Self-hosters can swap to OpenAI, a local Ollama, or a custom OpenAI-compatible endpoint from **Settings → AI** (per-account, encrypted, verified — not an env var). BYOK on SaaS Pro is post-MVP.
 
 ---
 

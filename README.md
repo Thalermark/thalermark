@@ -40,7 +40,7 @@ The MVP is feature-complete on web and mobile (Phases 0–9 shipped); current wo
 
 ## Self-host
 
-The full stack — postgres + api + web + caddy (TLS-terminating reverse proxy) — runs from a single Docker Compose file. The quickest path is the installer: it checks for Docker, generates every secret, walks you through the optional settings (domain/TLS, LLM, email, Stripe), and writes a ready-to-run `.env`.
+The full stack — postgres + api + web + caddy (TLS-terminating reverse proxy) — runs from a single Docker Compose file. The quickest path is the installer: it checks for Docker, generates every secret, walks you through the optional settings (domain/TLS, email, Stripe), and writes a ready-to-run `.env`. AI is configured in-app after sign-in (Settings → AI), not in `.env`.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Thalermark/thalermark/main/install.sh | bash
