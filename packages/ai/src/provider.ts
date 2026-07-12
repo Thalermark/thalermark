@@ -22,6 +22,11 @@ export interface LlmCredential {
   modelFast?: string;
   baseUrl?: string;
   structured?: boolean;
+  // Optional fetch for the SDK client. apps/api attaches an SSRF-guarded fetch
+  // here for a user-supplied endpoint (see createGuardedFetch): it validates the
+  // resolved IP at connect time, closing the DNS-rebinding gap that the
+  // save-time checkBaseUrl can't. packages/ai just forwards it to the SDK.
+  fetch?: typeof globalThis.fetch;
 }
 
 // Model roles, by task shape rather than vendor:
@@ -195,8 +200,12 @@ export function resolveModel(cred: LlmCredential, role: ModelRole): LanguageMode
   if (!model) return null;
 
   const key = cred.apiKey?.trim();
-  if (preset.adapter === 'anthropic') return createAnthropic({ apiKey: key })(model);
-  if (preset.adapter === 'openai') return createOpenAI({ apiKey: key })(model);
+  // cred.fetch (when apps/api attached an SSRF-guarded one) is forwarded to the
+  // SDK. undefined = the SDK's default fetch, so this is a no-op for the fixed
+  // public presets that carry no guarded fetch.
+  const fetch = cred.fetch;
+  if (preset.adapter === 'anthropic') return createAnthropic({ apiKey: key, fetch })(model);
+  if (preset.adapter === 'openai') return createOpenAI({ apiKey: key, fetch })(model);
 
   const baseUrl = baseUrlFor(cred, preset);
   if (!baseUrl) return null;
@@ -207,5 +216,6 @@ export function resolveModel(cred: LlmCredential, role: ModelRole): LanguageMode
     // non-empty value.
     apiKey: key || 'unused',
     supportsStructuredOutputs: cred.structured ?? preset.structured,
+    fetch,
   })(model);
 }

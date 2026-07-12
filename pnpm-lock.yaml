@@ -79,6 +79,9 @@ importers:
       stripe:
         specifier: 22.2.0
         version: 22.2.0(@types/node@25.9.1)
+      undici:
+        specifier: 7.25.0
+        version: 7.25.0
       uuid:
         specifier: 14.0.0
         version: 14.0.0
