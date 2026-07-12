@@ -13,13 +13,13 @@
     "clean": "rm -rf .turbo dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@better-auth/expo": "1.6.13",
+    "@better-auth/expo": "1.6.23",
     "@thalermark/db": "workspace:*",
     "@thalermark/validation": "workspace:*",
-    "better-auth": "1.6.13",
+    "better-auth": "1.6.23",
     "disposable-email-domains": "^1.0.62",
     "drizzle-orm": "0.45.2",
-    "uuid": "14.0.0",
+    "uuid": "14.0.1",
     "zod": "4.4.3"
   },
   "devDependencies": {
@@ -27,7 +27,7 @@
     "@types/node": "25.9.1",
     "@types/pg": "8.20.0",
     "@types/uuid": "11.0.0",
-    "pg": "8.21.0",
+    "pg": "8.22.0",
     "vitest": "4.1.8"
   }
 }

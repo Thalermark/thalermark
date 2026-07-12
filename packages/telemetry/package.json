@@ -16,14 +16,14 @@
     "@thalermark/db": "workspace:*",
     "@thalermark/logger": "workspace:*",
     "drizzle-orm": "0.45.2",
-    "uuid": "14.0.0"
+    "uuid": "14.0.1"
   },
   "devDependencies": {
     "@testcontainers/postgresql": "11.14.0",
     "@types/node": "25.9.1",
     "@types/pg": "8.20.0",
     "@types/uuid": "11.0.0",
-    "pg": "8.21.0",
+    "pg": "8.22.0",
     "vitest": "4.1.8"
   }
 }
