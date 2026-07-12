@@ -291,21 +291,65 @@ Leave both off on a public deployment.
 
 ## Operations
 
-**Backups.** Two stateful volumes when running the bundled services:
+**Backups.**
+
+*Automated database backups (bundled).* The compose stack ships a `backup`
+sidecar (`docker/backup.sh`) that runs `pg_dump` for you: one dump at startup,
+then daily at **02:00 UTC**. Each run writes a new timestamped, compressed,
+custom-format dump (`thalermark-<UTC-timestamp>.dump`) into the `backup_data`
+volume and prunes to the **newest 7**. It never overwrites, and a failed dump
+never deletes a good one. Two knobs in `.env`:
+
+- `BACKUP_AT_HOUR` — UTC hour of the daily dump (0–23; default `2`).
+- `BACKUP_KEEP` — how many dumps to retain (default `7`).
+
+`docker compose ... logs backup` shows each dump, the next scheduled time, and
+any pruning. List what's on disk:
 
 ```bash
-# Database (expands POSTGRES_* from inside the container, where they're set)
+docker compose -f docker/docker-compose.yml exec backup ls -lh /backups
+```
+
+*Restore a dump.* Stop the app first so `pg_restore --clean` isn't fighting live
+connections, restore, then bring it back:
+
+```bash
+docker compose -f docker/docker-compose.yml cp \
+  backup:/backups/thalermark-<UTC-timestamp>.dump ./restore.dump
+docker compose -f docker/docker-compose.yml stop api web
+docker compose -f docker/docker-compose.yml exec -T postgres pg_restore \
+  -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists < ./restore.dump
+docker compose -f docker/docker-compose.yml start api web
+```
+
+*Get them off-host.* The `backup_data` volume lives on the **same host as the
+database** — it covers an app or DB mistake, not a dead disk. For off-host
+durability, bind-mount the sidecar's `/backups` to a directory your own tooling
+syncs offsite (rsync/R2/S3): in `docker/docker-compose.yml`, swap the backup
+service's `backup_data:/backups` line for `/srv/thalermark-backups:/backups`,
+then point your sync at `/srv/thalermark-backups`. (Automated offsite backups are
+part of the managed tier; self-host wires its own.)
+
+*On-demand dump.* For an ad-hoc snapshot outside the schedule (plain SQL you can
+open in a text editor):
+
+```bash
 docker compose -f docker/docker-compose.yml exec postgres \
   sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' > backup.sql
-# Receipts (local-FS driver) — archive the storage_data volume. The volume is
-# named <project>_storage_data; for the default invocation that's
-# docker_storage_data (it changes if you pass -p). `docker volume ls` to check.
+```
+
+*Receipts.* The sidecar backs up the database only. Under the local-FS storage
+driver, receipts live in the `storage_data` volume — archive it separately. The
+volume is named `<project>_storage_data`; for the default invocation that's
+`docker_storage_data` (it changes if you pass `-p`). `docker volume ls` to check.
+
+```bash
 docker run --rm -v docker_storage_data:/data -v "$PWD":/out alpine \
   tar czf /out/receipts.tgz -C /data .
 ```
 
 On managed Postgres + S3/R2 you back those up with the provider's tools and the
-volumes above don't apply.
+bundled sidecar/volumes above don't apply.
 
 **Upgrades.** Pull the new GHCR images and recreate; migrations run on boot (or
 via your dedicated migrate step). Bump `THALERMARK_VERSION` in `.env` to the

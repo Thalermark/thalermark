@@ -119,8 +119,34 @@ services:
       - api
       - web
 
+  # Scheduled logical backups — the self-host safety floor. Same pg17 image as
+  # postgres so pg_dump's version matches the server. Dumps once at startup then
+  # daily at BACKUP_AT_HOUR:00 UTC (default 02:00), never overwriting, keeping the
+  # newest BACKUP_KEEP (default 7). backup.sh documents the restore command.
+  # Backups land in the backup_data volume — on the same host as the DB, so they
+  # cover an app/DB mistake, not a dead disk; bind-mount /backups to a directory
+  # you sync offsite for that. PGPASSWORD is the superuser password so pg_dump can
+  # read every table.
+  backup:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-thalermark}
+      POSTGRES_USER: ${POSTGRES_USER:-thalermark}
+      POSTGRES_DB: ${POSTGRES_DB:-thalermark}
+      BACKUP_AT_HOUR: ${BACKUP_AT_HOUR:-2}
+      BACKUP_KEEP: ${BACKUP_KEEP:-7}
+    volumes:
+      - ./backup.sh:/usr/local/bin/thalermark-backup:ro
+      - backup_data:/backups
+    entrypoint: ["/bin/sh", "/usr/local/bin/thalermark-backup"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   postgres_data:
   storage_data:
   caddy_data:
   caddy_config:
+  backup_data:
