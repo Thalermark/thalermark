@@ -1,7 +1,7 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
   import { untrack } from 'svelte';
-  import { BUSINESS_TYPES } from '@thalermark/validation';
+  import { BUSINESS_TYPES, isSelectableBusinessType } from '@thalermark/validation';
   import type { PageProps } from './$types';
 
   let { form }: PageProps = $props();
@@ -69,16 +69,22 @@
       </legend>
       <div class="mt-4 space-y-3">
         {#each BUSINESS_TYPES as bt (bt)}
-          <label class="flex cursor-pointer items-center gap-3 text-sm text-fg">
+          {@const available = isSelectableBusinessType(bt)}
+          <label
+            class="flex items-center gap-3 text-sm {available
+              ? 'cursor-pointer text-fg'
+              : 'cursor-not-allowed text-fg/40'}"
+          >
             <input
               type="radio"
               name="businessType"
               value={bt}
               bind:group={businessType}
               required
-              class="h-4 w-4 border-fg/30 text-accent focus:ring-accent"
+              disabled={!available}
+              class="h-4 w-4 border-fg/30 text-accent focus:ring-accent disabled:opacity-50"
             />
-            <span>{BUSINESS_TYPE_LABELS[bt]}</span>
+            <span>{BUSINESS_TYPE_LABELS[bt]}{available ? '' : ' — coming soon'}</span>
           </label>
         {/each}
       </div>

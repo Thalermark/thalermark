@@ -18,6 +18,26 @@ export const BUSINESS_TYPES = [
 export const businessTypeSchema = z.enum(BUSINESS_TYPES);
 export type BusinessType = z.infer<typeof businessTypeSchema>;
 
+// Which business types a user can actually pick today. A sole proprietor and a
+// single-member LLC are both disregarded entities that file Schedule C, so the
+// sole-prop COA seed (packages/db seed/coa-sole-prop) is *correct* for both.
+// Partnership / S-corp / C-corp have materially different equity structure and
+// tax mapping and get their own seeds in v1.x — until then the onboarding and
+// create-company pickers show them as "coming soon" rather than silently seeding
+// them with the sole-prop chart under a mismatched label. `BUSINESS_TYPES` stays
+// the full set of *valid stored values* (the column CHECK and the display labels
+// still cover all five, so any pre-existing row renders correctly).
+export const SELECTABLE_BUSINESS_TYPES = ['sole_prop', 'llc_single_member'] as const;
+
+const selectableBusinessTypes: ReadonlySet<string> = new Set(SELECTABLE_BUSINESS_TYPES);
+
+// Predicate the pickers use to gate a type. Takes a plain string so callers can
+// pass a `BusinessType` without tripping the tuple-narrowing that `Array.includes`
+// on a `const` subset would.
+export function isSelectableBusinessType(bt: string): boolean {
+  return selectableBusinessTypes.has(bt);
+}
+
 // Input schema for PATCH /api/companies/:id. Sparse on purpose — the L3
 // wizard updates name + businessType together, but follow-on flows (rename
 // from settings, accountant updates business type alone) only touch one

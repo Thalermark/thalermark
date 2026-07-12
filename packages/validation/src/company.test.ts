@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { businessTypeSchema, companyUpdateSchema } from './company.js';
+import {
+  BUSINESS_TYPES,
+  SELECTABLE_BUSINESS_TYPES,
+  businessTypeSchema,
+  companyUpdateSchema,
+  isSelectableBusinessType,
+} from './company.js';
 
 describe('businessTypeSchema', () => {
   it('accepts each of the five enum values', () => {
@@ -12,6 +18,27 @@ describe('businessTypeSchema', () => {
     expect(businessTypeSchema.safeParse('soleprop').success).toBe(false);
     expect(businessTypeSchema.safeParse('').success).toBe(false);
     expect(businessTypeSchema.safeParse(null).success).toBe(false);
+  });
+});
+
+describe('SELECTABLE_BUSINESS_TYPES', () => {
+  it('covers the Schedule C types the sole-prop COA seed is correct for', () => {
+    expect([...SELECTABLE_BUSINESS_TYPES]).toEqual(['sole_prop', 'llc_single_member']);
+  });
+
+  it('is a subset of the full stored-value enum', () => {
+    for (const bt of SELECTABLE_BUSINESS_TYPES) {
+      expect(BUSINESS_TYPES).toContain(bt);
+    }
+  });
+
+  it('isSelectableBusinessType gates only the seeded types', () => {
+    expect(isSelectableBusinessType('sole_prop')).toBe(true);
+    expect(isSelectableBusinessType('llc_single_member')).toBe(true);
+    expect(isSelectableBusinessType('partnership')).toBe(false);
+    expect(isSelectableBusinessType('s_corp')).toBe(false);
+    expect(isSelectableBusinessType('c_corp')).toBe(false);
+    expect(isSelectableBusinessType('bogus')).toBe(false);
   });
 });
 
