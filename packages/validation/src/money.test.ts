@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addMoney, multiplyMoney, sumMoney, taxOfAmount } from './money.js';
+import { addMoney, centsToMoney, multiplyMoney, sumMoney, taxOfAmount, toCents } from './money.js';
 
 describe('multiplyMoney', () => {
   it('multiplies whole numbers', () => {
@@ -108,5 +108,41 @@ describe('taxOfAmount', () => {
 
   it('large amounts stay exact (no FP drift)', () => {
     expect(taxOfAmount('999999999999.00', '10')).toBe('99999999999.90');
+  });
+});
+
+describe('toCents / centsToMoney', () => {
+  it('parses money strings to integer cents', () => {
+    expect(toCents('0.00')).toBe(0);
+    expect(toCents('0.05')).toBe(5);
+    expect(toCents('1.00')).toBe(100);
+    expect(toCents('100.10')).toBe(10010);
+    expect(toCents('12.34')).toBe(1234);
+  });
+
+  it('parses a signed money string (e.g. a credit − debit SQL sum)', () => {
+    expect(toCents('-5.00')).toBe(-500);
+    expect(toCents('-0.01')).toBe(-1);
+  });
+
+  it('formats integer cents back to a 2-dp money string', () => {
+    expect(centsToMoney(0)).toBe('0.00');
+    expect(centsToMoney(5)).toBe('0.05');
+    expect(centsToMoney(100)).toBe('1.00');
+    expect(centsToMoney(10010)).toBe('100.10');
+  });
+
+  it('formats a negative balance with a leading minus', () => {
+    expect(centsToMoney(-500)).toBe('-5.00');
+    expect(centsToMoney(-1)).toBe('-0.01');
+  });
+
+  it('round-trips exactly, and summing in cents dodges the classic float drift', () => {
+    // 0.1 + 0.2 in floats is 0.30000000000000004; in cents it is exact.
+    const cents = ['0.10', '0.20'].reduce((s, v) => s + toCents(v), 0);
+    expect(centsToMoney(cents)).toBe('0.30');
+    // A long run of cents that would accumulate error as floats.
+    const many = Array.from({ length: 1000 }, () => '0.01');
+    expect(centsToMoney(many.reduce((s, v) => s + toCents(v), 0))).toBe('10.00');
   });
 });

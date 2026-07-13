@@ -10,10 +10,12 @@ import { emit } from '@thalermark/telemetry';
 import {
   EMAIL_TEMPLATE_PLACEHOLDERS,
   EMAIL_TEMPLATE_TYPES,
+  centsToMoney,
   companyCreateSchema,
   companyUpdateSchema,
   emailTemplateTypeSchema,
   emailTemplateUpdateSchema,
+  toCents,
   unknownPlaceholders,
 } from '@thalermark/validation';
 import { and, asc, eq, gte, lt } from 'drizzle-orm';
@@ -849,7 +851,13 @@ export function companiesRoutes(deps: AppDeps) {
         const byEntry = new Map<string, Entry>();
         const tbByCode = new Map<
           string,
-          { code: string; accountName: string; accountType: string; debit: number; credit: number }
+          {
+            code: string;
+            accountName: string;
+            accountType: string;
+            debitCents: number;
+            creditCents: number;
+          }
         >();
 
         for (const r of rows) {
@@ -879,13 +887,14 @@ export function companiesRoutes(deps: AppDeps) {
               code: r.code,
               accountName: r.accountName,
               accountType: r.accountType,
-              debit: 0,
-              credit: 0,
+              debitCents: 0,
+              creditCents: 0,
             };
             tbByCode.set(r.code, tb);
           }
-          if (r.side === 'debit') tb.debit += Number(r.amount);
-          else tb.credit += Number(r.amount);
+          // Accumulate in integer cents so a big trial balance can't drift a cent.
+          if (r.side === 'debit') tb.debitCents += toCents(r.amount);
+          else tb.creditCents += toCents(r.amount);
         }
 
         const trialBalance = Array.from(tbByCode.values())
@@ -893,9 +902,9 @@ export function companiesRoutes(deps: AppDeps) {
             code: t.code,
             accountName: t.accountName,
             accountType: t.accountType,
-            debit: t.debit.toFixed(2),
-            credit: t.credit.toFixed(2),
-            net: (t.debit - t.credit).toFixed(2),
+            debit: centsToMoney(t.debitCents),
+            credit: centsToMoney(t.creditCents),
+            net: centsToMoney(t.debitCents - t.creditCents),
           }))
           .sort((a, b) => (a.code < b.code ? -1 : 1));
 

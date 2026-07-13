@@ -17,6 +17,7 @@ import {
   journalEntries,
   journalLines,
 } from '@thalermark/db';
+import { centsToMoney, sumMoney, toCents } from '@thalermark/validation';
 import { and, asc, eq, gte, inArray, isNull, lt, lte, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
@@ -353,13 +354,13 @@ export function reportsRoutes(deps: AppDeps) {
           type Line = { code: string; name: string; taxMapping: string | null; amount: string };
           const revenue: Line[] = [];
           const expenses: Line[] = [];
-          let totalRevenue = 0;
-          let totalExpenses = 0;
+          let totalRevenueCents = 0;
+          let totalExpensesCents = 0;
           for (const r of rows) {
-            const amt = Number(r.amount);
+            const amtCents = toCents(r.amount);
             // Drop accounts that net to zero in the window (e.g. a sale fully
             // voided in-period) so the statement isn't cluttered with no-ops.
-            if (amt === 0) continue;
+            if (amtCents === 0) continue;
             const line: Line = {
               code: r.code,
               name: r.name,
@@ -368,10 +369,10 @@ export function reportsRoutes(deps: AppDeps) {
             };
             if (r.accountType === 'revenue') {
               revenue.push(line);
-              totalRevenue += amt;
+              totalRevenueCents += amtCents;
             } else {
               expenses.push(line);
-              totalExpenses += amt;
+              totalExpensesCents += amtCents;
             }
           }
 
@@ -380,9 +381,9 @@ export function reportsRoutes(deps: AppDeps) {
             to,
             revenue,
             expenses,
-            totalRevenue: totalRevenue.toFixed(2),
-            totalExpenses: totalExpenses.toFixed(2),
-            netProfit: (totalRevenue - totalExpenses).toFixed(2),
+            totalRevenue: centsToMoney(totalRevenueCents),
+            totalExpenses: centsToMoney(totalExpensesCents),
+            netProfit: centsToMoney(totalRevenueCents - totalExpensesCents),
           });
         },
       )
@@ -433,7 +434,7 @@ export function reportsRoutes(deps: AppDeps) {
             .groupBy(invoices.contactId, contacts.name)
             .orderBy(sql`sum(${invoices.subtotal}) desc`);
 
-          const totalSales = rows.reduce((s, r) => s + Number(r.sales), 0).toFixed(2);
+          const totalSales = sumMoney(rows.map((r) => r.sales ?? '0'));
           return c.json({
             from: win.from,
             to: win.to,
@@ -491,7 +492,7 @@ export function reportsRoutes(deps: AppDeps) {
             .groupBy(monthExpr)
             .orderBy(monthExpr);
 
-          const total = rows.reduce((s, r) => s + Number(r.revenue), 0).toFixed(2);
+          const total = sumMoney(rows.map((r) => r.revenue ?? '0'));
           return c.json({
             from: win.from,
             to: win.to,
@@ -614,48 +615,49 @@ export function reportsRoutes(deps: AppDeps) {
           const assets: Line[] = [];
           const liabilities: Line[] = [];
           const equity: Line[] = [];
-          let totalAssets = 0;
-          let totalLiabilities = 0;
-          let equitySum = 0;
-          let revenueSum = 0;
-          let expenseSum = 0;
+          let totalAssetsCents = 0;
+          let totalLiabilitiesCents = 0;
+          let equitySumCents = 0;
+          let revenueSumCents = 0;
+          let expenseSumCents = 0;
           for (const r of rows) {
-            const amt = Number(r.amount);
-            if (amt === 0) continue;
+            const amtCents = toCents(r.amount);
+            if (amtCents === 0) continue;
             const line: Line = { code: r.code, name: r.name, amount: r.amount };
             if (r.accountType === 'asset') {
               assets.push(line);
-              totalAssets += amt;
+              totalAssetsCents += amtCents;
             } else if (r.accountType === 'liability') {
               liabilities.push(line);
-              totalLiabilities += amt;
+              totalLiabilitiesCents += amtCents;
             } else if (r.accountType === 'equity') {
               equity.push(line);
-              equitySum += amt;
+              equitySumCents += amtCents;
             } else if (r.accountType === 'revenue') {
-              revenueSum += amt;
+              revenueSumCents += amtCents;
             } else {
-              expenseSum += amt;
+              expenseSumCents += amtCents;
             }
           }
           // Net income (retained earnings while the books stay open) closes the
           // identity: Assets = Liabilities + (explicit equity + net income).
-          const netIncome = revenueSum - expenseSum;
-          const totalEquity = equitySum + netIncome;
-          const totalLiabilitiesAndEquity = totalLiabilities + totalEquity;
+          const netIncomeCents = revenueSumCents - expenseSumCents;
+          const totalEquityCents = equitySumCents + netIncomeCents;
+          const totalLiabilitiesAndEquityCents = totalLiabilitiesCents + totalEquityCents;
           return c.json({
             asOf,
             assets,
             liabilities,
             equity,
-            netIncome: netIncome.toFixed(2),
-            totalAssets: totalAssets.toFixed(2),
-            totalLiabilities: totalLiabilities.toFixed(2),
-            totalEquity: totalEquity.toFixed(2),
-            totalLiabilitiesAndEquity: totalLiabilitiesAndEquity.toFixed(2),
+            netIncome: centsToMoney(netIncomeCents),
+            totalAssets: centsToMoney(totalAssetsCents),
+            totalLiabilities: centsToMoney(totalLiabilitiesCents),
+            totalEquity: centsToMoney(totalEquityCents),
+            totalLiabilitiesAndEquity: centsToMoney(totalLiabilitiesAndEquityCents),
             // True by construction (every entry balances); surfaced as an
-            // integrity check — a false here means the ledger has drifted.
-            balanced: Math.abs(totalAssets - totalLiabilitiesAndEquity) < 0.005,
+            // integrity check — a false here means the ledger has drifted. Exact
+            // in the cents domain, so this is a strict equality, not an epsilon.
+            balanced: totalAssetsCents === totalLiabilitiesAndEquityCents,
           });
         },
       )
@@ -710,7 +712,8 @@ export function reportsRoutes(deps: AppDeps) {
             { key: '61-90', label: '61–90 days', min: 61, max: 90 },
             { key: '90+', label: '90+ days', min: 91, max: Number.POSITIVE_INFINITY },
           ];
-          const bucketTotals = new Map(BUCKETS.map((b) => [b.key, { count: 0, amount: 0 }]));
+          // amount is accumulated in integer cents (formatted on the way out).
+          const bucketTotals = new Map(BUCKETS.map((b) => [b.key, { count: 0, amountCents: 0 }]));
           const outstanding = rows
             .map((r) => {
               const dueMs = new Date(`${r.dueDate}T00:00:00Z`).getTime();
@@ -720,7 +723,7 @@ export function reportsRoutes(deps: AppDeps) {
               const agg = bucketTotals.get(key);
               if (agg) {
                 agg.count += 1;
-                agg.amount += Number(r.total);
+                agg.amountCents += toCents(r.total);
               }
               return {
                 id: r.id,
@@ -734,7 +737,7 @@ export function reportsRoutes(deps: AppDeps) {
             // Most overdue first.
             .sort((a, b) => b.daysPastDue - a.daysPastDue);
 
-          const total = outstanding.reduce((s, r) => s + Number(r.amount), 0).toFixed(2);
+          const total = sumMoney(outstanding.map((r) => r.amount));
           return c.json({
             asOf,
             buckets: BUCKETS.map((b) => {
@@ -743,7 +746,7 @@ export function reportsRoutes(deps: AppDeps) {
                 key: b.key,
                 label: b.label,
                 count: agg?.count ?? 0,
-                amount: (agg?.amount ?? 0).toFixed(2),
+                amount: centsToMoney(agg?.amountCents ?? 0),
               };
             }),
             invoices: outstanding,
@@ -798,7 +801,7 @@ export function reportsRoutes(deps: AppDeps) {
             .groupBy(monthExpr)
             .orderBy(monthExpr);
 
-          const total = rows.reduce((s, r) => s + Number(r.collected), 0).toFixed(2);
+          const total = centsToMoney(rows.reduce((s, r) => s + toCents(r.collected ?? '0'), 0));
           return c.json({
             from: win.from,
             to: win.to,

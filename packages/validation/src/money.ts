@@ -90,6 +90,28 @@ export function addMoney(a: string, b: string): string {
   return sumMoney([a, b]);
 }
 
+// Exact integer-cents helpers for server-side totals that sumMoney can't
+// express: a running total accumulated in a loop, or a signed result — a net or
+// running balance that can dip below zero (sumMoney only sums non-negative
+// amounts). Parse to cents, do integer math (exact for any realistic total —
+// cents stay far under Number.MAX_SAFE_INTEGER), format once at the end. This is
+// the fix for report totals that summed with Number(...) + float arithmetic and
+// could land a cent off the ledger. toCents reads a money string, tolerating a
+// leading '-' so a signed SQL sum (e.g. credit − debit) round-trips;
+// centsToMoney formats a possibly-negative integer cent count to a 2-dp string.
+export function toCents(money: string): number {
+  const negative = money.startsWith('-');
+  const cents = Number(toScaled(negative ? money.slice(1) : money, MONEY_SCALE));
+  return negative ? -cents : cents;
+}
+
+export function centsToMoney(cents: number): string {
+  const negative = cents < 0;
+  const digits = String(Math.abs(cents)).padStart(MONEY_SCALE + 1, '0');
+  const body = `${digits.slice(0, -MONEY_SCALE)}.${digits.slice(-MONEY_SCALE)}`;
+  return negative ? `-${body}` : body;
+}
+
 // Per-line tax: amount × ratePct ÷ 100, rounded half-away-from-zero to the
 // money scale. amount is a money string (scale 2), ratePct a percent string
 // (scale 4). Both client preview and server recompute call this so a taxable
