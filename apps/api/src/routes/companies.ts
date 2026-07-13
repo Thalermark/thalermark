@@ -1,4 +1,5 @@
 import {
+  accounts,
   chartOfAccounts,
   companies,
   emailTemplates,
@@ -18,7 +19,7 @@ import {
   toCents,
   unknownPlaceholders,
 } from '@thalermark/validation';
-import { and, asc, eq, gte, lt } from 'drizzle-orm';
+import { and, asc, eq, gte, lt, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 import { v7 as uuidv7 } from 'uuid';
@@ -250,6 +251,25 @@ export function companiesRoutes(deps: AppDeps) {
             .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
             .returning();
           if (!after) return c.json({ error: 'company_not_found' }, 404);
+
+          // Mirror the workspace (account) name to the business name for solo
+          // workspaces. The account was seeded with the person's name at signup;
+          // a single-company account IS that one business, so keep its label in
+          // sync whenever the business is (re)named — this is what makes the
+          // onboarding wizard's business name reach the Workspace switcher.
+          // Multi-company accounts are left alone (no single business to mirror).
+          if (data.name !== undefined && after.name !== before.name) {
+            const [countRow] = await tx
+              .select({ n: sql<number>`count(*)::int` })
+              .from(companies)
+              .where(eq(companies.accountId, accountId));
+            if (countRow?.n === 1) {
+              await tx
+                .update(accounts)
+                .set({ name: after.name, updatedAt: new Date() })
+                .where(eq(accounts.id, accountId));
+            }
+          }
 
           await c.var.audit({
             entityType: 'company',
