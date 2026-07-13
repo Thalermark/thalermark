@@ -100,6 +100,13 @@ services:
       LOCATION_PROVIDER: ${LOCATION_PROVIDER:-}
       MAPBOX_ACCESS_TOKEN: ${MAPBOX_ACCESS_TOKEN:-}
       NOMINATIM_BASE_URL: ${NOMINATIM_BASE_URL:-}
+      # Browser + SSR error tracking (hooks.client.ts / hooks.server.ts). Same
+      # env_file caveat as the location vars above — the web service reads no
+      # .env, so the PUBLIC_ error-tracking vars are passed through explicitly.
+      # The api reads its own ERROR_TRACKING_DSN from ../.env via env_file. Unset
+      # => the SDK stays inert. See .env.example "Error tracking".
+      PUBLIC_ERROR_TRACKING_DSN: ${PUBLIC_ERROR_TRACKING_DSN:-}
+      PUBLIC_RELEASE: ${PUBLIC_RELEASE:-}
     depends_on:
       - api
 
