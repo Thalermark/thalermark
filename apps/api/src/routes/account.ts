@@ -257,7 +257,10 @@ export function accountRoutes(deps: AppDeps) {
         if (invite.expiresAt.getTime() < Date.now())
           return c.json({ error: 'invite_expired' }, 410);
         if (invite.email.toLowerCase() !== user.email.toLowerCase()) {
-          return c.json({ error: 'invite_email_mismatch' }, 403);
+          // Include the signed-in email so the client can say "you're signed in
+          // as X" — the mismatch is almost always a wrong-session click, not a
+          // bad invite. Safe to return: it's the caller's own session email.
+          return c.json({ error: 'invite_email_mismatch', currentEmail: user.email }, 403);
         }
 
         const acceptedAt = new Date();
@@ -298,7 +301,10 @@ export function accountRoutes(deps: AppDeps) {
           .where(eq(invitations.token, token));
         if (!invite) return c.json({ error: 'invite_not_found' }, 404);
         if (invite.email.toLowerCase() !== user.email.toLowerCase()) {
-          return c.json({ error: 'invite_email_mismatch' }, 403);
+          // Include the signed-in email so the client can say "you're signed in
+          // as X" — the mismatch is almost always a wrong-session click, not a
+          // bad invite. Safe to return: it's the caller's own session email.
+          return c.json({ error: 'invite_email_mismatch', currentEmail: user.email }, 403);
         }
         // Already consumed the other way — surface it rather than silently
         // overwriting an acceptance with a decline.

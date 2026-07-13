@@ -20,7 +20,8 @@ export const load: PageServerLoad = async (event) => {
 const INVITE_ACTION_ERRORS: Record<string, string> = {
   invite_not_found: 'That invitation is no longer valid.',
   invite_expired: 'That invitation has expired.',
-  invite_email_mismatch: 'That invitation was sent to a different email address.',
+  invite_email_mismatch:
+    'That invitation was sent to a different email address — you may be signed in as a different account. Sign out and open the invite link again to accept it.',
   invite_already_accepted: "You've already accepted that invitation.",
 };
 
