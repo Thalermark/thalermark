@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { env } from '$env/dynamic/public';
   import { page } from '$app/state';
+  import { authClient } from '$lib/auth-client';
 
   // The email-link entry point. Reworked from auto-firing accept on mount to an
   // explicit prompt: show who's inviting + which workspace, then Accept /
@@ -23,6 +24,8 @@
   let status = $state<Status>('loading');
   let preview = $state<Preview | null>(null);
   let errorMsg = $state<string | null>(null);
+  let errorCode = $state<string | null>(null);
+  let signingOut = $state(false);
 
   onMount(async () => {
     if (!token) {
@@ -47,18 +50,46 @@
     }
   });
 
+  // Map an API error code to a clear, actionable message. The mismatch case is
+  // the common one — the link was opened while signed in as someone else — so it
+  // names both addresses and points at signing out, instead of showing the raw
+  // code or blaming the invite.
+  function friendlyError(code: string | undefined, currentEmail: string | null): string {
+    switch (code) {
+      case 'invite_email_mismatch':
+        return `This invitation was sent to ${preview?.email ?? 'a different email address'}${
+          currentEmail ? `, but you're signed in as ${currentEmail}` : ''
+        }. Sign out and open this link again to accept it.`;
+      case 'invite_not_found':
+        return 'That invitation is no longer valid.';
+      case 'invite_expired':
+        return 'That invitation has expired.';
+      case 'invite_already_accepted':
+        return "You've already accepted that invitation.";
+      case 'unauthorized':
+        return 'Please sign in to respond to this invitation.';
+      default:
+        return 'Something went wrong. Please try again.';
+    }
+  }
+
   async function respond(decision: 'accept' | 'decline') {
     if (!token) return;
     status = 'working';
     errorMsg = null;
+    errorCode = null;
     try {
       const res = await fetch(`${apiUrl}/api/invitations/${token}/${decision}`, {
         method: 'POST',
         credentials: 'include',
       });
       if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        errorMsg = body.error ?? `Request failed (${res.status})`;
+        const body = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          currentEmail?: string;
+        };
+        errorCode = body.error ?? null;
+        errorMsg = friendlyError(body.error, body.currentEmail ?? null);
         status = 'error';
         return;
       }
@@ -71,6 +102,17 @@
     } catch (err) {
       errorMsg = err instanceof Error ? err.message : 'network error';
       status = 'error';
+    }
+  }
+
+  // Sign out, then reload as a signed-out visitor so the page falls back to the
+  // sign-in / create-account prompt for this same invite token.
+  async function signOutAndRetry() {
+    signingOut = true;
+    try {
+      await authClient.signOut();
+    } finally {
+      window.location.reload();
     }
   }
 </script>
@@ -107,6 +149,16 @@
       <p class="label mt-4 text-danger">
         {errorMsg ?? 'Something went wrong.'}
       </p>
+      {#if errorCode === 'invite_email_mismatch'}
+        <button
+          type="button"
+          disabled={signingOut}
+          onclick={signOutAndRetry}
+          class="btn mt-4 py-2.5"
+        >
+          {signingOut ? 'Signing out…' : 'Sign out'}
+        </button>
+      {/if}
     {/if}
     <div class="mt-6 flex items-center gap-3">
       <button
