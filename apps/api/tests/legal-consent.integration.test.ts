@@ -102,8 +102,8 @@ function buildApp(opts: { legalConsent?: LegalConsentConfig } = {}) {
   return { app, handle };
 }
 
-const getLegal = (app: ReturnType<typeof createApp>, cookie: string) =>
-  app.request('/api/legal', { headers: { cookie } });
+const getLegal = async (app: ReturnType<typeof createApp>, cookie: string): Promise<LegalState> =>
+  (await (await app.request('/api/legal', { headers: { cookie } })).json()) as LegalState;
 
 describe('legal consent — /api/legal + /api/legal/accept', () => {
   beforeEach(resetDb);
@@ -113,7 +113,7 @@ describe('legal consent — /api/legal + /api/legal/accept', () => {
     try {
       const cookie = await signUp(app, 'off@example.com');
 
-      const state = (await (await getLegal(app, cookie)).json()) as LegalState;
+      const state = await getLegal(app, cookie);
       expect(state.required).toBe(false);
       expect(state.accepted).toBe(false);
 
@@ -135,7 +135,7 @@ describe('legal consent — /api/legal + /api/legal/accept', () => {
       const cookie = await signUp(app, 'user@example.com');
       const uid = await userId('user@example.com');
 
-      const before = (await (await getLegal(app, cookie)).json()) as LegalState;
+      const before = await getLegal(app, cookie);
       expect(before).toMatchObject({
         required: true,
         accepted: false,
@@ -150,7 +150,7 @@ describe('legal consent — /api/legal + /api/legal/accept', () => {
       });
       expect(accept.status).toBe(200);
 
-      const after = (await (await getLegal(app, cookie)).json()) as LegalState;
+      const after = await getLegal(app, cookie);
       expect(after.accepted).toBe(true);
 
       const rows = await acceptanceRows(uid);
@@ -172,7 +172,7 @@ describe('legal consent — /api/legal + /api/legal/accept', () => {
     try {
       cookie = await signUp(a.app, 'bump@example.com');
       await a.app.request('/api/legal/accept', { method: 'POST', headers: { cookie } });
-      expect((await (await getLegal(a.app, cookie)).json()).accepted).toBe(true);
+      expect((await getLegal(a.app, cookie)).accepted).toBe(true);
     } finally {
       await a.handle.close();
     }
@@ -180,7 +180,7 @@ describe('legal consent — /api/legal + /api/legal/accept', () => {
     // Same user, a deployment that bumped the terms version → unaccepted again.
     const b = buildApp({ legalConsent: { ...V1, termsVersion: '2' } });
     try {
-      const state = (await (await getLegal(b.app, cookie)).json()) as LegalState;
+      const state = await getLegal(b.app, cookie);
       expect(state).toMatchObject({ required: true, accepted: false, version: '2' });
 
       await b.app.request('/api/legal/accept', { method: 'POST', headers: { cookie } });
@@ -201,9 +201,9 @@ describe('legal consent — /api/legal + /api/legal/accept', () => {
 
       await app.request('/api/legal/accept', { method: 'POST', headers: { cookie: aCookie } });
 
-      expect((await (await getLegal(app, aCookie)).json()).accepted).toBe(true);
+      expect((await getLegal(app, aCookie)).accepted).toBe(true);
       // Bob is untouched — acceptance is keyed on the person, not the deployment.
-      expect((await (await getLegal(app, bCookie)).json()).accepted).toBe(false);
+      expect((await getLegal(app, bCookie)).accepted).toBe(false);
       expect(await acceptanceRows(await userId('bob@example.com'))).toHaveLength(0);
     } finally {
       await handle.close();
