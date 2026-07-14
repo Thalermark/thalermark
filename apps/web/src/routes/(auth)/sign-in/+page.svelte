@@ -11,6 +11,7 @@
   let needsVerification = $state(false);
   let resending = $state(false);
   let resent = $state(false);
+  let resendError = $state<string | null>(null);
 
   const inviteToken = $derived(page.url.searchParams.get('invite'));
   const postAuthPath = $derived(
@@ -61,35 +62,48 @@
     error = null;
     submitting = true;
     needsVerification = false;
-    const result = await authClient.signIn.email({ email, password });
-    submitting = false;
-    if (result.error) {
-      const msg = result.error.message ?? 'Sign-in failed';
-      // Unverified email/password account → offer to resend the link instead of
-      // a dead-end error. BA returns EMAIL_NOT_VERIFIED; match the message too
-      // in case the code shape shifts.
-      if (result.error.code === 'EMAIL_NOT_VERIFIED' || /verif/i.test(msg)) {
-        needsVerification = true;
+    try {
+      const result = await authClient.signIn.email({ email, password });
+      if (result.error) {
+        const msg = result.error.message ?? 'Sign-in failed';
+        // Unverified email/password account → offer to resend the link instead of
+        // a dead-end error. BA returns EMAIL_NOT_VERIFIED; match the message too
+        // in case the code shape shifts.
+        if (result.error.code === 'EMAIL_NOT_VERIFIED' || /verif/i.test(msg)) {
+          needsVerification = true;
+          return;
+        }
+        error = msg;
         return;
       }
-      error = msg;
-      return;
+      rememberMethod('password');
+      // Hard nav: forces hooks.server.ts to re-run membership routing on a
+      // fresh request. goto() + invalidateAll() leaves stale layout data.
+      window.location.assign(postAuthPath);
+    } catch {
+      // A thrown request (network down, API unreachable, CSP-blocked) never
+      // reaches the result-error branch, so surface it instead of a stuck button.
+      error = 'Could not reach the server. Check your connection and try again.';
+    } finally {
+      submitting = false;
     }
-    rememberMethod('password');
-    // Hard nav: forces hooks.server.ts to re-run membership routing on a
-    // fresh request. goto() + invalidateAll() leaves stale layout data.
-    window.location.assign(postAuthPath);
   }
 
   async function onResend() {
     resending = true;
     resent = false;
-    await authClient.sendVerificationEmail({
-      email,
-      callbackURL: `${window.location.origin}${postAuthPath}`,
-    });
-    resending = false;
-    resent = true;
+    resendError = null;
+    try {
+      await authClient.sendVerificationEmail({
+        email,
+        callbackURL: `${window.location.origin}${postAuthPath}`,
+      });
+      resent = true;
+    } catch {
+      resendError = 'Could not send the email. Please try again.';
+    } finally {
+      resending = false;
+    }
   }
 </script>
 
@@ -127,6 +141,9 @@
         </button>
         {#if resent}
           <span class="label text-success">Sent</span>
+        {/if}
+        {#if resendError}
+          <span class="label text-danger">{resendError}</span>
         {/if}
       </div>
     </div>

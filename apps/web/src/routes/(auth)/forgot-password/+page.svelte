@@ -4,16 +4,25 @@
   let email = $state('');
   let submitting = $state(false);
   let submitted = $state(false);
+  let error = $state<string | null>(null);
 
   async function onSubmit(event: SubmitEvent) {
     event.preventDefault();
+    error = null;
     submitting = true;
     // Non-enumerating: fire the request and show the same neutral confirmation
     // no matter the result. We never reveal whether the email has an account —
     // the API also returns a neutral 200 and sends nothing for unknown emails.
-    await authClient.requestPasswordReset({ email });
-    submitting = false;
-    submitted = true;
+    // A thrown request is a transport failure (not a signal about the account),
+    // so surfacing it leaks nothing — and beats a silently stuck button.
+    try {
+      await authClient.requestPasswordReset({ email });
+      submitted = true;
+    } catch {
+      error = 'Could not reach the server. Check your connection and try again.';
+    } finally {
+      submitting = false;
+    }
   }
 </script>
 
@@ -39,6 +48,9 @@
       <span class="label block">Email</span>
       <input type="email" required bind:value={email} class="field-line mt-2" />
     </label>
+    {#if error}
+      <p class="label text-danger">{error}</p>
+    {/if}
     <button type="submit" disabled={submitting} class="btn w-full py-3">
       {submitting ? 'Sending…' : 'Send reset link'}
     </button>
