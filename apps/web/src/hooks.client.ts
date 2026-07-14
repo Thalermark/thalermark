@@ -14,6 +14,13 @@ if (env.PUBLIC_ERROR_TRACKING_DSN) {
     release: env.PUBLIC_RELEASE || undefined,
     // No performance tracing yet — mirror the api (tracesSampleRate: 0).
     tracesSampleRate: 0,
+    // Route envelopes through a same-origin path (see routes/monitoring) instead
+    // of POSTing straight to the GlitchTip host. Ad / privacy blockers match the
+    // well-known `…/envelope/` tracker URL and silently drop a meaningful share
+    // of real users' client error reports (net::ERR_BLOCKED_BY_CLIENT); a
+    // first-party path isn't on those filter lists. The server route forwards
+    // the envelope to the configured DSN host (TMC-131).
+    tunnel: '/monitoring',
   });
 }
 
