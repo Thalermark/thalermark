@@ -1,3 +1,4 @@
+import { formatUnitPrice } from '@thalermark/validation';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
@@ -418,7 +419,7 @@ export default function EstimateDetail() {
                   ) : null}
                   <View className="mt-1 flex-row justify-between">
                     <Text className="font-mono text-xs text-ink/50">
-                      {String(Number(li.quantity))} × {li.unitPrice}
+                      {String(Number(li.quantity))} × {formatUnitPrice(li.unitPrice)}
                     </Text>
                     <Text className="font-mono tabular-nums text-ink">{li.amount}</Text>
                   </View>

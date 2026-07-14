@@ -3,7 +3,14 @@
   import ContactPicker from '$lib/components/ContactPicker.svelte';
   import ItemPicker from '$lib/components/ItemPicker.svelte';
   import { defaultPolicyId, lineTax, policyRate } from '$lib/line-tax';
-  import { type LineItemType, addMoney, multiplyMoney, sumMoney } from '@thalermark/validation';
+  import {
+    type LineItemType,
+    addMoney,
+    formatUnitPrice,
+    multiplyMoney,
+    sumMoney,
+    unitPriceFromTotal,
+  } from '@thalermark/validation';
   import type { PageProps } from './$types';
 
   let { data, form }: PageProps = $props();
@@ -12,6 +19,7 @@
     description: string;
     quantity: string;
     unitPrice: string;
+    amount: string;
     sourceItemId: string | null;
     type: LineItemType;
     taxable: boolean;
@@ -31,7 +39,8 @@
         return seeded.map((li) => ({
           description: li.description,
           quantity: li.quantity,
-          unitPrice: li.unitPrice,
+          unitPrice: formatUnitPrice(li.unitPrice),
+          amount: multiplyMoney(li.quantity, li.unitPrice),
           sourceItemId: li.sourceItemId ?? null,
           type: li.type === 'product' ? 'product' : 'service',
           taxable: li.taxable ?? false,
@@ -41,7 +50,8 @@
       return data.estimate.lineItems.map((li) => ({
         description: li.description,
         quantity: li.quantity,
-        unitPrice: li.unitPrice,
+        unitPrice: formatUnitPrice(li.unitPrice),
+        amount: multiplyMoney(li.quantity, li.unitPrice),
         sourceItemId: li.sourceItemId ?? null,
         type: li.type === 'product' ? 'product' : 'service',
         taxable: li.taxable ?? false,
@@ -52,14 +62,25 @@
 
   const computedRows = $derived(
     rows.map((r) => {
-      const amount = multiplyMoney(r.quantity, r.unitPrice);
       const rate = r.taxable ? policyRate(data.taxPolicies, r.taxPolicyId) : '0';
-      return { ...r, amount, tax: lineTax(r.taxable, rate, amount) };
+      return { ...r, tax: lineTax(r.taxable, rate, r.amount) };
     }),
   );
   const subtotal = $derived(sumMoney(computedRows.map((r) => r.amount)));
   const taxTotal = $derived(sumMoney(computedRows.map((r) => r.tax)));
   const total = $derived(addMoney(subtotal, taxTotal));
+
+  // Editing quantity/unit price re-derives the amount (unit price sticky);
+  // editing the amount back-computes a 4dp unit price so an agreed total that
+  // doesn't divide evenly is representable (e.g. $650 over 7 → $92.8571 →
+  // $650.00). The form submits quantity + unit price; the server recomputes the
+  // amount, so the (unnamed) amount input is preview sugar steering the price.
+  function recalcAmount(row: Row) {
+    row.amount = multiplyMoney(row.quantity, row.unitPrice);
+  }
+  function recalcPrice(row: Row) {
+    row.unitPrice = unitPriceFromTotal(row.amount, row.quantity);
+  }
 
   function resolvePolicyId(pref: string): string {
     if (pref && data.taxPolicies.some((p) => p.id === pref)) return pref;
@@ -95,7 +116,7 @@
   }
 
   function blankRow(): Row {
-    return { description: '', quantity: '', unitPrice: '', sourceItemId: null, type: 'service', taxable: false, taxPolicyId: '' };
+    return { description: '', quantity: '', unitPrice: '', amount: '', sourceItemId: null, type: 'service', taxable: false, taxPolicyId: '' };
   }
 </script>
 
@@ -208,6 +229,7 @@
                   onpick={(s) => {
                     row.type = s.type;
                     applyItemTax(row, s.taxable, s.taxPolicyId);
+                    recalcAmount(row);
                   }}
                 />
                 <select
@@ -227,6 +249,7 @@
                   inputmode="decimal"
                   required
                   bind:value={row.quantity}
+                  oninput={() => recalcAmount(row)}
                   class="w-full rounded-sm border border-fg/15 bg-surface px-2 py-1 text-right font-mono tabular-nums text-fg focus:border-accent focus:outline-none"
                 />
               </td>
@@ -237,6 +260,7 @@
                   inputmode="decimal"
                   required
                   bind:value={row.unitPrice}
+                  oninput={() => recalcAmount(row)}
                   class="w-full rounded-sm border border-fg/15 bg-surface px-2 py-1 text-right font-mono tabular-nums text-fg focus:border-accent focus:outline-none"
                 />
               </td>
@@ -277,10 +301,17 @@
                   value={row.taxable ? row.taxPolicyId : ''}
                 />
               </td>
-              <td class="px-3 py-2 text-right align-top font-mono tabular-nums text-fg">
-                {computedRows[i]?.amount ?? '0.00'}
+              <td class="px-3 py-2 align-top">
+                <input
+                  type="text"
+                  inputmode="decimal"
+                  aria-label="Amount"
+                  bind:value={row.amount}
+                  oninput={() => recalcPrice(row)}
+                  class="w-full rounded-sm border border-fg/15 bg-surface px-2 py-1 text-right font-mono tabular-nums text-fg focus:border-accent focus:outline-none"
+                />
                 {#if row.taxable}
-                  <span class="block text-[0.65rem] font-normal text-fg/50">
+                  <span class="mt-1 block text-right text-[0.65rem] font-normal text-fg/50">
                     +{computedRows[i]?.tax ?? '0.00'} tax
                   </span>
                 {/if}

@@ -71,6 +71,13 @@
       "when": 1784002282436,
       "tag": "0009_legal_acceptances",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1784044877856,
+      "tag": "0010_unit_price_precision",
+      "breakpoints": true
     }
   ]
 }

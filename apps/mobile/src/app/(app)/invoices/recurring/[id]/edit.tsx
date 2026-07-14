@@ -2,9 +2,11 @@ import {
   type LineItemType,
   type RecurringInvoiceLineItemInput,
   addMoney,
+  formatUnitPrice,
   multiplyMoney,
   recurringInvoiceUpdateSchema,
   sumMoney,
+  unitPriceFromTotal,
 } from '@thalermark/validation';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
@@ -50,6 +52,7 @@ type Row = {
   description: string;
   quantity: string;
   unitPrice: string;
+  amount: string;
   sourceItemId: string | null;
   type: LineItemType;
   taxable: boolean;
@@ -59,6 +62,7 @@ const blankRow = (): Row => ({
   description: '',
   quantity: '',
   unitPrice: '',
+  amount: '',
   sourceItemId: null,
   type: 'service',
   taxable: false,
@@ -127,7 +131,8 @@ export default function EditRecurring() {
               ? s.lineItems.map((li) => ({
                   description: li.description,
                   quantity: li.quantity,
-                  unitPrice: li.unitPrice,
+                  unitPrice: formatUnitPrice(li.unitPrice),
+                  amount: multiplyMoney(li.quantity, li.unitPrice),
                   sourceItemId: li.sourceItemId ?? null,
                   type: li.type === 'product' ? 'product' : 'service',
                   taxable: li.taxable ?? false,
@@ -185,24 +190,32 @@ export default function EditRecurring() {
     );
   const applyPick = (i: number, patch: ItemPatch) => {
     const { taxable, taxPolicyId, ...rest } = patch;
-    if (taxable !== undefined) {
-      patchRow(i, {
-        ...rest,
-        taxable,
-        taxPolicyId: taxable ? resolvePolicyId(taxPolicies, taxPolicyId ?? '') : '',
-      });
-    } else {
-      patchRow(i, rest);
-    }
+    setSeed((s) =>
+      s
+        ? {
+            ...s,
+            rows: s.rows.map((r, j) => {
+              if (j !== i) return r;
+              const merged: Row = { ...r, ...rest };
+              if (taxable !== undefined) {
+                merged.taxable = taxable;
+                merged.taxPolicyId = taxable ? resolvePolicyId(taxPolicies, taxPolicyId ?? '') : '';
+              }
+              // A pick sets unit price + quantity; keep the amount in step.
+              merged.amount = multiplyMoney(merged.quantity, merged.unitPrice);
+              return merged;
+            }),
+          }
+        : s,
+    );
   };
 
   const computedRows = useMemo(
     () =>
       seed
         ? seed.rows.map((r) => {
-            const amount = multiplyMoney(r.quantity, r.unitPrice);
             const rate = r.taxable ? policyRate(taxPolicies, r.taxPolicyId) : '0';
-            return { ...r, amount, tax: lineTax(r.taxable, rate, amount) };
+            return { ...r, tax: lineTax(r.taxable, rate, r.amount) };
           })
         : [],
     [seed, taxPolicies],
@@ -502,7 +515,9 @@ function LineItems({
                 </Text>
                 <TextInput
                   value={row.quantity}
-                  onChangeText={(t) => patchRow(i, { quantity: t })}
+                  onChangeText={(t) =>
+                    patchRow(i, { quantity: t, amount: multiplyMoney(t, row.unitPrice) })
+                  }
                   inputMode="decimal"
                   className="mt-1 rounded-sm border border-ink/15 bg-cream px-2 py-2 text-right font-mono tabular-nums text-ink"
                 />
@@ -513,7 +528,9 @@ function LineItems({
                 </Text>
                 <TextInput
                   value={row.unitPrice}
-                  onChangeText={(t) => patchRow(i, { unitPrice: t })}
+                  onChangeText={(t) =>
+                    patchRow(i, { unitPrice: t, amount: multiplyMoney(row.quantity, t) })
+                  }
                   inputMode="decimal"
                   className="mt-1 rounded-sm border border-ink/15 bg-cream px-2 py-2 text-right font-mono tabular-nums text-ink"
                 />
@@ -522,9 +539,14 @@ function LineItems({
                 <Text className="font-mono text-[10px] uppercase tracking-widest text-ink/50">
                   Amount
                 </Text>
-                <Text className="mt-1 py-2 text-right font-mono tabular-nums text-ink">
-                  {computed[i]?.amount ?? '0.00'}
-                </Text>
+                <TextInput
+                  value={row.amount}
+                  onChangeText={(t) =>
+                    patchRow(i, { amount: t, unitPrice: unitPriceFromTotal(t, row.quantity) })
+                  }
+                  inputMode="decimal"
+                  className="mt-1 rounded-sm border border-ink/15 bg-cream px-2 py-2 text-right font-mono tabular-nums text-ink"
+                />
               </View>
             </View>
             <TaxRow

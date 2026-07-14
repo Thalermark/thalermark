@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { lineItemType } from './item.js';
-import { isoDateString, moneyString, quantityString, taxRateString } from './money.js';
+import { isoDateString, moneyString, priceString, quantityString, taxRateString } from './money.js';
 
 // Per-line input for estimates. Identical shape to invoice line items —
 // position is 1-based, amount duplicates quantity * unit_price (client
@@ -11,7 +11,7 @@ export const estimateLineItemInputSchema = z.object({
   position: z.number().int().min(1).max(10_000),
   description: z.string().min(1).max(500),
   quantity: quantityString,
-  unitPrice: moneyString,
+  unitPrice: priceString,
   amount: moneyString,
   // product | service snapshot — carried onto the converted invoice line. See
   // invoiceLineItemInputSchema for the contract.
