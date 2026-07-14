@@ -1,0 +1,108 @@
+import { type Database, legalAcceptances } from '@thalermark/db';
+import { and, eq } from 'drizzle-orm';
+import { v7 as uuidv7 } from 'uuid';
+
+// Legal-consent config for a deployment. Its PRESENCE is the gate: when the
+// operator has configured Terms + Privacy (server env), consent is required and
+// this object is built in server.ts; when unset it's undefined and the whole
+// feature is off — the /api/legal state reports required:false and the web wall
+// never renders, so a default self-host is byte-identical to no-consent.
+//
+// This is the SERVER-side counterpart to the web-only PUBLIC_TERMS_URL /
+// PUBLIC_PRIVACY_URL that render the sign-up checkbox. The checkbox is friendly
+// pre-agreement UX; THIS is where the server truth (enforcement + the persisted
+// record) lives. The versions let the operator re-prompt everyone when the terms
+// change — bumping either version makes previously-accepted users unaccepted
+// against the new version, so the wall reappears once and a fresh row is written.
+export type LegalConsentConfig = {
+  termsUrl: string;
+  privacyUrl: string;
+  termsVersion: string;
+  privacyVersion: string;
+};
+
+// What /api/legal returns and the web/mobile wall reads. `version` is the
+// terms version — a change signal for the client; the accepted-check keys on
+// both versions. urls are echoed so the wall always has links regardless of the
+// web app's own PUBLIC_ env.
+export type LegalConsentState = {
+  required: boolean;
+  version: string | null;
+  accepted: boolean;
+  termsUrl: string | null;
+  privacyUrl: string | null;
+};
+
+const NOT_REQUIRED: LegalConsentState = {
+  required: false,
+  version: null,
+  accepted: false,
+  termsUrl: null,
+  privacyUrl: null,
+};
+
+// Has this user accepted the CURRENT terms+privacy version? Read via the
+// bootstrap (RLS-bypass) handle — same user-scoped path /api/me uses — since
+// acceptance is a per-person fact that can precede account selection.
+export async function getLegalConsentState(
+  db: Database,
+  config: LegalConsentConfig | undefined,
+  userId: string,
+): Promise<LegalConsentState> {
+  if (!config) return NOT_REQUIRED;
+  const [row] = await db
+    .select({ id: legalAcceptances.id })
+    .from(legalAcceptances)
+    .where(
+      and(
+        eq(legalAcceptances.userId, userId),
+        eq(legalAcceptances.termsVersion, config.termsVersion),
+        eq(legalAcceptances.privacyVersion, config.privacyVersion),
+      ),
+    )
+    .limit(1);
+  return {
+    required: true,
+    version: config.termsVersion,
+    accepted: row !== undefined,
+    termsUrl: config.termsUrl,
+    privacyUrl: config.privacyUrl,
+  };
+}
+
+// Idempotent record of acceptance for the current version. A second click of the
+// same version is a no-op (unique index on user_id + both versions); bumping a
+// version writes a fresh row. account_id / ip / user_agent are context-only —
+// core passes the active account best-effort and leaves ip/user_agent to the
+// commercial layer.
+export async function recordLegalAcceptance(
+  db: Database,
+  config: LegalConsentConfig,
+  args: {
+    userId: string;
+    accountId?: string | null;
+    ip?: string | null;
+    userAgent?: string | null;
+  },
+): Promise<void> {
+  await db
+    .insert(legalAcceptances)
+    .values({
+      id: uuidv7(),
+      userId: args.userId,
+      termsVersion: config.termsVersion,
+      termsUrl: config.termsUrl,
+      privacyVersion: config.privacyVersion,
+      privacyUrl: config.privacyUrl,
+      accountId: args.accountId ?? null,
+      ip: args.ip ?? null,
+      userAgent: args.userAgent ?? null,
+    })
+    .onConflictDoNothing({
+      target: [
+        legalAcceptances.userId,
+        legalAcceptances.termsVersion,
+        legalAcceptances.privacyVersion,
+      ],
+    });
+}

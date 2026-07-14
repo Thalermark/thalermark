@@ -48,9 +48,25 @@ export const load: LayoutServerLoad = async (event) => {
   const telRes = await client.api.account.telemetry.$get();
   if (telRes.ok) telemetry = await telRes.json();
 
+  // Legal-consent state (spikes/SIGN-UP-ACK-TOS.md). Drives the blocking wall in
+  // the layout: when required && !accepted, the (app) content is replaced by the
+  // Terms/Privacy gate. required:false on a default self-host → no wall, at the
+  // cost of one cheap GET (mirrors the telemetry fetch above). A failed fetch
+  // just omits it (no wall).
+  let legal: {
+    required: boolean;
+    version: string | null;
+    accepted: boolean;
+    termsUrl: string | null;
+    privacyUrl: string | null;
+  } | null = null;
+  const legalRes = await client.api.legal.$get();
+  if (legalRes.ok) legal = await legalRes.json();
+
   return {
     companies: companies.map((c) => ({ id: c.id, name: c.name })),
     activeCompanyId: active?.id ?? null,
     telemetry,
+    legal,
   };
 };

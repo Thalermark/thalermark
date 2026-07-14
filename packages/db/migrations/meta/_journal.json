@@ -64,6 +64,13 @@
       "when": 1784044800000,
       "tag": "0008_workspace_name_from_company",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1784002282436,
+      "tag": "0009_legal_acceptances",
+      "breakpoints": true
     }
   ]
 }

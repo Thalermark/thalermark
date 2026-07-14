@@ -89,6 +89,9 @@ export type ServerApiClient = {
     me: AccountApi['me'];
     account: AccountApi['account'];
     team: AccountApi['team'];
+    // Legal-consent state + accept, also on the account sub-app. Consumed by the
+    // (app) layout load (state) and the legal-accept proxy (accept).
+    legal: AccountApi['legal'];
     bills: BillsApi['bills'];
     'owner-money': OwnerMoneyApi['owner-money'];
     purchases: PurchasesApi['purchases'];
@@ -119,6 +122,7 @@ export function serverApiClient(event: RequestEvent): ServerApiClient {
     me: accountApi.me,
     account: accountApi.account,
     team: accountApi.team,
+    legal: accountApi.legal,
     bills: hc<BillsAppType>(base, { headers }).api.bills,
     'owner-money': hc<OwnerMoneyEventsAppType>(base, { headers }).api['owner-money'],
     purchases: hc<PurchasesAppType>(base, { headers }).api.purchases,

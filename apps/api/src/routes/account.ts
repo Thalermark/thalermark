@@ -10,6 +10,7 @@ import type { AppDeps } from '../app.js';
 import { buildAccountExport } from '../lib/account-export.js';
 import { communityAccountNotices } from '../lib/account-notice.js';
 import { emailFooterText, renderEmailHtml } from '../lib/email-layout.js';
+import { getLegalConsentState, recordLegalAcceptance } from '../lib/legal-consent.js';
 import { EMAIL_RE, UUID_RE } from '../lib/route-helpers.js';
 import { requireCapability } from '../middleware/authz.js';
 import type { RlsVariables } from '../middleware/rls-context.js';
@@ -112,6 +113,33 @@ export function accountRoutes(deps: AppDeps) {
             expiresAt: r.expiresAt.toISOString(),
           })),
         });
+      })
+      // Legal consent (Terms/Privacy clickwrap). User-scoped like /api/me: the
+      // acceptance belongs to the PERSON, not the tenant, and may precede account
+      // selection, so both routes run on the bootstrap path (no x-account-id /
+      // tenant tx) via bootstrapDb keyed on userId. GET reports whether the
+      // signed-in user has accepted the CURRENT terms version; the web/mobile
+      // wall blocks the app while required && !accepted. deps.legalConsent absent
+      // (default self-host / tests) → required:false, no wall, no record — the
+      // public build is byte-identical to no-consent. See lib/legal-consent.ts
+      // and spikes/SIGN-UP-ACK-TOS.md.
+      .get('/api/legal', async (c) => {
+        const userId = c.get('userId');
+        return c.json(await getLegalConsentState(bootstrapDb, deps.legalConsent, userId));
+      })
+      .post('/api/legal/accept', async (c) => {
+        const userId = c.get('userId');
+        // Consent not required here: nothing to record. Return ok so a stale
+        // client that posts anyway can't wedge (the wall won't render either).
+        if (!deps.legalConsent) return c.json({ ok: true });
+        // account_id is context only — which tenant the person was in when they
+        // accepted, best-effort from the active-account header (the wall lives in
+        // the (app) group, which sends it). ip/user_agent stay null on the public
+        // build; the commercial layer fills them for its evidentiary record.
+        const accountHeader = c.req.header('x-account-id');
+        const accountId = accountHeader && UUID_RE.test(accountHeader) ? accountHeader : null;
+        await recordLegalAcceptance(bootstrapDb, deps.legalConsent, { userId, accountId });
+        return c.json({ ok: true });
       })
       // Per-account telemetry consent (TELEMETRY.md). The state isn't sensitive
       // and every client needs `enabled` to decide whether to emit, so GET is

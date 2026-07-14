@@ -6,6 +6,8 @@
 // Add fields here as upstream slices need them (DB, auth, telemetry, etc.).
 // The skeleton only needs PORT + NODE_ENV.
 
+import type { LegalConsentConfig } from './lib/legal-consent.js';
+
 export type LogLevel = 'debug' | 'info' | 'warning' | 'error' | 'fatal';
 
 export type Env = {
@@ -102,6 +104,16 @@ export type Env = {
   // private (e.g. http://ollama:11434). Opens exactly those, not the whole LAN.
   // Metadata/link-local stay blocked regardless.
   aiAllowedEndpoints?: string[];
+  // Legal consent (Terms/Privacy clickwrap) — the SERVER side of the sign-up
+  // gate. Undefined (the default) = not required: /api/legal reports
+  // required:false, the web wall never shows, and a default self-host is
+  // byte-identical to no-consent. Set LEGAL_CONSENT_REQUIRED=true to enable;
+  // the URLs default to the bundled /legal/* template pages and the versions to
+  // '1' (bump either version to re-prompt everyone). This is the server-side
+  // counterpart to the web-only PUBLIC_TERMS_URL / PUBLIC_PRIVACY_URL that
+  // render the sign-up checkbox. Optional on the type so test/embedder Env
+  // literals needn't list it.
+  legalConsent?: LegalConsentConfig;
 };
 
 const DEFAULT_PORT = 3000;
@@ -181,6 +193,17 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
       .split(',')
       .map((s) => s.trim())
       .filter((s) => s.length > 0),
+    // parseBool treats unset / "" as false, so the default is off and no
+    // tri-state trap here. When on, URLs default to the bundled template pages
+    // and versions to '1'.
+    legalConsent: parseBool(source.LEGAL_CONSENT_REQUIRED)
+      ? {
+          termsUrl: source.LEGAL_TERMS_URL || '/legal/terms',
+          privacyUrl: source.LEGAL_PRIVACY_URL || '/legal/privacy',
+          termsVersion: source.LEGAL_TERMS_VERSION || '1',
+          privacyVersion: source.LEGAL_PRIVACY_VERSION || '1',
+        }
+      : undefined,
   });
 }
 

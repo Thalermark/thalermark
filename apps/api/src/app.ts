@@ -17,6 +17,7 @@ import { HTTPException } from 'hono/http-exception';
 import type { AccountNoticeProvider } from './lib/account-notice.js';
 import type { ApiAuth } from './lib/auth.js';
 import type { EntitlementProvider } from './lib/entitlement.js';
+import type { LegalConsentConfig } from './lib/legal-consent.js';
 import type { LlmConnectionStore } from './lib/llm-connection.js';
 import type { LlmCredentialResolver } from './lib/llm-credentials.js';
 import type { Mailer } from './lib/mailer.js';
@@ -161,6 +162,13 @@ export type AppDeps = {
   // empty suggestions rather than erroring. The keyless US Census geocoder is
   // the no-config default, so this is normally set. Built in server.ts from env.
   addressProvider?: AddressAutocompleteProvider | null;
+  // Legal-consent config (Terms/Privacy). Its presence turns the clickwrap gate
+  // on: GET /api/legal reports required:true and the web/mobile wall blocks the
+  // app until the user accepts (POST /api/legal/accept records a per-user row).
+  // Omitted on a default self-host / tests → required:false, no wall, no record
+  // — byte-identical to no-consent. Built in server.ts from env.legalConsent;
+  // the commercial root can inject its own (hosted terms + richer record).
+  legalConsent?: LegalConsentConfig;
 };
 
 function createMainApp(deps: AppDeps) {

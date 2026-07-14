@@ -63,6 +63,12 @@ const BOOTSTRAP_PATH_PATTERNS: RegExp[] = [
   /^\/api\/invitations\/[^/]+\/accept$/,
   /^\/api\/invitations\/[^/]+\/decline$/,
   /^\/api\/locations\/autocomplete$/,
+  // Legal consent (Terms/Privacy). User-scoped: the acceptance belongs to the
+  // person, not the tenant, and can precede account selection, so these run
+  // session-gated but without x-account-id / a tenant tx — the handler reads +
+  // writes via bootstrapDb keyed on userId (same shape as /api/me).
+  /^\/api\/legal$/,
+  /^\/api\/legal\/accept$/,
 ];
 
 // Unauthed public endpoints: no session, no tenant context. Token in the URL

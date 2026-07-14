@@ -3,6 +3,7 @@ import type { Role } from '@thalermark/validation';
 import { Redirect, Tabs, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, AppState, Pressable, Text, View } from 'react-native';
+import { LegalConsentGate } from '../../components/LegalConsentGate';
 import { resolveActiveAccount } from '../../lib/active-account';
 import { pickActiveCompany } from '../../lib/active-company';
 import { api } from '../../lib/api';
@@ -14,8 +15,9 @@ import { flushTelemetry, setTelemetryEnabled } from '../../lib/telemetry';
 //   'anon'    → no session, go sign in
 //   'select'  → authed with several memberships, none chosen → pick one
 //   'onboard' → active company has no business type yet → run the welcome wizard
+//   'consent' → deployment requires Terms/Privacy and this user hasn't accepted
 //   'ready'   → authed with an active account resolved → render the app
-type Gate = 'loading' | 'anon' | 'select' | 'ready' | 'error' | 'onboard';
+type Gate = 'loading' | 'anon' | 'select' | 'ready' | 'error' | 'onboard' | 'consent';
 
 // The (app) group is the authed half of the mobile app. (auth) screens live
 // outside it. Gating happens here rather than in the root layout so the
@@ -36,6 +38,8 @@ export default function AppLayout() {
   const [gate, setGate] = useState<Gate>('loading');
   // The active membership's role, fed to RoleProvider for UX capability gating.
   const [role, setRole] = useState<Role | undefined>(undefined);
+  // Terms/Privacy URLs for the consent gate, set when gate === 'consent'.
+  const [legal, setLegal] = useState<{ termsUrl: string; privacyUrl: string } | null>(null);
 
   // Extracted so the error-state Retry button can re-run it. Mirrors web's
   // hooks.server.ts: a 5xx/unreachable /api/me is a server fault ('error'),
@@ -71,6 +75,24 @@ export default function AppLayout() {
           const row = companies.find((c) => c.id === picked?.id);
           if (row && row.businessType === null) {
             setGate('onboard');
+            return;
+          }
+        }
+        // Legal-consent gate (spikes/SIGN-UP-ACK-TOS.md), after onboarding —
+        // mirrors web's (app) layout. When the deployment requires Terms/Privacy
+        // and this person hasn't accepted the current version, block on the
+        // consent screen before the app. required:false (default self-host) →
+        // falls straight through. A failed fetch never traps them.
+        const legalRes = await api.api.legal.$get();
+        if (!active) return;
+        if (legalRes.ok) {
+          const l = await legalRes.json();
+          if (l.required && !l.accepted) {
+            setLegal({
+              termsUrl: l.termsUrl ?? '/legal/terms',
+              privacyUrl: l.privacyUrl ?? '/legal/privacy',
+            });
+            setGate('consent');
             return;
           }
         }
@@ -133,6 +155,18 @@ export default function AppLayout() {
   if (gate === 'anon') return <Redirect href="/sign-in" />;
   if (gate === 'select') return <Redirect href="/select-company" />;
   if (gate === 'onboard') return <Redirect href="/welcome" />;
+  if (gate === 'consent' && legal) {
+    return (
+      <LegalConsentGate
+        termsUrl={legal.termsUrl}
+        privacyUrl={legal.privacyUrl}
+        onAccepted={() => {
+          setGate('loading');
+          runGate();
+        }}
+      />
+    );
+  }
 
   return (
     <RoleProvider role={role}>
