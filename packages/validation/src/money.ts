@@ -15,6 +15,16 @@ export const moneyString = z
   .regex(/^\d+(\.\d{1,2})?$/, 'money must be a decimal string with up to 2 fractional digits')
   .refine((s) => s.length <= 18, 'money exceeds 15-digit precision');
 
+// Unit price allows up to 4 fractional digits (numeric(15,4)) — finer than a
+// money amount so a line total that doesn't divide evenly by the quantity can
+// still be represented exactly (e.g. $650 over 7 units → $92.8571/unit, which
+// multiplies back to $650.00). Amounts / subtotals / totals stay 2dp
+// (moneyString); only the per-unit price carries the extra precision.
+export const priceString = z
+  .string()
+  .regex(/^\d+(\.\d{1,4})?$/, 'unit price must be a decimal string with up to 4 fractional digits')
+  .refine((s) => s.length <= 20, 'unit price exceeds 15-digit precision');
+
 export const quantityString = z
   .string()
   .regex(/^\d+(\.\d{1,4})?$/, 'quantity must be a decimal string with up to 4 fractional digits')
@@ -49,6 +59,7 @@ export const isoDateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date must 
 
 const MONEY_SCALE = 2;
 const QUANTITY_SCALE = 4;
+const PRICE_SCALE = 4;
 const RATE_SCALE = 4;
 const DECIMAL_RE = /^\d+(\.\d+)?$/;
 
@@ -73,11 +84,31 @@ function roundDiv(n: bigint, divisor: bigint): bigint {
 
 export function multiplyMoney(quantity: string, unitPrice: string): string {
   const q = toScaled(quantity, QUANTITY_SCALE);
-  const p = toScaled(unitPrice, MONEY_SCALE);
-  const productAtScale6 = q * p;
-  // Drop from scale 6 back to MONEY_SCALE (2) with half-up rounding.
-  const dropDivisor = 10n ** BigInt(QUANTITY_SCALE);
-  return fromScaled(roundDiv(productAtScale6, dropDivisor), MONEY_SCALE);
+  const p = toScaled(unitPrice, PRICE_SCALE);
+  // Product is at scale QUANTITY_SCALE + PRICE_SCALE (8); drop back to
+  // MONEY_SCALE (2) with half-away-from-zero rounding. Widening the price scale
+  // from 2 to 4 is backward-compatible — a 2dp price like "92.85" still yields
+  // "649.95" — while a 4dp price like "92.8571" now reaches "650.00" at qty 7.
+  const productAtScale8 = q * p;
+  const dropDivisor = 10n ** BigInt(QUANTITY_SCALE + PRICE_SCALE - MONEY_SCALE);
+  return fromScaled(roundDiv(productAtScale8, dropDivisor), MONEY_SCALE);
+}
+
+// Back-compute the unit price a desired line TOTAL implies for a quantity, at
+// PRICE_SCALE (4dp): round(total ÷ quantity). The inverse of multiplyMoney —
+// `unitPriceFromTotal("650.00","7")` = "92.8571", and `multiplyMoney("7",
+// "92.8571")` = "650.00". Powers the "type the line total" UX: the client writes
+// the result into the unit-price field, so the stored representation stays
+// quantity + 4dp unit price (amount is still multiplyMoney of the two). A zero /
+// blank quantity has no meaningful per-unit price → "0.0000".
+export function unitPriceFromTotal(total: string, quantity: string): string {
+  const q = toScaled(quantity, QUANTITY_SCALE);
+  if (q === 0n) return fromScaled(0n, PRICE_SCALE);
+  // total is at MONEY_SCALE (2), q at QUANTITY_SCALE (4); scale the numerator so
+  // the integer divide lands the quotient at PRICE_SCALE (4).
+  const t = toScaled(total, MONEY_SCALE);
+  const numerator = t * 10n ** BigInt(PRICE_SCALE + QUANTITY_SCALE - MONEY_SCALE);
+  return fromScaled(roundDiv(numerator, q), PRICE_SCALE);
 }
 
 export function sumMoney(values: readonly string[]): string {
@@ -127,4 +158,20 @@ export function taxOfAmount(amount: string, ratePct: string): string {
   const r = toScaled(ratePct, RATE_SCALE);
   const divisor = 10n ** BigInt(MONEY_SCALE + RATE_SCALE);
   return fromScaled(roundDiv(a * r, divisor), MONEY_SCALE);
+}
+
+// Display a stored unit price (numeric(15,4), e.g. "92.8571" or a legacy
+// "10.0000") with 2–4 decimals: always at least 2, at most 4, trimming trailing
+// zeros beyond the second. "10.0000"→"10.00", "92.8500"→"92.85",
+// "92.8571"→"92.8571". Read/customer-facing views use this so a price widened to
+// 4dp by the migration doesn't render as "10.0000". Non-decimal input is padded
+// to 2dp; anything unparseable falls through unchanged.
+export function formatUnitPrice(price: string): string {
+  if (!DECIMAL_RE.test(price)) return price;
+  const dot = price.indexOf('.');
+  if (dot === -1) return `${price}.00`;
+  let frac = price.slice(dot + 1);
+  while (frac.length > MONEY_SCALE && frac.endsWith('0')) frac = frac.slice(0, -1);
+  if (frac.length < MONEY_SCALE) frac = frac.padEnd(MONEY_SCALE, '0');
+  return `${price.slice(0, dot)}.${frac}`;
 }

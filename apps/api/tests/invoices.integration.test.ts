@@ -178,6 +178,57 @@ describe('POST /api/invoices', () => {
     }
   });
 
+  it('stores a 4dp unit price that reaches an agreed round total ($650 over 7)', async () => {
+    // TMC-134: a 2dp unit price can't make 7 units total $650 (7×92.85=649.95,
+    // 7×92.86=650.02). A 4dp unit price (92.8571 × 7 = 650.00) can, and the API
+    // stores unit price + amount as-sent — so the invoice total, and thus the
+    // Stripe charge and the ledger, all become exactly $650.
+    const ctx = buildApp();
+    try {
+      const cookie = await signUp(ctx.app, 'daysitter@example.com');
+      const { accountId, companyId } = await userContext('daysitter@example.com');
+      const contactId = await createContact(ctx, cookie, accountId, companyId);
+
+      const res = await ctx.app.request('/api/invoices', {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          companyId,
+          contactId,
+          number: 'INV-650',
+          issueDate: '2026-07-14',
+          dueDate: '2026-08-13',
+          subtotal: '650.00',
+          total: '650.00',
+          lineItems: [
+            {
+              position: 1,
+              description: 'Dog sitting — 7 days',
+              quantity: '7',
+              unitPrice: '92.8571',
+              amount: '650.00',
+            },
+          ],
+        }),
+      });
+      expect(res.status).toBe(201);
+      const { id } = (await res.json()) as { id: string };
+
+      const db = getTestDb();
+      const [inv] = await db.select().from(invoices).where(eq(invoices.id, id));
+      expect(inv?.total).toBe('650.00');
+      const [line] = await db
+        .select()
+        .from(invoiceLineItems)
+        .where(eq(invoiceLineItems.invoiceId, id));
+      // The 4dp unit price is preserved (numeric(15,4)); the amount is exactly $650.
+      expect(line?.unitPrice).toBe('92.8571');
+      expect(line?.amount).toBe('650.00');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
   it('returns 409 on a duplicate (companyId, number)', async () => {
     const ctx = buildApp();
     try {

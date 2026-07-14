@@ -2,6 +2,7 @@
   import AuditHistory from '$lib/components/AuditHistory.svelte';
   import { may } from '$lib/perms';
   import { cadenceLabel } from '$lib/recurring';
+  import { formatUnitPrice } from '@thalermark/validation';
   import type { PageProps } from './$types';
 
   let { data, form }: PageProps = $props();
@@ -157,7 +158,7 @@
         <tr>
           <td class="px-5 py-4 text-fg">{li.description}</td>
           <td class="px-5 py-4 text-right font-mono tabular-nums text-fg/80">{li.quantity}</td>
-          <td class="px-5 py-4 text-right font-mono tabular-nums text-fg/80">{li.unitPrice}</td>
+          <td class="px-5 py-4 text-right font-mono tabular-nums text-fg/80">{formatUnitPrice(li.unitPrice)}</td>
           <td class="px-5 py-4 text-right font-mono tabular-nums text-fg">{li.amount}</td>
         </tr>
       {/each}

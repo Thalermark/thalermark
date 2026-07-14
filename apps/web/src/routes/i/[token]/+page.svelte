@@ -1,5 +1,6 @@
 <script lang="ts">
   import { page } from '$app/state';
+  import { formatUnitPrice } from '@thalermark/validation';
   import type { PageProps } from './$types';
 
   let { data }: PageProps = $props();
@@ -129,7 +130,7 @@
               {/if}
             </td>
             <td class="px-5 py-4 text-right font-mono tabular-nums text-fg/80">{li.quantity}</td>
-            <td class="px-5 py-4 text-right font-mono tabular-nums text-fg/80">{li.unitPrice}</td>
+            <td class="px-5 py-4 text-right font-mono tabular-nums text-fg/80">{formatUnitPrice(li.unitPrice)}</td>
             <td class="px-5 py-4 text-right font-mono tabular-nums text-fg">{li.amount}</td>
           </tr>
         {/each}

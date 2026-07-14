@@ -107,7 +107,8 @@ export const estimateLineItems = pgTable(
     position: bigint('position', { mode: 'number' }).notNull(),
     description: text('description').notNull(),
     quantity: numeric('quantity', { precision: 15, scale: 4 }).notNull(),
-    unitPrice: numeric('unit_price', { precision: 15, scale: 2 }).notNull(),
+    // 4-decimal scale — sibling of invoice_line_items.unit_price (see TMC-134).
+    unitPrice: numeric('unit_price', { precision: 15, scale: 4 }).notNull(),
     amount: numeric('amount', { precision: 15, scale: 2 }).notNull(),
     // product | service snapshot — carried onto the converted invoice line so
     // the revenue split survives convert-to-invoice. See invoice_line_items.type.

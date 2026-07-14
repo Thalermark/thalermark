@@ -4,8 +4,10 @@ import {
   addMoney,
   contactCreateSchema,
   estimateCreateSchema,
+  formatUnitPrice,
   multiplyMoney,
   sumMoney,
+  unitPriceFromTotal,
 } from '@thalermark/validation';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useMemo, useRef, useState } from 'react';
@@ -40,6 +42,7 @@ type Row = {
   description: string;
   quantity: string;
   unitPrice: string;
+  amount: string;
   sourceItemId: string | null;
   type: LineItemType;
   taxable: boolean;
@@ -49,6 +52,7 @@ const blankRow = (): Row => ({
   description: '',
   quantity: '',
   unitPrice: '',
+  amount: '',
   sourceItemId: null,
   type: 'service',
   taxable: false,
@@ -147,9 +151,8 @@ export default function NewEstimate() {
   const computedRows = useMemo(
     () =>
       rows.map((r) => {
-        const amount = multiplyMoney(r.quantity, r.unitPrice);
         const rate = r.taxable ? policyRate(taxPolicies, r.taxPolicyId) : '0';
-        return { ...r, amount, tax: lineTax(r.taxable, rate, amount) };
+        return { ...r, tax: lineTax(r.taxable, rate, r.amount) };
       }),
     [rows, taxPolicies],
   );
@@ -159,6 +162,28 @@ export default function NewEstimate() {
 
   const patchRow = (i: number, patch: Partial<Row>) =>
     setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  // Keep unit price and line total in step (mirror of web). Editing quantity or
+  // unit price re-derives the amount (unit price sticky); editing the amount
+  // back-computes a 4dp unit price so an agreed total that doesn't divide evenly
+  // (e.g. $650 over 7 → $92.8571 → $650.00) is representable.
+  const setRowQuantity = (i: number, quantity: string) =>
+    setRows((rs) =>
+      rs.map((r, j) =>
+        j === i ? { ...r, quantity, amount: multiplyMoney(quantity, r.unitPrice) } : r,
+      ),
+    );
+  const setRowUnitPrice = (i: number, unitPrice: string) =>
+    setRows((rs) =>
+      rs.map((r, j) =>
+        j === i ? { ...r, unitPrice, amount: multiplyMoney(r.quantity, unitPrice) } : r,
+      ),
+    );
+  const setRowAmount = (i: number, amount: string) =>
+    setRows((rs) =>
+      rs.map((r, j) =>
+        j === i ? { ...r, amount, unitPrice: unitPriceFromTotal(amount, r.quantity) } : r,
+      ),
+    );
   const addRow = () => setRows((rs) => [...rs, blankRow()]);
   const removeRow = (i: number) =>
     setRows((rs) => (rs.length <= 1 ? rs : rs.filter((_, j) => j !== i)));
@@ -177,15 +202,19 @@ export default function NewEstimate() {
     );
   const applyPick = (i: number, patch: ItemPatch) => {
     const { taxable, taxPolicyId, ...rest } = patch;
-    if (taxable !== undefined) {
-      patchRow(i, {
-        ...rest,
-        taxable,
-        taxPolicyId: taxable ? resolvePolicyId(taxPolicies, taxPolicyId ?? '') : '',
-      });
-    } else {
-      patchRow(i, rest);
-    }
+    setRows((rs) =>
+      rs.map((r, j) => {
+        if (j !== i) return r;
+        const merged: Row = { ...r, ...rest };
+        if (taxable !== undefined) {
+          merged.taxable = taxable;
+          merged.taxPolicyId = taxable ? resolvePolicyId(taxPolicies, taxPolicyId ?? '') : '';
+        }
+        // A pick sets unit price + quantity; keep the amount in step.
+        merged.amount = multiplyMoney(merged.quantity, merged.unitPrice);
+        return merged;
+      }),
+    );
   };
 
   const noCompany = bootstrapped && companyId === null;
@@ -404,7 +433,7 @@ export default function NewEstimate() {
                         </Text>
                         <TextInput
                           value={row.quantity}
-                          onChangeText={(t) => patchRow(i, { quantity: t })}
+                          onChangeText={(t) => setRowQuantity(i, t)}
                           inputMode="decimal"
                           className="mt-1 rounded-sm border border-ink/15 bg-cream px-2 py-2 text-right font-mono tabular-nums text-ink"
                         />
@@ -415,7 +444,7 @@ export default function NewEstimate() {
                         </Text>
                         <TextInput
                           value={row.unitPrice}
-                          onChangeText={(t) => patchRow(i, { unitPrice: t })}
+                          onChangeText={(t) => setRowUnitPrice(i, t)}
                           inputMode="decimal"
                           className="mt-1 rounded-sm border border-ink/15 bg-cream px-2 py-2 text-right font-mono tabular-nums text-ink"
                         />
@@ -424,9 +453,12 @@ export default function NewEstimate() {
                         <Text className="font-mono text-[10px] uppercase tracking-widest text-ink/50">
                           Amount
                         </Text>
-                        <Text className="mt-1 py-2 text-right font-mono tabular-nums text-ink">
-                          {computedRows[i]?.amount ?? '0.00'}
-                        </Text>
+                        <TextInput
+                          value={row.amount}
+                          onChangeText={(t) => setRowAmount(i, t)}
+                          inputMode="decimal"
+                          className="mt-1 rounded-sm border border-ink/15 bg-cream px-2 py-2 text-right font-mono tabular-nums text-ink"
+                        />
                       </View>
                     </View>
                     <TaxRow

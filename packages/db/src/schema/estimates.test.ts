@@ -275,7 +275,8 @@ describe('estimate_line_items', () => {
     expect(row?.position).toBe(1);
     expect(row?.description).toBe('Power washing — front patio (quote)');
     expect(row?.quantity).toBe('2.5000');
-    expect(row?.unitPrice).toBe('40.00');
+    // unit_price is numeric(15,4) (TMC-134), so it reads back at 4dp.
+    expect(row?.unitPrice).toBe('40.0000');
     expect(row?.amount).toBe('100.00');
   });
 

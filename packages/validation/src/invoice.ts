@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { lineItemType } from './item.js';
-import { isoDateString, moneyString, quantityString, taxRateString } from './money.js';
+import { isoDateString, moneyString, priceString, quantityString, taxRateString } from './money.js';
 
 // Per-line input. position is the 1-based ordinal the UI uses to render the
 // rows; the server trusts what the client sent rather than re-sequencing,
@@ -11,7 +11,7 @@ export const invoiceLineItemInputSchema = z.object({
   position: z.number().int().min(1).max(10_000),
   description: z.string().min(1).max(500),
   quantity: quantityString,
-  unitPrice: moneyString,
+  unitPrice: priceString,
   amount: moneyString,
   // product | service snapshot, copied from the catalog item on pick. Optional
   // — the DB defaults to 'service'. Drives the ledger revenue split. The server

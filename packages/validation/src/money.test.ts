@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { addMoney, centsToMoney, multiplyMoney, sumMoney, taxOfAmount, toCents } from './money.js';
+import {
+  addMoney,
+  centsToMoney,
+  formatUnitPrice,
+  multiplyMoney,
+  priceString,
+  sumMoney,
+  taxOfAmount,
+  toCents,
+  unitPriceFromTotal,
+} from './money.js';
 
 describe('multiplyMoney', () => {
   it('multiplies whole numbers', () => {
@@ -36,6 +46,71 @@ describe('multiplyMoney', () => {
 
   it('large values stay exact', () => {
     expect(multiplyMoney('999999999999', '1.00')).toBe('999999999999.00');
+  });
+
+  it('honours 4-decimal unit price precision (the agreed-total case)', () => {
+    // $650 over 7 units: no 2dp price reaches it, but 4dp does.
+    expect(multiplyMoney('7', '92.85')).toBe('649.95');
+    expect(multiplyMoney('7', '92.86')).toBe('650.02');
+    expect(multiplyMoney('7', '92.8571')).toBe('650.00');
+    // 2dp prices are unchanged by the wider scale (back-compat).
+    expect(multiplyMoney('2', '3.50')).toBe('7.00');
+    expect(multiplyMoney('3', '33.3333')).toBe('100.00');
+  });
+});
+
+describe('unitPriceFromTotal', () => {
+  it('back-computes a 4dp unit price that multiplies back to the total', () => {
+    expect(unitPriceFromTotal('650.00', '7')).toBe('92.8571');
+    expect(multiplyMoney('7', unitPriceFromTotal('650.00', '7'))).toBe('650.00');
+  });
+
+  it('round-trips for awkward divisors', () => {
+    for (const [total, qty] of [
+      ['100.00', '3'],
+      ['100.00', '6'],
+      ['100.00', '7'],
+      ['0.10', '3'],
+      ['1000.00', '7'],
+    ] as const) {
+      expect(multiplyMoney(qty, unitPriceFromTotal(total, qty))).toBe(total);
+    }
+  });
+
+  it('a zero or blank quantity has no per-unit price', () => {
+    expect(unitPriceFromTotal('650.00', '0')).toBe('0.0000');
+    expect(unitPriceFromTotal('650.00', '')).toBe('0.0000');
+  });
+});
+
+describe('formatUnitPrice', () => {
+  it('shows 2-4 decimals, trimming trailing zeros past the second', () => {
+    expect(formatUnitPrice('10.0000')).toBe('10.00'); // legacy widened price
+    expect(formatUnitPrice('92.8500')).toBe('92.85');
+    expect(formatUnitPrice('92.8571')).toBe('92.8571');
+    expect(formatUnitPrice('92.8570')).toBe('92.857');
+    expect(formatUnitPrice('10')).toBe('10.00');
+    expect(formatUnitPrice('10.5')).toBe('10.50');
+    expect(formatUnitPrice('0.0000')).toBe('0.00');
+  });
+
+  it('returns unparseable input unchanged', () => {
+    expect(formatUnitPrice('')).toBe('');
+    expect(formatUnitPrice('bogus')).toBe('bogus');
+  });
+});
+
+describe('priceString', () => {
+  it('accepts up to 4 fractional digits', () => {
+    for (const s of ['10', '10.00', '92.8571', '0.0001']) {
+      expect(priceString.safeParse(s).success).toBe(true);
+    }
+  });
+
+  it('rejects >4 digits, negatives, and non-decimals', () => {
+    for (const s of ['92.85712', '-5.00', 'abc', '.50']) {
+      expect(priceString.safeParse(s).success).toBe(false);
+    }
   });
 });
 

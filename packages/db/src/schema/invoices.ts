@@ -130,7 +130,11 @@ export const invoiceLineItems = pgTable(
     position: bigint('position', { mode: 'number' }).notNull(),
     description: text('description').notNull(),
     quantity: numeric('quantity', { precision: 15, scale: 4 }).notNull(),
-    unitPrice: numeric('unit_price', { precision: 15, scale: 2 }).notNull(),
+    // 4-decimal scale (not 2, unlike amount): lets a line total that doesn't
+    // divide evenly by the quantity be represented exactly — e.g. $650 over 7
+    // units → $92.8571/unit, which multiplies back to $650.00. See TMC-134 and
+    // priceString / unitPriceFromTotal in @thalermark/validation money.ts.
+    unitPrice: numeric('unit_price', { precision: 15, scale: 4 }).notNull(),
     amount: numeric('amount', { precision: 15, scale: 2 }).notNull(),
     // product | service snapshot, copied from the catalog item on pick (or set
     // by hand). Drives the hidden ledger revenue split at posting: product line
