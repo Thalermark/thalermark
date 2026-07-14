@@ -7,8 +7,9 @@ export const FONTS = {
   mono: ['JetBrains Mono', 'monospace'],
 } as const;
 
-// Single Google Fonts URL bundling the three families with the weights and
-// axes the landing template uses. Centralized so apps/web/src/app.html and
-// any future consumer stay in lockstep.
-export const GOOGLE_FONTS_HREF =
-  'https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap';
+// Same-origin stylesheet that @font-face-declares the three families above,
+// self-hosted (no third-party font requests) at apps/web/static/brand-fonts.css.
+// Root-relative; consumers that need an absolute URL (e.g. Stripe's Payment
+// Element fonts.cssSrc, which is fetched inside Stripe's iframe) resolve it
+// against their origin. Centralized so every consumer stays in lockstep.
+export const BRAND_FONTS_HREF = '/brand-fonts.css';
