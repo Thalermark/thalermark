@@ -31,6 +31,7 @@
   let awaitingVerification = $state(false);
   let resending = $state(false);
   let resent = $state(false);
+  let resendError = $state<string | null>(null);
 
   // Invite preview. When arriving via an invite link, the email is fixed to the
   // invited address — the sign-up hook joins the inviting account by matching it
@@ -83,36 +84,50 @@
       return;
     }
     submitting = true;
-    const result = await authClient.signUp.email({
-      email,
-      password,
-      name,
-      callbackURL: `${window.location.origin}/`,
-    });
-    submitting = false;
-    if (result.error) {
-      error = result.error.message ?? 'Sign-up failed';
-      return;
-    }
-    // Invited signups are auto-verified (the invite already proves email
-    // ownership). And when email verification isn't required (no mailer
-    // configured), Better Auth signs the user in immediately and returns a
-    // session token. In both cases we hard-nav into the app. Only when the
-    // server withholds the session pending verification (no token) do we show
-    // the check-your-inbox state.
-    if (inviteToken || result.data?.token) {
-      window.location.assign('/');
-    } else {
-      awaitingVerification = true;
+    try {
+      const result = await authClient.signUp.email({
+        email,
+        password,
+        name,
+        callbackURL: `${window.location.origin}/`,
+      });
+      if (result.error) {
+        error = result.error.message ?? 'Sign-up failed';
+        return;
+      }
+      // Invited signups are auto-verified (the invite already proves email
+      // ownership). And when email verification isn't required (no mailer
+      // configured), Better Auth signs the user in immediately and returns a
+      // session token. In both cases we hard-nav into the app. Only when the
+      // server withholds the session pending verification (no token) do we show
+      // the check-your-inbox state.
+      if (inviteToken || result.data?.token) {
+        window.location.assign('/');
+      } else {
+        awaitingVerification = true;
+      }
+    } catch {
+      // A thrown request (network down, API unreachable, CSP-blocked) never
+      // reaches the result-error branch, so surface it instead of leaving a
+      // stuck button.
+      error = 'Could not reach the server. Check your connection and try again.';
+    } finally {
+      submitting = false;
     }
   }
 
   async function onResend() {
     resending = true;
     resent = false;
-    await authClient.sendVerificationEmail({ email, callbackURL: `${window.location.origin}/` });
-    resending = false;
-    resent = true;
+    resendError = null;
+    try {
+      await authClient.sendVerificationEmail({ email, callbackURL: `${window.location.origin}/` });
+      resent = true;
+    } catch {
+      resendError = 'Could not send the email. Please try again.';
+    } finally {
+      resending = false;
+    }
   }
 </script>
 
@@ -147,6 +162,9 @@
       </button>
       {#if resent}
         <span class="label text-success">Sent</span>
+      {/if}
+      {#if resendError}
+        <span class="label text-danger">{resendError}</span>
       {/if}
     </div>
   </div>

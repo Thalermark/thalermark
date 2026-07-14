@@ -27,18 +27,23 @@
       return;
     }
     submitting = true;
-    const result = await authClient.resetPassword({ newPassword: password, token });
-    submitting = false;
-    if (result.error) {
-      error =
-        result.error.code === 'INVALID_TOKEN'
-          ? 'This reset link has expired — request a new one.'
-          : (result.error.message ?? 'Could not reset your password.');
-      return;
+    try {
+      const result = await authClient.resetPassword({ newPassword: password, token });
+      if (result.error) {
+        error =
+          result.error.code === 'INVALID_TOKEN'
+            ? 'This reset link has expired — request a new one.'
+            : (result.error.message ?? 'Could not reset your password.');
+        return;
+      }
+      // A completed reset revokes existing sessions, so send them to sign in fresh.
+      done = true;
+      setTimeout(() => goto('/sign-in'), 1500);
+    } catch {
+      error = 'Could not reach the server. Check your connection and try again.';
+    } finally {
+      submitting = false;
     }
-    // A completed reset revokes existing sessions, so send them to sign in fresh.
-    done = true;
-    setTimeout(() => goto('/sign-in'), 1500);
   }
 </script>
 
