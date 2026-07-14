@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { COLORS, GOOGLE_FONTS_HREF } from '@thalermark/brand';
+  import { COLORS, BRAND_FONTS_HREF } from '@thalermark/brand';
   import type { Stripe, StripeElements, StripePaymentElement } from '@stripe/stripe-js';
   import { onMount } from 'svelte';
   import type { PageProps } from './$types';
@@ -34,9 +34,13 @@
     // Theme the Element to the brand palette so the card form reads as
     // Thalermark, not a generic Stripe widget. The Element is an iframe and
     // can't see our CSS vars, so the dark variant is passed explicitly, keyed
-    // off the theme the init script resolved (`.dark` on <html>). Fonts pulled
-    // from the same Google Fonts bundle the rest of the app uses.
+    // off the theme the init script resolved (`.dark` on <html>). Fonts come
+    // from the same self-hosted stylesheet the rest of the app uses, passed as
+    // an absolute URL because Stripe fetches it from inside its own iframe.
+    // (In local dev Stripe can't reach a localhost origin, so the card form
+    // falls back to a system font — cosmetic only; production serves it fine.)
     const isDark = document.documentElement.classList.contains('dark');
+    const fontsHref = new URL(BRAND_FONTS_HREF, window.location.origin).href;
     elements = stripe.elements({
       clientSecret: data.clientSecret,
       appearance: {
@@ -52,7 +56,7 @@
           ...(isDark ? { colorBackground: COLORS.navy.DEFAULT } : {}),
         },
       },
-      fonts: [{ cssSrc: GOOGLE_FONTS_HREF }],
+      fonts: [{ cssSrc: fontsHref }],
     });
     const paymentElement: StripePaymentElement = elements.create('payment');
     paymentElement.mount(mountEl);
