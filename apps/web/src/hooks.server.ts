@@ -28,7 +28,11 @@ if (errorTrackingDsn) {
 const apiUrl = privateEnv.INTERNAL_API_URL || publicEnv.PUBLIC_API_URL || 'http://localhost:3000';
 
 const REDIRECT_IF_AUTHED = new Set(['/sign-in', '/sign-up']);
-const PUBLIC_PATHS = new Set([...REDIRECT_IF_AUTHED, '/accept-invite']);
+// /monitoring is the client error-tracking tunnel (routes/monitoring): the
+// browser SDK POSTs error envelopes there. It must accept them without a session
+// — client errors happen on public pages and for logged-out visitors too — so it
+// can't be behind the /sign-in redirect.
+const PUBLIC_PATHS = new Set([...REDIRECT_IF_AUTHED, '/accept-invite', '/monitoring']);
 // Parameterized public paths. The public invoice view at /i/[token] needs
 // to render without a session — the recipient of an invoice email has no
 // account here. Prefix-matched so each new public route is visible at this
