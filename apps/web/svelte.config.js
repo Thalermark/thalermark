@@ -7,8 +7,11 @@ import { loadEnv } from 'vite';
 // absolute cross-origin URL (e.g. http://localhost:3001), which 'self' would
 // block. Add that origin to connect-src when — and only when — it's absolute,
 // so the policy self-adjusts to the topology instead of hardcoding a port.
-const apiUrl = loadEnv(process.env.NODE_ENV ?? 'development', process.cwd(), 'PUBLIC_')
-  .PUBLIC_API_URL;
+const apiUrl = loadEnv(
+  process.env.NODE_ENV ?? 'development',
+  process.cwd(),
+  'PUBLIC_',
+).PUBLIC_API_URL;
 let apiOrigin = null;
 try {
   if (apiUrl) apiOrigin = new URL(apiUrl).origin;
