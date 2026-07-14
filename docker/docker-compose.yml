@@ -107,6 +107,15 @@ services:
       # => the SDK stays inert. See .env.example "Error tracking".
       PUBLIC_ERROR_TRACKING_DSN: ${PUBLIC_ERROR_TRACKING_DSN:-}
       PUBLIC_RELEASE: ${PUBLIC_RELEASE:-}
+      # Sign-up legal-consent checkbox links. Same env_file caveat as the vars
+      # above — the web service reads no .env, so without this passthrough the
+      # checkbox never renders on a docker self-host even when the operator sets
+      # the vars (TMC-135). Unset => no checkbox, byte-identical to no-consent.
+      # NOTE: the enforcing consent WALL is driven by the api's LEGAL_* vars
+      # (root .env, via env_file) and is independent of these. See .env.example
+      # "Legal consent".
+      PUBLIC_TERMS_URL: ${PUBLIC_TERMS_URL:-}
+      PUBLIC_PRIVACY_URL: ${PUBLIC_PRIVACY_URL:-}
     depends_on:
       - api
 
