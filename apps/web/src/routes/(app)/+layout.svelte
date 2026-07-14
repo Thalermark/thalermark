@@ -1,5 +1,6 @@
 <script lang="ts">
   import { page } from '$app/state';
+  import LegalConsent from '$lib/components/LegalConsent.svelte';
   import TelemetryConsent from '$lib/components/TelemetryConsent.svelte';
   import UserMenu from '$lib/components/UserMenu.svelte';
   import { may } from '$lib/perms';
@@ -42,6 +43,14 @@
   $effect(() => {
     setTelemetryEnabled(data?.telemetry?.enabled ?? false);
   });
+
+  // Legal-consent gate (spikes/SIGN-UP-ACK-TOS.md). When the deployment requires
+  // consent and this person hasn't accepted the current terms version, the wall
+  // REPLACES the app content below — every (app) route renders the same layout,
+  // so there's no way past it until they accept. required:false (default
+  // self-host) → never shown. Applies to every role and every sign-up door.
+  const showLegalConsent = $derived(!!data?.legal?.required && !data.legal.accepted);
+
 </script>
 
 <header class="border-b border-fg/10 bg-surface print:hidden">
@@ -73,17 +82,24 @@
 </header>
 
 <main class="mx-auto max-w-5xl px-6 py-12">
-  {#if notice}
-    <div
-      class="mb-8 flex flex-wrap items-center justify-between gap-3 rounded-sm border px-4 py-3 text-sm {noticeClass}"
-      role="status"
-    >
-      <span>{notice.message}</span>
-      <a href={notice.ctaHref} class="link whitespace-nowrap font-medium">{notice.ctaLabel}</a>
-    </div>
+  {#if showLegalConsent}
+    <LegalConsent
+      termsUrl={data.legal?.termsUrl ?? '/legal/terms'}
+      privacyUrl={data.legal?.privacyUrl ?? '/legal/privacy'}
+    />
+  {:else}
+    {#if notice}
+      <div
+        class="mb-8 flex flex-wrap items-center justify-between gap-3 rounded-sm border px-4 py-3 text-sm {noticeClass}"
+        role="status"
+      >
+        <span>{notice.message}</span>
+        <a href={notice.ctaHref} class="link whitespace-nowrap font-medium">{notice.ctaLabel}</a>
+      </div>
+    {/if}
+    {#if showTelemetryConsent}
+      <TelemetryConsent />
+    {/if}
+    {@render children()}
   {/if}
-  {#if showTelemetryConsent}
-    <TelemetryConsent />
-  {/if}
-  {@render children()}
 </main>

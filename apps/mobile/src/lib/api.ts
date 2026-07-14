@@ -134,6 +134,7 @@ function facadeApi() {
     account: account.api.account,
     invitations: account.api.invitations,
     team: account.api.team,
+    legal: account.api.legal,
     bills: bills.api.bills,
     'owner-money': ownerMoney.api['owner-money'],
     purchases: purchases.api.purchases,
@@ -185,6 +186,7 @@ type ApiClient = {
     account: AccountApi['account'];
     invitations: AccountApi['invitations'];
     team: AccountApi['team'];
+    legal: AccountApi['legal'];
     bills: BillsApi['bills'];
     'owner-money': OwnerMoneyApi['owner-money'];
     purchases: PurchasesApi['purchases'];

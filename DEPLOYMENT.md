@@ -134,6 +134,9 @@ Optional integrations, each disabled-but-safe when blank:
 - **Error tracking** — `ERROR_TRACKING_DSN` (Sentry or self-hosted GlitchTip).
 - **Telemetry** — off by default (`TELEMETRY_TRANSPORT_ENABLED=false`); opt-in,
   see [TELEMETRY.md](./TELEMETRY.md).
+- **Legal consent** — off by default (`LEGAL_CONSENT_REQUIRED`). On ⇒ requires
+  Terms/Privacy acceptance and records it per user/version. See
+  [Legal consent](#legal-consent-termsprivacy).
 
 ---
 
@@ -289,6 +292,58 @@ Leave both off on a public deployment.
 
 ---
 
+## Legal consent (Terms/Privacy)
+
+Off by default. When enabled, every user must accept the current Terms +
+Privacy **once** before the app loads, and each acceptance is recorded per
+person, per version, in the `legal_acceptances` table. Leave it off and sign-up
+and the app are byte-identical to no-consent.
+
+There are two independent switches — the **api** owns enforcement + the record;
+the **web** app owns the (optional) sign-up-form checkbox.
+
+**Enforcement + the acceptance wall + the record** — set on the `api` (`.env`):
+
+```bash
+LEGAL_CONSENT_REQUIRED=true
+LEGAL_TERMS_URL=https://you.example/terms     # or /legal/terms (bundled placeholder)
+LEGAL_PRIVACY_URL=https://you.example/privacy # or /legal/privacy
+LEGAL_TERMS_VERSION=2026-07-01                # any string; bump to re-prompt. default "1"
+LEGAL_PRIVACY_VERSION=2026-07-01
+```
+
+The wall gets its links from these, so enabling consent needs **only** these api
+vars — no web or compose change required.
+
+**The sign-up checkbox** (a friendly pre-agreement nicety, separate from the
+wall) — the web app reads `PUBLIC_TERMS_URL` + `PUBLIC_PRIVACY_URL`. On the
+bundled compose these currently need a passthrough edit (see [Footguns](#footguns)).
+
+### Turn it on safely — order matters
+
+1. Point the URLs at **real** terms. The bundled `/legal/*` pages are
+   clearly-marked placeholder boilerplate ("not legal advice") — review them
+   with counsel or repoint the vars before walling real users.
+2. Apply the migration that creates `legal_acceptances` (`MIGRATE_ON_BOOT=true`
+   does this on deploy; otherwise run the migrate step). **Do this before
+   step 3** — consent required with the table missing makes `/api/legal` error.
+3. Set `LEGAL_CONSENT_REQUIRED=true` and restart the api.
+
+### What existing users see
+
+Everyone who signed up before you enabled this has no acceptance row, so on
+their next page load (web) or app focus (mobile) they hit a one-screen "Before
+you continue" gate, accept, and carry on — **no logout, no data loss**. It's a
+one-time interruption per person; time it deliberately.
+
+### Updating your terms
+
+Bump `LEGAL_TERMS_VERSION` / `LEGAL_PRIVACY_VERSION`. Everyone is re-prompted
+once against the new version and a fresh, dated acceptance row is written — so
+you keep a per-version record of who accepted what, and when.
+
+---
+
 ## Operations
 
 **Backups.**
@@ -436,3 +491,11 @@ app won't trust Caddy's internal `localhost` CA.)
 - **`--env-file .env`** — see the note under [Quick start](#quick-start-localhost).
   Interpolated variables (domain, passwords) silently use defaults if Compose
   can't find your env file.
+- **Legal consent enabled before the migration ran** → `/api/legal` 500s. Apply
+  the `legal_acceptances` migration *before* setting `LEGAL_CONSENT_REQUIRED=true`
+  (default-off short-circuits before touching the table, so it's harmless until
+  you flip the flag). See [Legal consent](#legal-consent-termsprivacy).
+- **Sign-up checkbox missing on the bundled compose** → the `web` service doesn't
+  forward `PUBLIC_TERMS_URL`/`PUBLIC_PRIVACY_URL` yet; add them to its
+  `environment:` block. The acceptance **wall** is driven by the api's `LEGAL_*`
+  vars and is unaffected.

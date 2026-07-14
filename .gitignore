@@ -51,3 +51,4 @@ spikes/
 # Docker volumes / local data
 data/
 postgres-data/
+scratch/

@@ -196,6 +196,11 @@ const app = createApp({
   storage,
   localFileServe,
   addressProvider,
+  // Legal-consent config (Terms/Privacy clickwrap). Undefined unless the
+  // operator set LEGAL_CONSENT_REQUIRED=true — default self-host stays
+  // byte-identical to no-consent. The commercial root can inject its own
+  // (hosted terms + a richer, ip/UA-stamped record). See lib/legal-consent.ts.
+  legalConsent: env.legalConsent,
 });
 
 const server = serve(
