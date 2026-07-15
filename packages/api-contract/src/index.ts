@@ -34,4 +34,4 @@ export type {
   SocialProvidersAppType,
   TaxPoliciesAppType,
   TelemetryAppType,
-} from '@thalermark/api';
+} from '@thalermark/api/contract';

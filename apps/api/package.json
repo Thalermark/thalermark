@@ -3,16 +3,14 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "main": "./dist/app.js",
-  "types": "./src/app.ts",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
   "exports": {
-    ".": { "types": "./src/app.ts", "default": "./dist/app.js" },
-    "./bootstrap": { "types": "./src/bootstrap.ts", "default": "./dist/bootstrap.js" },
-    "./env": { "types": "./src/env.ts", "default": "./dist/env.js" },
-    "./preload": { "types": "./src/env-file.ts", "default": "./dist/env-file.js" }
+    ".": "./src/index.ts",
+    "./contract": "./src/app.ts",
+    "./preload": "./src/env-file.ts"
   },
   "files": ["dist"],
-  "sideEffects": ["./dist/server.js", "./dist/load-env.js"],
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "seed:load-test": "tsx scripts/seed-load-test.ts",
