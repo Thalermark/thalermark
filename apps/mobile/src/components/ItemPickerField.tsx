@@ -26,6 +26,9 @@ type Suggestion = {
 export type ItemPatch = {
   description?: string;
   quantity?: string;
+  // Unit-of-measure snapshot copied from the catalog item ("hour", "sq ft").
+  // null when the item has none — the parent normalises that to an empty unit.
+  unitLabel?: string | null;
   unitPrice?: string;
   sourceItemId?: string | null;
   // Product/service copied from the catalog item; drives the ledger split. The
@@ -106,6 +109,7 @@ export function ItemPickerField({
   function pick(s: Suggestion) {
     onChange({
       description: s.description?.trim() || s.name,
+      unitLabel: s.unitLabel,
       unitPrice: s.unitPrice,
       quantity: cleanQty(s.defaultQuantity),
       sourceItemId: s.id,

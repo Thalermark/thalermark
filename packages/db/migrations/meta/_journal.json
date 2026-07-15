@@ -78,6 +78,13 @@
       "when": 1784044877856,
       "tag": "0010_unit_price_precision",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1784077272799,
+      "tag": "0011_line_item_unit_label",
+      "breakpoints": true
     }
   ]
 }

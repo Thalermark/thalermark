@@ -25,6 +25,7 @@ type LineItem = {
   position: number;
   description: string;
   quantity: string;
+  unitLabel: string | null;
   unitPrice: string;
   amount: string;
   taxable: boolean;
@@ -470,7 +471,8 @@ export default function InvoiceDetail() {
                   ) : null}
                   <View className="mt-1 flex-row justify-between">
                     <Text className="font-mono text-xs text-ink/50">
-                      {String(Number(li.quantity))} × {formatUnitPrice(li.unitPrice)}
+                      {String(Number(li.quantity))}
+                      {li.unitLabel ? ` ${li.unitLabel}` : ''} × {formatUnitPrice(li.unitPrice)}
                     </Text>
                     <Text className="font-mono tabular-nums text-ink">{li.amount}</Text>
                   </View>

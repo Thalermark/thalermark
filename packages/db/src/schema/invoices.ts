@@ -136,6 +136,13 @@ export const invoiceLineItems = pgTable(
     // priceString / unitPriceFromTotal in @thalermark/validation money.ts.
     unitPrice: numeric('unit_price', { precision: 15, scale: 4 }).notNull(),
     amount: numeric('amount', { precision: 15, scale: 2 }).notNull(),
+    // Unit-of-measure snapshot (free text, e.g. 'hour', 'sq ft') rendered next
+    // to the quantity on the sent/public document. Copied from items.unit_label
+    // on pick, or hand-typed. Nullable — legacy and unitless lines render a bare
+    // quantity exactly as before. A snapshot like type / tax_rate_pct: editing
+    // or archiving the source item never rewrites a sent doc, and it is never
+    // re-read from items at render time.
+    unitLabel: text('unit_label'),
     // product | service snapshot, copied from the catalog item on pick (or set
     // by hand). Drives the hidden ledger revenue split at posting: product line
     // amounts credit Product Revenue (4100), the rest Service Revenue (4000).

@@ -10,6 +10,9 @@ export const recurringInvoiceLineItemInputSchema = z.object({
   quantity: quantityString,
   unitPrice: priceString,
   amount: moneyString,
+  // Unit-of-measure snapshot — cloned verbatim onto each generated invoice line
+  // by the sweeper. See invoiceLineItemInputSchema for the contract.
+  unitLabel: z.string().max(50).optional(),
   // product | service snapshot — cloned verbatim onto each generated invoice
   // line by the sweeper. See invoiceLineItemInputSchema for the contract.
   type: lineItemType.optional(),

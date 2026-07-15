@@ -18,6 +18,7 @@
   type Row = {
     description: string;
     quantity: string;
+    unitLabel: string;
     unitPrice: string;
     amount: string;
     sourceItemId: string | null;
@@ -27,7 +28,7 @@
   };
 
   function blankRow(): Row {
-    return { description: '', quantity: '', unitPrice: '', amount: '', sourceItemId: null, type: 'service', taxable: false, taxPolicyId: '' };
+    return { description: '', quantity: '', unitLabel: '', unitPrice: '', amount: '', sourceItemId: null, type: 'service', taxable: false, taxPolicyId: '' };
   }
 
   // Editing quantity/unit price re-derives the amount (unit price sticky);
@@ -70,6 +71,7 @@
         ? seeded.map((li) => ({
             description: li.description,
             quantity: li.quantity,
+            unitLabel: li.unitLabel ?? '',
             unitPrice: formatUnitPrice(li.unitPrice),
             amount: multiplyMoney(li.quantity, li.unitPrice),
             sourceItemId: li.sourceItemId ?? null,
@@ -274,6 +276,7 @@
                     bind:sourceItemId={row.sourceItemId}
                     onpick={(s) => {
                       row.type = s.type;
+                      row.unitLabel = s.unitLabel ?? '';
                       applyItemTax(row, s.taxable, s.taxPolicyId);
                       recalcAmount(row);
                     }}
@@ -297,6 +300,15 @@
                     bind:value={row.quantity}
                     oninput={() => recalcAmount(row)}
                     class="w-full rounded-sm border border-fg/15 bg-surface px-2 py-1 text-right font-mono tabular-nums text-fg focus:border-accent focus:outline-none"
+                  />
+                  <input
+                    type="text"
+                    name="li_unitLabel"
+                    maxlength="50"
+                    placeholder="unit"
+                    aria-label="Unit"
+                    bind:value={row.unitLabel}
+                    class="mt-1 w-full rounded-sm border border-fg/15 bg-surface px-2 py-1 text-right text-xs text-fg/70 focus:border-accent focus:outline-none"
                   />
                 </td>
                 <td class="px-3 py-2 align-top">

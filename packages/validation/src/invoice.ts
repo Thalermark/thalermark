@@ -13,6 +13,10 @@ export const invoiceLineItemInputSchema = z.object({
   quantity: quantityString,
   unitPrice: priceString,
   amount: moneyString,
+  // Unit-of-measure snapshot ("hour", "sq ft") shown next to the quantity on
+  // the sent/public document. Copied from the picked catalog item's unitLabel
+  // or hand-typed; optional — omitted / null lines render a bare quantity.
+  unitLabel: z.string().max(50).optional(),
   // product | service snapshot, copied from the catalog item on pick. Optional
   // — the DB defaults to 'service'. Drives the ledger revenue split. The server
   // sums product-line amounts at posting to route them to Product Revenue.

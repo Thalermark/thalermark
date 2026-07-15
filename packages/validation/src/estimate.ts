@@ -13,6 +13,9 @@ export const estimateLineItemInputSchema = z.object({
   quantity: quantityString,
   unitPrice: priceString,
   amount: moneyString,
+  // Unit-of-measure snapshot — carried onto the converted invoice line. See
+  // invoiceLineItemInputSchema for the contract.
+  unitLabel: z.string().max(50).optional(),
   // product | service snapshot — carried onto the converted invoice line. See
   // invoiceLineItemInputSchema for the contract.
   type: lineItemType.optional(),

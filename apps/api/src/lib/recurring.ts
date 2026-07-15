@@ -170,6 +170,9 @@ export async function generateOnce(
         quantity: li.quantity,
         unitPrice: li.unitPrice,
         amount: li.amount,
+        // Clone the unit-of-measure snapshot so each generated invoice reads
+        // identically to the template.
+        unitLabel: li.unitLabel,
         // Clone the product/service type so each generated invoice posts to the
         // same revenue accounts as the template implies.
         type: li.type,
