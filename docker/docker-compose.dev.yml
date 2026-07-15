@@ -115,9 +115,10 @@ services:
       # Browser hits api directly on its host port; SSR uses the in-network name.
       PUBLIC_API_URL: "http://localhost:3000"
       INTERNAL_API_URL: "http://api:3000"
-      LOCATION_PROVIDER: ${LOCATION_PROVIDER:-}
-      MAPBOX_ACCESS_TOKEN: ${MAPBOX_ACCESS_TOKEN:-}
-      NOMINATIM_BASE_URL: ${NOMINATIM_BASE_URL:-}
+      # Address autocomplete (Google Places, New) — passed to web explicitly (no
+      # env_file); the api reads the same key from the root .env. Unset =>
+      # disabled, field falls back to manual entry.
+      GOOGLE_PLACES_API_KEY: ${GOOGLE_PLACES_API_KEY:-}
     ports:
       - "5173:3000"
     depends_on:

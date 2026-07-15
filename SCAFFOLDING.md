@@ -220,10 +220,9 @@ Built in parallel after Phase 3. All consumed by web and mobile.
 - Insight generation functions (empty stubs initially, filled in MVP feature phases)
 
 **`/packages/location/`** — Address autocomplete provider abstraction
-- `AddressAutocompleteProvider` interface
-- Mapbox adapter
-- Nominatim adapter (self-host fallback, no key)
-- Provider resolution from env
+- `AddressAutocompleteProvider` interface (two-phase: autocomplete + retrieve)
+- Google Places (New) adapter
+- Provider resolution from env (`GOOGLE_PLACES_API_KEY`; unset ⇒ manual entry)
 
 **`/packages/brand/`** — Brand constants
 - Name, colors, default copy strings
@@ -245,7 +244,7 @@ The other four packages from the plan above are feature-coupled — scaffolding 
 
 - **`packages/brand`** — ✅ landed in slice 5.1 (#44) when the SvelteKit shell needed Tailwind tokens; `apps/mobile`'s NativeWind config consumes the same `COLORS` / `FONTS` exports for cross-platform parity.
 - **`packages/validation`** — ✅ landed in slice 8.3 (#84) with `customerCreateSchema` + `invoiceCreateSchema` + the `moneyString` / `quantityString` / `isoDateString` primitives; subsequent slices have extended it with `customerUpdateSchema` / `invoiceUpdateSchema` (8.4f) and `invoiceSendSchema` (8.5b).
-- **`packages/location`** — ✅ landed in slice 8.6c (#107): `AddressAutocompleteProvider` interface + Mapbox + Nominatim adapters, env-driven factory.
+- **`packages/location`** — ✅ landed in slice 8.6c (#107): `AddressAutocompleteProvider` interface + Mapbox + Nominatim adapters, env-driven factory. **Superseded 2026-07 (TMC-141):** rewritten to a single, two-phase Google Places (New) adapter (autocomplete predictions + Place Details on pick, session tokens); Census/Mapbox/Nominatim removed, `GOOGLE_PLACES_API_KEY` the only config.
 - **`packages/ai`** — still deferred; Vercel AI SDK provider abstraction lands with the first AI feature (cash flow nudge, late payer, anomaly, or receipt extraction — whichever ships first).
 
 ---

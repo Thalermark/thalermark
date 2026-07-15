@@ -2,49 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { createAddressAutocompleteProvider } from './factory.js';
 
 describe('createAddressAutocompleteProvider', () => {
-  it('picks mapbox when token is set and no explicit provider', () => {
-    const p = createAddressAutocompleteProvider({ MAPBOX_ACCESS_TOKEN: 'pk.fake' });
-    expect(p.name).toBe('mapbox');
+  it('returns the google provider when a key is set', () => {
+    const p = createAddressAutocompleteProvider({ GOOGLE_PLACES_API_KEY: 'k' });
+    expect(p?.name).toBe('google');
   });
 
-  it('picks census by default when no token', () => {
-    const p = createAddressAutocompleteProvider({});
-    expect(p.name).toBe('census');
+  it('returns null when no key is set', () => {
+    expect(createAddressAutocompleteProvider({})).toBeNull();
   });
 
-  it('honours explicit LOCATION_PROVIDER=census even when a token is set', () => {
-    const p = createAddressAutocompleteProvider({
-      LOCATION_PROVIDER: 'census',
-      MAPBOX_ACCESS_TOKEN: 'pk.fake',
-    });
-    expect(p.name).toBe('census');
-  });
-
-  it('honours explicit LOCATION_PROVIDER=nominatim even when a token is set', () => {
-    const p = createAddressAutocompleteProvider({
-      LOCATION_PROVIDER: 'nominatim',
-      MAPBOX_ACCESS_TOKEN: 'pk.fake',
-    });
-    expect(p.name).toBe('nominatim');
-  });
-
-  it('throws when LOCATION_PROVIDER=mapbox without token', () => {
-    expect(() => createAddressAutocompleteProvider({ LOCATION_PROVIDER: 'mapbox' })).toThrow(
-      /MAPBOX_ACCESS_TOKEN/,
-    );
-  });
-
-  it('throws on unknown provider', () => {
-    expect(() => createAddressAutocompleteProvider({ LOCATION_PROVIDER: 'google' })).toThrow(
-      /unknown LOCATION_PROVIDER/,
-    );
-  });
-
-  it('treats blank LOCATION_PROVIDER as unset', () => {
-    const p = createAddressAutocompleteProvider({
-      LOCATION_PROVIDER: '  ',
-      MAPBOX_ACCESS_TOKEN: 'pk.fake',
-    });
-    expect(p.name).toBe('mapbox');
+  it('treats a blank key as unset', () => {
+    expect(createAddressAutocompleteProvider({ GOOGLE_PLACES_API_KEY: '  ' })).toBeNull();
   });
 });

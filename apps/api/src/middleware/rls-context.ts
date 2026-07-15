@@ -48,10 +48,10 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // picker reads from /api/me to learn which accounts the user can pick from, then
 // sets x-account-id on every subsequent request. Invitation accept is also
 // bootstrap because the user is not yet a member of the target account.
-// /api/locations/autocomplete is account-agnostic (it proxies an external
-// geocoder and touches no tenant data) — listing it here keeps it behind auth
-// while skipping the x-account-id requirement + the tenant tx, so it never pins
-// a DB connection across the upstream HTTP call.
+// /api/locations/autocomplete + /details are account-agnostic (they proxy an
+// external geocoder and touch no tenant data) — listing them here keeps them
+// behind auth while skipping the x-account-id requirement + the tenant tx, so
+// neither pins a DB connection across the upstream HTTP call.
 const BOOTSTRAP_PATH_PATTERNS: RegExp[] = [
   /^\/api\/me$/,
   /^\/api\/me\/memberships$/,
@@ -63,6 +63,7 @@ const BOOTSTRAP_PATH_PATTERNS: RegExp[] = [
   /^\/api\/invitations\/[^/]+\/accept$/,
   /^\/api\/invitations\/[^/]+\/decline$/,
   /^\/api\/locations\/autocomplete$/,
+  /^\/api\/locations\/details$/,
   // Legal consent (Terms/Privacy). User-scoped: the acceptance belongs to the
   // person, not the tenant, and can precede account selection, so these run
   // session-gated but without x-account-id / a tenant tx — the handler reads +

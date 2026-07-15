@@ -156,11 +156,10 @@ export type AppDeps = {
   // control; metadata/link-local stay blocked regardless.
   aiAllowedEndpoints?: string[];
   // Address autocomplete provider for the mobile customer form's
-  // /api/locations/autocomplete route (the web client uses its own same-origin
-  // SvelteKit proxy). Null when construction failed (e.g. LOCATION_PROVIDER set
-  // to an unknown name, or mapbox without a token) — the route then degrades to
-  // empty suggestions rather than erroring. The keyless US Census geocoder is
-  // the no-config default, so this is normally set. Built in server.ts from env.
+  // /api/locations/* routes (the web client uses its own same-origin SvelteKit
+  // proxy). Google Places (New) when GOOGLE_PLACES_API_KEY is set; null when it
+  // isn't — the routes then degrade to empty suggestions rather than erroring,
+  // and the field falls back to manual entry. Built in server.ts from env.
   addressProvider?: AddressAutocompleteProvider | null;
   // Legal-consent config (Terms/Privacy). Its presence turns the clickwrap gate
   // on: GET /api/legal reports required:true and the web/mobile wall blocks the

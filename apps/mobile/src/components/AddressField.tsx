@@ -4,11 +4,13 @@ import { api } from '../lib/api';
 
 // The Street field, doubling as an address type-ahead — the RN mirror of web's
 // AddressLookup.svelte. The real field IS the search box (no confusing second
-// input): typing queries GET /api/locations/autocomplete; picking a suggestion
-// rewrites the Street line and fans the rest out to the city / region /
-// postalCode / country fields the parent owns. Prefilling the parent's
-// addressLine1 (edit form) does NOT trigger a search — only on-device typing
-// (onChangeText) does — so loading an existing contact doesn't auto-search.
+// input): typing queries GET /api/locations/autocomplete for predictions;
+// picking one calls GET /api/locations/details to resolve the structured
+// address, then fans it out to the city / region / postalCode / country fields
+// the parent owns. A session token minted here threads through the autocomplete
+// calls + the final details call so Google bills one session per address.
+// Prefilling the parent's addressLine1 (edit form) does NOT trigger a search —
+// only on-device typing (onChangeText) does.
 export type AddressSuggestion = {
   label: string;
   addressLine1: string;
@@ -18,8 +20,20 @@ export type AddressSuggestion = {
   country: string;
 };
 
+type Prediction = { placeId: string; label: string };
+
 const DEBOUNCE_MS = 250;
 const MIN_QUERY = 3;
+
+// Google's session token only needs to be unique per address entry (it's a
+// billing correlation id, not a secret), so prefer a real UUID where the
+// runtime has one and fall back to a cheap unique string otherwise — no extra
+// dependency needed.
+function newSessionToken(): string {
+  const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+  if (c?.randomUUID) return c.randomUUID();
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
 
 export function AddressField({
   value,
@@ -34,7 +48,7 @@ export function AddressField({
   country?: string;
   error?: string;
 }) {
-  const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([]);
+  const [predictions, setPredictions] = useState<Prediction[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [degraded, setDegraded] = useState(false);
@@ -42,6 +56,15 @@ export function AddressField({
   // Monotonic request id: a response only wins if it's still the latest query,
   // so a slow earlier request can't overwrite a newer one's results.
   const reqId = useRef(0);
+  // Minted lazily on the first keystroke of a lookup, reused across the
+  // per-keystroke autocomplete calls, then cleared on pick so the next address
+  // starts a fresh billing session.
+  const sessionToken = useRef<string | null>(null);
+
+  function ensureSession(): string {
+    if (!sessionToken.current) sessionToken.current = newSessionToken();
+    return sessionToken.current;
+  }
 
   useEffect(
     () => () => {
@@ -53,7 +76,7 @@ export function AddressField({
   function schedule(q: string) {
     if (timer.current) clearTimeout(timer.current);
     if (q.trim().length < MIN_QUERY) {
-      setSuggestions([]);
+      setPredictions([]);
       setOpen(false);
       setLoading(false);
       return;
@@ -66,22 +89,23 @@ export function AddressField({
     setLoading(true);
     try {
       const c = country?.trim().toUpperCase();
-      const res = await api.api.locations.autocomplete.$get({
-        query: c && c.length === 2 ? { q, country: c } : { q },
-      });
+      const token = ensureSession();
+      const query =
+        c && c.length === 2 ? { q, country: c, sessionToken: token } : { q, sessionToken: token };
+      const res = await api.api.locations.autocomplete.$get({ query });
       if (id !== reqId.current) return; // a newer query superseded this one
       if (!res.ok) {
-        setSuggestions([]);
+        setPredictions([]);
         setOpen(false);
         return;
       }
       const body = await res.json();
-      setSuggestions(body.suggestions);
+      setPredictions(body.predictions);
       setDegraded(body.degraded === true);
       setOpen(true);
     } catch {
       if (id === reqId.current) {
-        setSuggestions([]);
+        setPredictions([]);
         setOpen(false);
       }
     } finally {
@@ -94,11 +118,35 @@ export function AddressField({
     schedule(t);
   }
 
-  function pick(s: AddressSuggestion) {
-    onPick(s);
-    setSuggestions([]);
+  async function pick(p: Prediction) {
+    // Picking closes the dropdown, then resolves the structured address via the
+    // details route. We reuse (and then retire) the session token so Google
+    // bills the whole interaction as one session.
     setOpen(false);
-    setDegraded(false);
+    setPredictions([]);
+    const token = sessionToken.current ?? undefined;
+    sessionToken.current = null;
+    setLoading(true);
+    try {
+      const res = await api.api.locations.details.$get({
+        query: token ? { placeId: p.placeId, sessionToken: token } : { placeId: p.placeId },
+      });
+      if (!res.ok) {
+        setDegraded(true);
+        return;
+      }
+      const body = await res.json();
+      if (!body.suggestion || body.degraded) {
+        setDegraded(true);
+        return;
+      }
+      onPick(body.suggestion);
+      setDegraded(false);
+    } catch {
+      setDegraded(true);
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -121,15 +169,15 @@ export function AddressField({
         ) : null}
       </View>
 
-      {open && suggestions.length > 0 ? (
+      {open && predictions.length > 0 ? (
         <View className="mt-1 overflow-hidden rounded-sm border border-ink/15 bg-cream-warm">
-          {suggestions.map((s) => (
+          {predictions.map((p) => (
             <Pressable
-              key={s.label}
-              onPress={() => pick(s)}
+              key={p.placeId}
+              onPress={() => pick(p)}
               className="border-b border-ink/10 px-3 py-2 active:bg-gold-deep/10"
             >
-              <Text className="text-sm text-ink">{s.label}</Text>
+              <Text className="text-sm text-ink">{p.label}</Text>
             </Pressable>
           ))}
         </View>
