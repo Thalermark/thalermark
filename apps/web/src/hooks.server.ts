@@ -143,8 +143,14 @@ const charsetHandle: Handle = async ({ event, resolve }) => {
 // Run Sentry's request handler ahead of the app's only when tracking is on, so
 // SSR errors carry request context. charsetHandle always runs so the charset is
 // stamped regardless of the tracking config.
+//
+// injectFetchProxyScript: false — the injected inline <script> instruments
+// server-side fetch for performance tracing, but it isn't stamped with
+// SvelteKit's per-request CSP nonce, so our nonce-mode script-src blocks it.
+// Tracing is off (tracesSampleRate: 0), so the script has no value here;
+// dropping it removes the CSP violation with no loss of error capture.
 export const handle: Handle = errorTrackingDsn
-  ? sequence(Sentry.sentryHandle(), charsetHandle, appHandle)
+  ? sequence(Sentry.sentryHandle({ injectFetchProxyScript: false }), charsetHandle, appHandle)
   : sequence(charsetHandle, appHandle);
 
 // Reports unexpected SSR errors to Sentry (a no-op while uninitialised).
