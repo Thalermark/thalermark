@@ -3,7 +3,7 @@ import { z } from 'zod';
 // Input schema for POST /api/contacts. accountId is inferred from the
 // rls-context middleware (x-account-id header); the client only supplies
 // the company scope and the visible fields. Address is flat — the
-// Mapbox/Census autocomplete in @thalermark/location maps its structured
+// Google Places autocomplete in @thalermark/location maps its structured
 // response 1:1 onto these columns.
 //
 // is_customer / is_vendor are the role flags (Xero-style: one contact can act

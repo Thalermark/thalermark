@@ -9,7 +9,7 @@ import { companies } from './companies.js';
 // the role: invoices/estimates/recurring point at a contact as the customer;
 // expenses point at a contact as the vendor (see CONTACTS-AND-AP spike).
 //
-// Address is stored as flat fields, populated by the Mapbox / Census
+// Address is stored as flat fields, populated by the Google Places
 // autocomplete. Tax-id / exemption / payment-terms columns are intentionally
 // absent — compliance is a pluggable module and the AP/1099 vendor fields land
 // with the bills feature, not here.

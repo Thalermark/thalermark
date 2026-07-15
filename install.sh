@@ -325,11 +325,11 @@ fi
 
 # --- 10. address autocomplete (optional) -------------------------------------
 section "Address autocomplete — optional"
-say "${DIM}Defaults to the free, keyless US Census geocoder. A Mapbox token upgrades it.${R}"
-if ask_yn "Add a Mapbox access token?" "n"; then
-	ask MAPBOX_TOKEN "  Mapbox access token?" ""
-	kv_set "$ENV_FILE" MAPBOX_ACCESS_TOKEN "$MAPBOX_TOKEN"
-	ok "Mapbox configured"
+say "${DIM}Powered by Google Places. Leave off to type addresses by hand.${R}"
+if ask_yn "Add a Google Places API key?" "n"; then
+	ask GOOGLE_PLACES_KEY "  Google Places API key?" ""
+	kv_set "$ENV_FILE" GOOGLE_PLACES_API_KEY "$GOOGLE_PLACES_KEY"
+	ok "Google Places configured"
 fi
 
 # --- 11. summary -------------------------------------------------------------

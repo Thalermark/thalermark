@@ -3,48 +3,45 @@ import { error, json } from '@sveltejs/kit';
 import { createAddressAutocompleteProvider } from '@thalermark/location';
 import type { RequestHandler } from './$types.js';
 
-// Same-origin browser proxy for address autocomplete. The user types into
-// the contact form's AddressLookup, which calls this endpoint with `?q=...`
-// and gets back a list of structured suggestions to fill the address fields.
-// Lives on the web app rather than the Hono api because:
-//   - Caddy routes /api/* to the api service; an /api endpoint on web would
-//     be unreachable in prod. The web routes everything-but-/api/ to itself.
-//   - The api currently has no browser-facing CORS surface; adding one for
-//     this single helper would multiply the attack surface for no benefit.
-//   - Auth is already gated by hooks.server.ts so reaching this handler
-//     means the request has a valid session cookie.
-//
-// Construct-per-request is fine: provider construction is a couple of
-// object literals; the heavy work is the network call.
+// Same-origin browser proxy for address autocomplete (phase 1: predictions).
+// The contact form's AddressLookup calls this with `?q=...` and gets back
+// lightweight predictions (placeId + label); picking one calls the sibling
+// /locations/details proxy to resolve the structured address. Lives on the web
+// app rather than the Hono api because:
+//   - Caddy routes /api/* to the api service; an /api endpoint on web would be
+//     unreachable in prod. Web routes everything-but-/api/ to itself.
+//   - The api has no browser-facing CORS surface; adding one for this single
+//     helper would multiply the attack surface for no benefit.
+//   - Auth is already gated by hooks.server.ts, so reaching this handler means
+//     the request has a valid session cookie.
+// Proxying is also load-bearing under the CSP: the browser can't call
+// places.googleapis.com directly (connect-src blocks it), and the Google key
+// stays server-side. Construct-per-request is fine — provider construction is a
+// couple of object literals; the heavy work is the network call.
 
 const MAX_Q_LENGTH = 200;
 
 export const GET: RequestHandler = async ({ url }) => {
   const q = url.searchParams.get('q')?.trim();
-  if (!q) return json({ suggestions: [] });
+  if (!q) return json({ predictions: [] });
   if (q.length > MAX_Q_LENGTH) {
     throw error(400, 'q too long');
   }
   const country = url.searchParams.get('country')?.trim().toUpperCase() || undefined;
+  const sessionToken = url.searchParams.get('sessionToken')?.trim() || undefined;
 
-  // Provider construction is inside the try/catch so a misconfigured env
-  // (LOCATION_PROVIDER=mapbox with no token, unknown provider name) degrades
-  // the same way an upstream outage does — empty suggestions + degraded flag
-  // — instead of a 500 that bricks the address fields. Operators see the
-  // misconfig via the console log; users see the "fill by hand" hint.
-  // Structured logging belongs to the LogTape rollout (see
-  // [[project_tool_decisions]]), not this slice.
+  const provider = createAddressAutocompleteProvider({
+    GOOGLE_PLACES_API_KEY: privateEnv.GOOGLE_PLACES_API_KEY,
+  });
+  // No key configured → degrade to empty so the address fields stay usable by
+  // hand instead of erroring.
+  if (!provider) return json({ predictions: [], degraded: true });
+
   try {
-    const provider = createAddressAutocompleteProvider({
-      LOCATION_PROVIDER: privateEnv.LOCATION_PROVIDER,
-      MAPBOX_ACCESS_TOKEN: privateEnv.MAPBOX_ACCESS_TOKEN,
-      NOMINATIM_BASE_URL: privateEnv.NOMINATIM_BASE_URL,
-      NOMINATIM_USER_AGENT: privateEnv.NOMINATIM_USER_AGENT,
-    });
-    const suggestions = await provider.autocomplete({ q, country });
-    return json({ provider: provider.name, suggestions });
+    const predictions = await provider.autocomplete({ q, country, sessionToken });
+    return json({ predictions });
   } catch (err) {
     console.error('[locations/autocomplete]', err);
-    return json({ suggestions: [], degraded: true });
+    return json({ predictions: [], degraded: true });
   }
 };

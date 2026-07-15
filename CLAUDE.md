@@ -92,7 +92,7 @@ Business type (sole prop / LLC / partnership / S-corp / C-corp) is picked once a
 
 **Expenses:** manual entry, receipt capture (all tiers), receipt extraction via vision LLM (Pro+/BYOK).
 
-**Customers:** inline create during invoicing, dupe detection, Mapbox address autocomplete (Nominatim self-host fallback). Must be seamless.
+**Customers:** inline create during invoicing, dupe detection, Google Places address autocomplete (optional — no key ⇒ manual entry). Must be seamless.
 
 **Account/Companies/Users:** multi-company per account (company switcher, RLS-isolated), multi-user per account (custom accounts/companies/memberships, invite by email). *Workspace roles: the 5-role capability model shipped — supersedes the original "all members same role in MVP".*
 

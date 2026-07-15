@@ -146,7 +146,7 @@ Precedent: Cal.com, Mattermost, Plane all run this exact model.
 - **Receipt extraction (AI)** — Pro+ / BYOK: vision LLM auto-fills merchant, total, date, tax, category
 
 ### Customers
-- **Customer management** — inline create during invoicing (no page navigation), dupe detection (fuzzy name + strong identifier match), address autocomplete via the keyless US Census geocoder by default (Mapbox is a token-gated upgrade). Must be seamless; this is the make-or-break interaction.
+- **Customer management** — inline create during invoicing (no page navigation), dupe detection (fuzzy name + strong identifier match), address autocomplete via Google Places (optional — no key ⇒ manual entry). Must be seamless; this is the make-or-break interaction.
 
 ### Account, Companies, Users
 - **Multi-company per account** — one account can hold multiple companies (a freelancer with side hustles, an accountant managing multiple businesses for themselves). Company switcher in nav; data isolated via RLS at the database level.

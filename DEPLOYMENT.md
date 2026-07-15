@@ -129,8 +129,9 @@ Optional integrations, each disabled-but-safe when blank:
   See [AI options](#ai-options).
 - **Payments** — all three `STRIPE_*` keys. Blank ⇒ the Pay button hides and the
   webhook 503s.
-- **Address autocomplete** — `MAPBOX_ACCESS_TOKEN` upgrades the customer-form
-  type-ahead; blank uses the free, keyless US Census geocoder.
+- **Address autocomplete** — `GOOGLE_PLACES_API_KEY` powers the customer-form
+  type-ahead (Google Places, New). Blank ⇒ the field falls back to manual entry.
+  Set the SAME key in the root `.env` (api) and `apps/web/.env` (web).
 - **Error tracking** — `ERROR_TRACKING_DSN` (Sentry or self-hosted GlitchTip).
 - **Telemetry** — off by default (`TELEMETRY_TRANSPORT_ENABLED=false`); opt-in,
   see [TELEMETRY.md](./TELEMETRY.md).

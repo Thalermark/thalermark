@@ -90,16 +90,14 @@ services:
       # cannot reach `api` via the public hostname from inside the network.
       PUBLIC_API_URL: ""
       INTERNAL_API_URL: "http://api:3000"
-      # Address autocomplete: the web app serves the browser proxy
-      # (/locations/autocomplete) and the api serves /api/locations/autocomplete
-      # for the mobile client, so the provider config must reach BOTH. The api
-      # picks it up from the root .env via env_file above; the web service has
-      # no env_file, so it's passed explicitly here. Unset => the free, keyless
-      # US Census geocoder. Set MAPBOX_ACCESS_TOKEN to upgrade, or
-      # LOCATION_PROVIDER=nominatim (+ NOMINATIM_BASE_URL) for OSS/international.
-      LOCATION_PROVIDER: ${LOCATION_PROVIDER:-}
-      MAPBOX_ACCESS_TOKEN: ${MAPBOX_ACCESS_TOKEN:-}
-      NOMINATIM_BASE_URL: ${NOMINATIM_BASE_URL:-}
+      # Address autocomplete: the web app serves the browser proxies
+      # (/locations/autocomplete + /locations/details) and the api serves the
+      # matching /api/locations/* routes for the mobile client, so the key must
+      # reach BOTH. The api picks it up from the root .env via env_file above;
+      # the web service has no env_file, so it's passed explicitly here. Unset =>
+      # autocomplete is disabled and the address field falls back to manual
+      # entry. Powered by Google Places (New); see .env.example.
+      GOOGLE_PLACES_API_KEY: ${GOOGLE_PLACES_API_KEY:-}
       # Browser + SSR error tracking (hooks.client.ts / hooks.server.ts). Same
       # env_file caveat as the location vars above — the web service reads no
       # .env, so the PUBLIC_ error-tracking vars are passed through explicitly.

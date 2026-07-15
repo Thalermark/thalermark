@@ -3,10 +3,7 @@
 import './load-env.js';
 import { serve } from '@hono/node-server';
 import { runMigrations } from '@thalermark/db';
-import {
-  type AddressAutocompleteProvider,
-  createAddressAutocompleteProvider,
-} from '@thalermark/location';
+import { createAddressAutocompleteProvider } from '@thalermark/location';
 import { configureLogger, getLogger } from '@thalermark/logger';
 import { type StorageProvider, createStorageProvider } from '@thalermark/storage';
 import { PgBoss } from 'pg-boss';
@@ -147,19 +144,15 @@ log.info(
     : 'AI connections: configure from Settings → AI (private endpoints blocked)',
 );
 
-// Address autocomplete (mobile customer form). Construction reads the same
-// LOCATION_* env the web app uses and only throws on misconfig (LOCATION_PROVIDER
-// set to an unknown name, or mapbox without a token) — in which case the route
-// degrades to empty suggestions. The keyless US Census geocoder is the no-config
-// default, so this is normally enabled.
-let addressProvider: AddressAutocompleteProvider | null = null;
-try {
-  addressProvider = createAddressAutocompleteProvider(process.env);
+// Address autocomplete (mobile customer form; web uses its own SvelteKit proxy).
+// Powered by Google Places (New) when GOOGLE_PLACES_API_KEY is set; unset → null
+// → the route degrades to empty suggestions and the field falls back to manual
+// entry.
+const addressProvider = createAddressAutocompleteProvider(process.env);
+if (addressProvider) {
   log.info('address autocomplete: {provider}', { provider: addressProvider.name });
-} catch (err) {
-  log.info('address autocomplete disabled: {msg}', {
-    msg: err instanceof Error ? err.message : String(err),
-  });
+} else {
+  log.info('address autocomplete disabled (no GOOGLE_PLACES_API_KEY)');
 }
 
 const app = createApp({
