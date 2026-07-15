@@ -39,6 +39,7 @@ import { type TaxPolicyLite, lineTax, policyRate, resolvePolicyId } from '../../
 type Row = {
   description: string;
   quantity: string;
+  unitLabel: string;
   unitPrice: string;
   amount: string;
   sourceItemId: string | null;
@@ -49,6 +50,7 @@ type Row = {
 const blankRow = (): Row => ({
   description: '',
   quantity: '',
+  unitLabel: '',
   unitPrice: '',
   amount: '',
   sourceItemId: null,
@@ -115,6 +117,7 @@ export default function EditEstimate() {
           rows: est.lineItems.map((li) => ({
             description: li.description,
             quantity: li.quantity,
+            unitLabel: li.unitLabel ?? '',
             unitPrice: formatUnitPrice(li.unitPrice),
             amount: multiplyMoney(li.quantity, li.unitPrice),
             sourceItemId: li.sourceItemId ?? null,
@@ -172,7 +175,7 @@ export default function EditEstimate() {
         : s,
     );
   const applyPick = (i: number, patch: ItemPatch) => {
-    const { taxable, taxPolicyId, ...rest } = patch;
+    const { taxable, taxPolicyId, unitLabel, ...rest } = patch;
     setSeed((s) =>
       s
         ? {
@@ -180,6 +183,9 @@ export default function EditEstimate() {
             rows: s.rows.map((r, j) => {
               if (j !== i) return r;
               const merged: Row = { ...r, ...rest };
+              // A pick carries the item's unit ('' when none); hand-typing the
+              // description leaves unitLabel out of the patch, keeping the row's.
+              if (unitLabel !== undefined) merged.unitLabel = unitLabel ?? '';
               if (taxable !== undefined) {
                 merged.taxable = taxable;
                 merged.taxPolicyId = taxable ? resolvePolicyId(taxPolicies, taxPolicyId ?? '') : '';
@@ -219,6 +225,7 @@ export default function EditEstimate() {
         position: i + 1,
         description: r.description.trim(),
         quantity: r.quantity.trim(),
+        unitLabel: r.unitLabel.trim() || undefined,
         unitPrice: r.unitPrice.trim(),
         amount,
         type: r.type,
@@ -492,6 +499,18 @@ function LineItems({
                   className="mt-1 rounded-sm border border-ink/15 bg-cream px-2 py-2 text-right font-mono tabular-nums text-ink"
                 />
               </View>
+            </View>
+            <View className="mt-2">
+              <Text className="font-mono text-[10px] uppercase tracking-widest text-ink/50">
+                Unit
+              </Text>
+              <TextInput
+                value={row.unitLabel}
+                onChangeText={(t) => patchRow(i, { unitLabel: t })}
+                placeholder="hr, day, sq ft"
+                maxLength={50}
+                className="mt-1 rounded-sm border border-ink/15 bg-cream px-2 py-2 text-ink"
+              />
             </View>
             <TaxRow
               taxPolicies={taxPolicies}

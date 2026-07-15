@@ -359,6 +359,8 @@ export function invoicesRoutes(deps: AppDeps) {
               quantity: li.quantity,
               unitPrice: li.unitPrice,
               amount: li.amount,
+              // Carry the unit-of-measure snapshot forward (duplicate = same terms).
+              unitLabel: li.unitLabel,
               // Carry the product/service type forward so the duplicate posts
               // to the same revenue accounts.
               type: li.type,

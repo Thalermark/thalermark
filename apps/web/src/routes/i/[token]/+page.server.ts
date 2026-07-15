@@ -25,6 +25,7 @@ type PublicInvoiceLine = {
   quantity: string;
   unitPrice: string;
   amount: string;
+  unitLabel: string | null;
   taxable: boolean;
   taxRatePct: string;
   taxAmount: string;

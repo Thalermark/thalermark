@@ -23,6 +23,8 @@ import type { Actions, PageServerLoad } from './$types';
 // as /invoices/new and /estimates/new.
 const LINE_FIELD_DESCRIPTION = 'li_description';
 const LINE_FIELD_QUANTITY = 'li_quantity';
+// Free-text unit of measure; one value per row so getAll() stays index-aligned.
+const LINE_FIELD_UNIT_LABEL = 'li_unitLabel';
 const LINE_FIELD_UNIT_PRICE = 'li_unitPrice';
 const LINE_FIELD_SOURCE_ITEM_ID = 'li_sourceItemId';
 // Product/service <select> — one value per row, always submitted.
@@ -73,6 +75,7 @@ type FormValues = {
   lineItems: {
     description: string;
     quantity: string;
+    unitLabel?: string;
     unitPrice: string;
     sourceItemId?: string;
     type?: LineItemType;
@@ -84,6 +87,7 @@ type FormValues = {
 function readForm(data: FormData): FormValues {
   const descriptions = data.getAll(LINE_FIELD_DESCRIPTION).map((v) => String(v));
   const quantities = data.getAll(LINE_FIELD_QUANTITY).map((v) => String(v));
+  const unitLabels = data.getAll(LINE_FIELD_UNIT_LABEL).map((v) => String(v));
   const unitPrices = data.getAll(LINE_FIELD_UNIT_PRICE).map((v) => String(v));
   const sourceItemIds = data.getAll(LINE_FIELD_SOURCE_ITEM_ID).map((v) => String(v));
   const types = data.getAll(LINE_FIELD_TYPE).map((v) => String(v));
@@ -93,6 +97,7 @@ function readForm(data: FormData): FormValues {
   const lineItems = Array.from({ length: rowCount }, (_, i): FormValues['lineItems'][number] => ({
     description: (descriptions[i] ?? '').trim(),
     quantity: (quantities[i] ?? '').trim(),
+    unitLabel: (unitLabels[i] ?? '').trim() || undefined,
     unitPrice: (unitPrices[i] ?? '').trim(),
     sourceItemId: (sourceItemIds[i] ?? '').trim() || undefined,
     // Garbage / missing → undefined so the API defaults the line to 'service'.
@@ -194,6 +199,7 @@ export const actions: Actions = {
         position: i + 1,
         description: row.description,
         quantity: row.quantity,
+        unitLabel: row.unitLabel,
         unitPrice: row.unitPrice,
         amount,
         type: row.type,

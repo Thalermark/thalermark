@@ -306,6 +306,8 @@ export function estimatesRoutes(deps: AppDeps) {
               quantity: li.quantity,
               unitPrice: li.unitPrice,
               amount: li.amount,
+              // Carry the unit-of-measure snapshot forward (duplicate = same terms).
+              unitLabel: li.unitLabel,
               // Carry the product/service type forward (duplicate = same terms).
               type: li.type,
               // Carry the line's tax snapshot forward (duplicate = same terms).
@@ -687,6 +689,9 @@ export function estimatesRoutes(deps: AppDeps) {
               quantity: li.quantity,
               unitPrice: li.unitPrice,
               amount: li.amount,
+              // Carry the unit-of-measure snapshot onto the converted invoice
+              // line so it reads exactly as quoted.
+              unitLabel: li.unitLabel,
               // Carry the product/service type onto the converted invoice line
               // so it posts to the same revenue accounts the estimate implied.
               type: li.type,

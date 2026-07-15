@@ -25,6 +25,9 @@ import type { Actions, PageServerLoad } from './$types';
 // +page.svelte's {#each rows} block.
 const LINE_FIELD_DESCRIPTION = 'li_description';
 const LINE_FIELD_QUANTITY = 'li_quantity';
+// Free-text unit of measure ("hour", "sq ft"). One value per row (always
+// present, even when empty), so getAll() stays index-aligned with the others.
+const LINE_FIELD_UNIT_LABEL = 'li_unitLabel';
 const LINE_FIELD_UNIT_PRICE = 'li_unitPrice';
 const LINE_FIELD_SOURCE_ITEM_ID = 'li_sourceItemId';
 // Per-row product/service type — a plain <select> that always submits one
@@ -108,6 +111,7 @@ type FormValues = {
   lineItems: {
     description: string;
     quantity: string;
+    unitLabel?: string;
     unitPrice: string;
     sourceItemId?: string;
     type?: LineItemType;
@@ -119,6 +123,7 @@ type FormValues = {
 function readForm(data: FormData): FormValues {
   const descriptions = data.getAll(LINE_FIELD_DESCRIPTION).map((v) => String(v));
   const quantities = data.getAll(LINE_FIELD_QUANTITY).map((v) => String(v));
+  const unitLabels = data.getAll(LINE_FIELD_UNIT_LABEL).map((v) => String(v));
   const unitPrices = data.getAll(LINE_FIELD_UNIT_PRICE).map((v) => String(v));
   const sourceItemIds = data.getAll(LINE_FIELD_SOURCE_ITEM_ID).map((v) => String(v));
   const types = data.getAll(LINE_FIELD_TYPE).map((v) => String(v));
@@ -128,6 +133,8 @@ function readForm(data: FormData): FormValues {
   const lineItems = Array.from({ length: rowCount }, (_, i): FormValues['lineItems'][number] => ({
     description: (descriptions[i] ?? '').trim(),
     quantity: (quantities[i] ?? '').trim(),
+    // Empty unit input (unitless line) → undefined so the column stays null.
+    unitLabel: (unitLabels[i] ?? '').trim() || undefined,
     unitPrice: (unitPrices[i] ?? '').trim(),
     // Empty hidden input (hand-typed line) → undefined, so the schema's
     // optional uuid passes and the column stays null.
@@ -238,6 +245,7 @@ export const actions: Actions = {
         position: i + 1,
         description: row.description,
         quantity: row.quantity,
+        unitLabel: row.unitLabel,
         unitPrice: row.unitPrice,
         amount,
         type: row.type,

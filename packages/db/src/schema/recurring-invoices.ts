@@ -115,6 +115,9 @@ export const recurringInvoiceLineItems = pgTable(
     // 4-decimal scale — sibling of invoice_line_items.unit_price (see TMC-134).
     unitPrice: numeric('unit_price', { precision: 15, scale: 4 }).notNull(),
     amount: numeric('amount', { precision: 15, scale: 2 }).notNull(),
+    // Unit-of-measure snapshot (free text, e.g. 'hour') — cloned verbatim onto
+    // each generated invoice line. Nullable; see invoice_line_items.unit_label.
+    unitLabel: text('unit_label'),
     // product | service snapshot — cloned verbatim onto each generated invoice
     // line so the revenue split carries to every occurrence. See
     // invoice_line_items.type.

@@ -129,7 +129,9 @@
                 <span class="block text-xs text-fg/40">Taxable · {Number(li.taxRatePct)}%</span>
               {/if}
             </td>
-            <td class="px-5 py-4 text-right font-mono tabular-nums text-fg/80">{li.quantity}</td>
+            <td class="px-5 py-4 text-right font-mono tabular-nums text-fg/80"
+              >{li.quantity}{#if li.unitLabel}&nbsp;{li.unitLabel}{/if}</td
+            >
             <td class="px-5 py-4 text-right font-mono tabular-nums text-fg/80">{formatUnitPrice(li.unitPrice)}</td>
             <td class="px-5 py-4 text-right font-mono tabular-nums text-fg">{li.amount}</td>
           </tr>
