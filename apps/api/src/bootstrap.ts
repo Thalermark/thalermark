@@ -111,6 +111,12 @@ export type CreateDefaultAppDepsOptions = {
   // spread onto AppDeps the way the other seams are — `auth` is itself a dep
   // built here. Undefined (community) → signup is byte-identical to no hook.
   onAccountCreated?: (ctx: AccountCreatedContext) => Promise<void>;
+  // Forces the AI SSRF endpoint policy, overriding BOTH env knobs
+  // (AI_ALLOW_PRIVATE_ENDPOINTS + AI_ALLOWED_ENDPOINTS). A managed multi-tenant root
+  // passes { allowPrivate: false, allowedEndpoints: [] } so a stray env value can't
+  // let a tenant BYOK URL reach loopback/RFC1918/metadata. Unset → env fallback,
+  // byte-identical to today. Structurally an EndpointPolicy (lib/llm-endpoint.ts).
+  aiEndpointPolicy?: { allowPrivate: boolean; allowedEndpoints?: string[] };
 };
 
 // Builds the fully-wired community AppDeps from env — the exact block that used
@@ -194,20 +200,27 @@ export function createDefaultAppDeps(
   // per-account BYOK/managed one; it may reuse this same store (returned in
   // handles.llmStore). The store's key-encryption master is DERIVED from
   // BETTER_AUTH_SECRET (already required + prod-guarded), so no new env var.
+  // Resolve the AI SSRF endpoint policy once. A commercial root can force it via
+  // opts.aiEndpointPolicy, overriding BOTH env knobs, so a stray AI_ALLOW_PRIVATE_
+  // ENDPOINTS / AI_ALLOWED_ENDPOINTS can't unblock a tenant BYOK URL to internal
+  // hosts. Unset → env fallback (byte-identical self-host). Drives all three
+  // consumers: the store's connect-time guard here, plus both deps.ai* fields below
+  // that the settings route reads at request time.
+  const aiPolicy = opts.aiEndpointPolicy ?? {
+    allowPrivate: env.aiAllowPrivateEndpoints ?? false,
+    allowedEndpoints: env.aiAllowedEndpoints,
+  };
   const llmStore = createLlmConnectionStore(
     dbHandle.db,
     deriveConnectionKey(env.betterAuthSecret),
     // Attaches a connect-time SSRF-guarded fetch to any credential with a
     // user-supplied endpoint, under the same operator policy the settings route
     // uses. This is the request-time half of the rebinding defense.
-    guardedFetchForPolicy({
-      allowPrivate: env.aiAllowPrivateEndpoints ?? false,
-      allowedEndpoints: env.aiAllowedEndpoints,
-    }),
+    guardedFetchForPolicy(aiPolicy),
   );
   const llmCredentials = settingsLlmCredentials(llmStore);
   log.info(
-    env.aiAllowPrivateEndpoints
+    aiPolicy.allowPrivate
       ? 'AI connections: private/LAN endpoints allowed (AI_ALLOW_PRIVATE_ENDPOINTS=true)'
       : 'AI connections: configure from Settings → AI (private endpoints blocked)',
   );
@@ -235,8 +248,10 @@ export function createDefaultAppDeps(
     // The store behind the resolver, for Settings → AI. Same instance, so a saved
     // connection takes effect on the next resolve with no restart.
     llmConnections: llmStore,
-    aiAllowPrivateEndpoints: env.aiAllowPrivateEndpoints,
-    aiAllowedEndpoints: env.aiAllowedEndpoints,
+    // Both driven by aiPolicy (not env) so a forced policy also seals the request-
+    // time settings check (routes/settings-ai.ts reads both of these).
+    aiAllowPrivateEndpoints: aiPolicy.allowPrivate,
+    aiAllowedEndpoints: aiPolicy.allowedEndpoints ?? [],
     rateLimitEnabled: env.rateLimitEnabled,
     trustedOrigins: env.trustedOrigins,
     publicAppUrl: env.publicAppUrl,

@@ -55,3 +55,8 @@ export { type Mailer, createConsoleMailer, createResendMailer } from './lib/mail
 export { type StripeBundle, createStripeBundle } from './lib/stripe.js';
 export { type ApiAuth, createApiAuth, enabledSocialProviders } from './lib/auth.js';
 export { type ApiDatabase, createApiDatabase } from './lib/db.js';
+// Role provisioning: the generic promote-to-LOGIN plus the app-role wrapper. A
+// commercial root promotes its own roles (provisionRole) and mirrors core's test
+// setup (provisionAppRole); provisionPgBossRole stays internal — reached via
+// runBootMigrations.
+export { provisionAppRole, provisionRole } from './lib/role-provision.js';

@@ -10,7 +10,7 @@ import { appDatabaseUrl } from './test-helper.js';
 // inline, and hands back the disposable handles a root needs — the coverage the
 // server.ts script never had (integration tests boot createApp, never server.ts).
 
-function testEnv(): Env {
+function testEnv(overrides: Partial<Env> = {}): Env {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) throw new Error('DATABASE_URL not set — global-setup.ts should have set it');
   return {
@@ -33,6 +33,7 @@ function testEnv(): Env {
     stripePublishableKey: undefined,
     stripeWebhookSecret: undefined,
     recurringSweepCron: '0 6 * * *',
+    ...overrides,
   };
 }
 
@@ -66,6 +67,35 @@ describe('createDefaultAppDeps — the boot factory', () => {
       // null exactly as they do on a bare self-host boot.
       expect(deps.stripe).toBeNull();
       expect(deps.addressProvider).toBeNull();
+    } finally {
+      await handles.tenantDb.close();
+      await handles.bootstrapDb.close();
+    }
+  });
+
+  it('aiEndpointPolicy overrides BOTH env knobs — seals tenant BYOK SSRF at both layers', async () => {
+    // env would allow private endpoints AND allowlist a host; the forced policy must
+    // win at BOTH the connect-time store guard and the request-time settings check —
+    // so both deps fields must reflect the policy, not env.
+    const env = testEnv({ aiAllowPrivateEndpoints: true, aiAllowedEndpoints: ['http://x:9000'] });
+    const { deps, handles } = createDefaultAppDeps(env, {
+      aiEndpointPolicy: { allowPrivate: false, allowedEndpoints: [] },
+    });
+    try {
+      expect(deps.aiAllowPrivateEndpoints).toBe(false);
+      expect(deps.aiAllowedEndpoints).toEqual([]);
+    } finally {
+      await handles.tenantDb.close();
+      await handles.bootstrapDb.close();
+    }
+  });
+
+  it('without the opt, the AI policy falls back to env (byte-identical)', async () => {
+    const env = testEnv({ aiAllowPrivateEndpoints: true, aiAllowedEndpoints: ['http://x:9000'] });
+    const { deps, handles } = createDefaultAppDeps(env);
+    try {
+      expect(deps.aiAllowPrivateEndpoints).toBe(true);
+      expect(deps.aiAllowedEndpoints).toEqual(['http://x:9000']);
     } finally {
       await handles.tenantDb.close();
       await handles.bootstrapDb.close();
