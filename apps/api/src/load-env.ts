@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import { loadEnvFile } from 'node:process';
+import { loadDotEnv } from './env-file.js';
 
 // Loaded as the FIRST import in server.ts, on purpose. The project-root .env is
 // the dev convention (see drizzle.config.ts), but it must populate process.env
@@ -13,9 +13,7 @@ import { loadEnvFile } from 'node:process';
 // throttling on local (proxy-less, no x-forwarded-for) requests. Doing the load
 // in a first-imported side-effect module fixes the ordering for every reader.
 //
-// Container deploys pass env vars directly and won't have a file present.
-try {
-  loadEnvFile(resolve(import.meta.dirname, '../../../.env'));
-} catch {
-  // No .env on disk — fall back to process.env as-is.
-}
+// The actual file read lives in the auth-free ./env-file leaf so a downstream
+// composition root can reuse it the same way (its own first-import shim, its own
+// .env path) without dragging in the auth graph before env is populated.
+loadDotEnv(resolve(import.meta.dirname, '../../../.env'));
