@@ -1,4 +1,9 @@
-import { type AccountCreatedContext, type SocialProviderCreds, createAuth } from '@thalermark/auth';
+import {
+  type AccountCreatedContext,
+  type IdpOptions,
+  type SocialProviderCreds,
+  createAuth,
+} from '@thalermark/auth';
 import type { Database } from '@thalermark/db';
 import { getLogger } from '@thalermark/logger';
 import type { Env } from '../env.js';
@@ -65,18 +70,24 @@ export function verifyUrlWithAppCallback(url: string, appUrl: string): string {
 // loaded env. server.ts holds the resulting handle and passes it into the
 // Hono factory.
 //
-// `hooks` is the open-core account-lifecycle seam: the public composition root
-// (server.ts) passes none, so onAccountCreated stays undefined and signup is
-// byte-identical to today. A commercial composition root injects a hook that
-// provisions the account's initial subscription/trial row inside the signup
-// transaction. It's a bag (not a bare positional) so a second lifecycle hook
-// later doesn't grow the parameter list. See @thalermark/auth for the seam
-// contract (AccountCreatedContext, atomic-with-signup semantics).
+// `hooks` is the injection bag for open-core auth seams the composition root
+// wires at construction time (they must reach createAuth, which builds the Better
+// Auth instance up front). The public root (server.ts) passes none, so signup and
+// the auth graph are byte-identical to today:
+//   - onAccountCreated — the account-lifecycle seam: a commercial root provisions
+//     the account's initial subscription/trial row inside the signup transaction
+//     (AccountCreatedContext, atomic-with-signup semantics).
+//   - idp — the identity-provider seam: a commercial root injects trusted clients
+//     + a login/consent page to turn core into the OAuth2/OIDC + MCP authority.
+// It's a bag (not bare positionals) so adding a seam later doesn't grow the list.
 export function createApiAuth(
   db: Database,
   env: Env,
   mailer?: Mailer,
-  hooks?: { onAccountCreated?: (ctx: AccountCreatedContext) => Promise<void> },
+  hooks?: {
+    onAccountCreated?: (ctx: AccountCreatedContext) => Promise<void>;
+    idp?: IdpOptions;
+  },
 ) {
   return createAuth(db, {
     secret: env.betterAuthSecret,
@@ -89,9 +100,10 @@ export function createApiAuth(
       ? Array.from(new Set([...env.trustedOrigins, env.publicAppUrl]))
       : env.trustedOrigins,
     rateLimitEnabled: env.rateLimitEnabled,
-    // Open-core seam (see the `hooks` param above). Undefined on self-host, so
-    // signup runs exactly as it does with no hook.
+    // Open-core seams (see the `hooks` param above). Undefined on self-host, so
+    // signup runs exactly as it does with no hook and no IdP plugins load.
     onAccountCreated: hooks?.onAccountCreated,
+    idp: hooks?.idp,
     ...socialCreds(env),
     // Require email verification when there's a real way to deliver the email,
     // so a self-host install without a mailer isn't locked out. Default = on iff

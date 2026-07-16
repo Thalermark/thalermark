@@ -6,6 +6,7 @@ import type {
   ProbeResult,
   ReceiptExtractor,
 } from '@thalermark/ai';
+import { oAuthDiscoveryMetadata } from '@thalermark/auth';
 import type { Database } from '@thalermark/db';
 import type { AddressAutocompleteProvider } from '@thalermark/location';
 import { getLogger } from '@thalermark/logger';
@@ -168,6 +169,12 @@ export type AppDeps = {
   // — byte-identical to no-consent. Built in server.ts from env.legalConsent;
   // the commercial root can inject its own (hosted terms + richer record).
   legalConsent?: LegalConsentConfig;
+  // Turns on the OAuth-authorization-server discovery route (/.well-known/
+  // oauth-authorization-server) that MCP clients probe. Set by the composition
+  // root when the IdP seam is injected (the mcp/oidc plugins are then loaded on
+  // `auth`, so the metadata is real); omitted on self-host and in tests → the
+  // route 404s, byte-identical to today.
+  idpEnabled?: boolean;
 };
 
 function createMainApp(deps: AppDeps) {
@@ -197,6 +204,23 @@ function createMainApp(deps: AppDeps) {
       // liveness probe that fails on a transient DB blip would force pointless
       // restarts). Readiness lives on /ready below.
       .get('/health', (c) => c.json({ status: 'ok' }))
+      // OAuth 2.0 Authorization Server Metadata (RFC 8414) — what an MCP client
+      // probes to discover core's authorize/token endpoints. Root-level on
+      // purpose: the well-known path lives at the origin, not under /api/auth.
+      // Served straight from the Better Auth instance, and mounted only when the
+      // IdP seam is on — the mcp/oidc plugins that back this metadata aren't
+      // loaded otherwise, so the route 404s exactly as on a default self-host.
+      .get('/.well-known/oauth-authorization-server', (c) => {
+        if (!deps.idpEnabled) return c.notFound();
+        // deps.auth's type deliberately erases the mcp plugin's api (see
+        // @thalermark/auth — the plugin is typed as a bare BetterAuthPlugin to keep
+        // an internal better-auth option type out of declaration output), so cast
+        // to the helper's expected shape. At runtime the endpoint exists exactly
+        // when idpEnabled is true, which we just checked.
+        return oAuthDiscoveryMetadata(
+          deps.auth as unknown as Parameters<typeof oAuthDiscoveryMetadata>[0],
+        )(c.req.raw);
+      })
       // Readiness: can this instance actually serve traffic? Pings the runtime
       // DB pool so a load balancer / orchestrator can pull an instance whose DB
       // is unreachable (or whose pool is exhausted) out of rotation. `select 1`
