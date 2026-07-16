@@ -39,17 +39,6 @@ const testEnv: Env = {
 // A commercial root injects this; the public build passes nothing.
 const idp: IdpOptions = {
   loginPage: 'http://localhost:5173/login',
-  trustedClients: [
-    {
-      clientId: 'test-dashboard',
-      clientSecret: 'test-dashboard-secret',
-      name: 'Test Dashboard',
-      type: 'web',
-      redirectUrls: ['http://localhost:5173/api/auth/callback'],
-      skipConsent: true,
-    },
-  ],
-  allowDynamicClientRegistration: true,
   // Custom scopes the MCP layer gates on, ON TOP of the OIDC defaults. Proves
   // the seam forwards IdpOptions.scopes into the mcp plugin's oidcConfig.
   scopes: ['read', 'contacts:write'],
