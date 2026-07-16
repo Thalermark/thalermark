@@ -49,6 +49,11 @@ export type { LegalConsentConfig } from './lib/legal-consent.js';
 // The signup-lifecycle seam type lives in @thalermark/auth; re-export it so the
 // commercial root gets it through this one door too.
 export type { AccountCreatedContext } from '@thalermark/auth';
+// The identity-provider seam config (single-login for dashboard/admin + MCP).
+// Also lives in @thalermark/auth; surfaced here so the commercial root builds its
+// trusted-client list against the one public door. Passed via
+// CreateDefaultAppDepsOptions.idp.
+export type { IdpOptions, IdpTrustedClient } from '@thalermark/auth';
 
 // ── Provider / infrastructure constructors a composition root wires ──
 export { type Mailer, createConsoleMailer, createResendMailer } from './lib/mailer.js';

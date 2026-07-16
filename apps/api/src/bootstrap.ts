@@ -12,7 +12,7 @@
 // serve(), the pg-boss lifecycle (new/start/stop + the JOBS_ENABLED gate), and
 // any commercial admin/billing mounts — the divergent orchestration, not the
 // shared construction.
-import type { AccountCreatedContext } from '@thalermark/auth';
+import type { AccountCreatedContext, IdpOptions } from '@thalermark/auth';
 import { type Database, runMigrations } from '@thalermark/db';
 import { createAddressAutocompleteProvider } from '@thalermark/location';
 import { configureLogger, getLogger } from '@thalermark/logger';
@@ -117,6 +117,12 @@ export type CreateDefaultAppDepsOptions = {
   // let a tenant BYOK URL reach loopback/RFC1918/metadata. Unset → env fallback,
   // byte-identical to today. Structurally an EndpointPolicy (lib/llm-endpoint.ts).
   aiEndpointPolicy?: { allowPrivate: boolean; allowedEndpoints?: string[] };
+  // The identity-provider seam (single-login for dashboard/admin + MCP). A
+  // commercial root injects trusted clients + a login/consent page, turning core
+  // into the OAuth2/OIDC + MCP authority; it's threaded into createApiAuth
+  // because the plugins are wired when the Better Auth instance is built. Unset
+  // (community) → no IdP plugins, no discovery route, byte-identical to today.
+  idp?: IdpOptions;
 };
 
 // Builds the fully-wired community AppDeps from env — the exact block that used
@@ -154,6 +160,7 @@ export function createDefaultAppDeps(
 
   const auth = createApiAuth(bootstrapDbHandle.db, env, mailer, {
     onAccountCreated: opts.onAccountCreated,
+    idp: opts.idp,
   });
 
   // Stripe is opt-in: bundle is null when any of the three env vars is unset,
@@ -263,6 +270,10 @@ export function createDefaultAppDeps(
     localFileServe,
     addressProvider,
     legalConsent: env.legalConsent,
+    // Gates the OAuth-authorization-server discovery route in app.ts. On when the
+    // IdP seam was injected (the mcp/oidc plugins are loaded on `auth`); off →
+    // the /.well-known route 404s, byte-identical to today.
+    idpEnabled: !!opts.idp,
   };
 
   return {

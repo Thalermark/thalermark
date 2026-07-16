@@ -10,13 +10,16 @@ import {
   companies,
   invitations,
   memberships,
+  oauthAccessToken,
+  oauthApplication,
+  oauthConsent,
   seedChartOfAccounts,
 } from '@thalermark/db';
 import { checkPassword } from '@thalermark/validation';
-import { betterAuth } from 'better-auth';
+import { type BetterAuthPlugin, betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { APIError, createAuthMiddleware } from 'better-auth/api';
-import { bearer } from 'better-auth/plugins';
+import { bearer, mcp } from 'better-auth/plugins';
 import disposableDomains from 'disposable-email-domains' with { type: 'json' };
 import { and, eq, gt, isNull, sql } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
@@ -42,6 +45,50 @@ const PASSWORD_BODY_FIELD: Record<string, string> = {
 // clientId/clientSecret pair for an OAuth provider. Google, Facebook, and X
 // (Better Auth provider key `twitter`) all share this shape.
 export type SocialProviderCreds = { clientId: string; clientSecret: string };
+
+// A first-party OAuth/OIDC client core trusts (the commercial dashboard + admin).
+// Mirrors Better Auth's oidc-provider `Client`: `skipConsent` lets these bypass
+// the consent screen so signing into the app carries into them silently (SSO).
+// `redirectUrls` must be whole absolute URLs (protocol + host + path).
+export type IdpTrustedClient = {
+  clientId: string;
+  clientSecret?: string;
+  name: string;
+  type: 'web' | 'native' | 'user-agent-based' | 'public';
+  redirectUrls: string[];
+  skipConsent?: boolean;
+  disabled?: boolean;
+  icon?: string;
+  metadata?: Record<string, unknown> | null;
+};
+
+// The open-core identity-provider seam. When present, core turns on Better Auth's
+// `mcp` plugin (which wraps `oidc-provider`), becoming the OAuth2/OIDC authority
+// for the commercial dashboard/admin surfaces AND MCP clients. Absent (self-host,
+// tests) → neither plugin loads and the auth graph is byte-identical to today.
+// The whole config is INJECTED by the composition root — client secrets are
+// commercial-only, never hardcoded in core. Third-party/MCP consent is delegated
+// to a dashboard-hosted page via `consentPage` (core ships no consent UI); trusted
+// clients skip consent entirely.
+export type IdpOptions = {
+  // Where Better Auth sends an unauthenticated user to sign in — the web app's
+  // existing login page (e.g. `${publicAppUrl}/login`). No new login UI.
+  loginPage: string;
+  // First-party clients (dashboard, admin) registered directly, bypassing the DB.
+  // Give them `skipConsent: true` so login carries into them with no prompt.
+  trustedClients: IdpTrustedClient[];
+  // A dashboard-hosted consent page for non-trusted (third-party MCP) clients.
+  // Core redirects to it with `?consent_code&client_id&scope`; the page POSTs the
+  // decision back to `/api/auth/oauth2/consent`. Omitted → BA has no consent UI
+  // (fine when every configured client is trusted).
+  consentPage?: string;
+  // Let MCP clients self-register (RFC 7591 dynamic client registration). The MCP
+  // auth flow relies on this so an external client can obtain a client_id.
+  allowDynamicClientRegistration?: boolean;
+  // The MCP protected-resource identifier advertised in discovery metadata (the
+  // MCP server's URL). Optional — set by a deployment that runs an MCP server.
+  resource?: string;
+};
 
 // The transaction the signup provisioning runs in — the same `tx` that inserts
 // the account/company/membership/COA rows. A commercial onAccountCreated hook
@@ -111,6 +158,11 @@ export type CreateAuthOptions = {
   // hook throws, the whole signup rolls back and no half-provisioned tenant is
   // left behind.
   onAccountCreated?: (ctx: AccountCreatedContext) => Promise<void>;
+  // Open-core identity-provider seam (single-login for dashboard/admin + MCP).
+  // Present → the `mcp`/`oidc-provider` plugins are wired and core acts as the
+  // OAuth2/OIDC authority. Undefined (self-host, tests) → neither loads and the
+  // auth graph is unchanged. See IdpOptions.
+  idp?: IdpOptions;
 };
 
 // Wires Better Auth to our auth_* Drizzle tables. Email/password ON; the
@@ -143,6 +195,11 @@ export function createAuth(db: Database, options: CreateAuthOptions) {
         account: authAccount,
         verification: authVerification,
         rateLimit: authRateLimit,
+        // The oidc-provider/mcp plugin models. The drizzle adapter needs an
+        // explicit table for every model a loaded plugin declares, so map these
+        // only when the IdP seam is on (the plugin is added below under the same
+        // condition). Absent otherwise — nothing references them.
+        ...(options.idp ? { oauthApplication, oauthAccessToken, oauthConsent } : {}),
       },
     }),
     // Brute-force / password-spray backoff. Enabled only in production (the api
@@ -232,7 +289,48 @@ export function createAuth(db: Database, options: CreateAuthOptions) {
     // deep link so the system-browser flow can return to the app (web is
     // unaffected — it keeps using http callbacks). Pairs with `expoClient` on
     // apps/mobile.
-    plugins: [bearer(), expo()],
+    // The IdP seam (opt-in): `mcp` wraps `oidc-provider`, so this single plugin
+    // turns core into the OAuth2/OIDC authority AND exposes the MCP OAuth flow.
+    // Only added when `idp` is injected — self-host stays on [bearer, expo].
+    // First-party clients (dashboard/admin) go in as trustedClients (skipConsent
+    // → silent SSO); third-party/MCP consent is delegated to the injected
+    // dashboard-hosted `consentPage`; core ships no consent UI of its own.
+    plugins: [
+      bearer(),
+      expo(),
+      ...(options.idp
+        ? [
+            // Cast to the bare BetterAuthPlugin: mcp()'s specific return type
+            // references better-auth's INTERNAL `MCPOptions`, which isn't exported,
+            // so it would leak into this package's emitted .d.ts (TS4058). Erasing
+            // to the exported plugin type keeps the declaration nameable; the one
+            // consumer that needs the plugin's api — the discovery route in
+            // apps/api/src/app.ts — casts locally. Runtime is unaffected.
+            mcp({
+              loginPage: options.idp.loginPage,
+              resource: options.idp.resource,
+              oidcConfig: {
+                // Redundant with the top-level loginPage (mcp merges that in last),
+                // but oidcConfig is typed as OIDCOptions, which requires it.
+                loginPage: options.idp.loginPage,
+                consentPage: options.idp.consentPage,
+                allowDynamicClientRegistration: options.idp.allowDynamicClientRegistration,
+                trustedClients: options.idp.trustedClients.map((c) => ({
+                  clientId: c.clientId,
+                  clientSecret: c.clientSecret,
+                  name: c.name,
+                  type: c.type,
+                  redirectUrls: c.redirectUrls,
+                  disabled: c.disabled ?? false,
+                  icon: c.icon,
+                  metadata: c.metadata ?? null,
+                  skipConsent: c.skipConsent,
+                })),
+              },
+            }) as BetterAuthPlugin,
+          ]
+        : []),
+    ],
     // Enforce the password policy at the boundary, on every endpoint that
     // establishes or changes a password (NIST 800-63B requires the blocklist /
     // strength check at "establish AND change", not just signup — see
@@ -363,3 +461,10 @@ export function createAuth(db: Database, options: CreateAuthOptions) {
 }
 
 export type AuthInstance = ReturnType<typeof createAuth>;
+
+// Re-exported so a composition root can mount the OAuth-authorization-server
+// discovery route (/.well-known/oauth-authorization-server, probed by MCP
+// clients) without taking a direct better-auth dependency — Better Auth stays
+// encapsulated in this package. Builds the discovery handler from the auth
+// instance; only meaningful when the `idp` seam is on (the mcp plugin is loaded).
+export { oAuthDiscoveryMetadata } from 'better-auth/plugins';
