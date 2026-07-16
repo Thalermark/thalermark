@@ -53,7 +53,7 @@ export type { AccountCreatedContext } from '@thalermark/auth';
 // Also lives in @thalermark/auth; surfaced here so the commercial root builds its
 // trusted-client list against the one public door. Passed via
 // CreateDefaultAppDepsOptions.idp.
-export type { IdpOptions, IdpTrustedClient } from '@thalermark/auth';
+export type { IdpOptions } from '@thalermark/auth';
 
 // ── Provider / infrastructure constructors a composition root wires ──
 export { type Mailer, createConsoleMailer, createResendMailer } from './lib/mailer.js';

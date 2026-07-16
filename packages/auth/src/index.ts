@@ -46,45 +46,32 @@ const PASSWORD_BODY_FIELD: Record<string, string> = {
 // (Better Auth provider key `twitter`) all share this shape.
 export type SocialProviderCreds = { clientId: string; clientSecret: string };
 
-// A first-party OAuth/OIDC client core trusts (the commercial dashboard + admin).
-// Mirrors Better Auth's oidc-provider `Client`: `skipConsent` lets these bypass
-// the consent screen so signing into the app carries into them silently (SSO).
-// `redirectUrls` must be whole absolute URLs (protocol + host + path).
-export type IdpTrustedClient = {
-  clientId: string;
-  clientSecret?: string;
-  name: string;
-  type: 'web' | 'native' | 'user-agent-based' | 'public';
-  redirectUrls: string[];
-  skipConsent?: boolean;
-  disabled?: boolean;
-  icon?: string;
-  metadata?: Record<string, unknown> | null;
-};
-
 // The open-core identity-provider seam. When present, core turns on Better Auth's
 // `mcp` plugin (which wraps `oidc-provider`), becoming the OAuth2/OIDC authority
 // for the commercial dashboard/admin surfaces AND MCP clients. Absent (self-host,
-// tests) → neither plugin loads and the auth graph is byte-identical to today.
+// tests) → the plugin doesn't load and the auth graph is byte-identical to today.
 // The whole config is INJECTED by the composition root — client secrets are
-// commercial-only, never hardcoded in core. Third-party/MCP consent is delegated
-// to a dashboard-hosted page via `consentPage` (core ships no consent UI); trusted
-// clients skip consent entirely.
+// commercial-only, never hardcoded in core.
+//
+// Client model (traced from better-auth@1.6.13, not assumed): `mcp()` mounts only
+// `/api/auth/mcp/{authorize,token,register}` and resolves EVERY client from the
+// `oauth_application` table — it does not read any config-level trusted-client
+// list (the endpoint that would, `/oauth2/authorize`, is never mounted). So
+// first-party clients (dashboard/admin) are ROWS a deployment seeds into
+// `oauth_application`, not seam config. Consent is prompt-driven: no
+// `prompt=consent` → a silent code for any registered client; `prompt=consent` →
+// redirect to `consentPage`. And `/mcp/register` (RFC 7591) is ALWAYS open and
+// anonymous when the seam is on — there is no seam-level off-switch for dynamic
+// registration today (the `mcp()` register handler never checks one).
 export type IdpOptions = {
   // Where Better Auth sends an unauthenticated user to sign in — the web app's
   // existing login page (e.g. `${publicAppUrl}/login`). No new login UI.
   loginPage: string;
-  // First-party clients (dashboard, admin) registered directly, bypassing the DB.
-  // Give them `skipConsent: true` so login carries into them with no prompt.
-  trustedClients: IdpTrustedClient[];
-  // A dashboard-hosted consent page for non-trusted (third-party MCP) clients.
+  // A dashboard-hosted consent page for MCP clients that request `prompt=consent`.
   // Core redirects to it with `?consent_code&client_id&scope`; the page POSTs the
-  // decision back to `/api/auth/oauth2/consent`. Omitted → BA has no consent UI
-  // (fine when every configured client is trusted).
+  // decision back to `/api/auth/oauth2/consent`. Omitted → no consent screen (every
+  // registered client gets a silent code).
   consentPage?: string;
-  // Let MCP clients self-register (RFC 7591 dynamic client registration). The MCP
-  // auth flow relies on this so an external client can obtain a client_id.
-  allowDynamicClientRegistration?: boolean;
   // The MCP protected-resource identifier advertised in discovery metadata (the
   // MCP server's URL). Optional — set by a deployment that runs an MCP server.
   resource?: string;
@@ -298,9 +285,9 @@ export function createAuth(db: Database, options: CreateAuthOptions) {
     // The IdP seam (opt-in): `mcp` wraps `oidc-provider`, so this single plugin
     // turns core into the OAuth2/OIDC authority AND exposes the MCP OAuth flow.
     // Only added when `idp` is injected — self-host stays on [bearer, expo].
-    // First-party clients (dashboard/admin) go in as trustedClients (skipConsent
-    // → silent SSO); third-party/MCP consent is delegated to the injected
-    // dashboard-hosted `consentPage`; core ships no consent UI of its own.
+    // Clients are resolved from the `oauth_application` table (a deployment seeds
+    // its own first-party dashboard/admin rows); consent is prompt-driven and
+    // delegated to the injected `consentPage`. Core ships no consent UI of its own.
     plugins: [
       bearer(),
       expo(),
@@ -320,19 +307,7 @@ export function createAuth(db: Database, options: CreateAuthOptions) {
                 // but oidcConfig is typed as OIDCOptions, which requires it.
                 loginPage: options.idp.loginPage,
                 consentPage: options.idp.consentPage,
-                allowDynamicClientRegistration: options.idp.allowDynamicClientRegistration,
                 scopes: options.idp.scopes,
-                trustedClients: options.idp.trustedClients.map((c) => ({
-                  clientId: c.clientId,
-                  clientSecret: c.clientSecret,
-                  name: c.name,
-                  type: c.type,
-                  redirectUrls: c.redirectUrls,
-                  disabled: c.disabled ?? false,
-                  icon: c.icon,
-                  metadata: c.metadata ?? null,
-                  skipConsent: c.skipConsent,
-                })),
               },
             }) as BetterAuthPlugin,
           ]
