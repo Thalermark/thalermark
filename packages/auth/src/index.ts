@@ -88,6 +88,12 @@ export type IdpOptions = {
   // The MCP protected-resource identifier advertised in discovery metadata (the
   // MCP server's URL). Optional — set by a deployment that runs an MCP server.
   resource?: string;
+  // Custom OAuth scopes this authority issues, ON TOP of the OIDC defaults the
+  // mcp plugin always adds (openid/profile/email/offline_access). One per tool
+  // family the MCP layer gates on (e.g. contacts:write). Undefined → only the
+  // defaults, so self-host/tests are unchanged. Forwarded verbatim to the mcp
+  // plugin's oidcConfig.scopes.
+  scopes?: string[];
 };
 
 // The transaction the signup provisioning runs in — the same `tx` that inserts
@@ -315,6 +321,7 @@ export function createAuth(db: Database, options: CreateAuthOptions) {
                 loginPage: options.idp.loginPage,
                 consentPage: options.idp.consentPage,
                 allowDynamicClientRegistration: options.idp.allowDynamicClientRegistration,
+                scopes: options.idp.scopes,
                 trustedClients: options.idp.trustedClients.map((c) => ({
                   clientId: c.clientId,
                   clientSecret: c.clientSecret,
