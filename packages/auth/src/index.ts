@@ -112,6 +112,26 @@ export type SessionRevokedContext = {
   sessionId: string;
 };
 
+// The client family that opened a session. Stamped on every session at creation
+// (see the databaseHooks.session.create hook) so a consumer can scope revocation
+// by origin — e.g. a web sign-out that ends app/dashboard/admin but spares the
+// long-lived mobile session (TMCLD-102). Persisted in auth_session.platform;
+// null on rows created before the column existed, which a consumer treats as
+// 'web' (fail-safe — an ambiguous session is swept by a web sign-out).
+export type SessionPlatform = 'web' | 'mobile';
+
+// Derive the session origin from the request Origin header. The mobile app pins
+// its custom app scheme as Origin (e.g. `thalermark://`) on every request; a
+// browser always sends an http(s) origin. So a non-http(s) origin is the native
+// app; everything else — http/https, or a missing/blank origin (a context-less
+// internal session creation) — is treated as 'web'. That default is the fail-safe
+// direction: an ambiguous session gets ended by a web sign-out rather than
+// silently surviving it. This is NOT user_agent sniffing — Origin is the value
+// Better Auth already validates against trustedOrigins for CSRF.
+function platformFromOrigin(origin: string | null | undefined): SessionPlatform {
+  return origin && !/^https?:\/\//i.test(origin) ? 'mobile' : 'web';
+}
+
 export type CreateAuthOptions = {
   secret: string;
   baseURL: string;
@@ -294,6 +314,17 @@ export function createAuth(db: Database, options: CreateAuthOptions) {
         trustedProviders: ['google', 'facebook', 'twitter'],
       },
     },
+    session: {
+      // Declares the platform column to Better Auth so the drizzle adapter
+      // persists and returns it; the value itself is stamped by the
+      // databaseHooks.session.create hook below. input:false — a client can't set
+      // it via the request body (it's derived server-side from the request
+      // Origin), so a caller can't self-declare 'mobile' to dodge a web sign-out.
+      // required:false — pre-existing rows are null. See SessionPlatform.
+      additionalFields: {
+        platform: { type: 'string', required: false, input: false },
+      },
+    },
     // Mobile uses Authorization: Bearer <session-token> instead of cookies.
     // The bearer plugin is a no-op for cookie clients (web): its `before` hook
     // only converts a bearer header into a session cookie if one is present.
@@ -456,17 +487,33 @@ export function createAuth(db: Database, options: CreateAuthOptions) {
           },
         },
       },
-      // Single-logout seam (TMCLD-98): notify the injected hook when a session
-      // ends, so a commercial layer can end the same user's sessions on sibling
-      // OIDC clients (dashboard/admin). Only registered when the seam is
-      // injected, so self-host's database-hook graph is byte-identical. Better
-      // Auth routes sign-out and every revoke path through this delete hook and
-      // hands us the full (pre-delete) session row, so userId/id are present.
-      // Best-effort: a failed notification must never break the sign-out that
-      // triggered it, so we swallow — the injected hook owns delivery + errors.
-      ...(options.onSessionRevoked
-        ? {
-            session: {
+      session: {
+        // Session-origin tag (TMCLD-102): stamp every new session with the client
+        // family that created it (web vs mobile), derived from the request Origin
+        // — the same request signal Better Auth reads user-agent/ip from at
+        // session create (see internal-adapter createSession). Always on: this is
+        // session metadata like ip_address/user_agent, not a seam, so it's
+        // captured on every deployment. A consumer scopes revocation on it (a web
+        // sign-out that spares mobile); the compromise-recovery revoke-all path
+        // (revokeSessionsOnPasswordReset) ignores it and ends every row.
+        create: {
+          before: async (session, context) => {
+            const origin =
+              context?.headers?.get('origin') ?? context?.request?.headers?.get('origin');
+            return { data: { ...session, platform: platformFromOrigin(origin) } };
+          },
+        },
+        // Single-logout seam (TMCLD-98): notify the injected hook when a session
+        // ends, so a commercial layer can end the same user's sessions on sibling
+        // OIDC clients (dashboard/admin). The delete hook is only registered when
+        // the seam is injected, so self-host's delete-hook graph is byte-identical.
+        // Better Auth routes sign-out and every revoke path through this delete
+        // hook and hands us the full (pre-delete) session row, so userId/id are
+        // present. Best-effort: a failed notification must never break the
+        // sign-out that triggered it, so we swallow — the injected hook owns
+        // delivery + errors.
+        ...(options.onSessionRevoked
+          ? {
               delete: {
                 after: async (session) => {
                   try {
@@ -479,9 +526,9 @@ export function createAuth(db: Database, options: CreateAuthOptions) {
                   }
                 },
               },
-            },
-          }
-        : {}),
+            }
+          : {}),
+      },
     },
     advanced: {
       database: {

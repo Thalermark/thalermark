@@ -48,6 +48,18 @@ export const authSession = pgTable(
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     ipAddress: text('ip_address'),
     userAgent: text('user_agent'),
+    // 'web' | 'mobile' — the client family that created this session, stamped at
+    // creation from the request Origin (a native app scheme ⇒ 'mobile', an http(s)
+    // origin ⇒ 'web'). Same session-metadata class as ip_address/user_agent above,
+    // captured for every session on every deployment. Lets a consumer scope
+    // session revocation by origin — e.g. a web sign-out that spares the
+    // long-lived mobile session (TMCLD-102) — without the fragile user_agent
+    // string-matching that class of decision must never rely on. Nullable: rows
+    // created before this column existed (and any context-less internal creation)
+    // are null, and a consumer MUST treat null as 'web' (fail-safe — an ambiguous
+    // session is swept by a web logout, never silently spared). A compromise-
+    // recovery revoke-all path (password reset) ignores this and ends every row.
+    platform: text('platform'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
