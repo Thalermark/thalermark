@@ -49,6 +49,10 @@ export type { LegalConsentConfig } from './lib/legal-consent.js';
 // The signup-lifecycle seam type lives in @thalermark/auth; re-export it so the
 // commercial root gets it through this one door too.
 export type { AccountCreatedContext } from '@thalermark/auth';
+// The single-logout seam payload (TMCLD-98). Also from @thalermark/auth;
+// surfaced here so the commercial root types its onSessionRevoked hook against
+// the one public door. Passed via CreateDefaultAppDepsOptions.onSessionRevoked.
+export type { SessionRevokedContext } from '@thalermark/auth';
 // The identity-provider seam config (single-login for dashboard/admin + MCP).
 // Also lives in @thalermark/auth; surfaced here so the commercial root builds its
 // trusted-client list against the one public door. Passed via

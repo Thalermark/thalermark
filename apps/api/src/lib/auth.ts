@@ -1,6 +1,7 @@
 import {
   type AccountCreatedContext,
   type IdpOptions,
+  type SessionRevokedContext,
   type SocialProviderCreds,
   createAuth,
 } from '@thalermark/auth';
@@ -77,6 +78,10 @@ export function verifyUrlWithAppCallback(url: string, appUrl: string): string {
 //   - onAccountCreated — the account-lifecycle seam: a commercial root provisions
 //     the account's initial subscription/trial row inside the signup transaction
 //     (AccountCreatedContext, atomic-with-signup semantics).
+//   - onSessionRevoked — the single-logout seam: fired when a session ends so a
+//     commercial root can end the same user's sessions on sibling OIDC clients
+//     (TMCLD-98). Threaded here for the same reason — it's a Better Auth session
+//     hook, wired when the instance is built.
 //   - idp — the identity-provider seam: a commercial root injects trusted clients
 //     + a login/consent page to turn core into the OAuth2/OIDC + MCP authority.
 // It's a bag (not bare positionals) so adding a seam later doesn't grow the list.
@@ -86,6 +91,7 @@ export function createApiAuth(
   mailer?: Mailer,
   hooks?: {
     onAccountCreated?: (ctx: AccountCreatedContext) => Promise<void>;
+    onSessionRevoked?: (ctx: SessionRevokedContext) => Promise<void>;
     idp?: IdpOptions;
   },
 ) {
@@ -103,6 +109,7 @@ export function createApiAuth(
     // Open-core seams (see the `hooks` param above). Undefined on self-host, so
     // signup runs exactly as it does with no hook and no IdP plugins load.
     onAccountCreated: hooks?.onAccountCreated,
+    onSessionRevoked: hooks?.onSessionRevoked,
     idp: hooks?.idp,
     ...socialCreds(env),
     // Require email verification when there's a real way to deliver the email,

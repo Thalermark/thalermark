@@ -12,7 +12,7 @@
 // serve(), the pg-boss lifecycle (new/start/stop + the JOBS_ENABLED gate), and
 // any commercial admin/billing mounts — the divergent orchestration, not the
 // shared construction.
-import type { AccountCreatedContext, IdpOptions } from '@thalermark/auth';
+import type { AccountCreatedContext, IdpOptions, SessionRevokedContext } from '@thalermark/auth';
 import { type Database, runMigrations } from '@thalermark/db';
 import { createAddressAutocompleteProvider } from '@thalermark/location';
 import { configureLogger, getLogger } from '@thalermark/logger';
@@ -111,6 +111,12 @@ export type CreateDefaultAppDepsOptions = {
   // spread onto AppDeps the way the other seams are — `auth` is itself a dep
   // built here. Undefined (community) → signup is byte-identical to no hook.
   onAccountCreated?: (ctx: AccountCreatedContext) => Promise<void>;
+  // The single-logout seam (TMCLD-98). Threaded into createApiAuth for the same
+  // reason as onAccountCreated — it's a Better Auth session hook, fired when a
+  // session ends so a commercial root can end the same user's sessions on
+  // sibling OIDC clients (dashboard/admin). Undefined (community) → no
+  // notification, byte-identical to today.
+  onSessionRevoked?: (ctx: SessionRevokedContext) => Promise<void>;
   // Forces the AI SSRF endpoint policy, overriding BOTH env knobs
   // (AI_ALLOW_PRIVATE_ENDPOINTS + AI_ALLOWED_ENDPOINTS). A managed multi-tenant root
   // passes { allowPrivate: false, allowedEndpoints: [] } so a stray env value can't
@@ -160,6 +166,7 @@ export function createDefaultAppDeps(
 
   const auth = createApiAuth(bootstrapDbHandle.db, env, mailer, {
     onAccountCreated: opts.onAccountCreated,
+    onSessionRevoked: opts.onSessionRevoked,
     idp: opts.idp,
   });
 

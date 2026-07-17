@@ -100,6 +100,18 @@ export type AccountCreatedContext = {
   tx: SignupTx;
 };
 
+// Handed to onSessionRevoked when a Better Auth session row is deleted — the
+// user signed out, or a session was revoked (revoke-session/-sessions,
+// password-reset revocation, account deletion). All of those route through BA's
+// session delete hook. Deliberately minimal, like AccountCreatedContext: just
+// the identifiers a consumer needs to end this user's sessions elsewhere.
+// `userId` is the OIDC `sub` that sibling clients (dashboard/admin) key their
+// own local sessions on; `sessionId` is the ended core session's id.
+export type SessionRevokedContext = {
+  userId: string;
+  sessionId: string;
+};
+
 export type CreateAuthOptions = {
   secret: string;
   baseURL: string;
@@ -151,6 +163,17 @@ export type CreateAuthOptions = {
   // hook throws, the whole signup rolls back and no half-provisioned tenant is
   // left behind.
   onAccountCreated?: (ctx: AccountCreatedContext) => Promise<void>;
+  // Open-core single-logout seam (TMCLD-98). Fired best-effort AFTER a session
+  // row is deleted — sign-out and every revoke path route through Better Auth's
+  // session delete hook. Self-host leaves it unset (a no-op: there are no
+  // sibling apps to notify), so the public build is byte-identical. The
+  // commercial composition root injects a hook that signs + fans a logout
+  // notification out to its OIDC client apps (dashboard/admin), which then end
+  // their own local sessions — core stays free of the client registry and the
+  // transport. A throw is swallowed (best-effort) so it can never break the
+  // sign-out that triggered it; the injected hook owns its own delivery, retry,
+  // and error reporting.
+  onSessionRevoked?: (ctx: SessionRevokedContext) => Promise<void>;
   // Open-core identity-provider seam (single-login for dashboard/admin + MCP).
   // Present → the `mcp`/`oidc-provider` plugins are wired and core acts as the
   // OAuth2/OIDC authority. Undefined (self-host, tests) → neither loads and the
@@ -433,6 +456,32 @@ export function createAuth(db: Database, options: CreateAuthOptions) {
           },
         },
       },
+      // Single-logout seam (TMCLD-98): notify the injected hook when a session
+      // ends, so a commercial layer can end the same user's sessions on sibling
+      // OIDC clients (dashboard/admin). Only registered when the seam is
+      // injected, so self-host's database-hook graph is byte-identical. Better
+      // Auth routes sign-out and every revoke path through this delete hook and
+      // hands us the full (pre-delete) session row, so userId/id are present.
+      // Best-effort: a failed notification must never break the sign-out that
+      // triggered it, so we swallow — the injected hook owns delivery + errors.
+      ...(options.onSessionRevoked
+        ? {
+            session: {
+              delete: {
+                after: async (session) => {
+                  try {
+                    await options.onSessionRevoked?.({
+                      userId: session.userId,
+                      sessionId: session.id,
+                    });
+                  } catch {
+                    // best-effort notification; never fail the sign-out
+                  }
+                },
+              },
+            },
+          }
+        : {}),
     },
     advanced: {
       database: {
