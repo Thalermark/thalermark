@@ -2,6 +2,7 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { authClient } from '$lib/auth-client';
+  import * as Sentry from '@sentry/sveltekit';
 
   // The api emails a link to `${PUBLIC_APP_URL}/reset-password?token=…`. If Better
   // Auth's GET hop is ever used instead, an expired/used token arrives as
@@ -39,7 +40,8 @@
       // A completed reset revokes existing sessions, so send them to sign in fresh.
       done = true;
       setTimeout(() => goto('/sign-in'), 1500);
-    } catch {
+    } catch (e) {
+      Sentry.captureException(e); // report the transport failure (TMCLD-100)
       error = 'Could not reach the server. Check your connection and try again.';
     } finally {
       submitting = false;
