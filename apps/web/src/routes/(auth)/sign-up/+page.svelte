@@ -3,6 +3,7 @@
   import { env } from '$env/dynamic/public';
   import { page } from '$app/state';
   import { authClient } from '$lib/auth-client';
+  import * as Sentry from '@sentry/sveltekit';
   import SocialSignIn from '$lib/components/SocialSignIn.svelte';
   import PasswordStrength from '$lib/components/PasswordStrength.svelte';
   import { COPY } from '@thalermark/brand';
@@ -106,10 +107,11 @@
       } else {
         awaitingVerification = true;
       }
-    } catch {
+    } catch (e) {
       // A thrown request (network down, API unreachable, CSP-blocked) never
-      // reaches the result-error branch, so surface it instead of leaving a
-      // stuck button.
+      // reaches the result-error branch — report it (TMCLD-100), then surface it
+      // instead of leaving a stuck button.
+      Sentry.captureException(e);
       error = 'Could not reach the server. Check your connection and try again.';
     } finally {
       submitting = false;

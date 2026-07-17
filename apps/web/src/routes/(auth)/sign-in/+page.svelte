@@ -1,6 +1,7 @@
 <script lang="ts">
   import { page } from '$app/state';
-  import { authClient } from '$lib/auth-client';
+  import { authClient, baseURL } from '$lib/auth-client';
+  import * as Sentry from '@sentry/sveltekit';
   import SocialSignIn from '$lib/components/SocialSignIn.svelte';
   import { COPY } from '@thalermark/brand';
 
@@ -18,6 +19,18 @@
     inviteToken ? `/accept-invite?token=${encodeURIComponent(inviteToken)}` : '/',
   );
   const signUpHref = $derived(inviteToken ? `/sign-up?invite=${encodeURIComponent(inviteToken)}` : '/sign-up');
+
+  // When core acts as the OIDC authority (a client sent the user here via its
+  // /authorize request), those authorize params ride on this page's URL.
+  // response_type + client_id being present means "on a successful sign-in,
+  // complete the pending authorize" — so we reconstruct the authorize URL and
+  // finish it as a top-level navigation (see onSubmit / TMCLD-99). Null on a
+  // plain sign-in, which keeps its existing behaviour.
+  const oidcAuthorize = $derived(
+    page.url.searchParams.get('response_type') && page.url.searchParams.get('client_id')
+      ? `${baseURL}/api/auth/mcp/authorize?${page.url.searchParams.toString()}`
+      : null,
+  );
 
   // Social providers the api advertises (already public via the rendered
   // buttons) + this device's last-used method (a local, leak-free cookie read
@@ -77,12 +90,30 @@
         return;
       }
       rememberMethod('password');
-      // Hard nav: forces hooks.server.ts to re-run membership routing on a
-      // fresh request. goto() + invalidateAll() leaves stale layout data.
-      window.location.assign(postAuthPath);
-    } catch {
-      // A thrown request (network down, API unreachable, CSP-blocked) never
-      // reaches the result-error branch, so surface it instead of a stuck button.
+      // Hard nav: forces hooks.server.ts to re-run membership routing on a fresh
+      // request. goto() + invalidateAll() leaves stale layout data. In the
+      // OIDC-authorize context a raw 302 makes the call throw (handled below), so
+      // this success line is only reached on a plain sign-in — but prefer the
+      // authorize URL if BA ever completes the flow with a JSON redirect instead.
+      window.location.assign(oidcAuthorize ?? postAuthPath);
+    } catch (e) {
+      // In the OIDC-authorize context a *successful* sign-in completes the pending
+      // authorize and 302s to the client's cross-origin callback. authClient
+      // follows that redirect as a fetch and the page CSP (connect-src 'self')
+      // blocks it, so the call throws here even though the session is now set.
+      // Re-drive /authorize as a top-level navigation (not subject to
+      // connect-src) to land back on the client (TMCLD-99). Wrong password /
+      // unverified email return result.error above (no redirect), so they never
+      // reach this branch — only a real success or a real transport failure does.
+      if (oidcAuthorize) {
+        rememberMethod('password');
+        window.location.assign(oidcAuthorize);
+        return;
+      }
+      // A genuinely thrown request (network down, API unreachable, CSP-blocked)
+      // never reaches the result-error branch — report it (TMCLD-100), then
+      // surface it instead of leaving a stuck button.
+      Sentry.captureException(e);
       error = 'Could not reach the server. Check your connection and try again.';
     } finally {
       submitting = false;

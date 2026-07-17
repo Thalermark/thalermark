@@ -1,5 +1,6 @@
 <script lang="ts">
   import { authClient } from '$lib/auth-client';
+  import * as Sentry from '@sentry/sveltekit';
 
   let email = $state('');
   let submitting = $state(false);
@@ -18,7 +19,10 @@
     try {
       await authClient.requestPasswordReset({ email });
       submitted = true;
-    } catch {
+    } catch (e) {
+      // Report the transport failure (TMCLD-100). Capturing a network exception
+      // leaks nothing about whether the account exists — this stays non-enumerating.
+      Sentry.captureException(e);
       error = 'Could not reach the server. Check your connection and try again.';
     } finally {
       submitting = false;
