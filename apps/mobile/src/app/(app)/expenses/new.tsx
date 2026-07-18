@@ -20,6 +20,7 @@ import { pickActiveCompany } from '../../../lib/active-company';
 import { api } from '../../../lib/api';
 import { type SuggestResult, suggestCategory } from '../../../lib/categorize';
 import { resolveVendor } from '../../../lib/expense-vendor';
+import { useFlowAbandonment } from '../../../lib/flow-abandonment';
 
 // Mirror of apps/web's /expenses/new. An expense posts against two chart-of-
 // accounts rows (category = an 'expense' account, payment = an 'asset'
@@ -58,6 +59,13 @@ export default function NewExpense() {
   const [submitting, setSubmitting] = useState(false);
   const [suggesting, setSuggesting] = useState(false);
   const [suggestNotice, setSuggestNotice] = useState<SuggestResult | null>(null);
+
+  // expense_flow_abandoned: on leaving without saving, emit the furthest section
+  // engaged — 'category' if a category is picked, else 'amount' if vendor/amount
+  // typed, else nothing.
+  const flow = useFlowAbandonment('expense_flow_abandoned', () =>
+    categoryId ? 'category' : merchant || amount ? 'amount' : null,
+  );
 
   async function onSuggest() {
     if (!companyId) return;
@@ -181,6 +189,7 @@ export default function NewExpense() {
         return;
       }
       const created = await res.json();
+      flow.markSubmitted();
       router.replace(`/expenses/${created.id}`);
     } catch {
       setFormError('create_failed');

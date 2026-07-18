@@ -48,6 +48,15 @@ export function contactsRoutes(deps: AppDeps) {
           .limit(1);
         if (!company) return c.json({ error: 'company_not_found' }, 404);
 
+        // First-client onboarding milestone (server-authoritative — see the
+        // ONBOARDING_STEPS note in @thalermark/validation). Checked BEFORE the
+        // insert so "the account's first contact" is honest; emitted after.
+        const [priorContact] = await tx
+          .select({ id: contacts.id })
+          .from(contacts)
+          .where(eq(contacts.accountId, accountId))
+          .limit(1);
+
         const id = uuidv7();
         const row = { id, accountId, ...parsed.data };
         await tx.insert(contacts).values(row);
@@ -62,6 +71,9 @@ export function contactsRoutes(deps: AppDeps) {
         // Telemetry (opt-in; no-op unless the account enabled it). "Client" is
         // the TELEMETRY.md term for what the app calls a customer.
         await emit(tx, { name: 'client_created' });
+        if (!priorContact) {
+          await emit(tx, { name: 'onboarding_step_completed', step: 'first_client' });
+        }
 
         return c.json(row, 201);
       })

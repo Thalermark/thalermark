@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { beforeNavigate } from '$app/navigation';
   import { page } from '$app/state';
+  import { flushTelemetry, trackEvent } from '$lib/telemetry';
 
   let { children } = $props();
 
@@ -8,6 +10,27 @@
   // (shouldn't happen inside this layout) falls back to step 1.
   const STEPS = ['/welcome', '/welcome/paid', '/welcome/brand'];
   const current = $derived(Math.max(0, STEPS.indexOf(page.url.pathname)) + 1);
+
+  // onboarding_abandoned: fire when the user leaves the wizard (any non-/welcome
+  // destination, incl. a tab unload where `to` is null) before the final step.
+  // Intra-wizard hops stay inside /welcome so they don't count; leaving from the
+  // last step (/welcome/brand) is treated as finishing, not abandoning. The
+  // wizard has no escape nav, so in practice this only catches back/close/manual
+  // URL changes — low volume by design.
+  let abandonmentFired = false;
+  beforeNavigate((nav) => {
+    if (abandonmentFired) return;
+    const from = page.url.pathname;
+    const to = nav.to?.url.pathname;
+    if (to?.startsWith('/welcome')) return; // still inside the wizard
+    if (from === '/welcome/brand') return; // reached the last step = finished enough
+    abandonmentFired = true;
+    trackEvent({
+      name: 'onboarding_abandoned',
+      last_completed_step: from === '/welcome' ? null : 'company_setup',
+    });
+    void flushTelemetry();
+  });
 </script>
 
 <div class="flex min-h-screen flex-col">

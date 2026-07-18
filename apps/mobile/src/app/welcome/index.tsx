@@ -6,6 +6,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { WelcomeHeader } from '../../components/WelcomeHeader';
 import { pickActiveCompany } from '../../lib/active-company';
 import { api } from '../../lib/api';
+import { trackEvent } from '../../lib/telemetry';
+import { markCompanySetupDone } from '../../lib/welcome-progress';
 
 // Step 1 — Your business. Name + business type are required (they replace the
 // signup fallback that named the company after the person, and setting the type
@@ -89,6 +91,10 @@ export default function WelcomeBusiness() {
         setError('Could not save. Please try again.');
         return;
       }
+      // company_setup completes when the business-setup step saves. The first_*
+      // milestones are emitted server-side.
+      trackEvent({ name: 'onboarding_step_completed', step: 'company_setup' });
+      markCompanySetupDone();
       router.replace('/welcome/paid');
     } catch {
       setSubmitting(false);

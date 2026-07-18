@@ -243,6 +243,14 @@ export function invoicesRoutes(deps: AppDeps) {
             showEmail: header.showEmail ?? companyDefaults.showEmailOnInvoice,
           };
 
+          // First-invoice onboarding milestone (server-authoritative). Checked
+          // BEFORE the insert so "the account's first invoice" is honest.
+          const [priorInvoice] = await tx
+            .select({ id: invoices.id })
+            .from(invoices)
+            .where(eq(invoices.accountId, accountId))
+            .limit(1);
+
           const invoiceId = uuidv7();
           await tx.insert(invoices).values({
             id: invoiceId,
@@ -271,6 +279,9 @@ export function invoicesRoutes(deps: AppDeps) {
           // Telemetry (opt-in; no-op unless the account enabled it). Count only —
           // no amounts (TELEMETRY.md).
           await emit(tx, { name: 'invoice_created', line_item_count: lineItems.length });
+          if (!priorInvoice) {
+            await emit(tx, { name: 'onboarding_step_completed', step: 'first_invoice' });
+          }
 
           return c.json({ id: invoiceId, ...parsed.data, ...showFlags }, 201);
         },

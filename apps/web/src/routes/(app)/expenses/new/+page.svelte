@@ -1,6 +1,7 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
   import VendorPicker from '$lib/components/VendorPicker.svelte';
+  import { trackFlowAbandonment } from '$lib/flow-abandonment';
   import type { PageProps } from './$types';
 
   let { data, form }: PageProps = $props();
@@ -11,14 +12,29 @@
   // hide the previous result banner until the new response lands.
   let suggesting = $state(false);
 
+  // expense_flow_abandoned: emit the furthest section reached if the user leaves
+  // without saving. Reachable steps: 'amount' (vendor/amount/date) → 'category'.
+  const flow = trackFlowAbandonment('expense_flow_abandoned', ['amount', 'category']);
+
   // enhance resets the form on a successful action by default. The Suggest
   // action succeeds even when no category fits, so a reset would wipe the
   // user's typed merchant/amount — keep values (apply the result, don't reset).
   // It also drives the `suggesting` flag for the Suggest button (detected via
   // the resolved action, which reflects the submitter's formaction).
   const onsubmit = ({ action }: { action: URL }) => {
-    if (action.search.includes('suggest')) suggesting = true;
-    return async ({ update }: { update: (o?: { reset?: boolean }) => Promise<void> }) => {
+    const isSuggest = action.search.includes('suggest');
+    if (isSuggest) suggesting = true;
+    return async ({
+      result,
+      update,
+    }: {
+      result: { type: string };
+      update: (o?: { reset?: boolean }) => Promise<void>;
+    }) => {
+      // A successful save redirects away — mark submitted so that redirect nav
+      // isn't logged as abandonment. A failed save re-renders in place (no nav),
+      // so leave the tracker armed. Suggest is neither, and never marks it.
+      if (!isSuggest && result.type === 'redirect') flow.markSubmitted();
       await update({ reset: false });
       suggesting = false;
     };
@@ -94,7 +110,7 @@
 {/if}
 
 <form method="post" action="?/save" class="mt-8 space-y-6" use:enhance={onsubmit}>
-  <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
+  <div class="grid grid-cols-1 gap-6 sm:grid-cols-2" onfocusin={() => flow.reach('amount')}>
     <div>
       <label for="merchant" class="label">
         Vendor<span class="text-accent">*</span>
@@ -129,7 +145,7 @@
   </div>
 
   <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
-    <div>
+    <div onfocusin={() => flow.reach('amount')}>
       <label for="expenseDate" class="label">
         Date<span class="text-accent">*</span>
       </label>
@@ -145,7 +161,7 @@
         <p class="mt-1 text-xs text-danger">{err('expenseDate')}</p>
       {/if}
     </div>
-    <div>
+    <div onfocusin={() => flow.reach('category')}>
       <div class="flex items-baseline justify-between">
         <label for="categoryAccountId" class="label">
           Category<span class="text-accent">*</span>

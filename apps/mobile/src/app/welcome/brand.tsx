@@ -8,6 +8,7 @@ import { pickActiveCompany } from '../../lib/active-company';
 import { api } from '../../lib/api';
 import { getServerUrl } from '../../lib/server-url';
 import { uploadLogo } from '../../lib/upload';
+import { markWelcomeFinished } from '../../lib/welcome-progress';
 
 // Step 3 — Make it yours. Optional logo, then the handoff into the first invoice.
 // Mirror of web's welcome/brand. The logo path reuses the Business-settings
@@ -141,14 +142,23 @@ export default function WelcomeBrand() {
 
             <View className="mt-10 gap-4">
               <Pressable
-                onPress={() => router.replace('/invoices/new')}
+                onPress={() => {
+                  markWelcomeFinished();
+                  router.replace('/invoices/new');
+                }}
                 className="rounded-sm bg-ink px-6 py-3 active:bg-gold-deep"
               >
                 <Text className="text-center text-sm font-medium text-cream">
                   Send your first invoice →
                 </Text>
               </Pressable>
-              <Pressable onPress={() => router.replace('/')} className="py-2">
+              <Pressable
+                onPress={() => {
+                  markWelcomeFinished();
+                  router.replace('/');
+                }}
+                className="py-2"
+              >
                 <Text className="text-center font-mono text-xs uppercase tracking-widest text-ink/50">
                   Go to dashboard
                 </Text>

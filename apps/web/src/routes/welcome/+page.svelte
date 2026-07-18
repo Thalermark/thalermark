@@ -1,5 +1,6 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
+  import { trackEvent } from '$lib/telemetry';
   import { untrack } from 'svelte';
   import { BUSINESS_TYPES, isSelectableBusinessType } from '@thalermark/validation';
   import type { PageProps } from './$types';
@@ -54,7 +55,13 @@
   method="POST"
   use:enhance={() => {
     submitting = true;
-    return ({ update }) => {
+    return ({ result, update }) => {
+      // company_setup completes when the business-setup step succeeds (it
+      // redirects on to /welcome/paid). onboarding_step_completed's other steps
+      // (first_*) are emitted server-side.
+      if (result.type === 'redirect') {
+        trackEvent({ name: 'onboarding_step_completed', step: 'company_setup' });
+      }
       update().finally(() => {
         submitting = false;
       });

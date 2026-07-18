@@ -2,6 +2,7 @@
   import { untrack } from 'svelte';
   import ContactPicker from '$lib/components/ContactPicker.svelte';
   import ItemPicker from '$lib/components/ItemPicker.svelte';
+  import { trackFlowAbandonment } from '$lib/flow-abandonment';
   import { defaultPolicyId, lineTax, policyRate } from '$lib/line-tax';
   import {
     type LineItemType,
@@ -14,6 +15,11 @@
   import type { PageProps } from './$types';
 
   let { data, form }: PageProps = $props();
+
+  // invoice_flow_abandoned: emit the furthest section reached if the user leaves
+  // without submitting. Single-page form, so only 'details' → 'line_items' are
+  // reachable steps.
+  const flow = trackFlowAbandonment('invoice_flow_abandoned', ['details', 'line_items']);
 
   type Row = {
     description: string;
@@ -157,8 +163,8 @@
   </div>
 {/if}
 
-<form method="post" class="mt-8 space-y-8">
-  <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
+<form method="post" class="mt-8 space-y-8" onsubmit={() => flow.markSubmitted()}>
+  <div class="grid grid-cols-1 gap-6 sm:grid-cols-2" onfocusin={() => flow.reach('details')}>
     <div>
       <label for="contactName" class="label">
         Contact<span class="text-accent">*</span>
@@ -227,7 +233,7 @@
     </div>
   </div>
 
-  <fieldset class="space-y-3">
+  <fieldset class="space-y-3" onfocusin={() => flow.reach('line_items')}>
     <legend class="label">Line items</legend>
     {#if err('lineItems')}
       <p class="text-xs text-danger">{err('lineItems')}</p>

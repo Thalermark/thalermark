@@ -31,6 +31,7 @@ import { TypeRow } from '../../../components/TypeRow';
 import { pickActiveCompany } from '../../../lib/active-company';
 import { api } from '../../../lib/api';
 import { NEW_CONTACT, findEmailDupe } from '../../../lib/contact-dupes';
+import { useFlowAbandonment } from '../../../lib/flow-abandonment';
 import { type TaxPolicyLite, lineTax, policyRate, resolvePolicyId } from '../../../lib/line-tax';
 
 // Mirror of apps/web's /invoices/new (+page.svelte + server action), client-
@@ -104,6 +105,17 @@ export default function NewInvoice() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  // invoice_flow_abandoned: on leaving without submitting, emit the furthest
+  // section engaged — 'line_items' if any row has content, else 'details' if a
+  // contact is chosen/typed, else nothing.
+  const flow = useFlowAbandonment('invoice_flow_abandoned', () =>
+    rows.some((r) => r.description || r.quantity || r.unitPrice)
+      ? 'line_items'
+      : contactId || newName
+        ? 'details'
+        : null,
+  );
 
   // Bootstrap once. A ref (not the `bootstrapped` state) gates re-entry: using
   // state as the effect dep would re-run the effect when it flips, tearing down
@@ -365,6 +377,7 @@ export default function NewInvoice() {
         return;
       }
       const created = await res.json();
+      flow.markSubmitted();
       router.replace(`/invoices/${created.id}`);
     } catch {
       setFormError('create_failed');
