@@ -11,7 +11,7 @@ export const telemetryUpdateSchema = z.object({
 export type TelemetryUpdate = z.infer<typeof telemetryUpdateSchema>;
 
 // Client-ingest pipeline (TELEMETRY.md "client ingest"). Events that can only
-// originate in the browser/app — currently just report_viewed — POST to
+// originate in the browser/app — report_viewed and ai_insight_viewed — POST to
 // /api/telemetry/ingest, which stages them via the same opt-in-gated emit() the
 // server-side events use. The discriminated union grows as more client surfaces
 // are wired; the API rejects any shape not listed here, so an unwired event
@@ -33,8 +33,23 @@ export const TELEMETRY_REPORT_TYPES = [
   'general-ledger',
 ] as const;
 
+// AI insight kinds — kept in sync with the AiInsightType union in
+// @thalermark/telemetry (events.ts). Only `cashflow` (the dashboard "What to
+// watch" nudges) and `anomaly` (the "Unusual spending" section) have a rendered
+// surface today, so those are the only two the client fires; the other three are
+// listed to stay structurally compatible with the Event union and will fire when
+// their surface lands.
+export const AI_INSIGHT_TYPES = [
+  'cashflow',
+  'anomaly',
+  'late_payer',
+  'tax_estimate',
+  'seasonal',
+] as const;
+
 export const clientTelemetryEventSchema = z.discriminatedUnion('name', [
   z.object({ name: z.literal('report_viewed'), report_type: z.enum(TELEMETRY_REPORT_TYPES) }),
+  z.object({ name: z.literal('ai_insight_viewed'), insight_type: z.enum(AI_INSIGHT_TYPES) }),
 ]);
 
 export type ClientTelemetryEvent = z.infer<typeof clientTelemetryEventSchema>;

@@ -268,18 +268,30 @@ describe('telemetry consent + server emit', () => {
           events: [
             { name: 'report_viewed', report_type: 'profit-and-loss' },
             { name: 'report_viewed', report_type: 'ar-aging' },
+            { name: 'ai_insight_viewed', insight_type: 'cashflow' },
           ],
         }),
       });
       expect(res.status).toBe(200);
-      expect((await res.json()) as { accepted: number }).toEqual({ accepted: 2 });
+      expect((await res.json()) as { accepted: number }).toEqual({ accepted: 3 });
 
       const staged = await getTestDb().select().from(telemetryEvents);
-      expect(staged.map((r) => r.eventName)).toEqual(['report_viewed', 'report_viewed']);
-      expect(staged.map((r) => (r.payload as { report_type: string }).report_type).sort()).toEqual([
-        'ar-aging',
-        'profit-and-loss',
+      expect(staged.map((r) => r.eventName).sort()).toEqual([
+        'ai_insight_viewed',
+        'report_viewed',
+        'report_viewed',
       ]);
+      expect(
+        staged
+          .filter((r) => r.eventName === 'report_viewed')
+          .map((r) => (r.payload as { report_type: string }).report_type)
+          .sort(),
+      ).toEqual(['ar-aging', 'profit-and-loss']);
+      expect(
+        staged.find((r) => r.eventName === 'ai_insight_viewed')?.payload as {
+          insight_type: string;
+        },
+      ).toEqual({ name: 'ai_insight_viewed', insight_type: 'cashflow' });
     } finally {
       await ctx.handle.close();
     }

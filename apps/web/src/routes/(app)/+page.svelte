@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { trackEvent } from '$lib/telemetry';
   import type { PageProps } from './$types';
 
   let { data }: PageProps = $props();
@@ -31,6 +32,29 @@
   // history. Shown only when something actually flags.
   const a = $derived(data.anomalies);
   const showAnomalies = $derived(a.overall !== null || a.categories.length > 0);
+
+  // ai_insight_viewed (TELEMETRY.md client ingest). Fire per rendered insight
+  // surface: the deterministic "Unusual spending" section (anomaly) and the AI
+  // "What to watch" nudges (cashflow). trackEvent no-ops server-side / when
+  // opted out; re-fires on period change (a fresh view of that period's
+  // insights), matching report_viewed's re-fire-on-navigation behaviour.
+  $effect(() => {
+    if (showAnomalies) trackEvent({ name: 'ai_insight_viewed', insight_type: 'anomaly' });
+  });
+
+  $effect(() => {
+    // Nudges stream in as a promise; guard against a stale resolution firing
+    // after the period changed under it.
+    let cancelled = false;
+    data.nudges.then((result) => {
+      if (!cancelled && result.nudges.length > 0) {
+        trackEvent({ name: 'ai_insight_viewed', insight_type: 'cashflow' });
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  });
 </script>
 
 <span class="eyebrow text-fg/60">{data.companyName}</span>
