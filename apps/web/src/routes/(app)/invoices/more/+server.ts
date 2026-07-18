@@ -7,7 +7,7 @@ import type { RequestHandler } from './$types';
 // "Load more" proxy for the invoices list. customerName arrives joined from
 // the API, so the appended rows match the SSR shape with no client lookup. The
 // active filters ride along so "Load more" stays within the filtered set.
-const FILTER_KEYS = ['status', 'q', 'from', 'to', 'contactId'] as const;
+const FILTER_KEYS = ['status', 'q', 'from', 'to', 'contactId', 'overdue', 'awaiting'] as const;
 
 export const GET: RequestHandler = async (event) => {
   const sp = event.url.searchParams;

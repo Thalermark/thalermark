@@ -1,6 +1,7 @@
 <script lang="ts">
   import ImportExportActions from '$lib/components/ImportExportActions.svelte';
   import LoadMore from '$lib/components/LoadMore.svelte';
+  import MetricStrip from '$lib/components/MetricStrip.svelte';
   import { fetchMore } from '$lib/load-more';
   import { may } from '$lib/perms';
   import { untrack } from 'svelte';
@@ -8,8 +9,33 @@
 
   let { data }: PageProps = $props();
 
-  const { filters } = $derived(data);
-  const anyFilter = $derived(Boolean(filters.q || filters.openInvoices));
+  const { filters, summary } = $derived(data);
+  const anyFilter = $derived(Boolean(filters.q || filters.openInvoices || filters.role));
+
+  // Point-in-time roster strip (counts only — no money on the contacts page).
+  // A contact can be both a customer and a vendor, so those slices overlap by
+  // design and don't sum to Total. Tiles deep-link to the matching filter.
+  const strip = $derived([
+    { label: 'Total', value: summary?.total ?? 0, href: '/contacts', active: !anyFilter },
+    {
+      label: 'Customers',
+      value: summary?.customers ?? 0,
+      href: '/contacts?role=customer',
+      active: filters.role === 'customer',
+    },
+    {
+      label: 'Vendors',
+      value: summary?.vendors ?? 0,
+      href: '/contacts?role=vendor',
+      active: filters.role === 'vendor',
+    },
+    {
+      label: 'With open invoices',
+      value: summary?.withOpenInvoices ?? 0,
+      href: '/contacts?openInvoices=true',
+      active: filters.openInvoices,
+    },
+  ]);
 
   // Seed local state from page 1; untrack() so Svelte doesn't fire the
   // state_referenced_locally warning — capturing the initial value is exactly
@@ -37,6 +63,7 @@
       const page = await fetchMore<Row>('/contacts/more', cursor, {
         q: filters.q,
         openInvoices: filters.openInvoices ? 'true' : '',
+        role: filters.role,
       });
       rows = [...rows, ...page.rows];
       cursor = page.nextCursor;
@@ -61,6 +88,10 @@
       <a href="/contacts/new" class="btn"> + New contact </a>
     {/if}
   </div>
+</div>
+
+<div class="mt-8">
+  <MetricStrip tiles={strip} />
 </div>
 
 <!-- Filters. Plain GET form so they live in the URL (shareable, back-button

@@ -563,3 +563,83 @@ describe('PATCH /api/contacts/:id', () => {
     }
   });
 });
+
+describe('GET /api/contacts/summary', () => {
+  beforeEach(resetDb);
+
+  it('counts total, the overlapping customer/vendor slices, and contacts with open invoices', async () => {
+    const { app, handle } = buildApp();
+    try {
+      const cookie = await signUp(app, 'contact-summary@example.com');
+      const { accountId, companyId } = await userContext('contact-summary@example.com');
+      const hdrs = { cookie, 'x-account-id': accountId, 'content-type': 'application/json' };
+
+      // Customer-only, vendor-only, and a both-sides contact → total 3,
+      // customers 2, vendors 2 (the slices overlap on "Both").
+      const sellTo = await app.request('/api/contacts', {
+        method: 'POST',
+        headers: hdrs,
+        body: JSON.stringify({ companyId, name: 'Sell-To' }),
+      });
+      const sellToId = ((await sellTo.json()) as { id: string }).id;
+      await app.request('/api/contacts', {
+        method: 'POST',
+        headers: hdrs,
+        body: JSON.stringify({ companyId, name: 'Buy-From', isCustomer: false, isVendor: true }),
+      });
+      await app.request('/api/contacts', {
+        method: 'POST',
+        headers: hdrs,
+        body: JSON.stringify({ companyId, name: 'Both', isCustomer: true, isVendor: true }),
+      });
+
+      // Give Sell-To one issued (sent) invoice → withOpenInvoices 1.
+      const inv = await app.request('/api/invoices', {
+        method: 'POST',
+        headers: hdrs,
+        body: JSON.stringify({
+          companyId,
+          contactId: sellToId,
+          number: 'INV-OPEN',
+          issueDate: '2026-05-23',
+          dueDate: '2026-06-22',
+          subtotal: '100.00',
+          tax: '0.00',
+          total: '100.00',
+          lineItems: [
+            {
+              position: 1,
+              description: 'Service',
+              quantity: '1',
+              unitPrice: '100.00',
+              amount: '100.00',
+            },
+          ],
+        }),
+      });
+      const invId = ((await inv.json()) as { id: string }).id;
+      const sent = await app.request(`/api/invoices/${invId}/mark-sent`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(sent.status).toBe(200);
+
+      const res = await app.request(`/api/contacts/summary?companyId=${companyId}`, {
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(res.status).toBe(200);
+      const s = (await res.json()) as {
+        total: number;
+        customers: number;
+        vendors: number;
+        withOpenInvoices: number;
+      };
+      expect(s.total).toBe(3);
+      expect(s.customers).toBe(2);
+      expect(s.vendors).toBe(2);
+      expect(s.withOpenInvoices).toBe(1);
+    } finally {
+      await handle.close();
+    }
+  });
+});

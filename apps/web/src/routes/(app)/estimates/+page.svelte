@@ -1,5 +1,6 @@
 <script lang="ts">
   import LoadMore from '$lib/components/LoadMore.svelte';
+  import MetricStrip from '$lib/components/MetricStrip.svelte';
   import { fetchMore } from '$lib/load-more';
   import { may } from '$lib/perms';
   import { untrack } from 'svelte';
@@ -7,8 +8,38 @@
 
   let { data }: PageProps = $props();
 
-  const { filters, contacts } = $derived(data);
+  const { filters, contacts, summary } = $derived(data);
   const STATUSES = ['draft', 'sent', 'accepted', 'declined', 'expired'];
+
+  // Display-only currency format; the API's decimal string stays authoritative.
+  const fmt = (s: string) =>
+    Number(s).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+
+  // Point-in-time metric strip. Draft = count only; Open (sent, awaiting a
+  // reply) carries pipeline $; Accepted carries agreed $. Distinct statuses →
+  // no overlap. Tiles deep-link to the matching status filter.
+  const strip = $derived([
+    {
+      label: 'Draft',
+      value: summary?.draft.count ?? 0,
+      href: '/estimates?status=draft',
+      active: filters.status === 'draft',
+    },
+    {
+      label: 'Open',
+      value: summary?.open.count ?? 0,
+      sub: fmt(summary?.open.total ?? '0'),
+      href: '/estimates?status=sent',
+      active: filters.status === 'sent',
+    },
+    {
+      label: 'Accepted',
+      value: summary?.accepted.count ?? 0,
+      sub: fmt(summary?.accepted.total ?? '0'),
+      href: '/estimates?status=accepted',
+      active: filters.status === 'accepted',
+    },
+  ]);
   // Any filter active → show the "Clear" affordance + the "none match" empty copy.
   const anyFilter = $derived(
     Boolean(filters.status || filters.q || filters.from || filters.to || filters.contactId),
@@ -67,6 +98,10 @@
       + New estimate
     </a>
   {/if}
+</div>
+
+<div class="mt-8">
+  <MetricStrip tiles={strip} />
 </div>
 
 <!-- Filters. Plain GET form so they live in the URL (shareable, back-button

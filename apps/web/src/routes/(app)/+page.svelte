@@ -5,6 +5,30 @@
   let { data }: PageProps = $props();
   const d = $derived(data.dashboard);
 
+  // Point-in-time count tiles (NOT period-bound — they sit under a "Right now"
+  // label, outside the period toggle). Counts only: the money row above already
+  // owns the dollar figures, so no $ here avoids a duplicate of "Owed to you".
+  // Each tile deep-links to its filtered list. Overdue tints when non-zero —
+  // the one metric worth an alert.
+  const counts = $derived(data.counts);
+  const countTiles = $derived([
+    {
+      label: 'Overdue',
+      count: counts.overdue,
+      hint: 'needs chasing',
+      href: '/invoices?overdue=true',
+      alert: counts.overdue > 0,
+    },
+    { label: 'Awaiting', count: counts.awaiting, hint: 'not yet due', href: '/invoices?awaiting=true' },
+    { label: 'Drafts', count: counts.drafts, hint: 'to send', href: '/invoices?status=draft' },
+    {
+      label: 'Open estimates',
+      count: counts.openEstimates,
+      hint: 'awaiting reply',
+      href: '/estimates?status=sent',
+    },
+  ]);
+
   // Display formatting only — the authoritative value is the decimal string
   // from the API. Realistic position figures sit well within Number's safe
   // range, so toLocaleString is fine for the headline.
@@ -121,6 +145,22 @@
     <dd class="mt-2 font-serif text-3xl font-light tabular-nums text-fg">{fmt(d.owing)}</dd>
     <p class="mt-1 text-xs text-fg/40">unpaid bills</p>
   </a>
+</dl>
+
+<h2 class="label mt-8 text-fg/60">Right now</h2>
+<dl class="mt-3 grid grid-cols-2 gap-4 lg:grid-cols-4">
+  {#each countTiles as t (t.label)}
+    <a
+      href={t.href}
+      class="rounded-sm border p-4 transition-colors {t.alert
+        ? 'border-danger/30 bg-danger/5 hover:border-danger/50'
+        : 'border-fg/10 bg-surface-2 hover:border-fg/25'}"
+    >
+      <dt class="label">{t.label}</dt>
+      <dd class="mt-1 font-serif text-2xl font-light tabular-nums text-fg">{t.count}</dd>
+      <p class="mt-1 text-xs text-fg/40">{t.hint}</p>
+    </a>
+  {/each}
 </dl>
 
 {#if showAnomalies}

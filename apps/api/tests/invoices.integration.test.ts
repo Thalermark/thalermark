@@ -1551,3 +1551,121 @@ describe('POST /api/invoices/:id/send', () => {
     }
   });
 });
+
+describe('GET /api/invoices/summary + derived overdue/awaiting filters', () => {
+  beforeEach(resetDb);
+
+  async function makeInvoice(
+    ctx: CtxApp,
+    cookie: string,
+    accountId: string,
+    companyId: string,
+    contactId: string,
+    opts: { number: string; issueDate: string; dueDate: string; total: string; send: boolean },
+  ): Promise<string> {
+    const res = await ctx.app.request('/api/invoices', {
+      method: 'POST',
+      headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        companyId,
+        contactId,
+        number: opts.number,
+        issueDate: opts.issueDate,
+        dueDate: opts.dueDate,
+        subtotal: opts.total,
+        tax: '0.00',
+        total: opts.total,
+        lineItems: [
+          {
+            position: 1,
+            description: 'Service',
+            quantity: '1',
+            unitPrice: opts.total,
+            amount: opts.total,
+          },
+        ],
+      }),
+    });
+    if (res.status !== 201) throw new Error(`create failed: ${res.status} ${await res.text()}`);
+    const { id } = (await res.json()) as { id: string };
+    if (opts.send) {
+      const s = await ctx.app.request(`/api/invoices/${id}/mark-sent`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      if (s.status !== 200) throw new Error(`mark-sent failed: ${s.status}`);
+    }
+    return id;
+  }
+
+  it('buckets draft / awaiting / overdue with outstanding $, and the tile filters match', async () => {
+    const ctx = buildApp();
+    try {
+      const cookie = await signUp(ctx.app, 'summary@example.com');
+      const { accountId, companyId } = await userContext('summary@example.com');
+      const contactId = await createContact(ctx, cookie, accountId, companyId);
+
+      // Far-future / far-past due dates keep the buckets stable regardless of
+      // when the suite runs. A draft's due date is irrelevant (status wins).
+      await makeInvoice(ctx, cookie, accountId, companyId, contactId, {
+        number: 'INV-D',
+        issueDate: '2026-05-01',
+        dueDate: '2999-12-31',
+        total: '50.00',
+        send: false,
+      });
+      const awaitingId = await makeInvoice(ctx, cookie, accountId, companyId, contactId, {
+        number: 'INV-A',
+        issueDate: '2026-05-01',
+        dueDate: '2999-12-31',
+        total: '100.00',
+        send: true,
+      });
+      const overdue1 = await makeInvoice(ctx, cookie, accountId, companyId, contactId, {
+        number: 'INV-O1',
+        issueDate: '2019-12-01',
+        dueDate: '2020-01-01',
+        total: '200.00',
+        send: true,
+      });
+      const overdue2 = await makeInvoice(ctx, cookie, accountId, companyId, contactId, {
+        number: 'INV-O2',
+        issueDate: '2019-12-01',
+        dueDate: '2020-01-01',
+        total: '25.50',
+        send: true,
+      });
+
+      const res = await ctx.app.request(`/api/invoices/summary?companyId=${companyId}`, {
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(res.status).toBe(200);
+      const s = (await res.json()) as {
+        draft: { count: number };
+        awaiting: { count: number; total: string };
+        overdue: { count: number; total: string };
+      };
+      expect(s.draft.count).toBe(1);
+      expect(s.awaiting.count).toBe(1);
+      expect(Number(s.awaiting.total)).toBeCloseTo(100);
+      expect(s.overdue.count).toBe(2);
+      expect(Number(s.overdue.total)).toBeCloseTo(225.5);
+
+      // Tile click-through: ?overdue=true / ?awaiting=true return exactly their
+      // bucket, so the filtered list count matches the tile.
+      const od = await ctx.app.request(`/api/invoices?companyId=${companyId}&overdue=true`, {
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      const odBody = (await od.json()) as { invoices: { id: string }[] };
+      expect(odBody.invoices.map((i) => i.id).sort()).toEqual([overdue1, overdue2].sort());
+
+      const aw = await ctx.app.request(`/api/invoices?companyId=${companyId}&awaiting=true`, {
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      const awBody = (await aw.json()) as { invoices: { id: string }[] };
+      expect(awBody.invoices.map((i) => i.id)).toEqual([awaitingId]);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+});

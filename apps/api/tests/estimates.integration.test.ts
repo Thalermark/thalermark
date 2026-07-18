@@ -1344,3 +1344,100 @@ describe('Public estimate routes', () => {
     }
   });
 });
+
+describe('GET /api/estimates/summary', () => {
+  beforeEach(resetDb);
+
+  async function makeEstimate(
+    ctx: CtxApp,
+    cookie: string,
+    accountId: string,
+    companyId: string,
+    contactId: string,
+    opts: { number: string; total: string; transition: 'none' | 'sent' | 'accepted' },
+  ): Promise<string> {
+    const res = await ctx.app.request('/api/estimates', {
+      method: 'POST',
+      headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        companyId,
+        contactId,
+        number: opts.number,
+        issueDate: '2026-05-23',
+        expiresOn: '2026-06-22',
+        subtotal: opts.total,
+        tax: '0.00',
+        total: opts.total,
+        lineItems: [
+          {
+            position: 1,
+            description: 'Quote — service',
+            quantity: '1',
+            unitPrice: opts.total,
+            amount: opts.total,
+          },
+        ],
+      }),
+    });
+    if (res.status !== 201) throw new Error(`create failed: ${res.status} ${await res.text()}`);
+    const { id } = (await res.json()) as { id: string };
+    // mark-accepted is a legal draft → accepted transition, so no need to send
+    // first for the accepted bucket.
+    const action = opts.transition === 'sent' ? 'mark-sent' : 'mark-accepted';
+    if (opts.transition !== 'none') {
+      const t = await ctx.app.request(`/api/estimates/${id}/${action}`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      if (t.status !== 200) throw new Error(`${action} failed: ${t.status}`);
+    }
+    return id;
+  }
+
+  it('buckets draft / open (sent) / accepted with pipeline + agreed $', async () => {
+    const ctx = buildApp();
+    try {
+      const cookie = await signUp(ctx.app, 'est-summary@example.com');
+      const { accountId, companyId } = await userContext('est-summary@example.com');
+      const contactId = await createContact(ctx, cookie, accountId, companyId);
+
+      await makeEstimate(ctx, cookie, accountId, companyId, contactId, {
+        number: 'EST-D',
+        total: '40.00',
+        transition: 'none',
+      });
+      await makeEstimate(ctx, cookie, accountId, companyId, contactId, {
+        number: 'EST-S1',
+        total: '100.00',
+        transition: 'sent',
+      });
+      await makeEstimate(ctx, cookie, accountId, companyId, contactId, {
+        number: 'EST-S2',
+        total: '50.00',
+        transition: 'sent',
+      });
+      await makeEstimate(ctx, cookie, accountId, companyId, contactId, {
+        number: 'EST-A',
+        total: '200.00',
+        transition: 'accepted',
+      });
+
+      const res = await ctx.app.request(`/api/estimates/summary?companyId=${companyId}`, {
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(res.status).toBe(200);
+      const s = (await res.json()) as {
+        draft: { count: number };
+        open: { count: number; total: string };
+        accepted: { count: number; total: string };
+      };
+      expect(s.draft.count).toBe(1);
+      expect(s.open.count).toBe(2);
+      expect(Number(s.open.total)).toBeCloseTo(150);
+      expect(s.accepted.count).toBe(1);
+      expect(Number(s.accepted.total)).toBeCloseTo(200);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+});

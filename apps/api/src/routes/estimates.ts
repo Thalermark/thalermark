@@ -13,7 +13,7 @@ import {
   estimateSendSchema,
   estimateUpdateSchema,
 } from '@thalermark/validation';
-import { and, asc, desc, eq, getTableColumns, gte, ilike, lte, or } from 'drizzle-orm';
+import { and, asc, desc, eq, getTableColumns, gte, ilike, lte, or, sql } from 'drizzle-orm';
 import type { Context } from 'hono';
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
@@ -391,6 +391,33 @@ export function estimatesRoutes(deps: AppDeps) {
           .limit(limit + 1);
         const page = slicePage(rows, limit, (r) => [r.createdAt, r.id]);
         return c.json({ estimates: page.rows, nextCursor: page.nextCursor });
+      })
+      // Status summary powering the estimates-page metric strip (and the
+      // dashboard's open-estimates tile). Point-in-time. 'open' = sent (awaiting
+      // the customer's reply) carries pipeline $; 'accepted' carries agreed $;
+      // 'draft' is count-only. Buckets are distinct statuses → no overlap.
+      // Declared before /:id — Hono is first-match.
+      .get('/api/estimates/summary', async (c) => {
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+        const companyId = c.req.query('companyId');
+        const conditions = [eq(estimates.accountId, accountId)];
+        if (companyId) conditions.push(eq(estimates.companyId, companyId));
+        const [row] = await tx
+          .select({
+            draftCount: sql<number>`(count(*) filter (where ${estimates.status} = 'draft'))::int`,
+            openCount: sql<number>`(count(*) filter (where ${estimates.status} = 'sent'))::int`,
+            openTotal: sql<string>`coalesce(sum(${estimates.total}) filter (where ${estimates.status} = 'sent'), 0)::text`,
+            acceptedCount: sql<number>`(count(*) filter (where ${estimates.status} = 'accepted'))::int`,
+            acceptedTotal: sql<string>`coalesce(sum(${estimates.total}) filter (where ${estimates.status} = 'accepted'), 0)::text`,
+          })
+          .from(estimates)
+          .where(and(...conditions));
+        return c.json({
+          draft: { count: row?.draftCount ?? 0 },
+          open: { count: row?.openCount ?? 0, total: row?.openTotal ?? '0' },
+          accepted: { count: row?.acceptedCount ?? 0, total: row?.acceptedTotal ?? '0' },
+        });
       })
       .get('/api/estimates/next-number', async (c) => {
         // Declared before /api/estimates/:id — Hono is first-match, same as

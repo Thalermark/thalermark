@@ -7,7 +7,7 @@ import {
   invoiceSendSchema,
   invoiceUpdateSchema,
 } from '@thalermark/validation';
-import { and, asc, desc, eq, getTableColumns, gte, ilike, lte, or } from 'drizzle-orm';
+import { and, asc, desc, eq, getTableColumns, gte, ilike, lt, lte, or, sql } from 'drizzle-orm';
 import type { Context } from 'hono';
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
@@ -443,6 +443,21 @@ export function invoicesRoutes(deps: AppDeps) {
         if (contactId) conditions.push(eq(invoices.contactId, contactId));
         if (from) conditions.push(gte(invoices.issueDate, from));
         if (to) conditions.push(lte(invoices.issueDate, to));
+        // Derived date-partition filters over the sent-but-unpaid pool (no such
+        // stored status): overdue = sent AND past due; awaiting = sent AND not
+        // yet due. Back the Overdue / Awaiting metric tiles' click-through so
+        // the filtered list matches the tile count exactly. Compose with the
+        // keyset scan like the other conditions.
+        if (c.req.query('overdue') === 'true') {
+          const today = new Date().toISOString().slice(0, 10);
+          // biome-ignore lint/style/noNonNullAssertion: and() with >=1 arg is non-null
+          conditions.push(and(eq(invoices.status, 'sent'), lt(invoices.dueDate, today))!);
+        }
+        if (c.req.query('awaiting') === 'true') {
+          const today = new Date().toISOString().slice(0, 10);
+          // biome-ignore lint/style/noNonNullAssertion: and() with >=1 arg is non-null
+          conditions.push(and(eq(invoices.status, 'sent'), gte(invoices.dueDate, today))!);
+        }
         if (q) {
           const term = `%${escapeLike(q)}%`;
           // biome-ignore lint/style/noNonNullAssertion: or() with >=1 arg is non-null
@@ -460,6 +475,37 @@ export function invoicesRoutes(deps: AppDeps) {
           .limit(limit + 1);
         const page = slicePage(rows, limit, (r) => [r.createdAt, r.id]);
         return c.json({ invoices: page.rows, nextCursor: page.nextCursor });
+      })
+      // Status summary powering the invoices-page metric strip and the
+      // dashboard count tiles. Point-in-time, NOT period-bound. 'awaiting' and
+      // 'overdue' partition the sent-but-unpaid pool by due date (mutually
+      // exclusive → their $ sum to total outstanding with no double count);
+      // 'draft' is count-only. One round-trip of COUNT/SUM ... FILTER over the
+      // status index. Declared before /:id — Hono is first-match.
+      .get('/api/invoices/summary', async (c) => {
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+        const companyId = c.req.query('companyId');
+        const today = new Date().toISOString().slice(0, 10);
+        const conditions = [eq(invoices.accountId, accountId)];
+        if (companyId) conditions.push(eq(invoices.companyId, companyId));
+        const awaiting = sql`${invoices.status} = 'sent' and ${invoices.dueDate} >= ${today}::date`;
+        const overdue = sql`${invoices.status} = 'sent' and ${invoices.dueDate} < ${today}::date`;
+        const [row] = await tx
+          .select({
+            draftCount: sql<number>`(count(*) filter (where ${invoices.status} = 'draft'))::int`,
+            awaitingCount: sql<number>`(count(*) filter (where ${awaiting}))::int`,
+            awaitingTotal: sql<string>`coalesce(sum(${invoices.total}) filter (where ${awaiting}), 0)::text`,
+            overdueCount: sql<number>`(count(*) filter (where ${overdue}))::int`,
+            overdueTotal: sql<string>`coalesce(sum(${invoices.total}) filter (where ${overdue}), 0)::text`,
+          })
+          .from(invoices)
+          .where(and(...conditions));
+        return c.json({
+          draft: { count: row?.draftCount ?? 0 },
+          awaiting: { count: row?.awaitingCount ?? 0, total: row?.awaitingTotal ?? '0' },
+          overdue: { count: row?.overdueCount ?? 0, total: row?.overdueTotal ?? '0' },
+        });
       })
       .get('/api/invoices/next-number', async (c) => {
         // Must be declared before /api/invoices/:id — Hono is first-match, and
