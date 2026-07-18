@@ -1,7 +1,12 @@
 import { type Database, accounts, telemetryEvents, withAccountContext } from '@thalermark/db';
 import { getLogger } from '@thalermark/logger';
 import { and, asc, gte, inArray, lt, sql } from 'drizzle-orm';
-import { type TransportConfig, loadTransportConfig } from './config.js';
+import {
+  type HostContext,
+  type TransportConfig,
+  loadTransportConfig,
+  resolveHostContext,
+} from './config.js';
 import { signPayload } from './sign.js';
 
 const log = getLogger(['telemetry', 'flush']);
@@ -31,7 +36,7 @@ export type FlushResult =
 //
 // Delivery is at-least-once: if step 2 succeeds but step 3 fails (e.g.
 // process killed), the same rows can be re-sent on the next flush. The
-// receiver should dedupe by event id.
+// receiver dedupes by the per-event `id` carried in the envelope.
 //
 // Mid-flight opt-out: disableTelemetry purges the queue in its own tx. If
 // it runs between steps 1 and 3, our tx3 DELETE/UPDATE just affects zero
@@ -43,6 +48,7 @@ export async function flushTelemetry(
   accountId: string,
   config: TransportConfig = loadTransportConfig(),
   fetchImpl: typeof fetch = fetch,
+  host: HostContext = resolveHostContext(),
 ): Promise<FlushResult> {
   if (!config.enabled) return { status: 'transport_disabled' };
   if (!config.endpointUrl) {
@@ -84,7 +90,12 @@ export async function flushTelemetry(
 
   const body = JSON.stringify({
     install_id: batch.installId,
+    product_version: host.product_version,
+    deployment_type: host.deployment_type,
+    os_platform: host.os_platform,
+    node_version: host.node_version,
     events: batch.rows.map((r) => ({
+      id: r.id,
       name: r.eventName,
       payload: r.payload,
       occurred_at: r.createdAt.toISOString(),

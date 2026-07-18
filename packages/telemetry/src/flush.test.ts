@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getAppDb, getTestDb, resetDb } from '../tests/db-test-helper.js';
-import type { TransportConfig } from './config.js';
+import type { HostContext, TransportConfig } from './config.js';
 import { emit } from './emit.js';
 import { flushTelemetry } from './flush.js';
 import { signPayload } from './sign.js';
@@ -14,6 +14,15 @@ const BASE_CONFIG: TransportConfig = {
   signingKey: 'test-secret',
   batchSize: 200,
   retryCap: 3,
+};
+
+// Fixed identity so envelope assertions don't depend on the real test runner's
+// platform / node version. resolveHostContext itself is unit-tested in config.test.ts.
+const FIXED_HOST: HostContext = {
+  product_version: '9.9.9-test',
+  deployment_type: 'cloud',
+  os_platform: 'linux',
+  node_version: '24.0.0-test',
 };
 
 let accountId: string;
@@ -127,7 +136,7 @@ describe('flushTelemetry — 2xx happy path', () => {
     await seedRows(3);
     const fetchImpl = mockFetch({ status: 200 });
 
-    const result = await flushTelemetry(getAppDb(), accountId, BASE_CONFIG, fetchImpl);
+    const result = await flushTelemetry(getAppDb(), accountId, BASE_CONFIG, fetchImpl, FIXED_HOST);
 
     expect(result).toEqual({ status: 'sent', count: 3 });
     expect(fetchImpl).toHaveBeenCalledOnce();
@@ -151,12 +160,21 @@ describe('flushTelemetry — 2xx happy path', () => {
         .where(eq(accounts.id, accountId))
     )[0]?.id;
     expect(body.install_id).toBe(installId);
+    // Host/identity block is stamped onto every batch.
+    expect(body.product_version).toBe('9.9.9-test');
+    expect(body.deployment_type).toBe('cloud');
+    expect(body.os_platform).toBe('linux');
+    expect(body.node_version).toBe('24.0.0-test');
     expect(body.events).toHaveLength(3);
     expect(body.events[0]).toMatchObject({
       name: 'invoice_created',
       payload: { name: 'invoice_created', line_item_count: 0 },
     });
     expect(typeof body.events[0].occurred_at).toBe('string');
+    // Every event carries a stable id so the at-least-once receiver can dedupe.
+    const ids = body.events.map((e: { id: string }) => e.id);
+    expect(ids.every((id: string) => typeof id === 'string' && id.length > 0)).toBe(true);
+    expect(new Set(ids).size).toBe(3);
 
     expect(await getTestDb().select().from(telemetryEvents)).toHaveLength(0);
   });

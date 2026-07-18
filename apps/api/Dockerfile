@@ -72,6 +72,12 @@ RUN pnpm deploy --filter=@thalermark/api --prod /out
 # ---------------------------------------------------------------------------
 FROM node:${NODE_VERSION} AS runner
 ENV NODE_ENV=production
+# App version, read at runtime (process.env.APP_VERSION) and stamped onto the
+# telemetry envelope as product_version. CI passes this build-arg to both image
+# legs (the release tag on a tag build, else the commit SHA); a plain
+# `docker build` with no --build-arg falls back to 'dev'.
+ARG APP_VERSION=dev
+ENV APP_VERSION=${APP_VERSION}
 WORKDIR /app
 COPY --from=builder /out ./
 
