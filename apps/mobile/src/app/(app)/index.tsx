@@ -6,6 +6,7 @@ import { pickActiveCompany } from '../../lib/active-company';
 import { api } from '../../lib/api';
 import { signOut } from '../../lib/auth-client';
 import { useMay } from '../../lib/role';
+import { trackEvent } from '../../lib/telemetry';
 
 // Position dashboard + AI insights (mirror of apps/web's (app)/+page.svelte).
 // Replaces the Phase-6 shell placeholder. Money figures are decimal strings
@@ -151,6 +152,19 @@ export default function Home() {
   }, [companyId, period]);
 
   const showAnomalies = anomalies.overall !== null || anomalies.categories.length > 0;
+
+  // ai_insight_viewed (TELEMETRY.md client ingest) — fire per rendered insight
+  // surface: the deterministic "Unusual spending" section (anomaly) and the AI
+  // "What to watch" nudges (cashflow). trackEvent no-ops when opted out;
+  // re-fires when the section re-renders on a company/period change, mirroring
+  // web's dashboard and report_viewed's re-fire-on-focus behaviour.
+  useEffect(() => {
+    if (showAnomalies) trackEvent({ name: 'ai_insight_viewed', insight_type: 'anomaly' });
+  }, [showAnomalies]);
+
+  useEffect(() => {
+    if (nudges.length > 0) trackEvent({ name: 'ai_insight_viewed', insight_type: 'cashflow' });
+  }, [nudges]);
 
   async function onSignOut() {
     await signOut();
