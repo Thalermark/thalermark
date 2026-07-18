@@ -40,6 +40,23 @@ export const load: PageServerLoad = async (event) => {
     ? await anomaliesRes.json()
     : { enoughHistory: false, overall: null, categories: [] };
 
+  // Point-in-time entity counts for the count-tile row (NOT period-bound, so
+  // they ignore the period toggle): invoices split into overdue / awaiting /
+  // draft, plus open (sent) estimates. Cheap COUNT aggregates; best-effort —
+  // a non-OK degrades to zeros rather than failing the dashboard.
+  const [invSummaryRes, estSummaryRes] = await Promise.all([
+    client.api.invoices.summary.$get({ query: { companyId: company.id } }),
+    client.api.estimates.summary.$get({ query: { companyId: company.id } }),
+  ]);
+  const invSummary = invSummaryRes.ok ? await invSummaryRes.json() : null;
+  const estSummary = estSummaryRes.ok ? await estSummaryRes.json() : null;
+  const counts = {
+    overdue: invSummary?.overdue.count ?? 0,
+    awaiting: invSummary?.awaiting.count ?? 0,
+    drafts: invSummary?.draft.count ?? 0,
+    openEstimates: estSummary?.open.count ?? 0,
+  };
+
   // Cash-flow nudges (AI) stream in separately: the position tiles render
   // immediately while this promise resolves. A cache hit on the API returns
   // instantly; a regeneration shows the page's spinner. Any non-OK (no AI
@@ -75,5 +92,6 @@ export const load: PageServerLoad = async (event) => {
     pendingInvites,
     nudges,
     anomalies,
+    counts,
   };
 };

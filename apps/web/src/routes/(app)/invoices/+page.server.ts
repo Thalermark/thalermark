@@ -19,6 +19,11 @@ export const load: PageServerLoad = async (event) => {
     from: sp.get('from') ?? '',
     to: sp.get('to') ?? '',
     contactId: sp.get('contactId') ?? '',
+    // Derived date-partition filters (sent + past/not-yet due), driven by the
+    // metric-strip tiles rather than the status dropdown. Normalised to
+    // 'true'/'' so they ride the generic filters→query loop below.
+    overdue: sp.get('overdue') === 'true' ? 'true' : '',
+    awaiting: sp.get('awaiting') === 'true' ? 'true' : '',
   };
   // Scope both the list and the contact-filter dropdown to the active company
   // (the nav switcher's pick), resolved by the (app) layout load. Without it the
@@ -31,14 +36,19 @@ export const load: PageServerLoad = async (event) => {
   }
   const custQuery: Record<string, string> = { limit: '500' };
   if (activeCompanyId) custQuery.companyId = activeCompanyId;
-  const [res, custRes] = await Promise.all([
+  const summaryQuery: Record<string, string> = {};
+  if (activeCompanyId) summaryQuery.companyId = activeCompanyId;
+  const [res, custRes, summaryRes] = await Promise.all([
     client.api.invoices.$get({ query }),
     client.api.contacts.$get({ query: custQuery }),
+    client.api.invoices.summary.$get({ query: summaryQuery }),
   ]);
   if (!res.ok) throw error(res.status, 'failed to load invoices');
   const { invoices, nextCursor } = await res.json();
   const contacts = custRes.ok
     ? (await custRes.json()).contacts.map((c) => ({ id: c.id, name: c.name }))
     : [];
-  return { invoices, nextCursor, filters, contacts };
+  // Point-in-time status summary for the metric strip; best-effort.
+  const summary = summaryRes.ok ? await summaryRes.json() : null;
+  return { invoices, nextCursor, filters, contacts, summary };
 };

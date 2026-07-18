@@ -164,6 +164,42 @@ export function contactsRoutes(deps: AppDeps) {
         const page = slicePage(rows, limit, (r) => [r.createdAt, r.id]);
         return c.json({ contacts: page.rows, nextCursor: page.nextCursor });
       })
+      // Roster summary powering the contacts-page metric strip. Point-in-time
+      // counts: total, the customer / vendor slices (a contact can be both, so
+      // these overlap by design and don't sum to total), and how many currently
+      // have an issued-but-unpaid ('sent') invoice — the same set the
+      // openInvoices filter narrows to. Declared before /:id (Hono first-match).
+      .get('/api/contacts/summary', async (c) => {
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+        const companyId = c.req.query('companyId');
+        const conditions = [eq(contacts.accountId, accountId)];
+        if (companyId) conditions.push(eq(contacts.companyId, companyId));
+        const [row] = await tx
+          .select({
+            total: sql<number>`(count(*))::int`,
+            customers: sql<number>`(count(*) filter (where ${contacts.isCustomer}))::int`,
+            vendors: sql<number>`(count(*) filter (where ${contacts.isVendor}))::int`,
+          })
+          .from(contacts)
+          .where(and(...conditions));
+        // Contacts with an open (issued, unpaid) invoice — mirrors the list's
+        // openInvoices subquery (account-scoped, status 'sent').
+        const owing = tx
+          .select({ id: invoices.contactId })
+          .from(invoices)
+          .where(and(eq(invoices.accountId, accountId), eq(invoices.status, 'sent')));
+        const [openRow] = await tx
+          .select({ n: sql<number>`(count(*))::int` })
+          .from(contacts)
+          .where(and(...conditions, inArray(contacts.id, owing)));
+        return c.json({
+          total: row?.total ?? 0,
+          customers: row?.customers ?? 0,
+          vendors: row?.vendors ?? 0,
+          withOpenInvoices: openRow?.n ?? 0,
+        });
+      })
       .get('/api/contacts/:id', async (c) => {
         const id = c.req.param('id');
         if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);

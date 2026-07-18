@@ -27,14 +27,19 @@ export const load: PageServerLoad = async (event) => {
   }
   const custQuery: Record<string, string> = { limit: '500' };
   if (activeCompanyId) custQuery.companyId = activeCompanyId;
-  const [res, custRes] = await Promise.all([
+  const summaryQuery: Record<string, string> = {};
+  if (activeCompanyId) summaryQuery.companyId = activeCompanyId;
+  const [res, custRes, summaryRes] = await Promise.all([
     client.api.estimates.$get({ query }),
     client.api.contacts.$get({ query: custQuery }),
+    client.api.estimates.summary.$get({ query: summaryQuery }),
   ]);
   if (!res.ok) throw error(res.status, 'failed to load estimates');
   const { estimates, nextCursor } = await res.json();
   const contacts = custRes.ok
     ? (await custRes.json()).contacts.map((c) => ({ id: c.id, name: c.name }))
     : [];
-  return { estimates, nextCursor, filters, contacts };
+  // Point-in-time status summary for the metric strip; best-effort.
+  const summary = summaryRes.ok ? await summaryRes.json() : null;
+  return { estimates, nextCursor, filters, contacts, summary };
 };

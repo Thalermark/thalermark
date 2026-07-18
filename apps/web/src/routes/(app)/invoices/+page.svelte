@@ -1,5 +1,6 @@
 <script lang="ts">
   import LoadMore from '$lib/components/LoadMore.svelte';
+  import MetricStrip from '$lib/components/MetricStrip.svelte';
   import { fetchMore } from '$lib/load-more';
   import { may } from '$lib/perms';
   import { untrack } from 'svelte';
@@ -7,12 +8,52 @@
 
   let { data }: PageProps = $props();
 
-  const { filters, contacts } = $derived(data);
+  const { filters, contacts, summary } = $derived(data);
   const STATUSES = ['draft', 'sent', 'paid', 'voided'];
   // Any filter active → show the "Clear" affordance + the "none match" empty copy.
   const anyFilter = $derived(
-    Boolean(filters.status || filters.q || filters.from || filters.to || filters.contactId),
+    Boolean(
+      filters.status ||
+        filters.q ||
+        filters.from ||
+        filters.to ||
+        filters.contactId ||
+        filters.overdue ||
+        filters.awaiting,
+    ),
   );
+
+  // Display-only currency format; the decimal string from the API stays
+  // authoritative. Position figures sit within Number's safe range.
+  const fmt = (s: string) =>
+    Number(s).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+
+  // Point-in-time metric strip. Draft = count only; Awaiting / Overdue carry
+  // outstanding $ (they partition the sent-but-unpaid pool by due date, so the
+  // amounts don't double-count). Tiles deep-link to the matching filter.
+  const strip = $derived([
+    {
+      label: 'Draft',
+      value: summary?.draft.count ?? 0,
+      href: '/invoices?status=draft',
+      active: filters.status === 'draft',
+    },
+    {
+      label: 'Awaiting',
+      value: summary?.awaiting.count ?? 0,
+      sub: fmt(summary?.awaiting.total ?? '0'),
+      href: '/invoices?awaiting=true',
+      active: filters.awaiting === 'true',
+    },
+    {
+      label: 'Overdue',
+      value: summary?.overdue.count ?? 0,
+      sub: fmt(summary?.overdue.total ?? '0'),
+      href: '/invoices?overdue=true',
+      active: filters.overdue === 'true',
+      alert: (summary?.overdue.count ?? 0) > 0,
+    },
+  ]);
 
   // See /contacts for the untrack() seed-and-re-seed pattern.
   type Row = (typeof data.invoices)[number];
@@ -41,6 +82,8 @@
         from: filters.from,
         to: filters.to,
         contactId: filters.contactId,
+        overdue: filters.overdue,
+        awaiting: filters.awaiting,
       });
       rows = [...rows, ...page.rows];
       cursor = page.nextCursor;
@@ -67,6 +110,10 @@
       + New invoice
     </a>
   {/if}
+</div>
+
+<div class="mt-8">
+  <MetricStrip tiles={strip} />
 </div>
 
 <!-- Filters. Plain GET form so they live in the URL (shareable, back-button

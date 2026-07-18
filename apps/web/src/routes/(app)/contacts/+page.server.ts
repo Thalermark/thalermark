@@ -8,9 +8,13 @@ import type { PageServerLoad } from './$types';
 export const load: PageServerLoad = async (event) => {
   const client = serverApiClient(event);
   const sp = event.url.searchParams;
+  const roleParam = sp.get('role');
   const filters = {
     q: sp.get('q') ?? '',
     openInvoices: sp.get('openInvoices') === 'true',
+    // Customer / vendor slice, driven by the metric-strip tiles. Unknown values
+    // fall back to '' (all).
+    role: roleParam === 'customer' || roleParam === 'vendor' ? roleParam : '',
   };
   // Scope to the active company within the workspace (the nav switcher's pick),
   // resolved by the (app) layout load. Without it the list spans all companies.
@@ -19,8 +23,16 @@ export const load: PageServerLoad = async (event) => {
   if (activeCompanyId) query.companyId = activeCompanyId;
   if (filters.q) query.q = filters.q;
   if (filters.openInvoices) query.openInvoices = 'true';
-  const res = await client.api.contacts.$get({ query });
+  if (filters.role) query.role = filters.role;
+  const summaryQuery: Record<string, string> = {};
+  if (activeCompanyId) summaryQuery.companyId = activeCompanyId;
+  const [res, summaryRes] = await Promise.all([
+    client.api.contacts.$get({ query }),
+    client.api.contacts.summary.$get({ query: summaryQuery }),
+  ]);
   if (!res.ok) throw error(res.status, 'failed to load contacts');
   const { contacts, nextCursor } = await res.json();
-  return { contacts, nextCursor, filters };
+  // Point-in-time roster summary for the metric strip; best-effort.
+  const summary = summaryRes.ok ? await summaryRes.json() : null;
+  return { contacts, nextCursor, filters, summary };
 };
