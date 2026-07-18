@@ -2,10 +2,11 @@
 // One-to-one with the tables in TELEMETRY.md; any change here requires a
 // matching documentation update in the same PR.
 
+// The install/identity block (deployment_type, product_version, …) rides the
+// transport envelope on every batch, so session_start carries no payload of its
+// own — its signal is the timestamp plus the fact that a session began.
 export type SessionStartEvent = {
   name: 'session_start';
-  deployment_type: DeploymentType;
-  product_version: string;
 };
 
 export type SessionEndEvent = {

@@ -79,6 +79,11 @@ export const clientTelemetryEventSchema = z.discriminatedUnion('name', [
   }),
   z.object({ name: z.literal('invoice_flow_abandoned'), step_reached: z.enum(INVOICE_FLOW_STEPS) }),
   z.object({ name: z.literal('expense_flow_abandoned'), step_reached: z.enum(EXPENSE_FLOW_STEPS) }),
+  // Session boundary events. session_start has no payload — the envelope already
+  // carries product_version + deployment_type. duration_seconds is rounded to
+  // the nearest minute client-side.
+  z.object({ name: z.literal('session_start') }),
+  z.object({ name: z.literal('session_end'), duration_seconds: z.number().int().nonnegative() }),
 ]);
 
 export type ClientTelemetryEvent = z.infer<typeof clientTelemetryEventSchema>;

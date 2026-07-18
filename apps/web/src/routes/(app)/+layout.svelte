@@ -4,7 +4,9 @@
   import TelemetryConsent from '$lib/components/TelemetryConsent.svelte';
   import UserMenu from '$lib/components/UserMenu.svelte';
   import { may } from '$lib/perms';
+  import { startSessionTracking } from '$lib/session-telemetry';
   import { setTelemetryEnabled } from '$lib/telemetry';
+  import { onMount } from 'svelte';
 
   let { children, data } = $props();
 
@@ -42,6 +44,14 @@
   // (every member, not just admins — report views come from any role).
   $effect(() => {
     setTelemetryEnabled(data?.telemetry?.enabled ?? false);
+  });
+
+  // Session tracking. Set the gate from load data first so the initial
+  // session_start isn't dropped before the reactive effect above runs, then
+  // start (and, on teardown, close) the session. Client-only via onMount.
+  onMount(() => {
+    setTelemetryEnabled(data?.telemetry?.enabled ?? false);
+    return startSessionTracking();
   });
 
   // Legal-consent gate (spikes/SIGN-UP-ACK-TOS.md). When the deployment requires

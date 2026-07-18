@@ -9,6 +9,7 @@ import { pickActiveCompany } from '../../lib/active-company';
 import { api } from '../../lib/api';
 import { authClient } from '../../lib/auth-client';
 import { RoleProvider } from '../../lib/role';
+import { beginSession, endSession } from '../../lib/session-telemetry';
 import { flushTelemetry, setTelemetryEnabled } from '../../lib/telemetry';
 
 // 'loading' until the session + active-account resolution settles, then:
@@ -101,7 +102,10 @@ export default function AppLayout() {
         api.api.account.telemetry
           .$get()
           .then(async (r) => {
-            if (active && r.ok) setTelemetryEnabled((await r.json()).enabled);
+            if (!active || !r.ok) return;
+            const en = (await r.json()).enabled;
+            setTelemetryEnabled(en);
+            if (en) beginSession();
           })
           .catch(() => {});
         setGate('ready');
@@ -116,11 +120,18 @@ export default function AppLayout() {
 
   useFocusEffect(runGate);
 
-  // Flush any buffered telemetry when the app leaves the foreground — the
-  // mobile counterpart of web's visibility-hidden flush.
+  // Session boundaries + flush on foreground change — the mobile counterpart of
+  // web's visibility-hidden handling. Background/inactive closes the session
+  // (session_end, which flushes) and flushes any remaining buffer; returning to
+  // active opens a new one. beginSession/endSession no-op when opted out.
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'background' || state === 'inactive') void flushTelemetry();
+      if (state === 'background' || state === 'inactive') {
+        endSession();
+        void flushTelemetry();
+      } else if (state === 'active') {
+        beginSession();
+      }
     });
     return () => sub.remove();
   }, []);
