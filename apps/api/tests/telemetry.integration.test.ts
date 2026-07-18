@@ -376,6 +376,39 @@ describe('telemetry consent + server emit', () => {
     }
   });
 
+  it('client ingest stages the session events', async () => {
+    const ctx = buildApp();
+    try {
+      const cookie = await signUp(ctx.app, 'tel-session@example.com');
+      const { accountId } = await userContext('tel-session@example.com');
+      const headers = { cookie, 'x-account-id': accountId, 'content-type': 'application/json' };
+
+      await ctx.app.request('/api/account/telemetry', {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ enabled: true }),
+      });
+
+      const res = await ctx.app.request('/api/telemetry/ingest', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          events: [{ name: 'session_start' }, { name: 'session_end', duration_seconds: 120 }],
+        }),
+      });
+      expect(res.status).toBe(200);
+      expect((await res.json()) as { accepted: number }).toEqual({ accepted: 2 });
+
+      const staged = await getTestDb().select().from(telemetryEvents);
+      expect(staged.map((r) => r.eventName).sort()).toEqual(['session_end', 'session_start']);
+      expect(staged.find((r) => r.eventName === 'session_end')?.payload).toMatchObject({
+        duration_seconds: 120,
+      });
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
   it('client ingest stages nothing for an opted-out account (server-side gate)', async () => {
     const ctx = buildApp();
     try {
@@ -401,10 +434,14 @@ describe('telemetry consent + server emit', () => {
       const { accountId } = await userContext('tel-ingest-bad@example.com');
       const headers = { cookie, 'x-account-id': accountId, 'content-type': 'application/json' };
 
+      // page_load_time is a defined Event but not (yet) a client-ingest variant,
+      // so the API rejects it — an unwired name can never stage.
       const unknownName = await ctx.app.request('/api/telemetry/ingest', {
         method: 'POST',
         headers,
-        body: JSON.stringify({ events: [{ name: 'session_start', deployment_type: 'cloud' }] }),
+        body: JSON.stringify({
+          events: [{ name: 'page_load_time', page: 'dashboard', duration_ms: 100 }],
+        }),
       });
       expect(unknownName.status).toBe(400);
 

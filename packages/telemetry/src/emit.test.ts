@@ -10,7 +10,7 @@ import { disableTelemetry, enableTelemetry } from './opt-in.js';
 // One canonical example per event name. The Record<EventName, Event> typing
 // makes adding an event to the union without a fixture a compile error.
 const SAMPLES: Record<EventName, Event> = {
-  session_start: { name: 'session_start', deployment_type: 'cloud', product_version: '0.1.0' },
+  session_start: { name: 'session_start' },
   session_end: { name: 'session_end', duration_seconds: 60 },
   invoice_created: { name: 'invoice_created', line_item_count: 3 },
   invoice_sent: { name: 'invoice_sent', delivery_method: 'email' },
