@@ -11,6 +11,8 @@
 // the URL is unset, flushTelemetry no-ops (and logs once). This prevents
 // any chance of self-hosters accidentally pointing at our hosted endpoint.
 
+import type { InstallContext } from './events.js';
+
 export type TransportConfig = {
   enabled: boolean;
   endpointUrl: string | undefined;
@@ -46,4 +48,34 @@ function parsePositiveInt(raw: string | undefined, fallback: number): number {
 // deployment transport switch which only governs whether staged events leave.
 export function isTelemetryDisabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.TELEMETRY_DISABLED === 'true';
+}
+
+// The install/identity block stamped onto every outbound batch — the transport
+// envelope's InstallContext minus install_id, which is per-account and read
+// from the DB at flush time (see flush.ts).
+export type HostContext = Omit<InstallContext, 'install_id'>;
+
+// Resolve the host context from the process environment. Sources:
+//   - product_version : APP_VERSION, baked into the image at build time (CI
+//     passes the git tag / SHA; see apps/api/Dockerfile). 'dev' for a plain
+//     build. A bare `APP_VERSION=` (empty string) counts as unset.
+//   - deployment_type : DEPLOYMENT_TYPE — 'cloud' on the managed deployment,
+//     'self-hosted' (the default) everywhere else, incl. every self-host.
+//   - os_platform / node_version : read live from the running process.
+export function resolveHostContext(env: NodeJS.ProcessEnv = process.env): HostContext {
+  return {
+    product_version: env.APP_VERSION || 'dev',
+    deployment_type: env.DEPLOYMENT_TYPE === 'cloud' ? 'cloud' : 'self-hosted',
+    os_platform: mapOsPlatform(process.platform),
+    node_version: process.versions.node,
+  };
+}
+
+// The telemetry enum allows only these three (TELEMETRY.md). darwin -> macos,
+// win32 -> windows; every other platform (a BSD, etc.) folds to linux — servers
+// are overwhelmingly linux and the receiver's enum has no 'other' slot.
+function mapOsPlatform(platform: NodeJS.Platform): InstallContext['os_platform'] {
+  if (platform === 'darwin') return 'macos';
+  if (platform === 'win32') return 'windows';
+  return 'linux';
 }
