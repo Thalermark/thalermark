@@ -1,13 +1,28 @@
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ContactFilterField, type SelectedContact } from '../../../components/ContactFilterField';
 import { DateField } from '../../../components/DateField';
 import { FilterChips } from '../../../components/FilterChips';
+import { MetricStrip } from '../../../components/MetricStrip';
 import { api } from '../../../lib/api';
 import { useMay } from '../../../lib/role';
 import { pageQuery, usePaginatedList } from '../../../lib/use-paginated-list';
+
+const fmt = (s: string) =>
+  Number(s).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+
+// Status summary powering the metric strip (mirror of web). awaiting/overdue
+// partition the sent-but-unpaid pool by due date.
+type InvoiceSummary = {
+  draft: { count: number };
+  awaiting: { count: number; total: string };
+  overdue: { count: number; total: string };
+};
+// Derived date-partition buckets (not stored statuses); alternatives to a
+// plain status filter, so picking one clears status and vice-versa.
+type Bucket = '' | 'overdue' | 'awaiting';
 
 // Mirror of apps/web's /invoices list. customerName is LEFT JOINed by the API
 // now (#195), so the list no longer fetches every contact to resolve names —
@@ -38,14 +53,17 @@ const STATUS_OPTIONS = [
 export default function InvoicesList() {
   const router = useRouter();
   const canCreate = useMay('sales:write');
+  const params = useLocalSearchParams<{ status?: string; bucket?: string }>();
 
   const [q, setQ] = useState('');
   const [appliedQ, setAppliedQ] = useState('');
   const [status, setStatus] = useState('');
+  const [bucket, setBucket] = useState<Bucket>('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [contact, setContact] = useState<SelectedContact | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [summary, setSummary] = useState<InvoiceSummary | null>(null);
 
   // Debounce the search box so each keystroke doesn't refetch.
   useEffect(() => {
@@ -53,14 +71,44 @@ export default function InvoicesList() {
     return () => clearTimeout(t);
   }, [q]);
 
+  // Seed the filter from deep-link params (dashboard tiles → this list). Status
+  // and bucket are mutually exclusive, so applying one clears the other.
+  useEffect(() => {
+    if (params.bucket === 'overdue' || params.bucket === 'awaiting') {
+      setBucket(params.bucket);
+      setStatus('');
+    } else if (params.status) {
+      setStatus(params.status);
+      setBucket('');
+    }
+  }, [params.status, params.bucket]);
+
+  // Point-in-time status summary for the strip; refreshed on focus so counts
+  // reflect edits made elsewhere. Best-effort.
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      api.api.invoices.summary
+        .$get({ query: {} })
+        .then(async (res) => {
+          if (active && res.ok) setSummary(await res.json());
+        })
+        .catch(() => {});
+      return () => {
+        active = false;
+      };
+    }, []),
+  );
+
   const advancedActive = Boolean(from || to || contact);
-  const anyFilter = Boolean(appliedQ || status || advancedActive);
+  const anyFilter = Boolean(appliedQ || status || bucket || advancedActive);
 
   const fetchPage = useCallback(
     async (cursor: string | null) => {
       const query: Record<string, string> = pageQuery(cursor);
       if (appliedQ) query.q = appliedQ;
       if (status) query.status = status;
+      if (bucket) query[bucket] = 'true';
       if (from) query.from = from;
       if (to) query.to = to;
       if (contact) query.contactId = contact.id;
@@ -82,7 +130,7 @@ export default function InvoicesList() {
         nextCursor,
       };
     },
-    [appliedQ, status, from, to, contact],
+    [appliedQ, status, bucket, from, to, contact],
   );
 
   const { list, loadingMore, loadMore } = usePaginatedList(fetchPage);
@@ -105,6 +153,45 @@ export default function InvoicesList() {
           </Pressable>
         ) : null}
       </View>
+
+      {summary ? (
+        <View className="mt-4 px-6">
+          <MetricStrip
+            tiles={[
+              {
+                label: 'Draft',
+                value: summary.draft.count,
+                onPress: () => {
+                  setStatus('draft');
+                  setBucket('');
+                },
+                active: status === 'draft',
+              },
+              {
+                label: 'Awaiting',
+                value: summary.awaiting.count,
+                sub: fmt(summary.awaiting.total),
+                onPress: () => {
+                  setBucket('awaiting');
+                  setStatus('');
+                },
+                active: bucket === 'awaiting',
+              },
+              {
+                label: 'Overdue',
+                value: summary.overdue.count,
+                sub: fmt(summary.overdue.total),
+                onPress: () => {
+                  setBucket('overdue');
+                  setStatus('');
+                },
+                active: bucket === 'overdue',
+                alert: summary.overdue.count > 0,
+              },
+            ]}
+          />
+        </View>
+      ) : null}
 
       <Pressable
         onPress={() => router.push('/invoices/recurring')}
@@ -139,7 +226,14 @@ export default function InvoicesList() {
       </View>
 
       <View className="mt-3">
-        <FilterChips options={STATUS_OPTIONS} value={status} onChange={setStatus} />
+        <FilterChips
+          options={STATUS_OPTIONS}
+          value={status}
+          onChange={(v) => {
+            setStatus(v);
+            setBucket('');
+          }}
+        />
       </View>
 
       {showAdvanced ? (

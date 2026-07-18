@@ -1,13 +1,25 @@
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ContactFilterField, type SelectedContact } from '../../../components/ContactFilterField';
 import { DateField } from '../../../components/DateField';
 import { FilterChips } from '../../../components/FilterChips';
+import { MetricStrip } from '../../../components/MetricStrip';
 import { api } from '../../../lib/api';
 import { useMay } from '../../../lib/role';
 import { pageQuery, usePaginatedList } from '../../../lib/use-paginated-list';
+
+const fmt = (s: string) =>
+  Number(s).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+
+// Status summary powering the metric strip (mirror of web). 'open' = sent
+// (awaiting a reply); distinct statuses, so buckets don't overlap.
+type EstimateSummary = {
+  draft: { count: number };
+  open: { count: number; total: string };
+  accepted: { count: number; total: string };
+};
 
 // Mirror of apps/web's /estimates list. customerName is LEFT JOINed by the API
 // (#195); keyset infinite scroll via usePaginatedList. Filters mirror the web
@@ -34,6 +46,7 @@ const STATUS_OPTIONS = [
 export default function EstimatesList() {
   const router = useRouter();
   const canCreate = useMay('sales:write');
+  const params = useLocalSearchParams<{ status?: string }>();
 
   const [q, setQ] = useState('');
   const [appliedQ, setAppliedQ] = useState('');
@@ -42,11 +55,33 @@ export default function EstimatesList() {
   const [to, setTo] = useState('');
   const [contact, setContact] = useState<SelectedContact | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [summary, setSummary] = useState<EstimateSummary | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setAppliedQ(q.trim()), 300);
     return () => clearTimeout(t);
   }, [q]);
+
+  // Seed the status filter from a deep-link param (dashboard Open-estimates tile).
+  useEffect(() => {
+    if (params.status) setStatus(params.status);
+  }, [params.status]);
+
+  // Point-in-time status summary for the strip; refreshed on focus. Best-effort.
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      api.api.estimates.summary
+        .$get({ query: {} })
+        .then(async (res) => {
+          if (active && res.ok) setSummary(await res.json());
+        })
+        .catch(() => {});
+      return () => {
+        active = false;
+      };
+    }, []),
+  );
 
   const advancedActive = Boolean(from || to || contact);
   const anyFilter = Boolean(appliedQ || status || advancedActive);
@@ -100,6 +135,35 @@ export default function EstimatesList() {
           </Pressable>
         ) : null}
       </View>
+
+      {summary ? (
+        <View className="mt-4 px-6">
+          <MetricStrip
+            tiles={[
+              {
+                label: 'Draft',
+                value: summary.draft.count,
+                onPress: () => setStatus('draft'),
+                active: status === 'draft',
+              },
+              {
+                label: 'Open',
+                value: summary.open.count,
+                sub: fmt(summary.open.total),
+                onPress: () => setStatus('sent'),
+                active: status === 'sent',
+              },
+              {
+                label: 'Accepted',
+                value: summary.accepted.count,
+                sub: fmt(summary.accepted.total),
+                onPress: () => setStatus('accepted'),
+                active: status === 'accepted',
+              },
+            ]}
+          />
+        </View>
+      ) : null}
 
       <View className="mt-4 flex-row items-center gap-2 px-6">
         <TextInput

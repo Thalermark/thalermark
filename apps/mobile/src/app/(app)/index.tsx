@@ -2,6 +2,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { MetricStrip } from '../../components/MetricStrip';
 import { pickActiveCompany } from '../../lib/active-company';
 import { api } from '../../lib/api';
 import { signOut } from '../../lib/auth-client';
@@ -19,6 +20,9 @@ type Anomalies = {
   categories: { code: string; name: string; recent: string; typical: string; pctOver: number }[];
 };
 type Nudge = { text: string; tone: string };
+// Point-in-time entity counts for the "Right now" tiles (mirror of web). Counts
+// only — the money tiles above own the dollars, so no duplicate of "Owed to you".
+type Counts = { overdue: number; awaiting: number; drafts: number; openEstimates: number };
 
 const PERIODS: { key: Period; label: string }[] = [
   { key: 'month', label: 'This month' },
@@ -45,6 +49,7 @@ export default function Home() {
   const [companyName, setCompanyName] = useState<string | null>(null);
   const [period, setPeriod] = useState<Period>('month');
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
+  const [counts, setCounts] = useState<Counts | null>(null);
   const [loading, setLoading] = useState(true);
   const [anomalies, setAnomalies] = useState<Anomalies>({ overall: null, categories: [] });
   const [nudges, setNudges] = useState<Nudge[]>([]);
@@ -150,6 +155,33 @@ export default function Home() {
       active = false;
     };
   }, [companyId, period]);
+
+  // Point-in-time counts (NOT period-bound → keyed on companyId only, so the
+  // period toggle doesn't refetch them). Company-scoped to match the dashboard.
+  // Best-effort: a non-OK degrades to zeros rather than failing the screen.
+  useEffect(() => {
+    if (!companyId) return;
+    let active = true;
+    Promise.all([
+      api.api.invoices.summary.$get({ query: { companyId } }),
+      api.api.estimates.summary.$get({ query: { companyId } }),
+    ])
+      .then(async ([invRes, estRes]) => {
+        if (!active) return;
+        const inv = invRes.ok ? await invRes.json() : null;
+        const est = estRes.ok ? await estRes.json() : null;
+        setCounts({
+          overdue: inv?.overdue.count ?? 0,
+          awaiting: inv?.awaiting.count ?? 0,
+          drafts: inv?.draft.count ?? 0,
+          openEstimates: est?.open.count ?? 0,
+        });
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [companyId]);
 
   const showAnomalies = anomalies.overall !== null || anomalies.categories.length > 0;
 
@@ -282,6 +314,44 @@ export default function Home() {
         ) : (
           <Text className="mt-8 text-sm text-oxblood">Couldn't load your position.</Text>
         )}
+
+        {/* Right now — point-in-time counts (NOT period-bound). Counts only; the
+            money tiles above own the dollars. Each tile deep-links to its
+            filtered list. */}
+        {counts ? (
+          <View className="mt-8">
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+              Right now
+            </Text>
+            <View className="mt-3">
+              <MetricStrip
+                tiles={[
+                  {
+                    label: 'Overdue',
+                    value: counts.overdue,
+                    onPress: () => router.push('/invoices?bucket=overdue'),
+                    alert: counts.overdue > 0,
+                  },
+                  {
+                    label: 'Awaiting',
+                    value: counts.awaiting,
+                    onPress: () => router.push('/invoices?bucket=awaiting'),
+                  },
+                  {
+                    label: 'Drafts',
+                    value: counts.drafts,
+                    onPress: () => router.push('/invoices?status=draft'),
+                  },
+                  {
+                    label: 'Open estimates',
+                    value: counts.openEstimates,
+                    onPress: () => router.push('/estimates?status=sent'),
+                  },
+                ]}
+              />
+            </View>
+          </View>
+        ) : null}
 
         {/* Unusual spending (deterministic) */}
         {showAnomalies ? (
