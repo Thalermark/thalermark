@@ -145,6 +145,14 @@ export function expensesRoutes(deps: AppDeps) {
             return c.json({ error: 'invalid_payment_account' }, 400);
           }
 
+          // First-expense onboarding milestone (server-authoritative). Checked
+          // BEFORE the insert so "the account's first expense" is honest.
+          const [priorExpense] = await tx
+            .select({ id: expenses.id })
+            .from(expenses)
+            .where(eq(expenses.accountId, accountId))
+            .limit(1);
+
           const expenseId = uuidv7();
           const [created] = await tx
             .insert(expenses)
@@ -188,6 +196,9 @@ export function expensesRoutes(deps: AppDeps) {
             name: 'expense_logged',
             has_receipt_attached: !!created?.receiptStorageKey,
           });
+          if (!priorExpense) {
+            await emit(tx, { name: 'onboarding_step_completed', step: 'first_expense' });
+          }
 
           return c.json(created, 201);
         },

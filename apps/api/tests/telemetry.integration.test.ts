@@ -155,6 +155,43 @@ describe('telemetry consent + server emit', () => {
     }
   });
 
+  it('first contact stages an onboarding milestone; a later one does not', async () => {
+    const ctx = buildApp();
+    try {
+      const cookie = await signUp(ctx.app, 'tel-onboard@example.com');
+      const { accountId, companyId } = await userContext('tel-onboard@example.com');
+      const headers = { cookie, 'x-account-id': accountId, 'content-type': 'application/json' };
+
+      await ctx.app.request('/api/account/telemetry', {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ enabled: true }),
+      });
+
+      // First contact → client_created AND the first_client onboarding milestone.
+      await ctx.app.request('/api/contacts', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ companyId, name: 'First' }),
+      });
+      let staged = await getTestDb().select().from(telemetryEvents);
+      expect(staged.map((r) => r.eventName)).toContain('client_created');
+      const milestone = staged.find((r) => r.eventName === 'onboarding_step_completed');
+      expect(milestone?.payload).toMatchObject({ step: 'first_client' });
+
+      // Second contact → client_created only; the first_client milestone is once.
+      await ctx.app.request('/api/contacts', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ companyId, name: 'Second' }),
+      });
+      staged = await getTestDb().select().from(telemetryEvents);
+      expect(staged.filter((r) => r.eventName === 'onboarding_step_completed')).toHaveLength(1);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
   it('stages nothing for an account that never opted in', async () => {
     const ctx = buildApp();
     try {
@@ -297,6 +334,48 @@ describe('telemetry consent + server emit', () => {
     }
   });
 
+  it('client ingest stages the onboarding + flow-abandonment events', async () => {
+    const ctx = buildApp();
+    try {
+      const cookie = await signUp(ctx.app, 'tel-b2@example.com');
+      const { accountId } = await userContext('tel-b2@example.com');
+      const headers = { cookie, 'x-account-id': accountId, 'content-type': 'application/json' };
+
+      await ctx.app.request('/api/account/telemetry', {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ enabled: true }),
+      });
+
+      const res = await ctx.app.request('/api/telemetry/ingest', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          events: [
+            { name: 'onboarding_step_completed', step: 'company_setup' },
+            { name: 'onboarding_abandoned', last_completed_step: 'company_setup' },
+            { name: 'onboarding_abandoned', last_completed_step: null },
+            { name: 'invoice_flow_abandoned', step_reached: 'line_items' },
+            { name: 'expense_flow_abandoned', step_reached: 'amount' },
+          ],
+        }),
+      });
+      expect(res.status).toBe(200);
+      expect((await res.json()) as { accepted: number }).toEqual({ accepted: 5 });
+
+      const staged = await getTestDb().select().from(telemetryEvents);
+      expect(staged.map((r) => r.eventName).sort()).toEqual([
+        'expense_flow_abandoned',
+        'invoice_flow_abandoned',
+        'onboarding_abandoned',
+        'onboarding_abandoned',
+        'onboarding_step_completed',
+      ]);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
   it('client ingest stages nothing for an opted-out account (server-side gate)', async () => {
     const ctx = buildApp();
     try {
@@ -335,6 +414,18 @@ describe('telemetry consent + server emit', () => {
         body: JSON.stringify({ events: [{ name: 'report_viewed', report_type: 'not-a-report' }] }),
       });
       expect(badReport.status).toBe(400);
+
+      // The client can only send onboarding_step_completed with step
+      // 'company_setup'; the first_* milestones are server-authoritative, so a
+      // client trying to inject one is rejected.
+      const fakeMilestone = await ctx.app.request('/api/telemetry/ingest', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          events: [{ name: 'onboarding_step_completed', step: 'first_client' }],
+        }),
+      });
+      expect(fakeMilestone.status).toBe(400);
 
       const empty = await ctx.app.request('/api/telemetry/ingest', {
         method: 'POST',
