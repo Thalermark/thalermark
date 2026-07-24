@@ -23,7 +23,7 @@
     "@thalermark/validation": "workspace:*",
     "better-auth": "1.6.13",
     "fflate": "^0.8.3",
-    "hono": "4.12.25",
+    "hono": "4.12.27",
     "papaparse": "5.5.4"
   },
   "devDependencies": {
