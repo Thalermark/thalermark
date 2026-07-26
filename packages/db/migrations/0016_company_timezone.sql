@@ -1,0 +1,24 @@
+-- The collapsed 0000_baseline is a pg_dump that empties the session search_path,
+-- and drizzle-kit's generated DDL is unqualified — restore it as the first
+-- statement so a fresh-DB session can apply this file (0001–0015 do the same).
+SET search_path TO public;--> statement-breakpoint
+-- The IANA zone a company's reporting day boundaries are computed in (TMC-157).
+-- Until now every window was UTC, so a payment recorded at 8pm on 31 December
+-- in America/Chicago stored as 2027-01-01T02:00Z and landed in the *following*
+-- tax year. Harmless on a dashboard; on Schedule C it changes a filed number,
+-- and the last evening of the year is exactly when people catch up on invoicing.
+--
+-- DEFAULT 'UTC' is deliberate rather than lazy: it reproduces the current
+-- behaviour bit for bit. Any other default would silently shift the figures of
+-- every company that already exists, including years a user may have already
+-- filed from.
+--
+-- text + app-layer validation rather than a CHECK constraint: the tz database
+-- adds, renames and retires zones between releases, so a constraint enumerating
+-- them goes stale against the very data Postgres itself would accept in
+-- AT TIME ZONE. Validated at the API boundary instead (isValidTimeZone), which
+-- also keeps an unknown zone from reaching SQL and erroring mid-query.
+--
+-- Adding a NOT NULL column WITH a constant default is metadata-only on
+-- PostgreSQL 11+ — no table rewrite, brief lock.
+ALTER TABLE "companies" ADD COLUMN "timezone" text DEFAULT 'UTC' NOT NULL;

@@ -58,6 +58,34 @@ export const ACCOUNTING_METHODS = ['cash', 'accrual'] as const;
 export const accountingMethodSchema = z.enum(ACCOUNTING_METHODS);
 export type AccountingMethod = z.infer<typeof accountingMethodSchema>;
 
+// IANA timezone the company's reporting day boundaries resolve in (TMC-157).
+//
+// Validated by asking Intl to build a formatter for it: that's the same tz
+// database Node ships, so anything it accepts is a real zone. We deliberately
+// don't enumerate zones — the list changes between tzdata releases, and a
+// hardcoded set would reject valid input (or accept retired input) depending on
+// which side of a release you're on.
+//
+// This runs at the API boundary specifically so an unknown zone can't reach
+// SQL: the window queries interpolate it into `AT TIME ZONE`, where a bad value
+// throws mid-query rather than returning a clean 400.
+export function isValidTimeZone(tz: string): boolean {
+  if (!tz) return false;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export const timezoneSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(64)
+  .refine(isValidTimeZone, { message: 'invalid_timezone' });
+
 // Input schema for PATCH /api/companies/:id. Sparse on purpose — the L3
 // wizard updates name + businessType together, but follow-on flows (rename
 // from settings, accountant updates business type alone) only touch one
@@ -93,6 +121,9 @@ export const companyUpdateSchema = z
     // the IRS requires Form 3115, so Settings presents this as a one-time
     // answer, not a toggle users flip per report.
     accountingMethod: accountingMethodSchema.optional(),
+    // Sparse like the rest. No null case: the column is NOT NULL, and "no
+    // timezone" is spelled 'UTC'.
+    timezone: timezoneSchema.optional(),
     replyToEmail: nullableEmailField,
     paymentCashEnabled: z.boolean().optional(),
     paymentCheckEnabled: z.boolean().optional(),

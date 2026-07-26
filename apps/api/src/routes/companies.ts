@@ -92,6 +92,7 @@ export function companiesRoutes(deps: AppDeps) {
             name: companies.name,
             businessType: companies.businessType,
             accountingMethod: companies.accountingMethod,
+            timezone: companies.timezone,
             businessAddress: companies.businessAddress,
             businessPhone: companies.businessPhone,
             businessEmail: companies.businessEmail,
@@ -164,6 +165,7 @@ export function companiesRoutes(deps: AppDeps) {
               name: created.name,
               businessType: created.businessType,
               accountingMethod: created.accountingMethod,
+              timezone: created.timezone,
               businessAddress: created.businessAddress,
               businessPhone: created.businessPhone,
               businessEmail: created.businessEmail,
@@ -215,6 +217,7 @@ export function companiesRoutes(deps: AppDeps) {
           if (data.name !== undefined) patch.name = data.name;
           if (data.businessType !== undefined) patch.businessType = data.businessType;
           if (data.accountingMethod !== undefined) patch.accountingMethod = data.accountingMethod;
+          if (data.timezone !== undefined) patch.timezone = data.timezone;
           // Business identity — sparse + '' → null, same as replyToEmail below.
           if (data.businessAddress !== undefined) patch.businessAddress = data.businessAddress;
           if (data.businessPhone !== undefined) patch.businessPhone = data.businessPhone;
@@ -282,6 +285,7 @@ export function companiesRoutes(deps: AppDeps) {
               name: before.name,
               businessType: before.businessType,
               accountingMethod: before.accountingMethod,
+              timezone: before.timezone,
               businessAddress: before.businessAddress,
               businessPhone: before.businessPhone,
               businessEmail: before.businessEmail,
@@ -298,6 +302,7 @@ export function companiesRoutes(deps: AppDeps) {
               name: after.name,
               businessType: after.businessType,
               accountingMethod: after.accountingMethod,
+              timezone: after.timezone,
               businessAddress: after.businessAddress,
               businessPhone: after.businessPhone,
               businessEmail: after.businessEmail,
@@ -318,6 +323,7 @@ export function companiesRoutes(deps: AppDeps) {
             name: after.name,
             businessType: after.businessType,
             accountingMethod: after.accountingMethod,
+            timezone: after.timezone,
             businessAddress: after.businessAddress,
             businessPhone: after.businessPhone,
             businessEmail: after.businessEmail,

@@ -40,6 +40,18 @@ export const companies = pgTable(
     // frames it as "When do you count income?". App-layer enum, CHECK deferred
     // like business_type.
     accountingMethod: text('accounting_method').notNull().default('cash'),
+    // IANA zone the company's reporting day boundaries are computed in
+    // (TMC-157). Everything date-windowed — the tax year, report from/to,
+    // as-of — resolves local midnight through this rather than assuming UTC,
+    // so a payment taken at 8pm on 31 Dec lands in the year the operator
+    // thinks it did.
+    //
+    // Defaults to 'UTC', which is exactly the old behaviour: any other default
+    // would silently *move* existing companies' figures on migration. Stored
+    // as text and validated at the app boundary (isValidTimeZone) rather than
+    // constrained in the DB — the tz database gains and renames zones, and a
+    // CHECK would go stale against it.
+    timezone: text('timezone').notNull().default('UTC'),
     // Business identity surfaced on invoices/estimates: a free-text postal
     // address and a contact phone. Both nullable — pre-existing companies and
     // freshly-created ones start null, and the public invoice simply omits the

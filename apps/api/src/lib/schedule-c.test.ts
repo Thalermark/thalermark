@@ -104,17 +104,19 @@ describe('rollUpPartII', () => {
 });
 
 describe('taxYearWindow', () => {
+  // Calendar dates, not instants: which moment 1 January begins at depends on
+  // the company's timezone, and that resolution happens in SQL (TMC-157).
   it('spans the full calendar year with a half-open upper bound', () => {
-    const w = taxYearWindow(2026);
-    expect(w.from).toBe('2026-01-01');
-    expect(w.to).toBe('2026-12-31');
-    expect(w.fromDate.toISOString()).toBe('2026-01-01T00:00:00.000Z');
-    expect(w.toExclusive.toISOString()).toBe('2027-01-01T00:00:00.000Z');
+    expect(taxYearWindow(2026)).toEqual({
+      from: '2026-01-01',
+      to: '2026-12-31',
+      toExclusiveDate: '2027-01-01',
+    });
   });
 
-  it('includes Feb 29 in a leap year', () => {
+  it('ends on 31 December in a leap year too', () => {
     const w = taxYearWindow(2028);
-    expect(new Date('2028-02-29T12:00:00Z') < w.toExclusive).toBe(true);
-    expect(new Date('2028-02-29T12:00:00Z') >= w.fromDate).toBe(true);
+    expect(w.to).toBe('2028-12-31');
+    expect(w.toExclusiveDate).toBe('2029-01-01');
   });
 });
