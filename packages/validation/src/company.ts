@@ -58,6 +58,25 @@ export const ACCOUNTING_METHODS = ['cash', 'accrual'] as const;
 export const accountingMethodSchema = z.enum(ACCOUNTING_METHODS);
 export type AccountingMethod = z.infer<typeof accountingMethodSchema>;
 
+// How much of a year's write-off a "spread it out" purchase takes in the year
+// it was bought (TMC-123).
+//
+// 'half_year' is the IRS default convention: an asset is treated as placed in
+// service at the middle of the year whatever month it was actually bought, so
+// year one takes half a chunk and the spread runs one year longer. Nothing in
+// US tax law hands out a *full* year in the purchase year, which makes
+// 'full_year' the outlier — it exists only because an accountant who has
+// already been depreciating an asset that way needs our figures to agree with
+// the return they file.
+//
+// Never asked of the person who bought the thing; they answer "deduct it all
+// this year" vs "spread it out" and nothing else. Settings carries this beside
+// accountingMethod with the same don't-change-this-casually framing.
+export const DEPRECIATION_CONVENTIONS = ['half_year', 'full_year'] as const;
+
+export const depreciationConventionSchema = z.enum(DEPRECIATION_CONVENTIONS);
+export type DepreciationConvention = z.infer<typeof depreciationConventionSchema>;
+
 // IANA timezone the company's reporting day boundaries resolve in (TMC-157).
 //
 // Validated by asking Intl to build a formatter for it: that's the same tz
@@ -121,6 +140,11 @@ export const companyUpdateSchema = z
     // the IRS requires Form 3115, so Settings presents this as a one-time
     // answer, not a toggle users flip per report.
     accountingMethod: accountingMethodSchema.optional(),
+    // Sparse like the rest. Sticky by intent for the same reason as
+    // accountingMethod: changing it mid-life leaves years already posted on the
+    // old convention (the ledger is append-only), so Settings presents it as an
+    // accountant's one-time correction rather than a toggle.
+    depreciationConvention: depreciationConventionSchema.optional(),
     // Sparse like the rest. No null case: the column is NOT NULL, and "no
     // timezone" is spelled 'UTC'.
     timezone: timezoneSchema.optional(),

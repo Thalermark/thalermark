@@ -87,6 +87,15 @@ export type Env = {
   // 06:00 UTC daily. Override via RECURRING_SWEEP_CRON for a different cadence
   // (e.g. more frequent in dev to exercise the path).
   recurringSweepCron: string;
+  // Cron expression for the yearly-depreciation sweep (pg-boss). Defaults to
+  // 07:00 UTC daily — an hour after the recurring sweep so the two don't
+  // contend. Daily, not yearly: the backfill has to fire on the first run after
+  // deploy whatever the date, and it no-ops once every year owing is posted.
+  //
+  // Optional on the type for the same reason as jobsEnabled: the ~35 hand-built
+  // test Env literals shouldn't have to grow a field for a scheduler that only
+  // ever boots in server.ts. loadEnv always resolves it.
+  depreciationSweepCron?: string;
   // Run the pg-boss scheduler + worker in this process. Default true, so a
   // single-box install runs the recurring-invoice sweep in the api. For a
   // multi-replica deploy, set JOBS_ENABLED=false on the extra replicas so jobs
@@ -117,6 +126,9 @@ export type Env = {
 };
 
 const DEFAULT_PORT = 3000;
+// Shared so bootstrap's fallback for an Env literal that omitted the field
+// (tests, embedders) can't drift from what loadEnv resolves.
+export const DEFAULT_DEPRECIATION_SWEEP_CRON = '0 7 * * *';
 const VALID_NODE_ENVS: Env['nodeEnv'][] = ['development', 'test', 'production'];
 const VALID_LOG_LEVELS: LogLevel[] = ['debug', 'info', 'warning', 'error', 'fatal'];
 
@@ -178,6 +190,7 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     stripePublishableKey: source.STRIPE_PUBLISHABLE_KEY || undefined,
     stripeWebhookSecret: source.STRIPE_WEBHOOK_SECRET || undefined,
     recurringSweepCron: source.RECURRING_SWEEP_CRON || '0 6 * * *',
+    depreciationSweepCron: source.DEPRECIATION_SWEEP_CRON || DEFAULT_DEPRECIATION_SWEEP_CRON,
     // Empty string (a bare JOBS_ENABLED= in compose env_file) → unset → default
     // true, same tri-state trap handled above for the other boolean flags.
     jobsEnabled: source.JOBS_ENABLED ? parseBool(source.JOBS_ENABLED) : true,

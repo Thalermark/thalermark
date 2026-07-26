@@ -12,6 +12,16 @@
 
   const financed = $derived(p.funding === 'financed');
   const stillOwes = $derived(Number(p.owing) > 0);
+
+  // "Spread it out" reads as a plain sentence, and the first year is genuinely
+  // smaller than the rest under the standard (half-year) convention — so say the
+  // two numbers rather than average them into a single misleading one.
+  const spread = $derived(p.schedule);
+  const firstYearNum = $derived(spread?.rows[0]?.year ?? null);
+  const lastYearNum = $derived(spread?.rows.at(-1)?.year ?? null);
+  // A year's share posts once that year has closed, so a purchase made this year
+  // shows nothing deducted yet. Saying so beats letting it read as a bug.
+  const nothingDeductedYet = $derived(!!spread && Number(spread.postedToDate) === 0);
 </script>
 
 <a href="/purchases" class="eyebrow text-fg/60 hover:text-fg">← Big purchases</a>
@@ -57,8 +67,20 @@
   <div>
     <dt class="label">On taxes</dt>
     <dd class="mt-1 text-fg/80">
-      {#if p.schedule}
-        Spread out — about {money(p.schedule.perYear)} a year for {p.schedule.years} years.
+      {#if spread}
+        {#if spread.firstYear !== spread.perYear}
+          Spread out — about {money(spread.firstYear)} in {firstYearNum}, then about
+          {money(spread.perYear)} a year through {lastYearNum}.
+        {:else}
+          Spread out — about {money(spread.perYear)} a year, {firstYearNum} through {lastYearNum}.
+        {/if}
+        <span class="mt-1 block text-sm text-fg/60">
+          {#if nothingDeductedYet}
+            Nothing counted yet — {firstYearNum}'s share is added once that year is over.
+          {:else}
+            {money(spread.postedToDate)} of {money(spread.total)} counted so far.
+          {/if}
+        </span>
       {:else}
         Deducted in full the year you bought it.
       {/if}

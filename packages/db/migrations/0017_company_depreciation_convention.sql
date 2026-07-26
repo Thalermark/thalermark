@@ -1,0 +1,32 @@
+-- The collapsed 0000_baseline is a pg_dump that empties the session search_path,
+-- and drizzle-kit's generated DDL is unqualified — restore it as the first
+-- statement so a fresh-DB session can apply this file (0001–0016 do the same).
+SET search_path TO public;--> statement-breakpoint
+-- How much of a year's write-off a "spread it out" purchase gets in the year it
+-- was bought: 'half_year' | 'full_year' (TMC-123).
+--
+-- DEFAULT 'half_year' is the IRS default convention, which pretends every asset
+-- was placed in service at the exact middle of the year no matter what month it
+-- was actually bought. Getting a *full* year in year one is not something any US
+-- convention allows, so half-year is the correct default rather than merely the
+-- cautious one — it is the only value here that is standard practice.
+--
+-- Why the column exists at all, given the user is never asked: an accountant
+-- filing on someone's behalf may have already been depreciating an asset on a
+-- different basis, and the alternative to an override is that they cannot make
+-- our numbers agree with the return they file. Same escape hatch, same framing,
+-- and the same "only change this if whoever files your taxes told you to" copy
+-- as accounting_method (0015). The person who bought the mower still answers
+-- exactly one question — deduct it all this year, or spread it out.
+--
+-- Company-level rather than per-purchase: a convention is a policy applied
+-- consistently across a filer's assets, not a per-asset judgement call, and
+-- accounting_method is the precedent for where that kind of answer lives.
+--
+-- text + app-layer validation rather than a CHECK, matching accounting_method
+-- and the status columns — the enum is owned by packages/validation so the API
+-- boundary rejects unknown values before they reach SQL.
+--
+-- Adding a NOT NULL column WITH a constant default is metadata-only on
+-- PostgreSQL 11+ — no table rewrite, brief lock.
+ALTER TABLE "companies" ADD COLUMN "depreciation_convention" text DEFAULT 'half_year' NOT NULL;

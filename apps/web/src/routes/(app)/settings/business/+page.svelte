@@ -16,6 +16,10 @@
   // Accounting method — stored as cash/accrual, offered in plain words. Cash is
   // the column default and what effectively every sole proprietor files.
   const accountingMethod = $derived(data.company.accountingMethod ?? 'cash');
+  // First-year share of a "spread it out" purchase. Half-year is the IRS
+  // default and the column default; full_year exists only as an accountant's
+  // override for an asset already being depreciated that way elsewhere.
+  const depreciationConvention = $derived(data.company.depreciationConvention ?? 'half_year');
   // Reporting timezone. Stored value wins; the browser's zone is only offered
   // as a one-click suggestion when the two disagree, so we never silently
   // change which period someone's figures land in.
@@ -282,6 +286,68 @@
         <span class="text-sm text-fg/60">Saved.</span>
       {:else if form?.accountingError}
         <span class="text-sm text-danger">Couldn't save: {form.accountingError}</span>
+      {/if}
+    </div>
+  </form>
+</section>
+
+<section class="mt-8 rounded-sm border border-fg/15 bg-surface-2">
+  <header class="border-b border-fg/10 px-6 py-5">
+    <span class="eyebrow">Big purchases, first year</span>
+    <p class="mt-2 font-serif text-lg text-fg">{data.company.name}</p>
+  </header>
+  <form method="POST" action="?/saveDepreciationConvention" class="px-6 py-6">
+    <input type="hidden" name="companyId" value={data.company.id} />
+    <p class="max-w-prose text-sm leading-relaxed text-fg/70">
+      When you buy something big and choose to spread the cost out, this decides how much of it
+      counts in the year you bought it. The standard answer is half — the IRS treats anything you
+      buy as though you bought it mid-year, whether that was January or December. Only change this
+      if whoever files your taxes told you to.
+    </p>
+    <div class="mt-5 space-y-3">
+      <label class="flex items-start gap-3">
+        <input
+          type="radio"
+          name="depreciationConvention"
+          value="half_year"
+          checked={depreciationConvention === 'half_year'}
+          class="mt-1"
+        />
+        <span>
+          <span class="block text-sm text-fg">Half the usual amount</span>
+          <span class="block text-xs text-fg/60">
+            A $3,600 mower over five years counts about $360 the year you buy it, then about $720 a
+            year, with the last half landing in a sixth year. Standard.
+          </span>
+        </span>
+      </label>
+      <label class="flex items-start gap-3">
+        <input
+          type="radio"
+          name="depreciationConvention"
+          value="full_year"
+          checked={depreciationConvention === 'full_year'}
+          class="mt-1"
+        />
+        <span>
+          <span class="block text-sm text-fg">The full amount</span>
+          <span class="block text-xs text-fg/60">
+            That same mower counts about $720 every year for five years, starting the year you buy
+            it. Pick this only to match how an accountant is already handling it.
+          </span>
+        </span>
+      </label>
+    </div>
+    <p class="mt-4 max-w-prose text-xs leading-relaxed text-fg/50">
+      Changing this only affects years that haven't been counted yet — anything already on the books
+      stays as it was recorded.
+    </p>
+    <div class="mt-5 flex items-center gap-4">
+      <button type="submit" class="btn">Save</button>
+      {#if form?.depreciationSaved}
+        <span class="text-sm text-fg/60">Saved.</span>
+      {:else if form?.depreciationError}
+        <span class="text-sm text-danger">Couldn't save: {form.depreciationError}</span>
       {/if}
     </div>
   </form>

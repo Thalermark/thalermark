@@ -19,11 +19,12 @@ import { configureLogger, getLogger } from '@thalermark/logger';
 import { type StorageProvider, createStorageProvider } from '@thalermark/storage';
 import type { PgBoss } from 'pg-boss';
 import type { AppDeps } from './app.js';
-import type { Env } from './env.js';
+import { DEFAULT_DEPRECIATION_SWEEP_CRON, type Env } from './env.js';
 import { communityAccountNotices } from './lib/account-notice.js';
 import { createApiAuth, enabledSocialProviders } from './lib/auth.js';
 import { deriveConnectionKey } from './lib/crypto.js';
 import { type ApiDatabase, createApiDatabase } from './lib/db.js';
+import { sweepDepreciation } from './lib/depreciation.js';
 import { type EntitlementProvider, communityEntitlements } from './lib/entitlement.js';
 import { initErrorTracking } from './lib/error-tracking.js';
 import {
@@ -295,6 +296,7 @@ export function createDefaultAppDeps(
 }
 
 const SWEEP_QUEUE = 'recurring-invoice-sweep';
+const DEPRECIATION_QUEUE = 'depreciation-sweep';
 
 // The per-call inputs the recurring-invoice sweep needs. `entitlement` is passed
 // in (not baked) so a commercial root's plan-aware provider makes the sweep
@@ -327,6 +329,18 @@ export async function registerCoreJobs(boss: PgBoss, deps: SweepJobDeps, env: En
   });
   await boss.schedule(SWEEP_QUEUE, env.recurringSweepCron, undefined, { tz: 'UTC' });
   log.info('recurring-invoice sweep scheduled ({cron} UTC)', { cron: env.recurringSweepCron });
+
+  // Yearly depreciation for "spread it out" purchases (TMC-123). Takes no
+  // entitlement provider on purpose — see sweepDepreciation: freezing a lapsed
+  // account's depreciation would put a wrong number on its Schedule C rather
+  // than withhold a feature.
+  await boss.createQueue(DEPRECIATION_QUEUE);
+  await boss.work(DEPRECIATION_QUEUE, async () => {
+    await sweepDepreciation({ bootstrapDb: deps.bootstrapDb, tenantDb: deps.tenantDb });
+  });
+  const depreciationCron = env.depreciationSweepCron ?? DEFAULT_DEPRECIATION_SWEEP_CRON;
+  await boss.schedule(DEPRECIATION_QUEUE, depreciationCron, undefined, { tz: 'UTC' });
+  log.info('depreciation sweep scheduled ({cron} UTC)', { cron: depreciationCron });
 }
 
 // A started server handle with a drain-then-callback close — structurally what

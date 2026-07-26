@@ -28,6 +28,7 @@ type Company = {
   businessEmail: string | null;
   replyToEmail: string | null;
   accountingMethod: string;
+  depreciationConvention: string;
   timezone: string;
   showAddressOnInvoice: boolean;
   showPhoneOnInvoice: boolean;
@@ -78,6 +79,9 @@ export default function BusinessSettings() {
   const [method, setMethod] = useState<'cash' | 'accrual'>('cash');
   const [methodSaving, setMethodSaving] = useState(false);
   const [methodStatus, setMethodStatus] = useState<'idle' | 'saved' | 'error'>('idle');
+  const [convention, setConvention] = useState<'half_year' | 'full_year'>('half_year');
+  const [conventionSaving, setConventionSaving] = useState(false);
+  const [conventionStatus, setConventionStatus] = useState<'idle' | 'saved' | 'error'>('idle');
   const [timezone, setTimezone] = useState('UTC');
   const deviceTimezone = deviceZone();
   const [tzSaving, setTzSaving] = useState(false);
@@ -121,6 +125,7 @@ export default function BusinessSettings() {
         businessEmail: company.businessEmail,
         replyToEmail: company.replyToEmail,
         accountingMethod: company.accountingMethod,
+        depreciationConvention: company.depreciationConvention,
         timezone: company.timezone,
         showAddressOnInvoice: company.showAddressOnInvoice,
         showPhoneOnInvoice: company.showPhoneOnInvoice,
@@ -136,6 +141,7 @@ export default function BusinessSettings() {
     setEmail(company.businessEmail ?? '');
     setReplyTo(company.replyToEmail ?? '');
     setMethod(company.accountingMethod === 'accrual' ? 'accrual' : 'cash');
+    setConvention(company.depreciationConvention === 'full_year' ? 'full_year' : 'half_year');
     setTimezone(company.timezone ?? 'UTC');
     setShowAddrInv(company.showAddressOnInvoice);
     setShowPhoneInv(company.showPhoneOnInvoice);
@@ -219,6 +225,24 @@ export default function BusinessSettings() {
       setMethodStatus('error');
     } finally {
       setMethodSaving(false);
+    }
+  }
+
+  async function onSaveConvention(next: 'half_year' | 'full_year') {
+    if (!company) return;
+    setConvention(next);
+    setConventionSaving(true);
+    setConventionStatus('idle');
+    try {
+      const res = await api.api.companies[':id'].$patch({
+        param: { id: company.id },
+        json: { depreciationConvention: next },
+      });
+      setConventionStatus(res.ok ? 'saved' : 'error');
+    } catch {
+      setConventionStatus('error');
+    } finally {
+      setConventionSaving(false);
     }
   }
 
@@ -503,6 +527,60 @@ export default function BusinessSettings() {
               {methodStatus === 'saved' ? (
                 <Text className="mt-4 text-sm text-ink/60">Saved.</Text>
               ) : methodStatus === 'error' ? (
+                <Text className="mt-4 text-sm text-oxblood">Couldn't save.</Text>
+              ) : null}
+            </View>
+
+            {/* First-year share of a big purchase spread over years (TMC-123).
+                Half-year is the IRS standard; full-year exists only so an
+                accountant can match how an asset is already being handled. The
+                person who bought the thing never comes here — they chose
+                "deduct it all" vs "spread it out" at the point of purchase. */}
+            <View className="mt-8 rounded-sm border border-ink/15 bg-cream-warm p-6">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                Big purchases, first year
+              </Text>
+              <Text className="mt-2 font-serif text-lg text-ink">{company.name}</Text>
+              <Text className="mt-3 text-sm text-ink/70">
+                When you buy something big and spread the cost out, this decides how much counts in
+                the year you bought it. The standard answer is half — the IRS treats anything you
+                buy as though you bought it mid-year. Only change it if whoever files your taxes
+                told you to.
+              </Text>
+              <View className="mt-5 gap-3">
+                {(
+                  [
+                    [
+                      'half_year',
+                      'Half the usual amount',
+                      'A $3,600 mower counts about $360 the first year, then about $720 a year. Standard.',
+                    ],
+                    [
+                      'full_year',
+                      'The full amount',
+                      'That mower counts about $720 every year for five years, starting the year you buy it.',
+                    ],
+                  ] as const
+                ).map(([value, label, hint]) => (
+                  <Pressable
+                    key={value}
+                    onPress={() => onSaveConvention(value)}
+                    disabled={conventionSaving}
+                    className={`rounded-sm border px-4 py-3 ${
+                      convention === value ? 'border-gold-deep bg-gold-deep/10' : 'border-ink/15'
+                    }`}
+                  >
+                    <Text className="text-ink">{label}</Text>
+                    <Text className="mt-0.5 text-xs text-ink/60">{hint}</Text>
+                  </Pressable>
+                ))}
+              </View>
+              <Text className="mt-4 text-xs text-ink/50">
+                Changing this only affects years that haven't been counted yet.
+              </Text>
+              {conventionStatus === 'saved' ? (
+                <Text className="mt-4 text-sm text-ink/60">Saved.</Text>
+              ) : conventionStatus === 'error' ? (
                 <Text className="mt-4 text-sm text-oxblood">Couldn't save.</Text>
               ) : null}
             </View>

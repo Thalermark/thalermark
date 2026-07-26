@@ -6,17 +6,24 @@ import {
   journalEntries,
   journalLines,
 } from '@thalermark/db';
-import { capitalPurchaseCreateSchema, loanPaymentSchema } from '@thalermark/validation';
+import {
+  type DepreciationConvention,
+  capitalPurchaseCreateSchema,
+  loanPaymentSchema,
+} from '@thalermark/validation';
 import { and, eq, getTableColumns, inArray, isNull, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 import { v7 as uuidv7 } from 'uuid';
 import {
   type CapitalPurchaseTaxTreatment,
+  type DepreciationPlan,
+  depreciationPostedByYear,
   depreciationSchedule,
   loanBalance,
   postCapitalPurchase,
   postCapitalPurchaseReversal,
+  postDepreciationReversal,
   postLoanPayment,
 } from '../lib/ledger.js';
 import { applyCursor, keysetOrderBy, parseLimit, slicePage } from '../lib/pagination.js';
@@ -197,12 +204,34 @@ export function purchasesRoutes() {
         companyId: purchase.companyId,
         purchaseId: id,
       });
-      // The plain "spread it out" answer (about $X/year for N years). Null for
-      // the deduct-now path (already fully written off at purchase).
-      const schedule =
-        purchase.taxTreatment === 'spread'
-          ? depreciationSchedule(purchase.amount, purchase.usefulLifeYears)
-          : null;
+      // The plain "spread it out" answer. Null for the deduct-now path (already
+      // fully written off at purchase).
+      //
+      // Planned against the company's convention so the figures shown here are
+      // the same ones the sweeper posts — a user should never be told "$360 this
+      // year" and then find $720 on line 13. `postedToDate` is what has actually
+      // reached the ledger so far, which is also what makes the wait visible:
+      // a year's depreciation posts once that year has closed, not on purchase.
+      let schedule: (DepreciationPlan & { postedToDate: string }) | null = null;
+      if (purchase.taxTreatment === 'spread') {
+        const [company] = await tx
+          .select({ convention: companies.depreciationConvention })
+          .from(companies)
+          .where(and(eq(companies.id, purchase.companyId), eq(companies.accountId, accountId)))
+          .limit(1);
+        const plan = depreciationSchedule(purchase.amount, purchase.usefulLifeYears, {
+          convention: (company?.convention ?? 'half_year') as DepreciationConvention,
+          purchaseYear: Number(purchase.purchaseDate.slice(0, 4)),
+        });
+        const postedByYear = await depreciationPostedByYear(tx, {
+          accountId,
+          companyId: purchase.companyId,
+          purchaseId: id,
+        });
+        let postedCents = 0;
+        for (const amount of postedByYear.values()) postedCents += Math.round(Number(amount) * 100);
+        schedule = { ...plan, postedToDate: (postedCents / 100).toFixed(2) };
+      }
 
       return c.json({ ...purchase, owing, schedule });
     })
@@ -321,6 +350,28 @@ export function purchasesRoutes() {
         after: deleted,
         companyId: current.companyId,
       });
+
+      // Any depreciation already swept in has to come off too, or a deleted
+      // mower leaves Dr 6350 entries inflating Schedule C line 13 forever. Each
+      // year is reversed at its own year-end so a filed year keeps the figure it
+      // was filed with. Reversing beats blocking the delete: a purchase logged
+      // three years ago should not become undeletable because a background job
+      // touched it.
+      const depreciated = await depreciationPostedByYear(tx, {
+        accountId,
+        companyId: current.companyId,
+        purchaseId: id,
+      });
+      for (const [year, amount] of depreciated) {
+        await postDepreciationReversal(tx, {
+          purchaseId: id,
+          description: current.description,
+          year,
+          amount,
+          accountId,
+          companyId: current.companyId,
+        });
+      }
 
       // Soft delete keeps history; the reversal nets the purchase posting to
       // zero (same args reconstruct the original lines).
