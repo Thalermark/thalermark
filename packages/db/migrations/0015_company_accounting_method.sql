@@ -1,0 +1,22 @@
+-- The collapsed 0000_baseline is a pg_dump that empties the session search_path,
+-- and drizzle-kit's generated DDL is unqualified — restore it as the first
+-- statement so a fresh-DB session can apply this file (0001–0014 do the same).
+SET search_path TO public;--> statement-breakpoint
+-- When a business counts income: 'cash' | 'accrual' (TMC-155). Drives which
+-- reporting lens the Schedule C export applies; the general ledger itself stays
+-- accrual always, because double-entry records events when they happen. Same
+-- one-ledger model QuickBooks and Xero use — no second set of books.
+--
+-- Orthogonal to business_type. Schedule C asks the two as separate questions
+-- (entity type, then line F "(1) Cash (2) Accrual"), and a sole proprietor may
+-- elect either, so this cannot be derived from the entity pick.
+--
+-- NOT NULL DEFAULT 'cash': cash is the correct answer for effectively the whole
+-- audience — you are only forced onto accrual by real inventory or receipts in
+-- the tens of millions. Backfilling every existing company to 'cash' is
+-- therefore right, not merely convenient. A null basis on a tax export would be
+-- worse than a visible wrong one, so the column is not nullable.
+--
+-- Adding a NOT NULL column WITH a constant default is metadata-only on
+-- PostgreSQL 11+ — no table rewrite, brief lock.
+ALTER TABLE "companies" ADD COLUMN "accounting_method" text DEFAULT 'cash' NOT NULL;

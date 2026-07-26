@@ -6,6 +6,7 @@ import {
   createCashFlowAdvisor,
 } from '@thalermark/ai';
 import {
+  bills,
   chartOfAccounts,
   companies,
   contacts,
@@ -18,7 +19,7 @@ import {
   journalLines,
 } from '@thalermark/db';
 import { centsToMoney, sumMoney, toCents } from '@thalermark/validation';
-import { and, asc, eq, gte, inArray, isNull, lt, lte, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, isNull, lt, lte, ne, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 import type { AppDeps } from '../app.js';
@@ -26,6 +27,7 @@ import { apBalance, arBalance, cashFlowNet, cashOnHand } from '../lib/ledger.js'
 import { recordLlmCallHealth } from '../lib/llm-connection.js';
 import { resolveAccountCredential } from '../lib/llm-credentials.js';
 import { UUID_RE } from '../lib/route-helpers.js';
+import { type ExpenseAccountAmount, rollUpPartII, taxYearWindow } from '../lib/schedule-c.js';
 import { requireEntitlement } from '../middleware/entitlement.js';
 import { RATE_LIMITS, rateLimit } from '../middleware/rate-limit.js';
 import type { RlsVariables } from '../middleware/rls-context.js';
@@ -384,6 +386,233 @@ export function reportsRoutes(deps: AppDeps) {
             totalRevenue: centsToMoney(totalRevenueCents),
             totalExpenses: centsToMoney(totalExpensesCents),
             netProfit: centsToMoney(totalRevenueCents - totalExpensesCents),
+          });
+        },
+      )
+      // Schedule C worksheet (TMC-155) — the accountant handoff. Not a filing:
+      // a form-shaped view the user hands over or types into consumer tax
+      // software. The COA already carries the mapping (chart_of_accounts
+      // .tax_mapping, seeded per account), so this groups by tax line instead
+      // of by account code and fills the rest of the form's skeleton.
+      //
+      // Basis is the interesting part. The GL is *always* accrual — that's what
+      // double-entry is — so cash basis is a reporting lens applied at read
+      // time, the same one-ledger model QuickBooks and Xero use. Defaults to
+      // the company's accounting_method (itself defaulting to cash, which is
+      // how effectively every sole proprietor files); ?basis= overrides for a
+      // side-by-side look without changing the stored election.
+      //
+      //   accrual — read straight off the GL, same query shape as profit-loss.
+      //   cash    — gross receipts from invoices actually PAID in the window
+      //             (direct method: query what was paid, rather than the
+      //             textbook indirect "accrual revenue − ΔAR"; our invoice-level
+      //             paid state is clean, so this is the more accurate of the
+      //             two). Expenses already post Dr expense / Cr cash at spend
+      //             time, so they're cash-basis already — except bills, which
+      //             post Dr expense / Cr AP when *opened*. So we drop
+      //             bill-sourced GL postings and add back bills paid in-window
+      //             against their original category.
+      .get(
+        '/api/companies/:id/schedule-c',
+        validator('query', (v) => {
+          const basis = v.basis;
+          if (basis !== undefined && basis !== 'cash' && basis !== 'accrual') {
+            return { error: 'invalid_basis' as const };
+          }
+          const yearRaw = v.year;
+          let year: number | undefined;
+          if (typeof yearRaw === 'string') {
+            year = Number(yearRaw);
+            // A tax year outside this range is a typo, not a filing. Bounding it
+            // also keeps taxYearWindow from building nonsense Dates.
+            if (!Number.isInteger(year) || year < 1900 || year > 2200) {
+              return { error: 'invalid_year' as const };
+            }
+          }
+          return { basis: basis as 'cash' | 'accrual' | undefined, year };
+        }),
+        async (c) => {
+          const id = c.req.param('id');
+          if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+
+          const q = c.req.valid('query');
+          if ('error' in q) return c.json({ error: q.error }, 400);
+
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+
+          // accounting_method rides along on the company lookup — it's the
+          // basis default, so we'd need the row either way.
+          const [company] = await tx
+            .select({ id: companies.id, accountingMethod: companies.accountingMethod })
+            .from(companies)
+            .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
+            .limit(1);
+          if (!company) return c.json({ error: 'company_not_found' }, 404);
+
+          const basis = q.basis ?? (company.accountingMethod === 'accrual' ? 'accrual' : 'cash');
+          const year = q.year ?? new Date().getUTCFullYear();
+          const { from, to, fromDate, toExclusive } = taxYearWindow(year);
+
+          // Per-account net in the account's normal-balance direction, same
+          // convention as profit-loss: a line on the account's normal side adds,
+          // the other side subtracts. Reversal-safe by construction.
+          //
+          // coalesce matters: the revenue query below has no GROUP BY, so over
+          // an empty window Postgres returns a single row with a NULL sum rather
+          // than zero rows — and a null would reach toCents.
+          const glAmount = sql<string>`coalesce(sum(case when ${journalLines.side} = ${chartOfAccounts.normalBalance} then ${journalLines.amount} else -${journalLines.amount} end), 0)::numeric(15,2)`;
+
+          const glExpenseFilters = [
+            eq(journalEntries.companyId, id),
+            eq(journalEntries.accountId, accountId),
+            eq(chartOfAccounts.accountType, 'expense'),
+            gte(journalEntries.postedAt, fromDate),
+            lt(journalEntries.postedAt, toExclusive),
+          ];
+          // Cash basis: a bill's expense belongs to the period the bill was
+          // PAID, not opened. Both legs of a bill (open, and any void reversal)
+          // carry source_entity_type 'bill', so excluding the source wholesale
+          // keeps reversals consistent, and the paid-bill query below re-adds
+          // the cash-basis amount at the right date.
+          if (basis === 'cash') {
+            glExpenseFilters.push(ne(journalEntries.sourceEntityType, 'bill'));
+          }
+
+          const expenseRows = await tx
+            .select({
+              code: chartOfAccounts.code,
+              name: chartOfAccounts.name,
+              taxMapping: chartOfAccounts.taxMapping,
+              amount: glAmount,
+            })
+            .from(journalLines)
+            .innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id))
+            .innerJoin(chartOfAccounts, eq(journalLines.coaAccountId, chartOfAccounts.id))
+            .where(and(...glExpenseFilters))
+            .groupBy(chartOfAccounts.code, chartOfAccounts.name, chartOfAccounts.taxMapping)
+            .orderBy(asc(chartOfAccounts.code));
+
+          // Merge on account code so a category that received both a direct
+          // expense and a paid bill lands on one Part II row.
+          const expenseByCode = new Map<string, ExpenseAccountAmount>();
+          const addExpense = (row: ExpenseAccountAmount) => {
+            const existing = expenseByCode.get(row.code);
+            if (!existing) {
+              expenseByCode.set(row.code, { ...row });
+              return;
+            }
+            existing.amount = centsToMoney(toCents(existing.amount) + toCents(row.amount));
+          };
+          for (const row of expenseRows) addExpense(row);
+
+          if (basis === 'cash') {
+            const paidBills = await tx
+              .select({
+                code: chartOfAccounts.code,
+                name: chartOfAccounts.name,
+                taxMapping: chartOfAccounts.taxMapping,
+                amount: sql<string>`coalesce(sum(${bills.amount}), 0)::numeric(15,2)`,
+              })
+              .from(bills)
+              .innerJoin(chartOfAccounts, eq(bills.categoryAccountId, chartOfAccounts.id))
+              .where(
+                and(
+                  eq(bills.accountId, accountId),
+                  eq(bills.companyId, id),
+                  eq(bills.status, 'paid'),
+                  gte(bills.paidAt, fromDate),
+                  lt(bills.paidAt, toExclusive),
+                ),
+              )
+              .groupBy(chartOfAccounts.code, chartOfAccounts.name, chartOfAccounts.taxMapping)
+              .orderBy(asc(chartOfAccounts.code));
+            for (const row of paidBills) addExpense(row);
+          }
+
+          const partII = rollUpPartII([...expenseByCode.values()]);
+
+          // Gross receipts (line 1).
+          let grossReceiptsCents: number;
+          if (basis === 'cash') {
+            // Direct method, and deliberately off the GL: summing cash debits
+            // would also sweep in owner contributions and loan proceeds, which
+            // are cash in but not revenue. Querying invoices excludes them
+            // structurally rather than by blocklist. subtotal is pre-tax —
+            // sales tax collected is not income. Safe against later edits
+            // because 'paid' is a terminal status, so a filed year can't be
+            // retroactively altered.
+            //
+            // NOTE: this assumes payment is all-or-nothing (there is no partial
+            // payment or deposit model today). If deposits land, this silently
+            // becomes wrong — it must move to a payments table at that point.
+            const [row] = await tx
+              .select({
+                gross: sql<string>`coalesce(sum(${invoices.subtotal}), 0)::numeric(15,2)`,
+              })
+              .from(invoices)
+              .where(
+                and(
+                  eq(invoices.accountId, accountId),
+                  eq(invoices.companyId, id),
+                  eq(invoices.status, 'paid'),
+                  gte(invoices.paidAt, fromDate),
+                  lt(invoices.paidAt, toExclusive),
+                ),
+              );
+            grossReceiptsCents = toCents(row?.gross ?? '0.00');
+          } else {
+            const revenueRows = await tx
+              .select({ amount: glAmount })
+              .from(journalLines)
+              .innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id))
+              .innerJoin(chartOfAccounts, eq(journalLines.coaAccountId, chartOfAccounts.id))
+              .where(
+                and(
+                  eq(journalEntries.companyId, id),
+                  eq(journalEntries.accountId, accountId),
+                  eq(chartOfAccounts.accountType, 'revenue'),
+                  gte(journalEntries.postedAt, fromDate),
+                  lt(journalEntries.postedAt, toExclusive),
+                ),
+              );
+            grossReceiptsCents = revenueRows.reduce((sum, r) => sum + toCents(r.amount), 0);
+          }
+
+          // Part I. Returns/allowances (2), COGS (4) and other income (6) have
+          // no data model — no refunds, no inventory (the seed routes materials
+          // to Supplies, line 22, matching Wave's sole-prop default). They're
+          // emitted at zero rather than omitted so the form reads whole.
+          const totalExpensesCents = toCents(partII.totalExpenses);
+          const tentativeProfitCents = grossReceiptsCents - totalExpensesCents;
+
+          return c.json({
+            year,
+            basis,
+            // Lets the UI say "showing accrual, your saved method is cash"
+            // instead of silently disagreeing with Settings.
+            companyAccountingMethod: company.accountingMethod,
+            from,
+            to,
+            partI: {
+              grossReceipts: centsToMoney(grossReceiptsCents),
+              returnsAndAllowances: '0.00',
+              netReceipts: centsToMoney(grossReceiptsCents),
+              costOfGoodsSold: '0.00',
+              grossProfit: centsToMoney(grossReceiptsCents),
+              otherIncome: '0.00',
+              grossIncome: centsToMoney(grossReceiptsCents),
+            },
+            partII: partII.rows,
+            unmappedExpenses: partII.unmapped,
+            totalExpenses: partII.totalExpenses,
+            tentativeProfit: centsToMoney(tentativeProfitCents),
+            // Line 30 (business use of home) has no data model. Explicitly null
+            // rather than 0.00 so the UI renders "you must supply this" — a
+            // silent zero would read as "you have no home office".
+            homeOffice: null,
+            // Line 31. Excludes line 30 by construction; the UI has to say so.
+            netProfit: centsToMoney(tentativeProfitCents),
           });
         },
       )

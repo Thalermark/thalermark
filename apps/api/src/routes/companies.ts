@@ -91,6 +91,7 @@ export function companiesRoutes(deps: AppDeps) {
             id: companies.id,
             name: companies.name,
             businessType: companies.businessType,
+            accountingMethod: companies.accountingMethod,
             businessAddress: companies.businessAddress,
             businessPhone: companies.businessPhone,
             businessEmail: companies.businessEmail,
@@ -162,6 +163,7 @@ export function companiesRoutes(deps: AppDeps) {
               id: created.id,
               name: created.name,
               businessType: created.businessType,
+              accountingMethod: created.accountingMethod,
               businessAddress: created.businessAddress,
               businessPhone: created.businessPhone,
               businessEmail: created.businessEmail,
@@ -212,6 +214,7 @@ export function companiesRoutes(deps: AppDeps) {
           const patch: Record<string, unknown> = { updatedAt: new Date() };
           if (data.name !== undefined) patch.name = data.name;
           if (data.businessType !== undefined) patch.businessType = data.businessType;
+          if (data.accountingMethod !== undefined) patch.accountingMethod = data.accountingMethod;
           // Business identity — sparse + '' → null, same as replyToEmail below.
           if (data.businessAddress !== undefined) patch.businessAddress = data.businessAddress;
           if (data.businessPhone !== undefined) patch.businessPhone = data.businessPhone;
@@ -278,6 +281,7 @@ export function companiesRoutes(deps: AppDeps) {
             before: {
               name: before.name,
               businessType: before.businessType,
+              accountingMethod: before.accountingMethod,
               businessAddress: before.businessAddress,
               businessPhone: before.businessPhone,
               businessEmail: before.businessEmail,
@@ -293,6 +297,7 @@ export function companiesRoutes(deps: AppDeps) {
             after: {
               name: after.name,
               businessType: after.businessType,
+              accountingMethod: after.accountingMethod,
               businessAddress: after.businessAddress,
               businessPhone: after.businessPhone,
               businessEmail: after.businessEmail,
@@ -312,6 +317,7 @@ export function companiesRoutes(deps: AppDeps) {
             id: after.id,
             name: after.name,
             businessType: after.businessType,
+            accountingMethod: after.accountingMethod,
             businessAddress: after.businessAddress,
             businessPhone: after.businessPhone,
             businessEmail: after.businessEmail,
