@@ -18,6 +18,11 @@
       blurb: 'Where the money went, grouped by your Schedule C buckets.',
     },
     {
+      href: '/reports/schedule-c',
+      title: 'Schedule C worksheet',
+      blurb: 'Your year laid out by tax line, ready to hand to whoever files for you.',
+    },
+    {
       href: '/reports/balance-sheet',
       title: 'Balance sheet',
       blurb: 'What you own and owe — assets, liabilities, and equity.',

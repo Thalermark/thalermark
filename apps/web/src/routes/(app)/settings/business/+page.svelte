@@ -13,6 +13,9 @@
   // replyToSaved/replyToError flags, so saving it doesn't trip the contact
   // form's "Saved." and vice-versa.
   const replyTo = $derived(form?.replyToEmail ?? data.company.replyToEmail ?? '');
+  // Accounting method — stored as cash/accrual, offered in plain words. Cash is
+  // the column default and what effectively every sole proprietor files.
+  const accountingMethod = $derived(data.company.accountingMethod ?? 'cash');
   // Per-field show defaults, split by document type (invoice vs estimate).
   const showAddressInvoice = $derived(
     form?.showAddressOnInvoice ?? data.company.showAddressOnInvoice ?? true,
@@ -160,6 +163,63 @@
         <span class="text-sm text-fg/60">Saved.</span>
       {:else if form?.error}
         <span class="text-sm text-danger">Couldn't save: {form.error}</span>
+      {/if}
+    </div>
+  </form>
+</section>
+
+<section class="mt-8 rounded-sm border border-fg/15 bg-surface-2">
+  <header class="border-b border-fg/10 px-6 py-5">
+    <span class="eyebrow">When you count income</span>
+    <p class="mt-2 font-serif text-lg text-fg">{data.company.name}</p>
+  </header>
+  <form method="POST" action="?/saveAccountingMethod" class="px-6 py-6">
+    <input type="hidden" name="companyId" value={data.company.id} />
+    <p class="max-w-prose text-sm leading-relaxed text-fg/70">
+      This decides which year money lands in on your Schedule C worksheet. Most people count income
+      when they get paid — that's the usual choice for freelancers and trades. Only change this if
+      whoever files your taxes told you to; switching methods with the IRS isn't something you do
+      casually.
+    </p>
+    <div class="mt-5 space-y-3">
+      <label class="flex items-start gap-3">
+        <input
+          type="radio"
+          name="accountingMethod"
+          value="cash"
+          checked={accountingMethod === 'cash'}
+          class="mt-1"
+        />
+        <span>
+          <span class="block text-sm text-fg">When you get paid</span>
+          <span class="block text-xs text-fg/60">
+            An invoice you sent in December but got paid for in January counts as January's income.
+            Most common.
+          </span>
+        </span>
+      </label>
+      <label class="flex items-start gap-3">
+        <input
+          type="radio"
+          name="accountingMethod"
+          value="accrual"
+          checked={accountingMethod === 'accrual'}
+          class="mt-1"
+        />
+        <span>
+          <span class="block text-sm text-fg">When you send the invoice</span>
+          <span class="block text-xs text-fg/60">
+            That same invoice counts as December's income, even though the money arrived later.
+          </span>
+        </span>
+      </label>
+    </div>
+    <div class="mt-5 flex items-center gap-4">
+      <button type="submit" class="btn">Save</button>
+      {#if form?.accountingSaved}
+        <span class="text-sm text-fg/60">Saved.</span>
+      {:else if form?.accountingError}
+        <span class="text-sm text-danger">Couldn't save: {form.accountingError}</span>
       {/if}
     </div>
   </form>

@@ -40,21 +40,29 @@ function activePresetKey(presets: Preset[], from: string, to: string): string | 
   return presets.find((p) => p.from === from && p.to === to)?.key ?? null;
 }
 
-// Company + window + presets shared by every report loader.
-async function reportContext(event: Parameters<typeof serverApiClient>[0]) {
+// The active company, which every report is scoped to. Split out of
+// reportContext because the Schedule C worksheet picks a tax *year* rather than
+// a from/to window and so shares the company lookup but none of the presets.
+async function reportCompany(event: Parameters<typeof serverApiClient>[0]) {
   const client = serverApiClient(event);
   const companiesRes = await client.api.companies.$get();
   if (!companiesRes.ok) throw error(companiesRes.status, 'failed to load companies');
   const { companies } = await companiesRes.json();
   const company = pickActiveCompany(event.cookies, companies);
   if (!company) throw error(500, 'no company in this workspace');
+  return { client, companyId: company.id };
+}
+
+// Company + window + presets shared by every report loader.
+async function reportContext(event: Parameters<typeof serverApiClient>[0]) {
+  const { client, companyId } = await reportCompany(event);
 
   const presets = periodPresets();
   const ytd = presets.find((p) => p.key === 'ytd');
   const sp = event.url.searchParams;
   const from = sp.get('from') || ytd?.from || '';
   const to = sp.get('to') || ytd?.to || '';
-  return { client, companyId: company.id, from, to, presets };
+  return { client, companyId, from, to, presets };
 }
 
 export type ProfitLoss = {
@@ -286,4 +294,73 @@ export async function loadGeneralLedger(event: Parameters<typeof serverApiClient
     presets,
     activeKey: activePresetKey(presets, report.from ?? '', report.to ?? ''),
   };
+}
+
+// --- Schedule C worksheet -------------------------------------------------
+// Unlike the other reports this is scoped to a calendar tax year, not a
+// from/to window, and carries an accounting basis. Both ride the query string
+// so a bookmarked link reproduces exactly what the user was looking at.
+
+export type ScheduleCLineRow = {
+  line: string;
+  label: string;
+  amount: string;
+  userSupplied?: true;
+  accounts: { code: string; name: string; amount: string }[];
+};
+
+export type ScheduleC = {
+  year: number;
+  basis: 'cash' | 'accrual';
+  companyAccountingMethod: string;
+  from: string;
+  to: string;
+  partI: {
+    grossReceipts: string;
+    returnsAndAllowances: string;
+    netReceipts: string;
+    costOfGoodsSold: string;
+    grossProfit: string;
+    otherIncome: string;
+    grossIncome: string;
+  };
+  partII: ScheduleCLineRow[];
+  unmappedExpenses: { code: string; name: string; amount: string }[];
+  totalExpenses: string;
+  tentativeProfit: string;
+  homeOffice: null;
+  netProfit: string;
+};
+
+// The tax years worth offering: the current one (an in-progress preview) plus
+// three back, which covers the normal amended-return window without turning
+// the picker into a scrolling list.
+export function taxYearOptions(now = new Date()): number[] {
+  const y = now.getUTCFullYear();
+  return [y, y - 1, y - 2, y - 3];
+}
+
+export async function loadScheduleC(event: Parameters<typeof serverApiClient>[0]) {
+  const { client, companyId } = await reportCompany(event);
+  const sp = event.url.searchParams;
+
+  const years = taxYearOptions();
+  const yearParam = Number(sp.get('year'));
+  // Fall back to the current year on anything unparseable rather than 400ing —
+  // a hand-edited URL should land somewhere sensible, and the API bounds it too.
+  const year =
+    Number.isInteger(yearParam) && yearParam > 1900 ? yearParam : new Date().getUTCFullYear();
+
+  // Omitted basis means "use the company's stored election", which the API
+  // resolves — don't guess it here or the page and the setting can disagree.
+  const basisParam = sp.get('basis');
+  const basis = basisParam === 'cash' || basisParam === 'accrual' ? basisParam : undefined;
+
+  const res = await client.api.companies[':id']['schedule-c'].$get({
+    param: { id: companyId },
+    query: { year, ...(basis ? { basis } : {}) },
+  });
+  if (!res.ok) throw error(res.status, 'failed to load the Schedule C worksheet');
+  const report = (await res.json()) as ScheduleC;
+  return { report, years };
 }

@@ -93,6 +93,33 @@ export const actions: Actions = {
   // clears it (API coerces '' → null, dropping the Reply-To header from outbound
   // invoice/estimate emails). Distinct replyToSaved/replyToError flags keep this
   // from tripping the contact form's status (both POST to this page).
+  // When the business counts income. Framed in plain words in the UI ("when
+  // you get paid" / "when you send the invoice") because the product principle
+  // is that users never pick accounting concepts — the wire value is still
+  // cash/accrual. Deliberately its own action + section: it's a standing tax
+  // election, not a display preference, and shouldn't ride along with an
+  // address edit.
+  saveAccountingMethod: async (event) => {
+    const client = serverApiClient(event);
+    const formData = await event.request.formData();
+    const companyId = String(formData.get('companyId') ?? '');
+    const accountingMethod = String(formData.get('accountingMethod') ?? '');
+    if (!companyId) return fail(400, { accountingError: 'missing_company_id' });
+    if (accountingMethod !== 'cash' && accountingMethod !== 'accrual') {
+      return fail(400, { accountingError: 'invalid_accounting_method' });
+    }
+
+    const res = await client.api.companies[':id'].$patch({
+      param: { id: companyId },
+      json: { accountingMethod },
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      return fail(res.status, { accountingError: body?.error ?? 'save_failed' });
+    }
+    return { accountingSaved: true };
+  },
+
   saveReplyTo: async (event) => {
     const client = serverApiClient(event);
     const formData = await event.request.formData();
