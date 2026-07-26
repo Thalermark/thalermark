@@ -1,0 +1,24 @@
+-- The collapsed 0000_baseline is a pg_dump that empties the session search_path,
+-- and drizzle-kit's generated DDL is unqualified — restore it as the first
+-- statement so a fresh-DB session can apply this file (0001–0013 do the same).
+SET search_path TO public;--> statement-breakpoint
+-- Record the processor fee withheld from a card payment (TMC-156). Stripe
+-- deposits net of its cut, so the paid posting now splits the customer's gross
+-- payment across Dr Cash (net) + Dr Merchant Processing Fees (7950 → Schedule C
+-- line 27a) instead of debiting Cash for the whole amount. Without this the
+-- Cash account drifts from the bank balance on every card payment and the fee
+-- is never deducted.
+--
+-- Nullable with no default on purpose: null means "no fee leg" (manual
+-- mark-paid, or a card payment whose balance-transaction lookup failed), which
+-- is distinct from a genuine 0.00 fee. Existing paid invoices stay null and
+-- keep their original gross-cash posting — the ledger is append-only, so
+-- backfilling historic entries would mean writing correcting entries, which is
+-- deliberately out of scope here.
+--
+-- Persisted rather than re-fetched from Stripe because repostInvoicePaymentDate
+-- reverses a payment posting by recomputing its lines; if the fee weren't
+-- stable across both postings the reversal would leave a residue in the origin
+-- period. A pure ADD COLUMN (no default) takes only a brief metadata lock, no
+-- table rewrite.
+ALTER TABLE "invoices" ADD COLUMN "processing_fee" numeric(15, 2);

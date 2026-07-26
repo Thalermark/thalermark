@@ -57,6 +57,11 @@ const COA_ACCUM_DEPRECIATION = '1900';
 const COA_LOANS_PAYABLE = '2700';
 const COA_DEPRECIATION_EXPENSE = '6350';
 const COA_INTEREST_EXPENSE = '6500';
+// Merchant Processing Fees (7950 → Schedule C line 27a). Stripe keeps its cut
+// before depositing, so a card payment debits Cash for the *net* and this for
+// the fee, against the customer's gross. Only the Stripe webhook supplies a
+// fee; every manual mark-paid channel leaves it null and posts Cash at gross.
+const COA_MERCHANT_FEES = '7950';
 
 // Exact 2-dp decimal subtraction over the cents domain — avoids the FP drift
 // of Number arithmetic on money strings. Both inputs are numeric(15,2), so
@@ -86,10 +91,18 @@ export type InvoiceStatusForPosting = 'draft' | 'sent' | 'paid' | 'voided';
 // Revenue (4000). serviceSubtotal + productSubtotal == subtotal by
 // construction, so total = subtotal + tax still balances Dr AR/Cash.
 //
+// processingFee (TMC-156) is the processor's cut on a card payment. Stripe
+// deposits net, so on the two → paid transitions the customer's gross splits
+// across Dr Cash = total − fee and Dr Merchant Processing Fees = fee. The
+// credit side is untouched: the customer really did pay `total`, and Schedule C
+// gross receipts must stay gross to match the 1099-K Stripe files. Null/absent
+// (every manual mark-paid channel) collapses to the original two-line shape
+// because the fee line is 0 and postJournalEntry drops it.
+//
 // Posting matrix:
 //   draft  → sent    Dr AR=total, Cr SvcRev, Cr ProdRev, Cr Tax (if>0)
-//   draft  → paid    Dr Cash=total, Cr SvcRev, Cr ProdRev, Cr Tax (if>0)
-//   sent   → paid    Dr Cash=total, Cr AR=total (no revenue movement)
+//   draft  → paid    Dr Cash=total−fee, Dr Fees (if>0), Cr SvcRev, Cr ProdRev, Cr Tax (if>0)
+//   sent   → paid    Dr Cash=total−fee, Dr Fees (if>0), Cr AR=total (no revenue movement)
 //   sent   → voided  Dr SvcRev, Dr ProdRev, Dr Tax (if>0), Cr AR=total
 //   draft  → voided  (nothing — no prior posting to reverse)
 //
@@ -99,10 +112,18 @@ export type InvoiceStatusForPosting = 'draft' | 'sent' | 'paid' | 'voided';
 export function invoicePostingLines(
   prevStatus: InvoiceStatusForPosting,
   nextStatus: InvoiceStatusForPosting,
-  amounts: { subtotal: string; productSubtotal: string; tax: string; total: string },
+  amounts: {
+    subtotal: string;
+    productSubtotal: string;
+    tax: string;
+    total: string;
+    processingFee?: string | null;
+  },
 ): LedgerLine[] {
-  const { subtotal, productSubtotal, tax, total } = amounts;
+  const { subtotal, productSubtotal, tax, total, processingFee } = amounts;
   const serviceSubtotal = subtractMoney(subtotal, productSubtotal);
+  const fee = processingFee ?? '0.00';
+  const cashNet = subtractMoney(total, fee);
 
   if (prevStatus === 'draft' && nextStatus === 'sent') {
     return [
@@ -114,7 +135,8 @@ export function invoicePostingLines(
   }
   if (prevStatus === 'draft' && nextStatus === 'paid') {
     return [
-      { code: COA_CASH, side: 'debit', amount: total },
+      { code: COA_CASH, side: 'debit', amount: cashNet },
+      { code: COA_MERCHANT_FEES, side: 'debit', amount: fee },
       { code: COA_SERVICE_REVENUE, side: 'credit', amount: serviceSubtotal },
       { code: COA_PRODUCT_REVENUE, side: 'credit', amount: productSubtotal },
       { code: COA_SALES_TAX_PAYABLE, side: 'credit', amount: tax },
@@ -122,7 +144,8 @@ export function invoicePostingLines(
   }
   if (prevStatus === 'sent' && nextStatus === 'paid') {
     return [
-      { code: COA_CASH, side: 'debit', amount: total },
+      { code: COA_CASH, side: 'debit', amount: cashNet },
+      { code: COA_MERCHANT_FEES, side: 'debit', amount: fee },
       { code: COA_AR, side: 'credit', amount: total },
     ];
   }
@@ -875,7 +898,7 @@ export async function reverseManualJournalEntry(
 export async function postInvoiceTransition(
   tx: Database | Transaction,
   args: {
-    invoice: Pick<Invoice, 'id' | 'number' | 'subtotal' | 'tax' | 'total'>;
+    invoice: Pick<Invoice, 'id' | 'number' | 'subtotal' | 'tax' | 'total' | 'processingFee'>;
     prevStatus: InvoiceStatusForPosting;
     nextStatus: InvoiceStatusForPosting;
     accountId: string;
@@ -892,6 +915,9 @@ export async function postInvoiceTransition(
     productSubtotal,
     tax: args.invoice.tax,
     total: args.invoice.total,
+    // Read off the invoice row rather than passed in, so the webhook only has
+    // to persist the fee before posting and every other caller is unchanged.
+    processingFee: args.invoice.processingFee,
   });
   if (lines.length === 0) return null;
   return postJournalEntry(tx, {
@@ -917,7 +943,7 @@ export async function postInvoiceTransition(
 export async function repostInvoicePaymentDate(
   tx: Database | Transaction,
   args: {
-    invoice: Pick<Invoice, 'id' | 'number' | 'subtotal' | 'tax' | 'total'>;
+    invoice: Pick<Invoice, 'id' | 'number' | 'subtotal' | 'tax' | 'total' | 'processingFee'>;
     prevStatus: 'draft' | 'sent';
     accountId: string;
     companyId: string;
@@ -934,6 +960,10 @@ export async function repostInvoicePaymentDate(
     productSubtotal,
     tax: args.invoice.tax,
     total: args.invoice.total,
+    // Same stored fee feeds both the reversal and the re-post, so the origin
+    // period nets to exactly zero. This is why the fee is persisted on the
+    // invoice instead of re-fetched from Stripe at repost time.
+    processingFee: args.invoice.processingFee,
   });
   if (original.length === 0) return;
   const base = {
