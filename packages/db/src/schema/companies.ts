@@ -27,6 +27,19 @@ export const companies = pgTable(
     // now; CHECK constraint deferred until the wizard slice locks the
     // enum.
     businessType: text('business_type'),
+    // When this business counts income — 'cash' | 'accrual' (TMC-155).
+    // Orthogonal to business_type: Schedule C asks them separately (entity
+    // type, then line F), and a sole proprietor may elect either. NOT NULL
+    // DEFAULT 'cash' because that's the correct answer for effectively the
+    // whole audience, and because a null basis on a tax export is worse than a
+    // wrong-but-visible one.
+    //
+    // The GL is always accrual — this selects only the reporting lens applied
+    // at read time, the same one-ledger model QuickBooks and Xero use. Never
+    // asked at onboarding (users don't pick accounting concepts); Settings
+    // frames it as "When do you count income?". App-layer enum, CHECK deferred
+    // like business_type.
+    accountingMethod: text('accounting_method').notNull().default('cash'),
     // Business identity surfaced on invoices/estimates: a free-text postal
     // address and a contact phone. Both nullable — pre-existing companies and
     // freshly-created ones start null, and the public invoice simply omits the

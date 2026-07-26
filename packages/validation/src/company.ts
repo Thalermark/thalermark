@@ -38,6 +38,26 @@ export function isSelectableBusinessType(bt: string): boolean {
   return selectableBusinessTypes.has(bt);
 }
 
+// Accounting method — when the business counts income (TMC-155). Orthogonal to
+// business type: Schedule C asks them as separate questions (entity type, then
+// line F "(1) Cash (2) Accrual"), and a sole proprietor may elect either. So
+// this is its own column, not something derived from businessType.
+//
+// 'cash' is the default and the right answer for effectively the whole
+// audience — you are only forced onto accrual by real inventory or receipts in
+// the tens of millions. Deliberately NOT asked during onboarding: the product
+// principle is that users never pick accounting concepts, so Settings surfaces
+// this as "When do you count income?" rather than as a basis toggle.
+//
+// The general ledger is always accrual regardless of this value — the books
+// record events when they happen. This only selects the reporting lens applied
+// at read time (see the Schedule C export), which is the same one-ledger model
+// QuickBooks and Xero use.
+export const ACCOUNTING_METHODS = ['cash', 'accrual'] as const;
+
+export const accountingMethodSchema = z.enum(ACCOUNTING_METHODS);
+export type AccountingMethod = z.infer<typeof accountingMethodSchema>;
+
 // Input schema for PATCH /api/companies/:id. Sparse on purpose — the L3
 // wizard updates name + businessType together, but follow-on flows (rename
 // from settings, accountant updates business type alone) only touch one
@@ -69,6 +89,10 @@ export const companyUpdateSchema = z
   .object({
     name: z.string().min(1).max(200).optional(),
     businessType: businessTypeSchema.optional(),
+    // Sparse like the rest. Sticky by intent — changing accounting method with
+    // the IRS requires Form 3115, so Settings presents this as a one-time
+    // answer, not a toggle users flip per report.
+    accountingMethod: accountingMethodSchema.optional(),
     replyToEmail: nullableEmailField,
     paymentCashEnabled: z.boolean().optional(),
     paymentCheckEnabled: z.boolean().optional(),
