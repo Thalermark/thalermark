@@ -72,3 +72,12 @@ export function fillMonths(
   }
   return series;
 }
+
+// Tax years offered by the Schedule C worksheet — the current one (an
+// in-progress preview) plus three back, which covers the normal amended-return
+// window without turning a phone-sized picker into a scroll. Mirrors web's
+// taxYearOptions in reports.server.ts.
+export function taxYearOptions(now = new Date()): number[] {
+  const y = now.getUTCFullYear();
+  return [y, y - 1, y - 2, y - 3];
+}

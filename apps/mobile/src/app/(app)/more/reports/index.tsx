@@ -8,6 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 type ReportHref =
   | '/more/reports/profit-and-loss'
   | '/more/reports/expenses-by-category'
+  | '/more/reports/schedule-c'
   | '/more/reports/balance-sheet'
   | '/more/reports/ar-aging'
   | '/more/reports/sales-tax'
@@ -26,6 +27,11 @@ const REPORTS: { href: ReportHref; title: string; blurb: string }[] = [
     href: '/more/reports/expenses-by-category',
     title: 'Expenses by category',
     blurb: 'Where the money went, grouped by your Schedule C buckets.',
+  },
+  {
+    href: '/more/reports/schedule-c',
+    title: 'Schedule C worksheet',
+    blurb: 'Your year laid out by tax line, ready to hand to whoever files for you.',
   },
   {
     href: '/more/reports/balance-sheet',
