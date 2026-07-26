@@ -120,6 +120,13 @@
       "when": 1785126000000,
       "tag": "0016_company_timezone",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1785129600000,
+      "tag": "0017_company_depreciation_convention",
+      "breakpoints": true
     }
   ]
 }

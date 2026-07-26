@@ -7,6 +7,7 @@ import {
   journalEntries,
   journalLines,
 } from '@thalermark/db';
+import type { DepreciationConvention } from '@thalermark/validation';
 import type { SQL } from 'drizzle-orm';
 import { and, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
@@ -746,22 +747,200 @@ export async function loanBalance(
   return row?.owing ?? '0.00';
 }
 
-// Pure: the plain "spread it out" answer — straight-line depreciation of `cost`
-// over `lifeYears`, the per-year amount. Last year absorbs the rounding
-// remainder so the schedule sums exactly to cost. No posting here; this just
-// powers the surfaced answer ("about $X/year for N years").
+// Pure: the "spread it out" plan — straight-line depreciation of `cost` over
+// `lifeYears`, resolved to the actual calendar years it posts in. Powers both
+// the surfaced plain answer ("about $360 this year, then about $720 a year")
+// and the sweeper's posting schedule, so the number a user is shown and the
+// number that reaches Schedule C line 13 can't drift apart.
+//
+// Straight-line, deliberately not MACRS. MACRS front-loads on a declining curve
+// keyed to a property class, and asking a landscaper which class a mower is
+// would be exactly the jargon this feature exists to avoid. Straight-line over
+// a useful life is a legitimate, conservative method — and the worksheet is
+// framed as awareness, not a filed return.
+//
+// The convention decides year one:
+//   half_year — the IRS default: the asset counts as placed in service at
+//               mid-year whatever month it was bought, so year one takes half a
+//               chunk and the tail spills a half chunk into year N+1.
+//   full_year — a whole chunk in the purchase year, over exactly N years. No US
+//               convention actually allows this; it's the accountant's override
+//               for an asset already being depreciated that way elsewhere.
+//
+// Rounding lives in the cents domain and the LAST row absorbs the remainder, so
+// rows always sum to exactly `cost` — an asset must end fully written off, and
+// a stray cent on a tax form is a support ticket.
+export type DepreciationRow = { year: number; amount: string };
+
+export type DepreciationPlan = {
+  // The full-year chunk — the "then about $720 a year" figure. Not necessarily
+  // the amount of any particular row (year one and the tail are halved under
+  // half_year), so never post this directly; post from `rows`.
+  perYear: string;
+  // Amount in the purchase year specifically, which is what a user who just
+  // logged the purchase actually wants to know.
+  firstYear: string;
+  // Count of posting years — lifeYears under full_year, lifeYears + 1 under
+  // half_year.
+  years: number;
+  total: string;
+  rows: DepreciationRow[];
+};
+
 export function depreciationSchedule(
   cost: string,
   lifeYears: number,
-): { perYear: string; years: number; total: string } {
-  const years = Math.max(1, Math.round(lifeYears));
+  opts: { convention: DepreciationConvention; purchaseYear: number },
+): DepreciationPlan {
+  const life = Math.max(1, Math.round(lifeYears));
   const totalCents = Math.round(Number(cost) * 100);
-  const perYearCents = Math.round(totalCents / years);
+  const perYearCents = Math.round(totalCents / life);
+  const halfYearCents = Math.round(perYearCents / 2);
+
+  // Build the shape first, then true up the final row against the total.
+  const amounts: number[] =
+    opts.convention === 'half_year'
+      ? [halfYearCents, ...Array(life - 1).fill(perYearCents), halfYearCents]
+      : Array(life).fill(perYearCents);
+
+  const lastIndex = amounts.length - 1;
+  const beforeLast = amounts.slice(0, lastIndex).reduce((sum, c) => sum + c, 0);
+  // Remainder to the last row. Clamped at 0 so a pathological life/cost combo
+  // (a 1-year half_year plan, say) can't emit a negative final posting.
+  amounts[lastIndex] = Math.max(0, totalCents - beforeLast);
+
   return {
     perYear: (perYearCents / 100).toFixed(2),
-    years,
+    firstYear: ((amounts[0] ?? 0) / 100).toFixed(2),
+    years: amounts.length,
     total: (totalCents / 100).toFixed(2),
+    rows: amounts.map((cents, i) => ({
+      year: opts.purchaseYear + i,
+      amount: (cents / 100).toFixed(2),
+    })),
   };
+}
+
+// The yearly "spread it out" posting: write a slice of the asset's cost off as
+// an expense, and net the same slice off the asset's book value.
+//   Dr Depreciation Expense 6350      = amount  (lands on Schedule C line 13)
+//   Cr Accumulated Depreciation 1900  = amount  (contra-asset; book value falls)
+// Identical to the pair the §179 path already posts in one shot at purchase —
+// the only difference is that this arrives a year at a time.
+export function depreciationLines(amount: string): LedgerLine[] {
+  return [
+    { code: COA_DEPRECIATION_EXPENSE, side: 'debit', amount },
+    { code: COA_ACCUM_DEPRECIATION, side: 'credit', amount },
+  ];
+}
+
+// Depreciation postings carry their OWN source type rather than reusing
+// 'capital_purchase'. Three reasons, all load-bearing: the delete path
+// reconstructs the original purchase lines to reverse them and must not sweep
+// these up; the sweeper's "which years are already posted?" query has to be
+// exact, because a double-post into an append-only ledger can only be fixed by
+// another entry; and provenance stays greppable. loanBalance is indifferent
+// either way — it filters on COA 2700, which this never touches.
+export const CAPITAL_PURCHASE_DEPRECIATION_SOURCE = 'capital_purchase_depreciation';
+
+// A depreciation posting is dated 31 December of the year it covers, because a
+// tax year is the unit it belongs to — dating it on the purchase anniversary
+// would split one year's deduction across two Schedule Cs.
+//
+// Midnight UTC on that date is inside the target tax year for EVERY zone: the
+// Schedule C window resolves through `AT TIME ZONE` (TMC-157), and even at the
+// extremes (UTC-12 opens the year at 12:00Z on 1 Jan, UTC+14 closes it at
+// 10:00Z on 31 Dec) Dec-31T00:00Z falls within. So the posting side needs no
+// timezone plumbing, and reading the year back out in UTC is exact.
+export function depreciationPostedAt(year: number): Date {
+  return new Date(`${year}-12-31T00:00:00.000Z`);
+}
+
+export async function postDepreciation(
+  tx: Database | Transaction,
+  args: {
+    purchaseId: string;
+    description: string;
+    year: number;
+    amount: string;
+    accountId: string;
+    companyId: string;
+  },
+): Promise<string | null> {
+  return postJournalEntry(tx, {
+    accountId: args.accountId,
+    companyId: args.companyId,
+    sourceEntityType: CAPITAL_PURCHASE_DEPRECIATION_SOURCE,
+    sourceEntityId: args.purchaseId,
+    postedAt: depreciationPostedAt(args.year),
+    memo: `Depreciation on ${args.description} (${args.year})`,
+    lines: depreciationLines(args.amount),
+  });
+}
+
+// Undo one year's depreciation, dated to the year it covered rather than today,
+// so a reversal lands in the same tax year as the entry it cancels — otherwise
+// deleting an old purchase would move a deduction off a filed year and onto the
+// current one. Append-only: this posts a mirror entry, it never deletes rows.
+export async function postDepreciationReversal(
+  tx: Database | Transaction,
+  args: {
+    purchaseId: string;
+    description: string;
+    year: number;
+    amount: string;
+    accountId: string;
+    companyId: string;
+  },
+): Promise<string | null> {
+  return postJournalEntry(tx, {
+    accountId: args.accountId,
+    companyId: args.companyId,
+    sourceEntityType: CAPITAL_PURCHASE_DEPRECIATION_SOURCE,
+    sourceEntityId: args.purchaseId,
+    postedAt: depreciationPostedAt(args.year),
+    memo: `Depreciation on ${args.description} (${args.year}) reversal`,
+    lines: reverseLedgerLines(depreciationLines(args.amount)),
+  });
+}
+
+// What's already been depreciated on one purchase, per year. Derived from the
+// ledger rather than tracked in a table — the same source-group pattern as
+// loanBalance, and it means backfill needs no state of its own: "post the plan
+// years that have passed and aren't in here" handles a purchase from 2023 and a
+// re-run five minutes later with the same code path.
+//
+// Amounts (not just years) come back so the sweeper can clamp cumulative
+// postings to cost. Reversals net into their year's total by construction, so a
+// year that was posted and then reversed reads as 0.00 and posts again.
+export async function depreciationPostedByYear(
+  tx: Database | Transaction,
+  scope: LedgerScope & { purchaseId: string },
+): Promise<Map<number, string>> {
+  // One expression object, used for both SELECT and GROUP BY so the two are
+  // textually identical. 'UTC' is inlined rather than bound: a parameterised
+  // zone renders as $n in one clause and not the other, and Postgres then
+  // rejects the column as not grouped (TMC-157 footgun).
+  const postedYear = sql<number>`extract(year from ${journalEntries.postedAt} at time zone 'UTC')::int`;
+  const rows = await tx
+    .select({
+      year: postedYear.as('posted_year'),
+      amount: sql<string>`coalesce(sum(case when ${journalLines.side} = 'debit' then ${journalLines.amount} else -${journalLines.amount} end), 0)::numeric(15,2)`,
+    })
+    .from(journalLines)
+    .innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id))
+    .innerJoin(chartOfAccounts, eq(journalLines.coaAccountId, chartOfAccounts.id))
+    .where(
+      and(
+        eq(journalEntries.companyId, scope.companyId),
+        eq(journalEntries.accountId, scope.accountId),
+        eq(journalEntries.sourceEntityType, CAPITAL_PURCHASE_DEPRECIATION_SOURCE),
+        eq(journalEntries.sourceEntityId, scope.purchaseId),
+        eq(chartOfAccounts.code, COA_DEPRECIATION_EXPENSE),
+      ),
+    )
+    .groupBy(postedYear);
+  return new Map(rows.map((r) => [Number(r.year), r.amount]));
 }
 
 // --- Manual journal entries ("The Ledger" portal) --------------------------

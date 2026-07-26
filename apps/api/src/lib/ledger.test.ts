@@ -446,20 +446,56 @@ describe('loanPaymentLines — payment toward a financed purchase', () => {
 });
 
 describe('depreciationSchedule — the plain "spread it out" answer', () => {
-  it('divides cost evenly over the life', () => {
-    expect(depreciationSchedule('3600.00', 5)).toEqual({
-      perYear: '720.00',
-      years: 5,
-      total: '3600.00',
-    });
+  const halfYear = { convention: 'half_year' as const, purchaseYear: 2026 };
+  const fullYear = { convention: 'full_year' as const, purchaseYear: 2026 };
+
+  it('halves the purchase year and spills the other half into year N+1', () => {
+    // The IRS default convention: bought in June or in December, the asset
+    // counts as placed in service mid-year either way.
+    const plan = depreciationSchedule('3600.00', 5, halfYear);
+    expect(plan.perYear).toBe('720.00');
+    expect(plan.firstYear).toBe('360.00');
+    expect(plan.years).toBe(6);
+    expect(plan.rows).toEqual([
+      { year: 2026, amount: '360.00' },
+      { year: 2027, amount: '720.00' },
+      { year: 2028, amount: '720.00' },
+      { year: 2029, amount: '720.00' },
+      { year: 2030, amount: '720.00' },
+      { year: 2031, amount: '360.00' },
+    ]);
+  });
+
+  it('gives the purchase year a whole chunk under the accountant override', () => {
+    const plan = depreciationSchedule('3600.00', 5, fullYear);
+    expect(plan.firstYear).toBe('720.00');
+    expect(plan.years).toBe(5);
+    expect(plan.rows.at(-1)).toEqual({ year: 2030, amount: '720.00' });
+  });
+
+  it('sums to exactly the cost when the split does not divide evenly', () => {
+    // $1,000 over 3 years is 333.33/yr, which leaves a cent adrift five times
+    // over. An asset has to end fully written off — a stray cent on a tax form
+    // is a support ticket, so the last row absorbs the remainder.
+    for (const opts of [halfYear, fullYear]) {
+      const plan = depreciationSchedule('1000.00', 3, opts);
+      const summed = plan.rows.reduce((cents, r) => cents + Math.round(Number(r.amount) * 100), 0);
+      expect(summed).toBe(100_000);
+      expect(plan.total).toBe('1000.00');
+    }
   });
 
   it('clamps a non-positive life to one year', () => {
-    expect(depreciationSchedule('1000.00', 0)).toEqual({
-      perYear: '1000.00',
-      years: 1,
-      total: '1000.00',
-    });
+    expect(depreciationSchedule('1000.00', 0, fullYear).rows).toEqual([
+      { year: 2026, amount: '1000.00' },
+    ]);
+    // A 1-year half_year plan is degenerate: half up front, and the remainder
+    // rather than another half, so it still totals the cost instead of going
+    // negative on the final row.
+    expect(depreciationSchedule('1000.00', 0, halfYear).rows).toEqual([
+      { year: 2026, amount: '500.00' },
+      { year: 2027, amount: '500.00' },
+    ]);
   });
 });
 

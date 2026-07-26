@@ -52,6 +52,21 @@ export const companies = pgTable(
     // constrained in the DB — the tz database gains and renames zones, and a
     // CHECK would go stale against it.
     timezone: text('timezone').notNull().default('UTC'),
+    // How much of a year's write-off a "spread it out" purchase gets in the
+    // year it was bought — 'half_year' | 'full_year' (TMC-123). Half-year is
+    // the IRS default (every asset is treated as placed in service mid-year, no
+    // matter which month it was actually bought); a full year in year one isn't
+    // something any US convention allows, so the default here is the standard,
+    // not just the conservative pick.
+    //
+    // The buyer is never asked — they already answered the only question that's
+    // theirs ("deduct it all this year" vs "spread it out"). This exists so an
+    // accountant who has been depreciating an asset on a different basis can
+    // make our figures agree with the return they file, and Settings frames it
+    // with the same don't-touch-this-casually copy as accountingMethod.
+    // Company-level, like accountingMethod, because a convention is a policy
+    // applied across a filer's assets rather than a per-asset judgement.
+    depreciationConvention: text('depreciation_convention').notNull().default('half_year'),
     // Business identity surfaced on invoices/estimates: a free-text postal
     // address and a contact phone. Both nullable — pre-existing companies and
     // freshly-created ones start null, and the public invoice simply omits the

@@ -196,10 +196,27 @@ describe('capital purchases — log a big purchase', () => {
 
       const detail = (await (
         await get(app, `/api/purchases/${created.id}`, cookie, accountId)
-      ).json()) as { owing: string; schedule: { perYear: string; years: number } | null };
+      ).json()) as {
+        owing: string;
+        schedule: {
+          perYear: string;
+          firstYear: string;
+          years: number;
+          postedToDate: string;
+        } | null;
+      };
       // 3600 − 600 down = 3000 financed
       expect(detail.owing).toBe('3000.00');
-      expect(detail.schedule).toEqual({ perYear: '720.00', years: 5, total: '3600.00' });
+      // Half-year convention (TMC-123): the purchase year takes half a chunk and
+      // the spread runs to a sixth year. Nothing is posted yet — a year's
+      // depreciation lands once that year has closed, not at purchase.
+      expect(detail.schedule).toMatchObject({
+        perYear: '720.00',
+        firstYear: '360.00',
+        years: 6,
+        total: '3600.00',
+        postedToDate: '0.00',
+      });
       expect(await tenantBalanced(accountId)).toBe(true);
 
       // Only the $600 down payment is cash out; the financed remainder is not cash.
