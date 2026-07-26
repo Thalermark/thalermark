@@ -25,8 +25,35 @@ type Purchase = {
   funding: string;
   owing: string;
   vendorName: string | null;
-  schedule: { perYear: string; years: number } | null;
+  schedule: {
+    perYear: string;
+    firstYear: string;
+    total: string;
+    postedToDate: string;
+    rows: { year: number; amount: string }[];
+  } | null;
 };
+
+// The plain "spread it out" sentence. Under the standard (half-year) convention
+// the purchase year really is smaller than the rest, so say both numbers rather
+// than average them into one that matches neither. Mirrors apps/web.
+function spreadSentence(s: NonNullable<Purchase['schedule']>): string {
+  const first = s.rows[0]?.year;
+  const last = s.rows[s.rows.length - 1]?.year;
+  if (s.firstYear !== s.perYear) {
+    return `Spread out — about ${money(s.firstYear)} in ${first}, then about ${money(s.perYear)} a year through ${last}.`;
+  }
+  return `Spread out — about ${money(s.perYear)} a year, ${first} through ${last}.`;
+}
+
+// A year's share is counted once that year has closed, so a purchase made this
+// year legitimately shows nothing yet. Say so, or the zero reads as a bug.
+function spreadProgress(s: NonNullable<Purchase['schedule']>): string {
+  if (Number(s.postedToDate) === 0) {
+    return `Nothing counted yet — ${s.rows[0]?.year}'s share is added once that year is over.`;
+  }
+  return `${money(s.postedToDate)} of ${money(s.total)} counted so far.`;
+}
 type DetailState =
   | { state: 'loading' }
   | { state: 'ready'; purchase: Purchase }
@@ -205,10 +232,15 @@ export default function PurchaseDetail() {
                 label="On taxes"
                 value={
                   purchase.schedule
-                    ? `Spread out — about ${money(purchase.schedule.perYear)} a year for ${purchase.schedule.years} years.`
+                    ? spreadSentence(purchase.schedule)
                     : 'Deducted in full the year you bought it.'
                 }
               />
+              {purchase.schedule ? (
+                <Text className="text-right text-sm text-ink/60">
+                  {spreadProgress(purchase.schedule)}
+                </Text>
+              ) : null}
             </View>
 
             {canWrite && financed && stillOwes ? (
