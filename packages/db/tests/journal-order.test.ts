@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -32,6 +32,26 @@ describe('migration journal', () => {
         `${curr.tag} (when=${curr.when}) must be newer than ${prev.tag} (when=${prev.when})`,
       ).toBeGreaterThan(prev.when);
       prev = curr;
+    }
+  });
+
+  // The runner walks the JOURNAL, not the directory, so a .sql file nobody
+  // listed is not "pending" — it does not exist. `drizzle-kit generate` writes
+  // both halves, but a hand-authored migration (0015/0016 onward carry written
+  // rationale, so hand-editing is normal here) can easily land as a file alone.
+  // The symptom is remote from the cause: the DDL never runs and the next thing
+  // to touch the column dies with "column ... does not exist", which reads like
+  // broken auth rather than a missing migration.
+  it('has a journal entry for every migration file on disk', () => {
+    const tagged = new Set(journal.entries.map((e) => e.tag));
+    const onDisk = readdirSync(resolve(dirname(journalPath), '..'))
+      .filter((f) => f.endsWith('.sql'))
+      .map((f) => f.replace(/\.sql$/, ''));
+    for (const tag of onDisk) {
+      expect(
+        tagged.has(tag),
+        `${tag}.sql has no meta/_journal.json entry — it will never run`,
+      ).toBe(true);
     }
   });
 });

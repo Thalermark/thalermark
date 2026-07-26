@@ -126,6 +126,33 @@ export const actions: Actions = {
     return { accountingSaved: true };
   },
 
+  // How much of a big purchase's yearly write-off lands in the year it was
+  // bought (TMC-123). Its own action + section for the same reason as the
+  // accounting method: it's an accountant's correction to a standing tax
+  // treatment, not a display preference. The person who bought the thing never
+  // comes here — they answered "deduct it all this year" vs "spread it out" at
+  // the point of purchase and that's the whole of their involvement.
+  saveDepreciationConvention: async (event) => {
+    const client = serverApiClient(event);
+    const formData = await event.request.formData();
+    const companyId = String(formData.get('companyId') ?? '');
+    const depreciationConvention = String(formData.get('depreciationConvention') ?? '');
+    if (!companyId) return fail(400, { depreciationError: 'missing_company_id' });
+    if (depreciationConvention !== 'half_year' && depreciationConvention !== 'full_year') {
+      return fail(400, { depreciationError: 'invalid_depreciation_convention' });
+    }
+
+    const res = await client.api.companies[':id'].$patch({
+      param: { id: companyId },
+      json: { depreciationConvention },
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      return fail(res.status, { depreciationError: body?.error ?? 'save_failed' });
+    }
+    return { depreciationSaved: true };
+  },
+
   // The zone every report's day boundaries resolve in (TMC-157). Its own
   // action for the same reason as the accounting method: it silently changes
   // which period figures land in, so it shouldn't ride along with an address
