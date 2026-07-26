@@ -16,6 +16,17 @@
   // Accounting method — stored as cash/accrual, offered in plain words. Cash is
   // the column default and what effectively every sole proprietor files.
   const accountingMethod = $derived(data.company.accountingMethod ?? 'cash');
+  // Reporting timezone. Stored value wins; the browser's zone is only offered
+  // as a one-click suggestion when the two disagree, so we never silently
+  // change which period someone's figures land in.
+  const timezone = $derived(data.company.timezone ?? 'UTC');
+  // null = "no local pick yet", so the select follows the stored value —
+  // including after a save reloads it. Any user choice takes over from there.
+  let picked = $state<string | null>(null);
+  const currentTimezone = $derived(picked ?? timezone);
+  const detected =
+    typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : '';
+  const suggestDetected = $derived(!!detected && detected !== currentTimezone);
   // Per-field show defaults, split by document type (invoice vs estimate).
   const showAddressInvoice = $derived(
     form?.showAddressOnInvoice ?? data.company.showAddressOnInvoice ?? true,
@@ -163,6 +174,57 @@
         <span class="text-sm text-fg/60">Saved.</span>
       {:else if form?.error}
         <span class="text-sm text-danger">Couldn't save: {form.error}</span>
+      {/if}
+    </div>
+  </form>
+</section>
+
+<section class="mt-8 rounded-sm border border-fg/15 bg-surface-2">
+  <header class="border-b border-fg/10 px-6 py-5">
+    <span class="eyebrow">Your time zone</span>
+    <p class="mt-2 font-serif text-lg text-fg">{data.company.name}</p>
+  </header>
+  <form method="POST" action="?/saveTimezone" class="px-6 py-6">
+    <input type="hidden" name="companyId" value={data.company.id} />
+    <p class="max-w-prose text-sm leading-relaxed text-fg/70">
+      Reports count a day from midnight where you are. Get this wrong and a payment taken on the
+      evening of 31 December can land in the wrong tax year.
+    </p>
+    <label class="mt-5 block">
+      <span class="label">Time zone</span>
+      <select
+        name="timezone"
+        value={currentTimezone}
+        onchange={(e) => {
+          picked = e.currentTarget.value;
+        }}
+        class="mt-2 w-full max-w-md rounded-sm border border-fg/20 bg-surface px-3 py-2 text-sm text-fg focus:border-accent focus:outline-none"
+      >
+        {#each data.timezones as tz (tz)}
+          <option value={tz}>{tz}</option>
+        {/each}
+      </select>
+    </label>
+    {#if suggestDetected}
+      <p class="mt-3 text-sm text-fg/70">
+        This browser looks like <strong>{detected}</strong>.
+        <button
+          type="button"
+          class="link"
+          onclick={() => {
+            picked = detected;
+          }}
+        >
+          Use that instead
+        </button>
+      </p>
+    {/if}
+    <div class="mt-5 flex items-center gap-4">
+      <button type="submit" class="btn">Save</button>
+      {#if form?.timezoneSaved}
+        <span class="text-sm text-fg/60">Saved.</span>
+      {:else if form?.timezoneError}
+        <span class="text-sm text-danger">Couldn't save: {form.timezoneError}</span>
       {/if}
     </div>
   </form>

@@ -7,6 +7,7 @@ import {
   journalEntries,
   journalLines,
 } from '@thalermark/db';
+import type { SQL } from 'drizzle-orm';
 import { and, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
 
@@ -1005,9 +1006,12 @@ type LedgerScope = { accountId: string; companyId: string };
 // entry whose "Dr Cash" would otherwise read as money in and double the gross
 // out. A create+edit collapses to the latest amount, a create+delete to zero
 // (the dashboard reversal fix, #144). Returns 2-dp decimal strings.
+// Bounds accept a SQL expression as well as a Date so callers can hand in an
+// instant resolved through the company's timezone (`AT TIME ZONE`, TMC-157)
+// rather than a UTC midnight. Drizzle's comparison helpers take either.
 export async function cashFlowNet(
   tx: Database | Transaction,
-  scope: LedgerScope & { fromDate: Date; toExclusive: Date },
+  scope: LedgerScope & { fromDate: Date | SQL<Date>; toExclusive: Date | SQL<Date> },
 ): Promise<{ moneyIn: string; moneyOut: string }> {
   const bySource = tx
     .select({

@@ -19,6 +19,7 @@ import {
   journalLines,
 } from '@thalermark/db';
 import { centsToMoney, sumMoney, toCents } from '@thalermark/validation';
+import type { AnyColumn, SQL } from 'drizzle-orm';
 import { and, asc, eq, gte, inArray, isNull, lt, lte, ne, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
@@ -47,61 +48,111 @@ import type { RlsVariables } from '../middleware/rls-context.js';
 // AppType, so the facade's split-prefix intersection collapses to a plain
 // override (see api.server.ts / mobile api.ts).
 
+// The instant a calendar day *begins* in the company's timezone (TMC-157).
+//
+// Resolved in Postgres rather than JS on purpose. `AT TIME ZONE` reads the same
+// tz database the server ships, so DST transitions, historical offset changes
+// and zone renames are all handled — hand-rolled JS offset math gets the
+// ordinary cases right and the interesting ones wrong. Both operands are bound
+// parameters, so a stored zone string never becomes SQL.
+//
+// Before this, every window was UTC: a payment taken at 8pm on 31 December in
+// America/Chicago stored as 2027-01-01T02:00Z and fell into the *next* tax
+// year. Companies default to 'UTC', which reproduces exactly the old behaviour
+// until someone sets a real zone.
+function dayStartInstant(day: string, tz: string) {
+  return sql<Date>`(${day}::timestamp AT TIME ZONE ${tz})`;
+}
+
+// Bucket a timestamptz by month in the company's local time. Only for
+// timestamptz columns — a bare `date` column (issue_date) is already a calendar
+// date with no zone, and shifting it would be wrong.
+function localMonthExpr(column: AnyColumn, tz: string) {
+  return sql<string>`to_char(date_trunc('month', ${column} AT TIME ZONE ${tz}), 'YYYY-MM')`;
+}
+
+// Add days to a YYYY-MM-DD calendar date, staying in calendar space — no
+// instants involved, so DST can't skew it. Used to turn an inclusive `to` into
+// the half-open upper bound.
+function addDays(day: string, delta: number): string {
+  const d = new Date(`${day}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + delta);
+  return d.toISOString().slice(0, 10);
+}
+
 // Parse a from/to reporting window shared by the report endpoints. Both are
-// optional; the default is year-to-date through today. Returns the half-open
-// [fromDate, toExclusive) (to + 1 day, so the last day is fully included — the
-// same convention as the ledger export / dashboard) plus the inclusive display
-// strings; or an `error` code the caller turns into a 400. `from`/`to` are also
-// suitable for direct comparison against bare `date` columns (issue_date), which
-// compare inclusively on both ends.
-type ReportWindow = { fromDate: Date; toExclusive: Date; from: string; to: string };
+// optional; the default is year-to-date through today. Returns the inclusive
+// display strings plus the half-open [fromInstant, toExclusiveInstant) bounds
+// (to + 1 day, so the last day is fully included — the same convention as the
+// ledger export / dashboard); or an `error` code the caller turns into a 400.
+//
+// `from`/`to` remain plain calendar dates and stay suitable for direct
+// comparison against bare `date` columns (issue_date), which carry no zone and
+// must NOT be shifted.
+type ReportWindow = {
+  fromInstant: SQL<Date>;
+  toExclusiveInstant: SQL<Date>;
+  from: string;
+  to: string;
+};
 function parseReportWindow(
   fromRaw: string | undefined,
   toRaw: string | undefined,
+  tz: string,
 ): ReportWindow | { error: 'invalid_from' | 'invalid_to' | 'invalid_range' } {
-  const now = new Date();
-  let fromDate: Date;
+  const today = localToday(tz);
+  let from: string;
   if (fromRaw !== undefined) {
-    fromDate = new Date(`${fromRaw}T00:00:00Z`);
-    if (Number.isNaN(fromDate.getTime())) return { error: 'invalid_from' };
+    if (Number.isNaN(Date.parse(`${fromRaw}T00:00:00Z`))) return { error: 'invalid_from' };
+    from = fromRaw;
   } else {
-    fromDate = new Date(Date.UTC(now.getUTCFullYear(), 0, 1));
+    from = `${today.slice(0, 4)}-01-01`;
   }
-  let toExclusive: Date;
+  let to: string;
   if (toRaw !== undefined) {
-    const t = new Date(`${toRaw}T00:00:00Z`);
-    if (Number.isNaN(t.getTime())) return { error: 'invalid_to' };
-    toExclusive = new Date(t);
+    if (Number.isNaN(Date.parse(`${toRaw}T00:00:00Z`))) return { error: 'invalid_to' };
+    to = toRaw;
   } else {
-    toExclusive = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    to = today;
   }
-  toExclusive.setUTCDate(toExclusive.getUTCDate() + 1);
-  if (fromDate >= toExclusive) return { error: 'invalid_range' };
-  const ymd = (d: Date) => d.toISOString().slice(0, 10);
-  const toInclusive = new Date(toExclusive);
-  toInclusive.setUTCDate(toInclusive.getUTCDate() - 1);
-  return { fromDate, toExclusive, from: ymd(fromDate), to: ymd(toInclusive) };
+  if (from > to) return { error: 'invalid_range' };
+  return {
+    from,
+    to,
+    fromInstant: dayStartInstant(from, tz),
+    toExclusiveInstant: dayStartInstant(addDays(to, 1), tz),
+  };
+}
+
+// Today's date *in the company's zone* — "year to date" and "as of today" should
+// roll over at the operator's midnight, not UTC's.
+function localToday(tz: string): string {
+  // en-CA formats as YYYY-MM-DD, which is the shape we want everywhere else.
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
 }
 
 // Parse a single as-of date (YYYY-MM-DD) for point-in-time reports (balance
-// sheet, A/R aging). Default is today. Returns the inclusive display string +
-// the half-open upper bound (asOf + 1 day) so a balance includes everything
-// posted any time on the as-of day; or an `error` for a 400.
+// sheet, A/R aging). Default is today in the company's zone. Returns the
+// inclusive display string + the half-open upper bound (asOf + 1 day) so a
+// balance includes everything posted any time on the as-of day; or an `error`
+// for a 400.
 function parseAsOf(
   raw: string | undefined,
-): { asOf: string; asOfExclusive: Date } | { error: 'invalid_as_of' } {
-  const now = new Date();
-  let d: Date;
+  tz: string,
+): { asOf: string; asOfExclusiveInstant: SQL<Date> } | { error: 'invalid_as_of' } {
+  let asOf: string;
   if (raw !== undefined) {
-    d = new Date(`${raw}T00:00:00Z`);
-    if (Number.isNaN(d.getTime())) return { error: 'invalid_as_of' };
+    if (Number.isNaN(Date.parse(`${raw}T00:00:00Z`))) return { error: 'invalid_as_of' };
+    asOf = raw;
   } else {
-    d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    asOf = localToday(tz);
   }
-  const asOf = d.toISOString().slice(0, 10);
-  const asOfExclusive = new Date(d);
-  asOfExclusive.setUTCDate(asOfExclusive.getUTCDate() + 1);
-  return { asOf, asOfExclusive };
+  return { asOf, asOfExclusiveInstant: dayStartInstant(addDays(asOf, 1), tz) };
 }
 
 // Stateless cash-flow advisor — the reasoning model is resolved per call from
@@ -134,7 +185,7 @@ export function reportsRoutes(deps: AppDeps) {
           const accountId = c.get('accountId');
 
           const [company] = await tx
-            .select({ id: companies.id })
+            .select({ id: companies.id, timezone: companies.timezone })
             .from(companies)
             .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
             .limit(1);
@@ -146,56 +197,59 @@ export function reportsRoutes(deps: AppDeps) {
           // last day is fully included (matches the ledger export).
           const { period: periodRaw, from: fromRaw, to: toRaw } = c.req.valid('query');
           const period = periodRaw ?? 'month';
-          let fromDate: Date;
-          let toExclusive: Date;
+          // Calendar-date arithmetic first, instants second: "this month" means
+          // the operator's month, and its edges resolve through the company's
+          // zone (TMC-157).
+          const today = localToday(company.timezone);
+          let from: string;
+          let to: string;
           if (fromRaw !== undefined || toRaw !== undefined) {
-            const f = fromRaw ? new Date(`${fromRaw}T00:00:00Z`) : null;
-            const t = toRaw ? new Date(`${toRaw}T00:00:00Z`) : null;
-            if (!f || Number.isNaN(f.getTime())) return c.json({ error: 'invalid_from' }, 400);
-            if (!t || Number.isNaN(t.getTime())) return c.json({ error: 'invalid_to' }, 400);
-            if (f > t) return c.json({ error: 'invalid_range' }, 400);
-            fromDate = f;
-            toExclusive = new Date(t);
-            toExclusive.setUTCDate(toExclusive.getUTCDate() + 1);
+            if (!fromRaw || Number.isNaN(Date.parse(`${fromRaw}T00:00:00Z`))) {
+              return c.json({ error: 'invalid_from' }, 400);
+            }
+            if (!toRaw || Number.isNaN(Date.parse(`${toRaw}T00:00:00Z`))) {
+              return c.json({ error: 'invalid_to' }, 400);
+            }
+            if (fromRaw > toRaw) return c.json({ error: 'invalid_range' }, 400);
+            from = fromRaw;
+            to = toRaw;
           } else {
-            const now = new Date();
-            const y = now.getUTCFullYear();
-            const m = now.getUTCMonth();
-            const d = now.getUTCDate();
-            toExclusive = new Date(Date.UTC(y, m, d + 1));
+            to = today;
             if (period === 'month') {
-              fromDate = new Date(Date.UTC(y, m, 1));
+              from = `${today.slice(0, 7)}-01`;
             } else if (period === '30d') {
-              fromDate = new Date(Date.UTC(y, m, d - 29));
+              from = addDays(today, -29);
             } else if (period === 'ytd') {
-              fromDate = new Date(Date.UTC(y, 0, 1));
+              from = `${today.slice(0, 4)}-01-01`;
             } else {
               return c.json({ error: 'invalid_period' }, 400);
             }
           }
+          const fromInstant = dayStartInstant(from, company.timezone);
+          const toExclusiveInstant = dayStartInstant(addDays(to, 1), company.timezone);
 
           // Reversal-safe cash flow + live AR balance (shared with cash-flow
           // nudges) — see cashFlowNet / arBalance in lib/ledger.ts. Netting per
           // source means expense edits/voids don't inflate the flows (#144).
-          const cash = await cashFlowNet(tx, { accountId, companyId: id, fromDate, toExclusive });
+          const cash = await cashFlowNet(tx, {
+            accountId,
+            companyId: id,
+            fromDate: fromInstant,
+            toExclusive: toExclusiveInstant,
+          });
           const owed = await arBalance(tx, { accountId, companyId: id });
           // `owing` completes the in/out/owed/owing quadrant — the live AP
           // balance (what's owed to vendors via open bills), point-in-time like
           // `owed`. Zero until the first bill is recorded.
           const owing = await apBalance(tx, { accountId, companyId: id });
 
-          // Inclusive display window (the day before the half-open upper bound).
-          const toInclusive = new Date(toExclusive);
-          toInclusive.setUTCDate(toInclusive.getUTCDate() - 1);
-          const ymd = (dt: Date) => dt.toISOString().slice(0, 10);
-
           return c.json({
             moneyIn: cash.moneyIn,
             moneyOut: cash.moneyOut,
             owed,
             owing,
-            from: ymd(fromDate),
-            to: ymd(toInclusive),
+            from,
+            to,
           });
         },
       )
@@ -231,7 +285,7 @@ export function reportsRoutes(deps: AppDeps) {
           const accountId = c.get('accountId');
 
           const [company] = await tx
-            .select({ id: companies.id })
+            .select({ id: companies.id, timezone: companies.timezone })
             .from(companies)
             .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
             .limit(1);
@@ -310,16 +364,16 @@ export function reportsRoutes(deps: AppDeps) {
           const accountId = c.get('accountId');
 
           const [company] = await tx
-            .select({ id: companies.id })
+            .select({ id: companies.id, timezone: companies.timezone })
             .from(companies)
             .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
             .limit(1);
           if (!company) return c.json({ error: 'company_not_found' }, 404);
 
           const { from: fromRaw, to: toRaw } = c.req.valid('query');
-          const win = parseReportWindow(fromRaw, toRaw);
+          const win = parseReportWindow(fromRaw, toRaw, company.timezone);
           if ('error' in win) return c.json({ error: win.error }, 400);
-          const { fromDate, toExclusive, from, to } = win;
+          const { fromInstant, toExclusiveInstant, from, to } = win;
 
           // Per-account net in the account's normal-balance direction: when a
           // line's side matches the account's normal_balance it adds, else it
@@ -341,8 +395,8 @@ export function reportsRoutes(deps: AppDeps) {
                 eq(journalEntries.companyId, id),
                 eq(journalEntries.accountId, accountId),
                 inArray(chartOfAccounts.accountType, ['revenue', 'expense']),
-                gte(journalEntries.postedAt, fromDate),
-                lt(journalEntries.postedAt, toExclusive),
+                gte(journalEntries.postedAt, fromInstant),
+                lt(journalEntries.postedAt, toExclusiveInstant),
               ),
             )
             .groupBy(
@@ -444,15 +498,27 @@ export function reportsRoutes(deps: AppDeps) {
           // accounting_method rides along on the company lookup — it's the
           // basis default, so we'd need the row either way.
           const [company] = await tx
-            .select({ id: companies.id, accountingMethod: companies.accountingMethod })
+            .select({
+              id: companies.id,
+              accountingMethod: companies.accountingMethod,
+              timezone: companies.timezone,
+            })
             .from(companies)
             .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
             .limit(1);
           if (!company) return c.json({ error: 'company_not_found' }, 404);
 
           const basis = q.basis ?? (company.accountingMethod === 'accrual' ? 'accrual' : 'cash');
-          const year = q.year ?? new Date().getUTCFullYear();
-          const { from, to, fromDate, toExclusive } = taxYearWindow(year);
+          // Default to the current year *where the business is* — on 1 January
+          // a US operator should not still be defaulting to last year because
+          // UTC hasn't rolled over, nor the reverse.
+          const year = q.year ?? Number(localToday(company.timezone).slice(0, 4));
+          const { from, to, toExclusiveDate } = taxYearWindow(year);
+          // The tax year runs midnight-to-midnight in the company's zone: a
+          // payment taken at 8pm on 31 December belongs to that year, not the
+          // next one (TMC-157).
+          const fromInstant = dayStartInstant(from, company.timezone);
+          const toExclusiveInstant = dayStartInstant(toExclusiveDate, company.timezone);
 
           // Per-account net in the account's normal-balance direction, same
           // convention as profit-loss: a line on the account's normal side adds,
@@ -467,8 +533,8 @@ export function reportsRoutes(deps: AppDeps) {
             eq(journalEntries.companyId, id),
             eq(journalEntries.accountId, accountId),
             eq(chartOfAccounts.accountType, 'expense'),
-            gte(journalEntries.postedAt, fromDate),
-            lt(journalEntries.postedAt, toExclusive),
+            gte(journalEntries.postedAt, fromInstant),
+            lt(journalEntries.postedAt, toExclusiveInstant),
           ];
           // Cash basis: a bill's expense belongs to the period the bill was
           // PAID, not opened. Both legs of a bill (open, and any void reversal)
@@ -521,8 +587,8 @@ export function reportsRoutes(deps: AppDeps) {
                   eq(bills.accountId, accountId),
                   eq(bills.companyId, id),
                   eq(bills.status, 'paid'),
-                  gte(bills.paidAt, fromDate),
-                  lt(bills.paidAt, toExclusive),
+                  gte(bills.paidAt, fromInstant),
+                  lt(bills.paidAt, toExclusiveInstant),
                 ),
               )
               .groupBy(chartOfAccounts.code, chartOfAccounts.name, chartOfAccounts.taxMapping)
@@ -556,8 +622,8 @@ export function reportsRoutes(deps: AppDeps) {
                   eq(invoices.accountId, accountId),
                   eq(invoices.companyId, id),
                   eq(invoices.status, 'paid'),
-                  gte(invoices.paidAt, fromDate),
-                  lt(invoices.paidAt, toExclusive),
+                  gte(invoices.paidAt, fromInstant),
+                  lt(invoices.paidAt, toExclusiveInstant),
                 ),
               );
             grossReceiptsCents = toCents(row?.gross ?? '0.00');
@@ -572,8 +638,8 @@ export function reportsRoutes(deps: AppDeps) {
                   eq(journalEntries.companyId, id),
                   eq(journalEntries.accountId, accountId),
                   eq(chartOfAccounts.accountType, 'revenue'),
-                  gte(journalEntries.postedAt, fromDate),
-                  lt(journalEntries.postedAt, toExclusive),
+                  gte(journalEntries.postedAt, fromInstant),
+                  lt(journalEntries.postedAt, toExclusiveInstant),
                 ),
               );
             grossReceiptsCents = revenueRows.reduce((sum, r) => sum + toCents(r.amount), 0);
@@ -632,14 +698,14 @@ export function reportsRoutes(deps: AppDeps) {
           const tx = c.get('tx');
           const accountId = c.get('accountId');
           const [company] = await tx
-            .select({ id: companies.id })
+            .select({ id: companies.id, timezone: companies.timezone })
             .from(companies)
             .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
             .limit(1);
           if (!company) return c.json({ error: 'company_not_found' }, 404);
 
           const { from: fromRaw, to: toRaw } = c.req.valid('query');
-          const win = parseReportWindow(fromRaw, toRaw);
+          const win = parseReportWindow(fromRaw, toRaw, company.timezone);
           if ('error' in win) return c.json({ error: win.error }, 400);
 
           const rows = await tx
@@ -692,14 +758,14 @@ export function reportsRoutes(deps: AppDeps) {
           const tx = c.get('tx');
           const accountId = c.get('accountId');
           const [company] = await tx
-            .select({ id: companies.id })
+            .select({ id: companies.id, timezone: companies.timezone })
             .from(companies)
             .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
             .limit(1);
           if (!company) return c.json({ error: 'company_not_found' }, 404);
 
           const { from: fromRaw, to: toRaw } = c.req.valid('query');
-          const win = parseReportWindow(fromRaw, toRaw);
+          const win = parseReportWindow(fromRaw, toRaw, company.timezone);
           if ('error' in win) return c.json({ error: win.error }, 400);
 
           const monthExpr = sql<string>`to_char(date_trunc('month', ${invoices.issueDate}::date), 'YYYY-MM')`;
@@ -746,14 +812,14 @@ export function reportsRoutes(deps: AppDeps) {
           const tx = c.get('tx');
           const accountId = c.get('accountId');
           const [company] = await tx
-            .select({ id: companies.id })
+            .select({ id: companies.id, timezone: companies.timezone })
             .from(companies)
             .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
             .limit(1);
           if (!company) return c.json({ error: 'company_not_found' }, 404);
 
           const { from: fromRaw, to: toRaw } = c.req.valid('query');
-          const win = parseReportWindow(fromRaw, toRaw);
+          const win = parseReportWindow(fromRaw, toRaw, company.timezone);
           if ('error' in win) return c.json({ error: win.error }, 400);
 
           const rows = await tx
@@ -810,15 +876,15 @@ export function reportsRoutes(deps: AppDeps) {
           const tx = c.get('tx');
           const accountId = c.get('accountId');
           const [company] = await tx
-            .select({ id: companies.id })
+            .select({ id: companies.id, timezone: companies.timezone })
             .from(companies)
             .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
             .limit(1);
           if (!company) return c.json({ error: 'company_not_found' }, 404);
 
-          const parsed = parseAsOf(c.req.valid('query').asOf);
+          const parsed = parseAsOf(c.req.valid('query').asOf, company.timezone);
           if ('error' in parsed) return c.json({ error: parsed.error }, 400);
-          const { asOf, asOfExclusive } = parsed;
+          const { asOf, asOfExclusiveInstant } = parsed;
 
           const rows = await tx
             .select({
@@ -834,7 +900,7 @@ export function reportsRoutes(deps: AppDeps) {
               and(
                 eq(journalEntries.companyId, id),
                 eq(journalEntries.accountId, accountId),
-                lt(journalEntries.postedAt, asOfExclusive),
+                lt(journalEntries.postedAt, asOfExclusiveInstant),
               ),
             )
             .groupBy(chartOfAccounts.code, chartOfAccounts.name, chartOfAccounts.accountType)
@@ -903,13 +969,13 @@ export function reportsRoutes(deps: AppDeps) {
           const tx = c.get('tx');
           const accountId = c.get('accountId');
           const [company] = await tx
-            .select({ id: companies.id })
+            .select({ id: companies.id, timezone: companies.timezone })
             .from(companies)
             .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
             .limit(1);
           if (!company) return c.json({ error: 'company_not_found' }, 404);
 
-          const parsed = parseAsOf(c.req.valid('query').asOf);
+          const parsed = parseAsOf(c.req.valid('query').asOf, company.timezone);
           if ('error' in parsed) return c.json({ error: parsed.error }, 400);
           const { asOf } = parsed;
 
@@ -999,17 +1065,17 @@ export function reportsRoutes(deps: AppDeps) {
           const tx = c.get('tx');
           const accountId = c.get('accountId');
           const [company] = await tx
-            .select({ id: companies.id })
+            .select({ id: companies.id, timezone: companies.timezone })
             .from(companies)
             .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
             .limit(1);
           if (!company) return c.json({ error: 'company_not_found' }, 404);
 
           const { from: fromRaw, to: toRaw } = c.req.valid('query');
-          const win = parseReportWindow(fromRaw, toRaw);
+          const win = parseReportWindow(fromRaw, toRaw, company.timezone);
           if ('error' in win) return c.json({ error: win.error }, 400);
 
-          const monthExpr = sql<string>`to_char(date_trunc('month', ${journalEntries.postedAt}), 'YYYY-MM')`;
+          const monthExpr = localMonthExpr(journalEntries.postedAt, company.timezone);
           const rows = await tx
             .select({
               month: monthExpr,
@@ -1023,12 +1089,18 @@ export function reportsRoutes(deps: AppDeps) {
                 eq(journalEntries.companyId, id),
                 eq(journalEntries.accountId, accountId),
                 eq(chartOfAccounts.code, '2200'),
-                gte(journalEntries.postedAt, win.fromDate),
-                lt(journalEntries.postedAt, win.toExclusive),
+                gte(journalEntries.postedAt, win.fromInstant),
+                lt(journalEntries.postedAt, win.toExclusiveInstant),
               ),
             )
-            .groupBy(monthExpr)
-            .orderBy(monthExpr);
+            // Group/order by ordinal, not by repeating monthExpr. The timezone
+            // is a bound parameter, so re-emitting the expression here would
+            // give it a *different* parameter number than the one in SELECT —
+            // and Postgres matches GROUP BY to SELECT structurally, so $9 and
+            // $1 don't count as the same expression however identical the rest
+            // of the text is. Position 1 is the month column by construction.
+            .groupBy(sql`1`)
+            .orderBy(sql`1`);
 
           const total = centsToMoney(rows.reduce((s, r) => s + toCents(r.collected ?? '0'), 0));
           return c.json({
@@ -1206,7 +1278,7 @@ export function reportsRoutes(deps: AppDeps) {
         const accountId = c.get('accountId');
 
         const [company] = await tx
-          .select({ id: companies.id })
+          .select({ id: companies.id, timezone: companies.timezone })
           .from(companies)
           .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
           .limit(1);

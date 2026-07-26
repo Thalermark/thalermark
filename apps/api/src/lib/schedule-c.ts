@@ -139,9 +139,14 @@ export function rollUpPartII(accounts: ExpenseAccountAmount[]): PartIIRollup {
   return { rows, unmapped, totalExpenses: centsToMoney(totalCents) };
 }
 
-// The calendar-year window a Schedule C covers. Returns the inclusive `from` /
-// `to` date strings plus the half-open [fromDate, toExclusive) instants the GL
-// queries use — same upper-bound convention as the other reports.
+// The calendar-year window a Schedule C covers, as plain calendar dates:
+// `from`/`to` inclusive for display, `toExclusiveDate` as the half-open upper
+// bound (1 Jan of the following year) — same convention as the other reports.
+//
+// Deliberately returns *dates*, not instants. Which moment a calendar date
+// begins at depends on the company's timezone (TMC-157), and that resolution
+// belongs in SQL where real tzdata lives — this module stays pure so the form
+// mapping can be unit-tested without a database.
 //
 // Deliberately calendar-year: every other report defaults to year-to-date, but
 // a tax form is always Jan 1 – Dec 31 of a filed year. Fiscal-year filers are a
@@ -149,13 +154,11 @@ export function rollUpPartII(accounts: ExpenseAccountAmount[]): PartIIRollup {
 export function taxYearWindow(year: number): {
   from: string;
   to: string;
-  fromDate: Date;
-  toExclusive: Date;
+  toExclusiveDate: string;
 } {
   return {
     from: `${year}-01-01`,
     to: `${year}-12-31`,
-    fromDate: new Date(Date.UTC(year, 0, 1)),
-    toExclusive: new Date(Date.UTC(year + 1, 0, 1)),
+    toExclusiveDate: `${year + 1}-01-01`,
   };
 }

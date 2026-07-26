@@ -20,7 +20,13 @@ export const load: PageServerLoad = async (event) => {
   const logoRes = await client.api.companies[':id'].logo.$get({ param: { id: company.id } });
   if (logoRes.ok) logo = (await logoRes.json()) as { url: string; contentType: string };
 
-  return { company, logo };
+  // Built server-side from the same tz database Node ships, so SSR and the
+  // client can't disagree about which zones exist. ~400 entries is chunky HTML
+  // for one settings page, but it beats a hand-curated list going stale and
+  // rejecting somebody's real zone.
+  const timezones = Intl.supportedValuesOf('timeZone');
+
+  return { company, logo, timezones };
 };
 
 export const actions: Actions = {
@@ -118,6 +124,30 @@ export const actions: Actions = {
       return fail(res.status, { accountingError: body?.error ?? 'save_failed' });
     }
     return { accountingSaved: true };
+  },
+
+  // The zone every report's day boundaries resolve in (TMC-157). Its own
+  // action for the same reason as the accounting method: it silently changes
+  // which period figures land in, so it shouldn't ride along with an address
+  // edit. The API re-validates against the tz database — this check only keeps
+  // an obviously-empty submit from making a round trip.
+  saveTimezone: async (event) => {
+    const client = serverApiClient(event);
+    const formData = await event.request.formData();
+    const companyId = String(formData.get('companyId') ?? '');
+    const timezone = String(formData.get('timezone') ?? '').trim();
+    if (!companyId) return fail(400, { timezoneError: 'missing_company_id' });
+    if (!timezone) return fail(400, { timezoneError: 'invalid_timezone' });
+
+    const res = await client.api.companies[':id'].$patch({
+      param: { id: companyId },
+      json: { timezone },
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      return fail(res.status, { timezoneError: body?.error ?? 'save_failed' });
+    }
+    return { timezoneSaved: true };
   },
 
   saveReplyTo: async (event) => {
