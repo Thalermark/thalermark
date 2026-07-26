@@ -27,6 +27,8 @@ type Company = {
   businessPhone: string | null;
   businessEmail: string | null;
   replyToEmail: string | null;
+  accountingMethod: string;
+  timezone: string;
   showAddressOnInvoice: boolean;
   showPhoneOnInvoice: boolean;
   showEmailOnInvoice: boolean;
@@ -48,6 +50,17 @@ const LOGO_ERRORS: Record<string, string> = {
 
 const absolutize = (url: string) => (url.startsWith('http') ? url : `${getServerUrl()}${url}`);
 
+// The device's own IANA zone, used only as a one-tap suggestion — never applied
+// silently, since it would change which period a user's figures land in. Guarded
+// because Hermes' Intl surface has varied across Expo SDKs.
+function deviceZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone ?? '';
+  } catch {
+    return '';
+  }
+}
+
 export default function BusinessSettings() {
   const router = useRouter();
   const [load, setLoad] = useState<LoadState>({ state: 'loading' });
@@ -59,6 +72,16 @@ export default function BusinessSettings() {
   const [replyTo, setReplyTo] = useState('');
   const [replySaving, setReplySaving] = useState(false);
   const [replyStatus, setReplyStatus] = useState<'idle' | 'saved' | 'error'>('idle');
+  // Accounting method + timezone each get their own card and save. Both quietly
+  // change which period figures land in, so neither should ride along with an
+  // address edit.
+  const [method, setMethod] = useState<'cash' | 'accrual'>('cash');
+  const [methodSaving, setMethodSaving] = useState(false);
+  const [methodStatus, setMethodStatus] = useState<'idle' | 'saved' | 'error'>('idle');
+  const [timezone, setTimezone] = useState('UTC');
+  const deviceTimezone = deviceZone();
+  const [tzSaving, setTzSaving] = useState(false);
+  const [tzStatus, setTzStatus] = useState<'idle' | 'saved' | 'error'>('idle');
   // Per-field "show on" defaults, split by document type (invoice vs estimate).
   const [showAddrInv, setShowAddrInv] = useState(true);
   const [showPhoneInv, setShowPhoneInv] = useState(true);
@@ -97,6 +120,8 @@ export default function BusinessSettings() {
         businessPhone: company.businessPhone,
         businessEmail: company.businessEmail,
         replyToEmail: company.replyToEmail,
+        accountingMethod: company.accountingMethod,
+        timezone: company.timezone,
         showAddressOnInvoice: company.showAddressOnInvoice,
         showPhoneOnInvoice: company.showPhoneOnInvoice,
         showEmailOnInvoice: company.showEmailOnInvoice,
@@ -110,6 +135,8 @@ export default function BusinessSettings() {
     setPhone(company.businessPhone ?? '');
     setEmail(company.businessEmail ?? '');
     setReplyTo(company.replyToEmail ?? '');
+    setMethod(company.accountingMethod === 'accrual' ? 'accrual' : 'cash');
+    setTimezone(company.timezone ?? 'UTC');
     setShowAddrInv(company.showAddressOnInvoice);
     setShowPhoneInv(company.showPhoneOnInvoice);
     setShowEmailInv(company.showEmailOnInvoice);
@@ -174,6 +201,46 @@ export default function BusinessSettings() {
       setReplyStatus('error');
     } finally {
       setReplySaving(false);
+    }
+  }
+
+  async function onSaveMethod(next: 'cash' | 'accrual') {
+    if (!company) return;
+    setMethod(next);
+    setMethodSaving(true);
+    setMethodStatus('idle');
+    try {
+      const res = await api.api.companies[':id'].$patch({
+        param: { id: company.id },
+        json: { accountingMethod: next },
+      });
+      setMethodStatus(res.ok ? 'saved' : 'error');
+    } catch {
+      setMethodStatus('error');
+    } finally {
+      setMethodSaving(false);
+    }
+  }
+
+  async function onSaveTimezone(next: string) {
+    if (!company) return;
+    setTzSaving(true);
+    setTzStatus('idle');
+    try {
+      const res = await api.api.companies[':id'].$patch({
+        param: { id: company.id },
+        json: { timezone: next },
+      });
+      if (res.ok) {
+        setTimezone(next);
+        setTzStatus('saved');
+      } else {
+        setTzStatus('error');
+      }
+    } catch {
+      setTzStatus('error');
+    } finally {
+      setTzSaving(false);
     }
   }
 
@@ -362,6 +429,82 @@ export default function BusinessSettings() {
                   <Text className="text-sm text-oxblood">Couldn't save.</Text>
                 ) : null}
               </View>
+            </View>
+
+            {/* Timezone. Deliberately not a 400-entry picker on a phone: the
+                device's own zone is the answer in virtually every case, so we
+                show what's stored and offer a one-tap correction. */}
+            <View className="mt-8 rounded-sm border border-ink/15 bg-cream-warm p-6">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                Your time zone
+              </Text>
+              <Text className="mt-2 font-serif text-lg text-ink">{timezone}</Text>
+              <Text className="mt-3 text-sm text-ink/70">
+                Reports count a day from midnight where you are. Get this wrong and a payment taken
+                on the evening of 31 December can land in the wrong tax year.
+              </Text>
+              {deviceTimezone && deviceTimezone !== timezone ? (
+                <View className="mt-5 flex-row items-center gap-4">
+                  <Pressable
+                    onPress={() => onSaveTimezone(deviceTimezone)}
+                    disabled={tzSaving}
+                    className="rounded-sm bg-ink px-4 py-3 active:bg-gold-deep disabled:opacity-50"
+                  >
+                    <Text className="text-sm font-medium text-cream">Use {deviceTimezone}</Text>
+                  </Pressable>
+                  {tzStatus === 'error' ? (
+                    <Text className="text-sm text-oxblood">Couldn't save.</Text>
+                  ) : null}
+                </View>
+              ) : (
+                <Text className="mt-4 text-sm text-ink/60">
+                  {tzStatus === 'saved'
+                    ? 'Saved.'
+                    : tzStatus === 'error'
+                      ? "Couldn't save."
+                      : 'Matches this device.'}
+                </Text>
+              )}
+            </View>
+
+            {/* Accounting method, in plain words — the user never sees
+                "cash"/"accrual" as a label, only what it means. Saves on tap
+                since it's a two-option choice. */}
+            <View className="mt-8 rounded-sm border border-ink/15 bg-cream-warm p-6">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                When you count income
+              </Text>
+              <Text className="mt-2 font-serif text-lg text-ink">{company.name}</Text>
+              <Text className="mt-3 text-sm text-ink/70">
+                This decides which year money lands in on your Schedule C worksheet. Most people
+                count income when they get paid — the usual choice for freelancers and trades. Only
+                change it if whoever files your taxes told you to.
+              </Text>
+              <View className="mt-5 gap-3">
+                {(
+                  [
+                    ['cash', 'When you get paid', 'Most common.'],
+                    ['accrual', 'When you send the invoice', 'Even if the money arrives later.'],
+                  ] as const
+                ).map(([value, label, hint]) => (
+                  <Pressable
+                    key={value}
+                    onPress={() => onSaveMethod(value)}
+                    disabled={methodSaving}
+                    className={`rounded-sm border px-4 py-3 ${
+                      method === value ? 'border-gold-deep bg-gold-deep/10' : 'border-ink/15'
+                    }`}
+                  >
+                    <Text className="text-ink">{label}</Text>
+                    <Text className="mt-0.5 text-xs text-ink/60">{hint}</Text>
+                  </Pressable>
+                ))}
+              </View>
+              {methodStatus === 'saved' ? (
+                <Text className="mt-4 text-sm text-ink/60">Saved.</Text>
+              ) : methodStatus === 'error' ? (
+                <Text className="mt-4 text-sm text-oxblood">Couldn't save.</Text>
+              ) : null}
             </View>
 
             <View className="mt-8 rounded-sm border border-ink/15 bg-cream-warm p-6">
