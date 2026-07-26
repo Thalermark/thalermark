@@ -80,6 +80,16 @@ export const invoices = pgTable(
     // App-layer enum; CHECK deferred like business_type.
     paymentMethod: text('payment_method'),
     paymentReference: text('payment_reference'),
+    // Processor fee withheld from this invoice's payment (TMC-156). Stripe
+    // deposits net of its cut, so the paid posting splits the customer's gross
+    // across Dr Cash (net) + Dr Merchant Processing Fees (this). Null on every
+    // manual mark-paid channel and on card payments where the fee lookup failed
+    // — both post the pre-TMC-156 shape (Dr Cash at gross), so null is "no fee
+    // leg", not "zero fee". Persisted rather than re-fetched because
+    // repostInvoicePaymentDate has to reproduce the *same* lines to reverse a
+    // payment-date edit; a fee that moved between postings would leave a
+    // non-zero residue in the origin period.
+    processingFee: numeric('processing_fee', { precision: 15, scale: 2 }),
     // Provenance link for invoices minted by a recurring schedule's sweeper.
     // Null for hand-created invoices. ON DELETE SET NULL so ending+deleting a
     // schedule never cascades through generated-invoice history (mirrors

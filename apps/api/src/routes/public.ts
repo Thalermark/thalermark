@@ -10,6 +10,7 @@ import {
   invoices,
 } from '@thalermark/db';
 import { getLogger } from '@thalermark/logger';
+import { centsToMoney } from '@thalermark/validation';
 import { and, asc, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
@@ -17,7 +18,7 @@ import { v7 as uuidv7 } from 'uuid';
 import type { AppDeps } from '../app.js';
 import { postInvoiceTransition } from '../lib/ledger.js';
 import { UUID_RE } from '../lib/route-helpers.js';
-import { decimalDollarsToCents } from '../lib/stripe.js';
+import { decimalDollarsToCents, paymentIntentFeeCents } from '../lib/stripe.js';
 import { RATE_LIMITS, rateLimit } from '../middleware/rate-limit.js';
 import type { RlsVariables } from '../middleware/rls-context.js';
 
@@ -476,6 +477,34 @@ export function publicRoutes(deps: AppDeps) {
             return c.json({ received: true });
           }
 
+          // Processor fee (TMC-156). Stripe deposits net of its cut, so the
+          // posting below splits the customer's gross across Dr Cash (net) +
+          // Dr Merchant Processing Fees. Fetched before the tx because it's a
+          // network call to Stripe and must not hold a DB transaction open.
+          // Any failure degrades to null → the pre-TMC-156 gross-cash posting;
+          // never fail the webhook over a fee, or a paid invoice ends up with
+          // no journal entry at all.
+          let feeCents: number | null = null;
+          try {
+            feeCents = await paymentIntentFeeCents(deps.stripe.client, intent, event.account);
+          } catch (err) {
+            log.error(
+              'stripe fee lookup failed for invoice {invoiceId}; posting cash at gross: {err}',
+              { invoiceId, err },
+            );
+          }
+          if (feeCents !== null && (feeCents < 0 || feeCents >= receivedCents)) {
+            // A fee at-or-above the payment would drive the Cash leg to zero or
+            // negative and break the entry. Treat as unusable rather than
+            // posting something nonsensical.
+            log.error(
+              'stripe fee {feeCents} out of range for invoice {invoiceId} payment {receivedCents}; posting cash at gross',
+              { feeCents, invoiceId, receivedCents },
+            );
+            feeCents = null;
+          }
+          const processingFee = feeCents === null ? null : centsToMoney(feeCents);
+
           const now = new Date();
           // Wrap the status flip + audit + ledger posting in one tx so
           // the deferred sum-to-zero trigger on journal_lines fires at
@@ -487,7 +516,16 @@ export function publicRoutes(deps: AppDeps) {
               .update(invoices)
               // Stamp the channel so the detail page reads "Paid via Card
               // (Stripe)" consistently with the manual mark-paid methods.
-              .set({ status: 'paid', paidAt: now, updatedAt: now, paymentMethod: 'stripe' })
+              // processingFee lands here so postInvoiceTransition can read it
+              // straight off `updated` — and so repostInvoicePaymentDate can
+              // reproduce the identical lines if the date is later corrected.
+              .set({
+                status: 'paid',
+                paidAt: now,
+                updatedAt: now,
+                paymentMethod: 'stripe',
+                processingFee,
+              })
               // Re-assert status='sent' inside the UPDATE so concurrent
               // deliveries (or a webhook overlapping a manual mark-paid) can't
               // both post. The SELECT guard above runs outside any lock; under
@@ -517,7 +555,8 @@ export function publicRoutes(deps: AppDeps) {
 
             // Ledger posting (slice L2). Webhook only fires sent → paid
             // (current.status === 'sent' guard above), so the posting is
-            // always Dr Cash / Cr AR.
+            // Dr Cash (net) + Dr Merchant Processing Fees / Cr AR (gross) —
+            // the fee legs collapse away when processingFee is null.
             await postInvoiceTransition(tx, {
               invoice: updated,
               prevStatus: 'sent',

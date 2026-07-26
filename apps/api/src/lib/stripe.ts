@@ -37,6 +37,41 @@ export function createStripeBundle(env: StripeEnv): StripeBundle | null {
   };
 }
 
+// Processor fee withheld from a succeeded PaymentIntent, in minor units
+// (TMC-156). Returns null when the fee can't be determined — the caller posts
+// the pre-TMC-156 gross-cash shape rather than failing the webhook, because an
+// unposted payment is a worse outcome than a missing fee leg.
+//
+// The fee is not on the PaymentIntent: it lives on the charge's
+// balance_transaction, which needs a second round-trip to expand. For Connect
+// *direct* charges the charge and its balance transaction live on the connected
+// account, so the retrieve has to carry that account — pass the webhook event's
+// `account` field, which Stripe sets on direct-charge deliveries and leaves
+// undefined on platform ones. Retrieving without it against a direct charge
+// resolves on the platform account and 404s (or, worse, silently reads a
+// different object), so this is not an optional refinement.
+export async function paymentIntentFeeCents(
+  client: Stripe,
+  intent: Stripe.PaymentIntent,
+  connectedAccountId?: string,
+): Promise<number | null> {
+  const chargeId =
+    typeof intent.latest_charge === 'string' ? intent.latest_charge : intent.latest_charge?.id;
+  if (!chargeId) return null;
+  const requestOptions = connectedAccountId ? { stripeAccount: connectedAccountId } : undefined;
+  const charge = await client.charges.retrieve(
+    chargeId,
+    { expand: ['balance_transaction'] },
+    requestOptions,
+  );
+  const txn = charge.balance_transaction;
+  // A string here means the expand didn't resolve; an absent one means the
+  // balance transaction isn't available yet (some async payment methods settle
+  // later). Either way we don't know the fee.
+  if (!txn || typeof txn === 'string') return null;
+  return txn.fee;
+}
+
 // Money on the wire is decimal-formatted strings (locked invariant per
 // architecture_money_decimal_strings). Stripe expects integer minor units
 // (cents for USD). Multiply-by-100-and-round is the wrong reflex — floating

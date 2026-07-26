@@ -217,6 +217,10 @@ export async function generateOnce(
       subtotal: schedule.subtotal,
       tax: schedule.tax,
       total: schedule.total,
+      // A freshly-minted invoice has never been paid, and draft→sent touches
+      // neither Cash nor fees — explicit null rather than an optional field so
+      // any future caller has to make the same call consciously.
+      processingFee: null,
     },
     prevStatus: 'draft',
     nextStatus: 'sent',

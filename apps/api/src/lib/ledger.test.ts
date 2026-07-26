@@ -87,6 +87,17 @@ describe('invoicePostingLines — draft → paid', () => {
   it('posts Dr Cash / Cr Service Rev / Cr Product Rev / Cr Sales Tax Payable — skips AR', () => {
     expect(invoicePostingLines('draft', 'paid', taxed)).toEqual([
       { code: '1000', side: 'debit', amount: '108.25' },
+      { code: '7950', side: 'debit', amount: '0.00' },
+      { code: '4000', side: 'credit', amount: '100.00' },
+      { code: '4100', side: 'credit', amount: '0.00' },
+      { code: '2200', side: 'credit', amount: '8.25' },
+    ]);
+  });
+
+  it('splits Cash / Merchant Fees when a processing fee rode along', () => {
+    expect(invoicePostingLines('draft', 'paid', { ...taxed, processingFee: '3.44' })).toEqual([
+      { code: '1000', side: 'debit', amount: '104.81' },
+      { code: '7950', side: 'debit', amount: '3.44' },
       { code: '4000', side: 'credit', amount: '100.00' },
       { code: '4100', side: 'credit', amount: '0.00' },
       { code: '2200', side: 'credit', amount: '8.25' },
@@ -98,8 +109,46 @@ describe('invoicePostingLines — sent → paid', () => {
   it('posts Dr Cash / Cr AR — no revenue movement (already booked at send)', () => {
     expect(invoicePostingLines('sent', 'paid', taxed)).toEqual([
       { code: '1000', side: 'debit', amount: '108.25' },
+      { code: '7950', side: 'debit', amount: '0.00' },
       { code: '1200', side: 'credit', amount: '108.25' },
     ]);
+  });
+
+  // TMC-156. Stripe deposits net of its cut, so Cash takes the net and the fee
+  // lands on 7950 (Schedule C line 27a). AR still clears at gross — the
+  // customer really did pay the full amount, and gross receipts must stay gross
+  // to match the 1099-K Stripe files with the IRS.
+  it('splits Cash (net) / Merchant Fees (fee) against AR at gross', () => {
+    expect(invoicePostingLines('sent', 'paid', { ...taxed, processingFee: '3.44' })).toEqual([
+      { code: '1000', side: 'debit', amount: '104.81' },
+      { code: '7950', side: 'debit', amount: '3.44' },
+      { code: '1200', side: 'credit', amount: '108.25' },
+    ]);
+  });
+
+  it('a fee-split entry still balances', () => {
+    const lines = invoicePostingLines('sent', 'paid', { ...taxed, processingFee: '3.44' });
+    const { debit, credit, count } = nonZeroSides(lines);
+    expect(debit).toBeCloseTo(credit, 2);
+    expect(count).toBe(3);
+  });
+
+  // null is the manual mark-paid / fee-lookup-failed case and must collapse to
+  // the original two-line shape once postJournalEntry drops the zero fee leg.
+  it('null fee is indistinguishable from the pre-fee posting', () => {
+    const withNull = invoicePostingLines('sent', 'paid', { ...taxed, processingFee: null });
+    expect(withNull).toEqual(invoicePostingLines('sent', 'paid', taxed));
+    expect(nonZeroSides(withNull).count).toBe(2);
+  });
+
+  // Sub-penny drift check: 2.9% + $0.30 on 108.25 is 3.44 (rounded by Stripe),
+  // and subtractMoney works over the cents domain, so the legs must tie exactly
+  // rather than to within a float epsilon.
+  it('nets exactly with no floating-point residue', () => {
+    const lines = invoicePostingLines('sent', 'paid', { ...untaxed, processingFee: '3.20' });
+    expect(lines[0]).toEqual({ code: '1000', side: 'debit', amount: '96.80' });
+    const { debit, credit } = sides(lines);
+    expect(debit).toBe(credit);
   });
 });
 
