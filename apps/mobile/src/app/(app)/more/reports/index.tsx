@@ -1,8 +1,4 @@
-import {
-  type BusinessType,
-  TAX_FORM_BY_BUSINESS_TYPE,
-  filesScheduleC,
-} from '@thalermark/validation';
+import { type BusinessType, TAX_FORM_BY_BUSINESS_TYPE } from '@thalermark/validation';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
@@ -14,14 +10,15 @@ import { api } from '../../../../lib/api';
 // each card links to a report that loads its own data. Lives under the "More"
 // tab's Stack (reached from the More hub's Reports entry).
 //
-// The one thing it does fetch is the active company's business type, because the
-// Schedule C worksheet is only some businesses' form — a partnership or
-// corporation files a return of its own and the API 409s that endpoint for them
-// (TMC-124). Web reads the same value off its layout load.
+// The one thing it does fetch is the active company's business type, used only
+// to name the tax worksheet card after the return this business actually files —
+// "Schedule C worksheet" means nothing to an S-corp. All five types have a
+// worksheet as of TMC-162, so nothing is hidden. Web reads the same value off
+// its layout load.
 type ReportHref =
   | '/more/reports/profit-and-loss'
   | '/more/reports/expenses-by-category'
-  | '/more/reports/schedule-c'
+  | '/more/reports/tax-worksheet'
   | '/more/reports/balance-sheet'
   | '/more/reports/ar-aging'
   | '/more/reports/sales-tax'
@@ -42,8 +39,8 @@ const REPORTS: { href: ReportHref; title: string; blurb: string }[] = [
     blurb: 'Where the money went, grouped by category.',
   },
   {
-    href: '/more/reports/schedule-c',
-    title: 'Schedule C worksheet',
+    href: '/more/reports/tax-worksheet',
+    title: 'Tax worksheet',
     blurb: 'Your year laid out by tax line, ready to hand to whoever files for you.',
   },
   {
@@ -105,14 +102,15 @@ export default function ReportsHub() {
     }, []),
   );
 
-  // Unresolved business type reads as "files Schedule C" — that matches the
-  // provisional chart seeded before onboarding asks, and a failed fetch showing
-  // one card too many beats hiding a report the user does have.
-  const showScheduleC = filesScheduleC(businessType);
+  // Name the worksheet card after the return this business files. Falls back to
+  // the generic wording until the fetch lands (or if it fails) — the screen
+  // itself always names the form off its own response.
   const taxForm = businessType ? TAX_FORM_BY_BUSINESS_TYPE[businessType] : null;
-  const reports = showScheduleC
-    ? REPORTS
-    : REPORTS.filter((r) => r.href !== '/more/reports/schedule-c');
+  const reports = REPORTS.map((r) =>
+    r.href === '/more/reports/tax-worksheet' && taxForm
+      ? { ...r, title: `${taxForm} worksheet` }
+      : r,
+  );
 
   return (
     <SafeAreaView className="flex-1 bg-cream" edges={['top']}>
@@ -134,18 +132,6 @@ export default function ReportsHub() {
             </Pressable>
           ))}
         </View>
-
-        {taxForm && !showScheduleC ? (
-          <View className="mt-8 rounded-sm border border-ink/10 bg-cream-warm p-5">
-            <Text className="text-sm text-ink/70">
-              <Text className="text-ink">
-                We haven't built the tax sheet for your kind of business yet.
-              </Text>{' '}
-              Yours is called {taxForm} — it's on our list. Until then, your profit & loss has what
-              whoever does your taxes will ask for.
-            </Text>
-          </View>
-        ) : null}
       </ScrollView>
     </SafeAreaView>
   );
