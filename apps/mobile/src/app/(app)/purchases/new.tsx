@@ -16,6 +16,7 @@ import { ContactField } from '../../../components/ContactField';
 import { DateField } from '../../../components/DateField';
 import { pickActiveCompany } from '../../../lib/active-company';
 import { api } from '../../../lib/api';
+import { apiErrorMessage } from '../../../lib/api-errors';
 import { NEW_CONTACT, findEmailDupe } from '../../../lib/contact-dupes';
 
 // Mirror of apps/web's /purchases/new. Log a big purchase in plain language —
@@ -123,7 +124,7 @@ export default function NewPurchase() {
         const cres = await api.api.contacts.$post({ json: parsedContact.data });
         if (!cres.ok) {
           const body = (await cres.json().catch(() => null)) as { error?: string } | null;
-          setFormError(body?.error ?? 'contact_create_failed');
+          setFormError(apiErrorMessage(body?.error, 'contact_create_failed', body));
           setSubmitting(false);
           return;
         }
@@ -169,7 +170,7 @@ export default function NewPurchase() {
       const res = await api.api.purchases.$post({ json: parsed.data });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
-        setFormError(body?.error ?? 'save_failed');
+        setFormError(apiErrorMessage(body?.error, 'save_failed', body));
         return;
       }
       const created = await res.json();

@@ -14,6 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { type AuditEvent, AuditHistory } from '../../../../components/AuditHistory';
 import { DateField } from '../../../../components/DateField';
 import { api } from '../../../../lib/api';
+import { apiErrorMessage } from '../../../../lib/api-errors';
 import { useMay } from '../../../../lib/role';
 import { getServerUrl } from '../../../../lib/server-url';
 
@@ -177,7 +178,10 @@ export default function InvoiceDetail() {
       const res = await fn();
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
-        setTransitionError(TRANSITION_ERRORS[body?.error ?? ''] ?? body?.error ?? 'Action failed.');
+        setTransitionError(
+          TRANSITION_ERRORS[apiErrorMessage(body?.error, '', body)] ??
+            apiErrorMessage(body?.error, 'Action failed.', body),
+        );
         return;
       }
       onOk?.();

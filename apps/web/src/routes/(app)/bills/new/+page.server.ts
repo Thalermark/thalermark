@@ -1,4 +1,5 @@
 import { pickActiveCompany } from '$lib/active-company';
+import { apiErrorMessage } from '$lib/api-errors';
 import { serverApiClient } from '$lib/api.server';
 import { NEW_CONTACT_SENTINEL, findEmailDupe } from '$lib/contact-dupes';
 import { error, fail, redirect } from '@sveltejs/kit';
@@ -128,7 +129,7 @@ export const actions: Actions = {
         const body = (await custRes.json().catch(() => null)) as { error?: string } | null;
         return fail(custRes.status, {
           values,
-          contactErrors: { _: body?.error ?? 'contact_create_failed' },
+          contactErrors: { _: apiErrorMessage(body?.error, 'contact_create_failed', body) },
         });
       }
       const created = await custRes.json();
@@ -169,7 +170,7 @@ export const actions: Actions = {
         values: createdName
           ? { ...values, contactId: resolvedContactId, contactName: createdName }
           : values,
-        formError: formErrorFor(body?.error ?? 'create_failed'),
+        formError: formErrorFor(apiErrorMessage(body?.error, 'create_failed', body)),
       });
     }
     const created = await res.json();

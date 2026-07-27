@@ -29,6 +29,7 @@ import { TaxRow } from '../../../../components/TaxRow';
 import { TypeRow } from '../../../../components/TypeRow';
 import { pickActiveCompany } from '../../../../lib/active-company';
 import { api } from '../../../../lib/api';
+import { apiErrorMessage } from '../../../../lib/api-errors';
 import { NEW_CONTACT, findEmailDupe } from '../../../../lib/contact-dupes';
 import { type TaxPolicyLite, lineTax, policyRate, resolvePolicyId } from '../../../../lib/line-tax';
 
@@ -270,7 +271,7 @@ export default function NewRecurring() {
         const custRes = await api.api.contacts.$post({ json: parsedCust.data });
         if (!custRes.ok) {
           const body = (await custRes.json().catch(() => null)) as { error?: string } | null;
-          setFormError(body?.error ?? 'contact_create_failed');
+          setFormError(apiErrorMessage(body?.error, 'contact_create_failed', body));
           return;
         }
         const created = await custRes.json();
@@ -340,7 +341,7 @@ export default function NewRecurring() {
       const res = await api.api['recurring-invoices'].$post({ json: parsed.data });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
-        const code = body?.error ?? 'create_failed';
+        const code = apiErrorMessage(body?.error, 'create_failed', body);
         setFormError(FRIENDLY[code] ?? code);
         return;
       }

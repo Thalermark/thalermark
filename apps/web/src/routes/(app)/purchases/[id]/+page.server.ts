@@ -1,3 +1,4 @@
+import { apiErrorMessage } from '$lib/api-errors';
 import { serverApiClient } from '$lib/api.server';
 import { error, fail, redirect } from '@sveltejs/kit';
 import { loanPaymentSchema } from '@thalermark/validation';
@@ -55,7 +56,7 @@ export const actions: Actions = {
       const message =
         body?.error === 'payment_exceeds_balance'
           ? "That's more than you still owe."
-          : (body?.error ?? 'Could not record the payment.');
+          : apiErrorMessage(body?.error, 'Could not record the payment.', body);
       return fail(res.status, { paymentError: message });
     }
     redirect(303, `/purchases/${event.params.id}`);
@@ -70,7 +71,7 @@ export const actions: Actions = {
       const message =
         body?.error === 'has_payments'
           ? "You've already recorded payments on this, so it can't be removed."
-          : (body?.error ?? 'delete_failed');
+          : apiErrorMessage(body?.error, 'delete_failed', body);
       return fail(res.status, { deleteError: message });
     }
     redirect(303, '/purchases');

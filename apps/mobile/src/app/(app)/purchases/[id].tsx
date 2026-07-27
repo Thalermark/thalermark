@@ -13,6 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { type AuditEvent, AuditHistory } from '../../../components/AuditHistory';
 import { api } from '../../../lib/api';
+import { apiErrorMessage } from '../../../lib/api-errors';
 import { useMay } from '../../../lib/role';
 
 // Mirror of apps/web's /purchases/[id]. The plain answer up top ("you still owe
@@ -142,7 +143,7 @@ export default function PurchaseDetail() {
         setPayError(
           body?.error === 'payment_exceeds_balance'
             ? "That's more than you still owe."
-            : (body?.error ?? 'Could not record the payment.'),
+            : apiErrorMessage(body?.error, 'Could not record the payment.', body),
         );
         return;
       }

@@ -14,6 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { DateField } from '../../../../components/DateField';
 import { api } from '../../../../lib/api';
+import { apiErrorMessage } from '../../../../lib/api-errors';
 
 // Mirror of apps/web's /owner-money/[id]/edit. Edit = reverse the prior posting
 // + repost (the API handles it); the form carries the full editable set.
@@ -92,7 +93,7 @@ export default function EditOwnerMoney() {
       const res = await api.api['owner-money'][':id'].$patch({ param: { id }, json: parsed.data });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
-        setFormError(body?.error ?? 'update_failed');
+        setFormError(apiErrorMessage(body?.error, 'update_failed', body));
         return;
       }
       router.replace(`/owner-money/${id}`);

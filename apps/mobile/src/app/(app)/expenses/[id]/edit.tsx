@@ -17,6 +17,7 @@ import { DateField } from '../../../../components/DateField';
 import { SuggestButton, SuggestNotice } from '../../../../components/SuggestCategory';
 import { VendorField } from '../../../../components/VendorField';
 import { api } from '../../../../lib/api';
+import { apiErrorMessage } from '../../../../lib/api-errors';
 import { type SuggestResult, suggestCategory } from '../../../../lib/categorize';
 import { resolveVendor } from '../../../../lib/expense-vendor';
 
@@ -163,7 +164,7 @@ export default function EditExpense() {
       const res = await api.api.expenses[':id'].$patch({ param: { id }, json });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
-        setFormError(body?.error ?? 'save_failed');
+        setFormError(apiErrorMessage(body?.error, 'save_failed', body));
         return;
       }
       router.replace(`/expenses/${id}`);

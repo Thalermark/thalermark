@@ -1,4 +1,5 @@
 import { pickActiveCompany } from '$lib/active-company';
+import { apiErrorMessage } from '$lib/api-errors';
 import { serverApiClient } from '$lib/api.server';
 import { NEW_CONTACT_SENTINEL, findEmailDupe } from '$lib/contact-dupes';
 import { lineTax, policyRate } from '$lib/line-tax';
@@ -224,7 +225,7 @@ export const actions: Actions = {
         const body = (await custRes.json().catch(() => null)) as { error?: string } | null;
         return fail(custRes.status, {
           values,
-          contactErrors: { _: body?.error ?? 'contact_create_failed' },
+          contactErrors: { _: apiErrorMessage(body?.error, 'contact_create_failed', body) },
         });
       }
       const createdContact = await custRes.json();
@@ -300,7 +301,7 @@ export const actions: Actions = {
     const res = await client.api.invoices.$post({ json: parsed.data });
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      const code = body?.error ?? 'create_failed';
+      const code = apiErrorMessage(body?.error, 'create_failed', body);
       const formError =
         code === 'invoice_number_taken'
           ? 'Invoice number already used for this company. Try another.'

@@ -17,6 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { DateField } from '../../../components/DateField';
 import { pickActiveCompany } from '../../../lib/active-company';
 import { api } from '../../../lib/api';
+import { apiErrorMessage } from '../../../lib/api-errors';
 
 // Mirror of apps/web's /ledger/new. A balanced multi-line journal entry the user
 // posts as their accountant dictates. The double-entry is shown on purpose here.
@@ -127,7 +128,7 @@ export default function NewLedgerEntry() {
         setFormError(
           body?.error === 'invalid_account'
             ? 'One of the accounts is not valid for this company.'
-            : (body?.error ?? 'Could not post the entry.'),
+            : apiErrorMessage(body?.error, 'Could not post the entry.', body),
         );
         return;
       }

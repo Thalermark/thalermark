@@ -1,4 +1,5 @@
 import { pickActiveCompany } from '$lib/active-company';
+import { apiErrorMessage } from '$lib/api-errors';
 import { serverApiClient } from '$lib/api.server';
 import { error, fail, redirect } from '@sveltejs/kit';
 import { manualJournalEntryCreateSchema } from '@thalermark/validation';
@@ -76,7 +77,7 @@ export const actions: Actions = {
       const message =
         body?.error === 'invalid_account'
           ? 'One of the accounts is not valid for this company.'
-          : (body?.error ?? 'Could not post the entry.');
+          : apiErrorMessage(body?.error, 'Could not post the entry.', body);
       return fail(res.status, { values, formError: message });
     }
     const created = await res.json();

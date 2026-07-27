@@ -1,3 +1,4 @@
+import { apiErrorMessage } from '$lib/api-errors';
 import { serverApiClient } from '$lib/api.server';
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
@@ -42,7 +43,9 @@ export const actions: Actions = {
     if (res.status === 404) throw error(404, 'not found');
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      return fail(res.status, { reverseError: body?.error ?? 'reverse_failed' });
+      return fail(res.status, {
+        reverseError: apiErrorMessage(body?.error, 'reverse_failed', body),
+      });
     }
     redirect(303, `/ledger/${event.params.id}`);
   },

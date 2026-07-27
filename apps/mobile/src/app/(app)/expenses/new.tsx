@@ -18,6 +18,7 @@ import { SuggestButton, SuggestNotice } from '../../../components/SuggestCategor
 import { VendorField } from '../../../components/VendorField';
 import { pickActiveCompany } from '../../../lib/active-company';
 import { api } from '../../../lib/api';
+import { apiErrorMessage } from '../../../lib/api-errors';
 import { type SuggestResult, suggestCategory } from '../../../lib/categorize';
 import { resolveVendor } from '../../../lib/expense-vendor';
 import { useFlowAbandonment } from '../../../lib/flow-abandonment';
@@ -185,7 +186,7 @@ export default function NewExpense() {
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
-        setFormError(body?.error ?? 'create_failed');
+        setFormError(apiErrorMessage(body?.error, 'create_failed', body));
         return;
       }
       const created = await res.json();
