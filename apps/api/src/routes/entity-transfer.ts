@@ -27,8 +27,13 @@ import type { RlsVariables } from '../middleware/rls-context.js';
 // corporation files its own return from the transfer date, and they are
 // different taxpayers with different EINs.
 //
-// GET /api/companies/:id/handoff-preview — what would move, before committing.
-// POST /api/companies/:id/handoff        — do it, in ONE transaction.
+// GET  /api/entity-transfers/preview?companyId= — what would move, uncommitted.
+// POST /api/entity-transfers                     — do it, in ONE transaction.
+//
+// Deliberately NOT under /api/companies/:id. Those paths already carry two
+// sub-apps (CRUD and reports), and the web client facade intersects them by key;
+// a third made hc's inference on the companies collection collapse, breaking
+// every call site. A handoff is its own thing anyway, and the table agrees.
 //
 // The whole handoff is one tenant transaction: create the successor, seed its
 // chart, copy the reference data, post both transfer entries, recreate the
@@ -37,9 +42,9 @@ import type { RlsVariables } from '../middleware/rls-context.js';
 
 export function entityTransferRoutes() {
   return new Hono<{ Variables: RlsVariables }>()
-    .get('/api/companies/:id/handoff-preview', async (c) => {
-      const id = c.req.param('id');
-      if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+    .get('/api/entity-transfers/preview', async (c) => {
+      const id = c.req.query('companyId');
+      if (!id || !UUID_RE.test(id)) return c.json({ error: 'invalid_company' }, 400);
       const tx = c.get('tx');
       const accountId = c.get('accountId');
 
@@ -79,6 +84,7 @@ export function entityTransferRoutes() {
         effectiveDate,
         balances: balances.map((b) => ({
           code: b.code,
+          name: b.name,
           accountType: b.accountType,
           // Signed, debit-positive — the raw shape the plan works in.
           amount: (b.raw / 100).toFixed(2),
@@ -96,16 +102,20 @@ export function entityTransferRoutes() {
           .toString(),
       });
     })
-    .post('/api/companies/:id/handoff', requireCapability('settings:manage'), async (c) => {
-      const predecessorCompanyId = c.req.param('id');
-      if (!UUID_RE.test(predecessorCompanyId)) return c.json({ error: 'invalid_id' }, 400);
+    .post('/api/entity-transfers', requireCapability('settings:manage'), async (c) => {
       const body = await c.req.json().catch(() => null);
       const parsed = entityHandoffSchema.safeParse(body);
       if (!parsed.success) {
         return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
       }
-      const { name, businessType, effectiveDate, openInvoicesDisposition, transferAssetIds } =
-        parsed.data;
+      const {
+        predecessorCompanyId,
+        name,
+        businessType,
+        effectiveDate,
+        openInvoicesDisposition,
+        transferAssetIds,
+      } = parsed.data;
       const include = resolveCopyInclude(parsed.data.include);
 
       const tx = c.get('tx');

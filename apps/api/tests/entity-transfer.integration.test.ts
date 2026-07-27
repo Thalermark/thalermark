@@ -182,9 +182,10 @@ async function seedSoleProp(ctx: Ctx) {
 }
 
 const handoff = (ctx: Ctx, body?: Record<string, unknown>) =>
-  req(ctx, `/api/companies/${ctx.companyId}/handoff`, {
+  req(ctx, '/api/entity-transfers', {
     method: 'POST',
     body: JSON.stringify({
+      predecessorCompanyId: ctx.companyId,
       name: 'Newco Inc',
       businessType: 's_corp',
       effectiveDate: EFFECTIVE,

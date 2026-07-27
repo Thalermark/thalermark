@@ -35,6 +35,11 @@ const COA_AR = '1200';
 export type AccountBalance = {
   coaAccountId: string;
   code: string;
+  // The account's own words ("Cash", "Vehicles & Equipment"). Carried so a
+  // preview can name what moves rather than showing a bare 4-digit code — the
+  // whole product hides accounting vocabulary, and a code is the purest form of
+  // it.
+  name: string;
   accountType: string;
   raw: number; // cents, debit-positive
 };
@@ -52,6 +57,7 @@ export async function transferableBalances(
     .select({
       coaAccountId: chartOfAccounts.id,
       code: chartOfAccounts.code,
+      name: chartOfAccounts.name,
       accountType: chartOfAccounts.accountType,
       raw: sql<string>`sum(case when ${journalLines.side} = 'debit' then ${journalLines.amount} else -${journalLines.amount} end)::numeric(15,2)`,
     })
@@ -66,12 +72,18 @@ export async function transferableBalances(
         inArray(chartOfAccounts.accountType, ['asset', 'liability']),
       ),
     )
-    .groupBy(chartOfAccounts.id, chartOfAccounts.code, chartOfAccounts.accountType);
+    .groupBy(
+      chartOfAccounts.id,
+      chartOfAccounts.code,
+      chartOfAccounts.name,
+      chartOfAccounts.accountType,
+    );
 
   return rows
     .map((r) => ({
       coaAccountId: r.coaAccountId,
       code: r.code,
+      name: r.name,
       accountType: r.accountType,
       raw: Math.round(Number(r.raw) * 100),
     }))

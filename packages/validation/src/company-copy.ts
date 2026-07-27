@@ -75,6 +75,8 @@ export type CompanyCopyResult = {
 
 // The handoff itself: everything the wizard collects before committing.
 export const entityHandoffSchema = z.object({
+  // The business handing its books over.
+  predecessorCompanyId: z.string().uuid(),
   // The new legal entity.
   name: z.string().trim().min(1).max(200),
   businessType: z.enum(['sole_prop', 'llc_single_member', 'partnership', 's_corp', 'c_corp']),

@@ -20,6 +20,7 @@ export type {
   BillsAppType,
   CompaniesAppType,
   ContactsAppType,
+  EntityTransferAppType,
   EstimatesAppType,
   ExpensesAppType,
   InvoicesAppType,

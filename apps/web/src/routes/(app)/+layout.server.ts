@@ -67,7 +67,9 @@ export const load: LayoutServerLoad = async (event) => {
   if (legalRes.ok) legal = await legalRes.json();
 
   return {
-    companies: companies.map((c) => ({ id: c.id, name: c.name })),
+    // retiredAt rides along so the switcher can group closed businesses and the
+    // layout can say when you're looking at one.
+    companies: companies.map((c) => ({ id: c.id, name: c.name, retiredAt: c.retiredAt })),
     activeCompanyId: active?.id ?? null,
     // Which federal return the active business files, for the surfaces that are
     // entity-specific (the Schedule C worksheet is only some businesses'). Rides

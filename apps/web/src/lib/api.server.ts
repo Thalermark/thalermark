@@ -8,6 +8,7 @@ import type {
   BillsAppType,
   CompaniesAppType,
   ContactsAppType,
+  EntityTransferAppType,
   EstimatesAppType,
   ExpensesAppType,
   InvoicesAppType,
@@ -50,6 +51,7 @@ const mkEstimates = (...a: Parameters<typeof hc>) => hc<EstimatesAppType>(...a);
 const mkExpenses = (...a: Parameters<typeof hc>) => hc<ExpensesAppType>(...a);
 const mkReports = (...a: Parameters<typeof hc>) => hc<ReportsAppType>(...a);
 const mkSettingsAi = (...a: Parameters<typeof hc>) => hc<SettingsAiAppType>(...a);
+const mkEntityTransfer = (...a: Parameters<typeof hc>) => hc<EntityTransferAppType>(...a);
 type MainApi = ReturnType<typeof mkMain>['api'];
 type AccountApi = ReturnType<typeof mkAccount>['api'];
 type BillsApi = ReturnType<typeof mkBills>['api'];
@@ -67,6 +69,7 @@ type EstimatesApi = ReturnType<typeof mkEstimates>['api'];
 type ExpensesApi = ReturnType<typeof mkExpenses>['api'];
 type ReportsApi = ReturnType<typeof mkReports>['api'];
 type SettingsAiApi = ReturnType<typeof mkSettingsAi>['api'];
+type EntityTransferApi = ReturnType<typeof mkEntityTransfer>['api'];
 
 // The unified server RPC client. Call sites still reach every domain as
 // client.api.<domain>; a Proxy routes the migrated domains to their own hc
@@ -81,6 +84,10 @@ type SettingsAiApi = ReturnType<typeof mkSettingsAi>['api'];
 // the two sub-app surfaces: TS merges the same-key object types, and the runtime
 // hc client is a URL builder so the single override client reaches both halves'
 // paths. (AppType no longer carries any `/api/companies` route.)
+//
+// Two is the limit that works: a third same-key surface made hc's inference on
+// the companies collection collapse to the bare constraint, which is why the
+// incorporation handoff lives on its own `/api/entity-transfers` prefix.
 export type ServerApiClient = {
   api: MainApi & {
     // account sub-app serves four prefixes; web consumes me/account/team via hc
@@ -100,6 +107,7 @@ export type ServerApiClient = {
     'tax-policies': TaxPoliciesApi['tax-policies'];
     'audit-events': AuditEventsApi['audit-events'];
     companies: CompaniesApi['companies'] & ReportsApi['companies'];
+    'entity-transfers': EntityTransferApi['entity-transfers'];
     contacts: ContactsApi['contacts'];
     invoices: InvoicesApi['invoices'];
     'recurring-invoices': RecurringApi['recurring-invoices'];
@@ -137,6 +145,7 @@ export function serverApiClient(event: RequestEvent): ServerApiClient {
     estimates: hc<EstimatesAppType>(base, { headers }).api.estimates,
     expenses: hc<ExpensesAppType>(base, { headers }).api.expenses,
     settings: hc<SettingsAiAppType>(base, { headers }).api.settings,
+    'entity-transfers': hc<EntityTransferAppType>(base, { headers }).api['entity-transfers'],
   };
   const api = new Proxy(main.api, {
     get(target, prop) {

@@ -24,6 +24,13 @@
   // exempt paths (e.g. /select-company) — UserMenu hides the section then.
   const companies = $derived(data?.companies ?? []);
   const activeCompanyId = $derived(data?.activeCompanyId ?? null);
+  // Working inside a business that has stopped trading. Its records stay
+  // readable — that's the point — but nothing new can be recorded against it,
+  // and someone who switched to it for a report should be told rather than
+  // discovering it when a save fails.
+  const activeRetired = $derived(
+    companies.some((c) => c.id === activeCompanyId && c.retiredAt != null),
+  );
   // Creating a company + the account-wide telemetry decision are both
   // settings:manage (owner/admin); switching companies is open to every role.
   const canManageSettings = $derived(may(page.data.role, 'settings:manage'));
@@ -92,6 +99,16 @@
 </header>
 
 <main class="mx-auto max-w-5xl px-6 py-12">
+  {#if activeRetired}
+    <div class="callout mb-8">
+      <p class="text-sm text-fg/70">
+        <span class="text-fg">You're looking at a closed business.</span>
+        Everything here is still readable and every report still works, so you can file for it —
+        but you can't record new work against it.
+        <a href="/settings/business" class="link">Business settings</a>.
+      </p>
+    </div>
+  {/if}
   {#if showLegalConsent}
     <LegalConsent
       termsUrl={data.legal?.termsUrl ?? '/legal/terms'}
