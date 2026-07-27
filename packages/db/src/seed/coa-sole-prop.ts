@@ -18,7 +18,7 @@ import type { CoaOverlay } from './coa.js';
 // no mapping: Schedule C has no balance sheet. Lines with no account of ours —
 // 12 depletion, 14 employee benefits, 16a mortgage interest, 19 pension — still
 // render on the worksheet, at zero, so a user comparing against the IRS PDF
-// finds every line (see apps/api/src/lib/schedule-c.ts).
+// finds every line (see apps/api/src/lib/tax-worksheet.ts).
 export const SOLE_PROP_OVERLAY: CoaOverlay = {
   taxForm: 'Schedule C (Form 1040)',
   taxMapping: {

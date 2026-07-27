@@ -1,6 +1,6 @@
 import { pickActiveCompany } from '$lib/active-company';
 import { apiBaseUrl, serverApiClient, serverApiHeaders } from '$lib/api.server';
-import { error, redirect } from '@sveltejs/kit';
+import { error } from '@sveltejs/kit';
 
 // Shared loaders for the report pages. They all read a from/to window (default
 // YTD) off a single company (single-company MVP picks the first), surface the
@@ -296,40 +296,46 @@ export async function loadGeneralLedger(event: Parameters<typeof serverApiClient
   };
 }
 
-// --- Schedule C worksheet -------------------------------------------------
+// --- Tax worksheet --------------------------------------------------------
 // Unlike the other reports this is scoped to a calendar tax year, not a
 // from/to window, and carries an accounting basis. Both ride the query string
 // so a bookmarked link reproduces exactly what the user was looking at.
+//
+// One page, four forms (TMC-162): the API dispatches on the company's business
+// type and returns the form it files, so nothing here routes by entity type.
 
-export type ScheduleCLineRow = {
+export type TaxLineRow = {
   line: string;
   label: string;
-  amount: string;
-  userSupplied?: true;
+  role: string;
+  // Null on a line nothing can fill — rendered as an explicit blank, never
+  // 0.00, which would read as "you had none of this".
+  amount: string | null;
   accounts: { code: string; name: string; amount: string }[];
+  // The catch-all "other deductions" line, whose accounts ARE the itemised
+  // statement the return is filed with. Rendered expanded, not behind a
+  // disclosure.
+  itemized?: true;
+  userSupplied?: true;
+  // Part of an a/b/c group where only the balance carries into the column that
+  // sums to total deductions. Indented so a reader adding up that column
+  // doesn't double-count.
+  subLine?: true;
 };
 
-export type ScheduleC = {
+export type TaxWorksheet = {
+  form: string;
+  formCode: string;
   year: number;
   basis: 'cash' | 'accrual';
   companyAccountingMethod: string;
   from: string;
   to: string;
-  partI: {
-    grossReceipts: string;
-    returnsAndAllowances: string;
-    netReceipts: string;
-    costOfGoodsSold: string;
-    grossProfit: string;
-    otherIncome: string;
-    grossIncome: string;
-  };
-  partII: ScheduleCLineRow[];
+  income: TaxLineRow[];
+  deductions: TaxLineRow[];
   unmappedExpenses: { code: string; name: string; amount: string }[];
-  totalExpenses: string;
-  tentativeProfit: string;
-  homeOffice: null;
-  netProfit: string;
+  totalDeductions: string;
+  netIncome: string;
 };
 
 // The tax years worth offering: the current one (an in-progress preview) plus
@@ -340,7 +346,7 @@ export function taxYearOptions(now = new Date()): number[] {
   return [y, y - 1, y - 2, y - 3];
 }
 
-export async function loadScheduleC(event: Parameters<typeof serverApiClient>[0]) {
+export async function loadTaxWorksheet(event: Parameters<typeof serverApiClient>[0]) {
   const { client, companyId } = await reportCompany(event);
   const sp = event.url.searchParams;
 
@@ -356,18 +362,11 @@ export async function loadScheduleC(event: Parameters<typeof serverApiClient>[0]
   const basisParam = sp.get('basis');
   const basis = basisParam === 'cash' || basisParam === 'accrual' ? basisParam : undefined;
 
-  const res = await client.api.companies[':id']['schedule-c'].$get({
+  const res = await client.api.companies[':id']['tax-worksheet'].$get({
     param: { id: companyId },
     query: { year, ...(basis ? { basis } : {}) },
   });
-  // 409 = this business doesn't file a Schedule C (partnership / S-corp / C-corp
-  // — see TMC-124). The hub already hides the card, so this only catches a typed
-  // or bookmarked URL. Bounce to the hub, which names the form this business does
-  // file, rather than throwing: the root error boundary prints fixed copy for a
-  // 404 ("the link may be broken") and appends "please try again in a moment" to
-  // every other status, so either would misdescribe what happened.
-  if (res.status === 409) throw redirect(303, '/reports');
-  if (!res.ok) throw error(res.status, 'failed to load the Schedule C worksheet');
-  const report = (await res.json()) as ScheduleC;
+  if (!res.ok) throw error(res.status, 'failed to load the tax worksheet');
+  const report = (await res.json()) as TaxWorksheet;
   return { report, years };
 }

@@ -8,11 +8,19 @@ import { createApiAuth } from '../src/lib/auth.js';
 import { createApiDatabase } from '../src/lib/db.js';
 import { appDatabaseUrl, getTestDb, resetDb } from './test-helper.js';
 
-// Schedule C worksheet (TMC-155). The interesting surface is the cash/accrual
-// split: the GL is always accrual, so cash basis is a read-time lens. These
-// assert that the lens actually moves money between tax years — a paid-in-
-// January invoice must not land in the prior year's return on cash basis, and
-// an unpaid bill must not be deducted before it's paid.
+// Tax worksheet (TMC-155 for Schedule C, TMC-162 for the other three forms).
+//
+// Two surfaces here. The first is the cash/accrual split: the GL is always
+// accrual, so cash basis is a read-time lens, and these assert the lens actually
+// moves money between tax years — a paid-in-January invoice must not land in the
+// prior year's return on cash basis, and an unpaid bill must not be deducted
+// before it's paid. Those run against Schedule C via the legacy alias, which
+// doubles as the regression test that the alias still returns the shape shipped
+// mobile builds parse.
+//
+// The second is form dispatch: a partnership, S-corp and C-corp each get their
+// own return off the same endpoint, with the accounts landing on that form's
+// line numbers.
 
 const testEnv: Env = {
   nodeEnv: 'test',
@@ -526,6 +534,361 @@ describe('GET /api/companies/:id/schedule-c', () => {
       expect(badYear.status).toBe(400);
 
       const missing = await ctx.app.request(`/api/companies/${uuidv7()}/schedule-c?year=2026`, {
+        headers: headers(ctx),
+      });
+      expect(missing.status).toBe(404);
+    } finally {
+      await close();
+    }
+  });
+});
+
+// --- The generalised endpoint ---------------------------------------------
+
+type Worksheet = {
+  form: string;
+  formCode: string;
+  year: number;
+  basis: string;
+  from: string;
+  to: string;
+  income: WorksheetRow[];
+  deductions: WorksheetRow[];
+  unmappedExpenses: { code: string; name: string; amount: string }[];
+  totalDeductions: string;
+  netIncome: string;
+};
+
+type WorksheetRow = {
+  line: string;
+  label: string;
+  role: string;
+  amount: string | null;
+  accounts: { code: string; name: string; amount: string }[];
+  itemized?: true;
+  userSupplied?: true;
+  subLine?: true;
+};
+
+// A second company on the same account, seeded with the chart for its business
+// type. The signup company is always sole-prop, so every non-Schedule-C case
+// needs one of these.
+async function companyOfType(ctx: Ctx, name: string, businessType: string): Promise<string> {
+  const res = await ctx.app.request('/api/companies', {
+    method: 'POST',
+    headers: headers(ctx),
+    body: JSON.stringify({ name, businessType }),
+  });
+  if (res.status !== 201)
+    throw new Error(`company create failed: ${res.status} ${await res.text()}`);
+  return ((await res.json()) as { id: string }).id;
+}
+
+async function getWorksheet(ctx: Ctx, companyId: string, query = ''): Promise<Worksheet> {
+  const res = await ctx.app.request(`/api/companies/${companyId}/tax-worksheet${query}`, {
+    headers: headers(ctx),
+  });
+  if (res.status !== 200)
+    throw new Error(`tax-worksheet failed: ${res.status} ${await res.text()}`);
+  return (await res.json()) as Worksheet;
+}
+
+function row(w: Worksheet, id: string): WorksheetRow {
+  const found = [...w.income, ...w.deductions].find((r) => r.line === id);
+  if (!found) throw new Error(`line ${id} missing from ${w.form}`);
+  return found;
+}
+
+// Posts a direct expense against a specific company (the shared `expense` helper
+// is pinned to ctx.companyId, which is always the sole-prop signup company).
+async function expenseFor(
+  ctx: Ctx,
+  companyId: string,
+  opts: { categoryCode: string; amount: string; expenseDate: string },
+): Promise<void> {
+  const categoryAccountId = await coaId(companyId, opts.categoryCode);
+  const paymentAccountId = await coaId(companyId, '1000');
+  const res = await ctx.app.request('/api/expenses', {
+    method: 'POST',
+    headers: headers(ctx),
+    body: JSON.stringify({
+      companyId,
+      categoryAccountId,
+      paymentAccountId,
+      amount: opts.amount,
+      expenseDate: opts.expenseDate,
+      merchant: 'Vendor',
+    }),
+  });
+  if (res.status !== 201)
+    throw new Error(`expense create failed: ${res.status} ${await res.text()}`);
+}
+
+describe('GET /api/companies/:id/tax-worksheet', () => {
+  beforeEach(resetDb);
+
+  it('gives a sole proprietor Schedule C', async () => {
+    const { ctx, close } = await setup('tw-sole@example.com');
+    try {
+      const w = await getWorksheet(ctx, ctx.companyId, '?year=2026');
+      expect(w.formCode).toBe('schedule_c');
+      expect(w.form).toBe('Schedule C (Form 1040)');
+      expect(w.deductions.at(0)?.line).toBe('8');
+      expect(w.deductions.at(-1)?.line).toBe('31');
+    } finally {
+      await close();
+    }
+  });
+
+  it('gives a partnership Form 1065, with the chart on 1065 line numbers', async () => {
+    const { ctx, close } = await setup('tw-partnership@example.com');
+    try {
+      const id = await companyOfType(ctx, 'Two Guys Landscaping', 'partnership');
+      // 6700 Office Expense has no dedicated line on the 1065 — it lands on the
+      // catch-all. 6900 Repairs does have one, line 11.
+      await expenseFor(ctx, id, {
+        categoryCode: '6700',
+        amount: '240.00',
+        expenseDate: '2026-05-01',
+      });
+      await expenseFor(ctx, id, {
+        categoryCode: '6900',
+        amount: '175.00',
+        expenseDate: '2026-05-02',
+      });
+
+      const w = await getWorksheet(ctx, id, '?year=2026&basis=cash');
+      expect(w.formCode).toBe('1065');
+      expect(w.form).toBe('Form 1065');
+      expect(row(w, '11').amount).toBe('175.00');
+      expect(row(w, '20').amount).toBe('240.00');
+      expect(row(w, '21').role).toBe('totalDeductions');
+      expect(w.totalDeductions).toBe('415.00');
+      expect(row(w, '22').amount).toBe('-415.00');
+      // Income runs 1a–8 on this form, not 1–7.
+      expect(w.income.at(0)?.line).toBe('1a');
+      expect(w.income.at(-1)?.line).toBe('8');
+    } finally {
+      await close();
+    }
+  });
+
+  // The point of the whole ticket: 13 of the 1065's 23 mapped accounts land on
+  // line 20, so the statement attached to it is the real deliverable. A
+  // worksheet that says "Other deductions: $2,433.72" and stops is useless.
+  it('itemises the accounts behind the catch-all line', async () => {
+    const { ctx, close } = await setup('tw-itemised@example.com');
+    try {
+      const id = await companyOfType(ctx, 'Partners LLC', 'partnership');
+      for (const [code, amount] of [
+        ['6700', '240.00'],
+        ['7000', '1105.60'],
+        ['7400', '88.12'],
+      ] as const) {
+        await expenseFor(ctx, id, { categoryCode: code, amount, expenseDate: '2026-06-01' });
+      }
+
+      const w = await getWorksheet(ctx, id, '?year=2026&basis=cash');
+      const other = row(w, '20');
+      expect(other.itemized).toBe(true);
+      expect(other.amount).toBe('1433.72');
+      expect(other.accounts.map((a) => a.code)).toEqual(['6700', '7000', '7400']);
+      expect(other.accounts.map((a) => a.amount)).toEqual(['240.00', '1105.60', '88.12']);
+    } finally {
+      await close();
+    }
+  });
+
+  it('gives an S-corp Form 1120-S, where advertising has its own line', async () => {
+    const { ctx, close } = await setup('tw-scorp@example.com');
+    try {
+      const id = await companyOfType(ctx, 'Scorp Inc', 's_corp');
+      // Advertising is line 16 on the 1120-S but has no line at all on the
+      // 1065 — the clearest signal the right form's table is in play.
+      await expenseFor(ctx, id, {
+        categoryCode: '6000',
+        amount: '500.00',
+        expenseDate: '2026-02-01',
+      });
+
+      const w = await getWorksheet(ctx, id, '?year=2026&basis=cash');
+      expect(w.formCode).toBe('1120s');
+      expect(row(w, '16').amount).toBe('500.00');
+      expect(row(w, '19').itemized).toBe(true);
+      expect(w.totalDeductions).toBe('500.00');
+      // Officer compensation renders at zero until payroll (TMC-161) lands —
+      // the line must be visible, not omitted.
+      expect(row(w, '7').label).toBe('Compensation of officers');
+      expect(row(w, '7').amount).toBe('0.00');
+    } finally {
+      await close();
+    }
+  });
+
+  // The correctness bug this ticket had to fix. 7800 Income Tax Expense is a
+  // real expense account mapped to line 31; income tax is NOT deductible on the
+  // corporation's own return, so letting it into total deductions understates
+  // taxable income by exactly the tax.
+  it('keeps a C-corp income tax expense off total deductions', async () => {
+    const { ctx, close } = await setup('tw-ccorp@example.com');
+    try {
+      const id = await companyOfType(ctx, 'Ccorp Inc', 'c_corp');
+      // The contact has to belong to the same company as the invoice.
+      const contactRes = await ctx.app.request('/api/contacts', {
+        method: 'POST',
+        headers: headers(ctx),
+        body: JSON.stringify({ companyId: id, name: 'Client' }),
+      });
+      expect(contactRes.status).toBe(201);
+      const cust = ((await contactRes.json()) as { id: string }).id;
+      const inv = await ctx.app.request('/api/invoices', {
+        method: 'POST',
+        headers: headers(ctx),
+        body: JSON.stringify({
+          companyId: id,
+          contactId: cust,
+          number: 'INV-CC-1',
+          issueDate: '2026-03-01',
+          dueDate: '2026-03-01',
+          subtotal: '10000.00',
+          tax: '0.00',
+          total: '10000.00',
+          lineItems: [
+            {
+              position: 1,
+              description: 'Service',
+              quantity: '1',
+              unitPrice: '10000.00',
+              amount: '10000.00',
+            },
+          ],
+        }),
+      });
+      expect(inv.status).toBe(201);
+      const invId = ((await inv.json()) as { id: string }).id;
+      await post(ctx, `/api/invoices/${invId}/mark-sent`);
+      await post(ctx, `/api/invoices/${invId}/mark-paid`, {
+        method: 'cash',
+        paidOn: '2026-03-05',
+      });
+
+      await expenseFor(ctx, id, {
+        categoryCode: '7000',
+        amount: '1000.00',
+        expenseDate: '2026-04-01',
+      });
+      await expenseFor(ctx, id, {
+        categoryCode: '7800',
+        amount: '4200.00',
+        expenseDate: '2026-04-02',
+      });
+
+      const w = await getWorksheet(ctx, id, '?year=2026&basis=cash');
+      expect(w.formCode).toBe('1120');
+      expect(row(w, '31').amount).toBe('4200.00');
+      expect(row(w, '26').amount).toBe('1000.00');
+      // 1000, not 5200.
+      expect(w.totalDeductions).toBe('1000.00');
+      expect(row(w, '27').amount).toBe('1000.00');
+      // Taxable income = 10000 − 1000. If the tax had leaked into deductions
+      // this would read 4800.00.
+      expect(row(w, '28').amount).toBe('9000.00');
+      expect(w.netIncome).toBe('9000.00');
+      // 29a/29b/29c have no data model — blank, never a confident 0.00.
+      expect(row(w, '29c').amount).toBeNull();
+      expect(row(w, '29c').userSupplied).toBe(true);
+    } finally {
+      await close();
+    }
+  });
+
+  // Form 1065 line 21 sums the right-hand column, where 16c is the entry — not
+  // 16a. A reader adding up the column must not double-count depreciation.
+  it('nets the 1065 depreciation sub-lines into 16c', async () => {
+    const { ctx, close } = await setup('tw-depreciation@example.com');
+    try {
+      const id = await companyOfType(ctx, 'Depreciating Partners', 'partnership');
+      await expenseFor(ctx, id, {
+        categoryCode: '6350',
+        amount: '900.00',
+        expenseDate: '2026-08-01',
+      });
+
+      const w = await getWorksheet(ctx, id, '?year=2026&basis=cash');
+      expect(row(w, '16a').amount).toBe('900.00');
+      expect(row(w, '16a').subLine).toBe(true);
+      expect(row(w, '16b').amount).toBe('0.00');
+      expect(row(w, '16c').amount).toBe('900.00');
+      // Counted once.
+      expect(w.totalDeductions).toBe('900.00');
+    } finally {
+      await close();
+    }
+  });
+
+  // Shipped mobile binaries call /schedule-c and cannot be upgraded in place, so
+  // the alias has to keep behaving exactly as it did — including refusing a
+  // business that doesn't file one.
+  it('still 409s the legacy alias for a business that files another form', async () => {
+    const { ctx, close } = await setup('tw-alias@example.com');
+    try {
+      const id = await companyOfType(ctx, 'Alias Partners', 'partnership');
+      const res = await ctx.app.request(`/api/companies/${id}/schedule-c?year=2026`, {
+        headers: headers(ctx),
+      });
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({ error: 'wrong_tax_form', taxForm: 'Form 1065' });
+
+      // ...while the generalised endpoint serves that same company its own form.
+      const w = await getWorksheet(ctx, id, '?year=2026');
+      expect(w.formCode).toBe('1065');
+    } finally {
+      await close();
+    }
+  });
+
+  // An account whose mapping names a form the company doesn't file must land in
+  // "review these", not on whatever that line number happens to mean here.
+  it('refuses a mapping that names a different form', async () => {
+    const { ctx, close } = await setup('tw-stale@example.com');
+    try {
+      const id = await companyOfType(ctx, 'Stale Mapping Inc', 'c_corp');
+      const db = getTestDb();
+      // Line 7 is gross royalties on the 1120 and officer compensation on the
+      // 1120-S. A parser that resolved /1120/ loosely would put $5,000 of wages
+      // onto an income line.
+      await db
+        .update(chartOfAccounts)
+        .set({ taxMapping: 'Form 1120-S, Line 7' })
+        .where(and(eq(chartOfAccounts.companyId, id), eq(chartOfAccounts.code, '7450')));
+      await expenseFor(ctx, id, {
+        categoryCode: '7450',
+        amount: '5000.00',
+        expenseDate: '2026-09-01',
+      });
+
+      const w = await getWorksheet(ctx, id, '?year=2026&basis=cash');
+      expect(row(w, '12').amount).toBe('0.00');
+      expect(w.unmappedExpenses).toEqual([
+        { code: '7450', name: 'Officer Compensation', amount: '5000.00' },
+      ]);
+      // Still counted, so the total keeps agreeing with the P&L.
+      expect(w.totalDeductions).toBe('5000.00');
+    } finally {
+      await close();
+    }
+  });
+
+  it('rejects a bad basis, a bad year, and a foreign company', async () => {
+    const { ctx, close } = await setup('tw-validation@example.com');
+    try {
+      const bad = await ctx.app.request(
+        `/api/companies/${ctx.companyId}/tax-worksheet?basis=hybrid`,
+        { headers: headers(ctx) },
+      );
+      expect(bad.status).toBe(400);
+
+      const missing = await ctx.app.request(`/api/companies/${uuidv7()}/tax-worksheet?year=2026`, {
         headers: headers(ctx),
       });
       expect(missing.status).toBe(404);

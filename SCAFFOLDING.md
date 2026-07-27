@@ -1227,8 +1227,7 @@ already had every column.
 accounts that already carry postings (TMC-160 — since **closed** by the incorporation handoff below,
 which stops the case arising rather than fixing the re-label); no year-end close, so corp retained
 earnings never accumulates (TMC-159 — **shipped**, see below); no payroll for officer compensation
-(TMC-161, still open); no worksheets for 1065 / 1120-S / 1120 — the reports hub says so rather than
-rendering a form full of zeros (TMC-162, still open); the AI prompt persona still assumes a sole trader
+(TMC-161, still open); no worksheets for 1065 / 1120-S / 1120 (TMC-162 — **shipped**, see below); the AI prompt persona still assumes a sole trader
 (TMC-163, still open); opening equity posts entirely to 3000 (TMC-164 — **closed** by conversion
 balances below).
 See [[project_entity_coa_seeds]], [[project_schedule_c_export]], [[project_report_timezone]],
@@ -1323,10 +1322,79 @@ of `pnpm test`; three more came from simply opening the page.
 
 **Known limits:** mobile has no handoff by design — Business settings points at the web, because the
 wizard is a preview plus three side-by-side decisions rather than a phone job. A corporation handing its
-books *back* to a Schedule C entity works but is not a designed flow. Officer payroll (TMC-161), the
-1065 / 1120-S / 1120 worksheets (TMC-162) and the sole-trader AI persona (TMC-163) remain open.
+books *back* to a Schedule C entity works but is not a designed flow. Officer payroll (TMC-161) and the
+sole-trader AI persona (TMC-163) remain open.
 
 See [[project_entity_handoff]], [[project_invoice_revenue_recognition]], [[project_e2e_harness]].
+
+---
+
+### Tax worksheets for all four returns — TMC-162
+
+TMC-124 mapped every business type's chart onto the return that entity actually files; TMC-155 built the
+worksheet for one of them. Until this, a partnership or corporation opening Reports got a card that said
+we hadn't built their sheet yet, and the endpoint 409'd.
+
+**The thing that changed how it was built.** Counting what the seeds map:
+
+| Form | Accounts mapped | Distinct lines | On the catch-all |
+| --- | --- | --- | --- |
+| 1065 | 23 | 9 | **13 → L20 Other deductions** |
+| 1120-S | 23 | 10 | **12 → L19 Other deductions** |
+| 1120 | 24 | 11 | **12 → L26 Other deductions** |
+
+More than half of each chart lands on *one line*. Schedule C was the opposite — 23 Part II lines with a
+genuine spread, which is the shape the original worksheet was built for. So the deliverable here was not
+"three more line tables"; each form's named lines are ~10 and mostly trivial. The real output is the
+**itemised statement** filed alongside that catch-all line, which both clients now render expanded as its
+own section (and carry into the CSV export) rather than hiding behind a disclosure. Get that wrong and all
+three worksheets read "Other deductions: $47,213" and are useless to the person filing.
+
+**Three correctness items that would have failed silently.**
+
+*Form 1120 line 31.* Income tax is not deductible on the corporation's own return, and 7800 Income Tax
+Expense is a real expense account. The old rollup summed every account into the total *before* it looked
+at the mapping, so a C-corp's taxable income would have been understated by exactly the tax. Lines now
+carry `excludeFromTotal`; the integration test asserts taxable income reads 9000 and not 4800.
+
+*The 1120 / 1120-S collision.* A regex alternation has to place `1120-S` before `1120` or a naive `/1120/`
+matches both — and every line number differs between the twins (19 vs 26 for other deductions, 7/8 vs
+12/13 for compensation), so an S-corp's accounts would roll onto C-corp lines with no error. Replaced with
+an exact-match prefix map, which can't be broken by reordering, plus a unit test that feeds every seeded
+mapping string from all five charts through the parser and asserts the form and line it resolves to. The
+rollup also refuses a mapping naming a form the company doesn't file — a stale tag lands in "review these"
+rather than on a plausible wrong line.
+
+*Sub-line groups.* The 1065's 16a/16b feed 16c and the 1120's 29a/29b feed 29c; only the balance carries
+into the column that sums to total deductions. Encoded as `subLine` + a `lineNet` role so a reader adding
+the column doesn't double-count depreciation.
+
+**Deliberately out.** Schedules K and K-1 (a K-1 comes from the partnership agreement's allocation
+percentages, which these books don't hold — partner capital is pooled by design); Schedule L / M-1 / M-2
+(L is nearly free but M-1/M-2 need book-tax difference tracking that doesn't exist); cost of goods sold
+(all three forms send line 2 to Form 1125-A, and there is no inventory model). COGS renders **zero, not
+user-supplied** — the seeds route materials to Supplies, so prompting for a COGS figure would invite
+double-counting against an account already in the total. The footnote says so.
+
+Not blocked on payroll: 7450 Officer Compensation exists and maps to 1120-S L7 / 1120 L12, and renders at
+zero until TMC-161 lands. That is correct under the render-every-line rule.
+
+**Shape.** `GET /api/companies/:id/tax-worksheet` dispatches on business type and returns `{ form,
+formCode, income[], deductions[], … }`, so clients stop routing by entity type and the `wrong_tax_form`
+409 disappears. `/schedule-c` survives as a thin alias projecting the *old* response shape byte for byte,
+including its 409 — mobile ships through the app stores and an older binary must not 404 on upgrade. One
+computation, two projections; retire the alias once the store minimum is past this release. Web moved
+`/reports/schedule-c` → `/reports/tax-worksheet` with a 308 preserving the query string, since the page is
+print-and-hand-to-your-accountant and people bookmark it.
+
+`lib/schedule-c.ts` → `lib/tax-worksheet.ts`, still a static table per form so each can be diffed against
+the IRS PDF without reading query code. SQL stays in `routes/reports.ts`.
+
+**Inherited limitation, unchanged:** cash-basis gross receipts query invoices with `status='paid'` and
+assume payment is all-or-nothing — there is no partial-payment or deposit model. All four forms inherit
+this. If deposits ever land it silently becomes wrong and must move to a payments table.
+
+See [[project_entity_coa_seeds]], [[project_schedule_c_export]].
 
 ---
 
