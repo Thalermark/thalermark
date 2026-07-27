@@ -45,8 +45,10 @@
 <PeriodSelector {presets} {activeKey} from={report.from} to={report.to} />
 
 <p class="mt-4 text-sm text-fg/60">
-  {report.from} → {report.to}. Spending grouped by category (your Schedule C buckets), biggest
-  first.
+  <!-- Deliberately doesn't name a tax form: the categories map to whichever return
+       the business files (Schedule C / 1065 / 1120-S / 1120), and each row already
+       prints its own tax line. -->
+  {report.from} → {report.to}. Spending grouped by tax category, biggest first.
 </p>
 
 {#if rows.length === 0}

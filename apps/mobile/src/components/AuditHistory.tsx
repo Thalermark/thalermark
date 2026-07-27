@@ -147,6 +147,10 @@ function diffLines(before: unknown, after: unknown): string[] {
   const a = isRecord(after) ? after : {};
   const keys = new Set([...Object.keys(b), ...Object.keys(a)]);
   keys.delete('lineItems');
+  // A business-type change carries the chart-of-accounts re-map result, which
+  // stringifies into an unreadable wall next to the type change itself. Stays
+  // in the stored audit row; just not in the summary line.
+  keys.delete('chartOfAccounts');
   for (const k of keys) {
     const bv = b[k];
     const av = a[k];

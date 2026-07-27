@@ -242,10 +242,11 @@
   <form method="POST" action="?/saveAccountingMethod" class="px-6 py-6">
     <input type="hidden" name="companyId" value={data.company.id} />
     <p class="max-w-prose text-sm leading-relaxed text-fg/70">
-      This decides which year money lands in on your Schedule C worksheet. Most people count income
-      when they get paid — that's the usual choice for freelancers and trades. Only change this if
-      whoever files your taxes told you to; switching methods with the IRS isn't something you do
-      casually.
+      <!-- Names no specific form: this setting applies whichever return the business
+           files, and a corporation would be told about a Schedule C it never files. -->
+      This decides which tax year money lands in. Most people count income when they get paid —
+      that's the usual choice for freelancers and trades. Only change this if whoever files your
+      taxes told you to; switching methods with the IRS isn't something you do casually.
     </p>
     <div class="mt-5 space-y-3">
       <label class="flex items-start gap-3">

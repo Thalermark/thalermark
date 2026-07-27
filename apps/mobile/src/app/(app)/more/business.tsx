@@ -500,9 +500,9 @@ export default function BusinessSettings() {
               </Text>
               <Text className="mt-2 font-serif text-lg text-ink">{company.name}</Text>
               <Text className="mt-3 text-sm text-ink/70">
-                This decides which year money lands in on your Schedule C worksheet. Most people
-                count income when they get paid — the usual choice for freelancers and trades. Only
-                change it if whoever files your taxes told you to.
+                This decides which tax year money lands in. Most people count income when they get
+                paid — the usual choice for freelancers and trades. Only change it if whoever files
+                your taxes told you to.
               </Text>
               <View className="mt-5 gap-3">
                 {(
