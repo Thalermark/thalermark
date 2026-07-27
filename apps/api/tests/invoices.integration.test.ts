@@ -1,10 +1,12 @@
 import {
   auditEvents,
   authUser,
+  chartOfAccounts,
   companies,
   invoiceLineItems,
   invoices,
   journalEntries,
+  journalLines,
   memberships,
 } from '@thalermark/db';
 import { eq } from 'drizzle-orm';
@@ -793,6 +795,62 @@ describe('invoice status transitions', () => {
     return { cookie, accountId, invoiceId: id };
   }
 
+  // Revenue is earned when the invoice is ISSUED. invoiceBody dates every
+  // fixture 2026-05-23, so a posting stamped "today" is immediately visible.
+  it('posts the receivable on the invoice date, not the day it was sent', async () => {
+    const ctx = buildApp();
+    try {
+      const { cookie, accountId, invoiceId } = await seedDraftInvoice(ctx, 'issued@example.com');
+      const res = await ctx.app.request(`/api/invoices/${invoiceId}/mark-sent`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(res.status).toBe(200);
+
+      const [entry] = await getTestDb()
+        .select()
+        .from(journalEntries)
+        .where(eq(journalEntries.sourceEntityId, invoiceId));
+      expect(entry?.postedAt.toISOString().slice(0, 10)).toBe('2026-05-23');
+
+      // ...while sent_at is still a record of when it actually went out. The
+      // two dates answer different questions and must not be conflated.
+      const sent = (await (
+        await ctx.app.request(`/api/invoices/${invoiceId}`, {
+          headers: { cookie, 'x-account-id': accountId },
+        })
+      ).json()) as { sentAt: string };
+      expect(sent.sentAt.slice(0, 10)).not.toBe('2026-05-23');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  // Both sides used to post at `now`, so they netted within a period by
+  // accident. Once the revenue moved to the issue date the reversal had to
+  // follow, or voiding would leave income in one month and its cancellation in
+  // another.
+  it('voids a sent invoice back onto the same date it was posted', async () => {
+    const ctx = buildApp();
+    try {
+      const { cookie, accountId, invoiceId } = await seedDraftInvoice(ctx, 'voided@example.com');
+      const headers = { cookie, 'x-account-id': accountId };
+      await ctx.app.request(`/api/invoices/${invoiceId}/mark-sent`, { method: 'POST', headers });
+      await ctx.app.request(`/api/invoices/${invoiceId}/void`, { method: 'POST', headers });
+
+      const entries = await getTestDb()
+        .select()
+        .from(journalEntries)
+        .where(eq(journalEntries.sourceEntityId, invoiceId));
+      expect(entries).toHaveLength(2);
+      for (const e of entries) {
+        expect(e.postedAt.toISOString().slice(0, 10)).toBe('2026-05-23');
+      }
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
   it('mark-sent flips draft → sent and stamps sent_at + writes audit', async () => {
     const ctx = buildApp();
     try {
@@ -1301,6 +1359,109 @@ describe('POST /api/invoices/:id/send', () => {
     const { id } = (await create.json()) as { id: string };
     return { cookie, accountId, invoiceId: id, contactId };
   }
+
+  // The bug this suite missed for two months: /send flipped draft → sent with
+  // its own inline UPDATE instead of going through the transition helper, so an
+  // emailed invoice never reached the ledger at all. Every existing test here
+  // checked the email and the status; none looked at the books.
+  it('puts an emailed invoice on the books, exactly as mark-sent does', async () => {
+    const rec = makeRecorder();
+    const ctx = buildApp({ mailer: rec.mailer });
+    try {
+      const { cookie, accountId, invoiceId } = await seedDraftInvoiceWithEmail(
+        ctx,
+        'emailed-ledger@example.com',
+      );
+      const res = await ctx.app.request(`/api/invoices/${invoiceId}/send`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      expect(res.status).toBe(200);
+
+      const entries = await getTestDb()
+        .select()
+        .from(journalEntries)
+        .where(eq(journalEntries.sourceEntityId, invoiceId));
+      expect(entries).toHaveLength(1);
+      expect(entries[0]?.postedAt.toISOString().slice(0, 10)).toBe('2026-05-23');
+
+      const lines = await getTestDb()
+        .select({
+          code: chartOfAccounts.code,
+          side: journalLines.side,
+          amount: journalLines.amount,
+        })
+        .from(journalLines)
+        .innerJoin(chartOfAccounts, eq(chartOfAccounts.id, journalLines.coaAccountId))
+        .where(eq(journalLines.journalEntryId, entries[0]?.id as string));
+      const ar = lines.find((l) => l.code === '1200');
+      expect(ar).toMatchObject({ side: 'debit', amount: '108.25' });
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  // A resend must not post twice. The status guard already prevents it, but the
+  // consequence of getting it wrong is doubled revenue rather than a stray row.
+  it('does not post again when the same invoice is emailed twice', async () => {
+    const rec = makeRecorder();
+    const ctx = buildApp({ mailer: rec.mailer });
+    try {
+      const { cookie, accountId, invoiceId } = await seedDraftInvoiceWithEmail(
+        ctx,
+        'resend-ledger@example.com',
+      );
+      const headers = { cookie, 'x-account-id': accountId, 'content-type': 'application/json' };
+      await ctx.app.request(`/api/invoices/${invoiceId}/send`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({}),
+      });
+      await ctx.app.request(`/api/invoices/${invoiceId}/send`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({}),
+      });
+
+      const entries = await getTestDb()
+        .select()
+        .from(journalEntries)
+        .where(eq(journalEntries.sourceEntityId, invoiceId));
+      expect(entries).toHaveLength(1);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  // The flip commits before Resend is called so a mail outage can't roll back a
+  // send that already went out. That ordering means the posting has to commit
+  // with it — a 502 must still leave the books right, not a sent invoice with
+  // no receivable.
+  it('keeps the invoice on the books when the mailer fails after the flip', async () => {
+    const rec = makeRecorder({ throws: true });
+    const ctx = buildApp({ mailer: rec.mailer });
+    try {
+      const { cookie, accountId, invoiceId } = await seedDraftInvoiceWithEmail(
+        ctx,
+        'mailfail-ledger@example.com',
+      );
+      const res = await ctx.app.request(`/api/invoices/${invoiceId}/send`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      expect(res.status).toBe(502);
+
+      const entries = await getTestDb()
+        .select()
+        .from(journalEntries)
+        .where(eq(journalEntries.sourceEntityId, invoiceId));
+      expect(entries).toHaveLength(1);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
 
   it('first send transitions draft → sent, emails the customer, writes both audit rows', async () => {
     const rec = makeRecorder();

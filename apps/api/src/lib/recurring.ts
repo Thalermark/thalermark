@@ -23,6 +23,7 @@ import { sendInvoiceEmail } from './invoice-email.js';
 import { suggestNextInvoiceNumber } from './invoice-number.js';
 import { postInvoiceTransition } from './ledger.js';
 import type { Mailer } from './mailer.js';
+import { expenseDateToPostedAt } from './route-helpers.js';
 
 const log = getLogger(['api', 'recurring']);
 
@@ -226,7 +227,11 @@ export async function generateOnce(
     nextStatus: 'sent',
     accountId,
     companyId: schedule.companyId,
-    postedAt: now,
+    // The invoice's own issue date, matching what a hand-sent invoice does.
+    // Generation dates them today so this is the same instant either way —
+    // stated explicitly so the two paths can't drift if generation ever learns
+    // to backdate.
+    postedAt: expenseDateToPostedAt(issueDate),
   });
 
   // Email best-effort.

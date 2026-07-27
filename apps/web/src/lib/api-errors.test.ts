@@ -7,20 +7,26 @@ import { apiErrorMessage } from './api-errors';
 // every route-specific message silently regresses to a generic one.
 
 describe('apiErrorMessage', () => {
+  // Asserting on the properties rather than the exact sentence: pinning the
+  // string verbatim just restates the implementation and turns every copy edit
+  // into a failing test. What has to hold is the year arithmetic and the way out.
   it('names the closed year from closedThrough', () => {
     // closed_through is the exclusive upper bound — 1 Jan of the following year —
     // so the year the user cares about is the one before it.
-    expect(
-      apiErrorMessage('period_closed', 'x', { closedThrough: '2026-01-01T00:00:00.000Z' }),
-    ).toBe("2025 is closed, so it can't be changed. Re-open it in the Ledger first.");
+    const msg = apiErrorMessage('period_closed', 'x', {
+      closedThrough: '2026-01-01T00:00:00.000Z',
+    });
+    expect(msg).toContain('2025');
+    expect(msg).not.toContain('2026');
+    expect(msg).toContain('Ledger');
   });
 
   it('falls back to a year-less sentence when closedThrough is missing or odd', () => {
-    const generic = "That year is closed, so it can't be changed. Re-open it in the Ledger first.";
-    expect(apiErrorMessage('period_closed', 'x')).toBe(generic);
-    expect(apiErrorMessage('period_closed', 'x', null)).toBe(generic);
-    expect(apiErrorMessage('period_closed', 'x', { closedThrough: 12345 })).toBe(generic);
-    expect(apiErrorMessage('period_closed', 'x', 'not an object')).toBe(generic);
+    for (const body of [undefined, null, { closedThrough: 12345 }, 'not an object']) {
+      const msg = apiErrorMessage('period_closed', 'x', body);
+      expect(msg).not.toMatch(/\d{4}/);
+      expect(msg).toContain('Ledger');
+    }
   });
 
   it('names a closed business without naming a date', () => {

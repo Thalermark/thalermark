@@ -223,9 +223,13 @@ describe('GET /api/companies/:id/ledger/export — JSON', () => {
         headers: { cookie, 'x-account-id': accountId },
       });
 
-      const today = new Date().toISOString().slice(0, 10);
+      // The entry lands on the invoice's ISSUE date, not the day mark-sent was
+      // called — revenue is earned when the invoice is raised. This used to read
+      // `today`, which passed only because the posting was stamped with the
+      // wall clock.
+      const issued = '2026-05-28';
       const withinRes = await app.request(
-        `/api/companies/${companyId}/ledger/export?from=${today}&to=${today}`,
+        `/api/companies/${companyId}/ledger/export?from=${issued}&to=${issued}`,
         { headers: { cookie, 'x-account-id': accountId } },
       );
       const within = (await withinRes.json()) as ExportJson;
