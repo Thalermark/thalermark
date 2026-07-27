@@ -10,9 +10,9 @@ import {
   flipManualLines,
   invoicePostingLines,
   loanPaymentLines,
-  openingBalanceLines,
   ownerMoneyEventLines,
   reverseLedgerLines,
+  simpleOpeningBalanceLines,
 } from './ledger.js';
 
 // Sum the non-zero legs the way postJournalEntry would (it drops amount<=0
@@ -303,9 +303,13 @@ describe('expense create + reversal composition', () => {
   });
 });
 
-describe('openingBalanceLines — combined opening entry', () => {
+describe('simpleOpeningBalanceLines — the three plain questions, expanded', () => {
   it('cash only: Dr Cash / Cr Owner’s Equity, balanced', () => {
-    const lines = openingBalanceLines({ cash: '100.00', receivables: '0.00', payables: '0.00' });
+    const lines = simpleOpeningBalanceLines({
+      cash: '100.00',
+      receivables: '0.00',
+      payables: '0.00',
+    });
     expect(sides(lines).debit).toBeCloseTo(sides(lines).credit, 2);
     const cash = lines.find((l) => l.code === '1000');
     const equity = lines.find((l) => l.code === '3000');
@@ -314,7 +318,7 @@ describe('openingBalanceLines — combined opening entry', () => {
   });
 
   it('cash + receivables + payables: equity plug = cash + AR − AP (credit), balanced', () => {
-    const lines = openingBalanceLines({
+    const lines = simpleOpeningBalanceLines({
       cash: '500.00',
       receivables: '200.00',
       payables: '100.00',
@@ -326,7 +330,11 @@ describe('openingBalanceLines — combined opening entry', () => {
   });
 
   it('payables exceed assets: equity plug flips to a debit, balanced', () => {
-    const lines = openingBalanceLines({ cash: '100.00', receivables: '0.00', payables: '300.00' });
+    const lines = simpleOpeningBalanceLines({
+      cash: '100.00',
+      receivables: '0.00',
+      payables: '300.00',
+    });
     expect(sides(lines).debit).toBeCloseTo(sides(lines).credit, 2);
     const equity = lines.find((l) => l.code === '3000');
     // 100 − 300 = −200 → a debit of 200 to Owner's Equity
@@ -334,7 +342,7 @@ describe('openingBalanceLines — combined opening entry', () => {
   });
 
   it('reversal nets the opening entry to zero per code', () => {
-    const lines = openingBalanceLines({
+    const lines = simpleOpeningBalanceLines({
       cash: '500.00',
       receivables: '200.00',
       payables: '100.00',

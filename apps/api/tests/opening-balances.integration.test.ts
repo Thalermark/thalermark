@@ -1,4 +1,4 @@
-import { authUser, companies, memberships, openingBalances } from '@thalermark/db';
+import { authUser, chartOfAccounts, companies, memberships, openingBalances } from '@thalermark/db';
 import { and, eq, isNull } from 'drizzle-orm';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
@@ -126,7 +126,10 @@ describe('opening balances — starting position', () => {
         accountId,
       );
       expect(empty.status).toBe(200);
-      expect((await empty.json()) as { openingBalance: unknown }).toEqual({ openingBalance: null });
+      expect((await empty.json()) as { openingBalance: unknown }).toEqual({
+        openingBalance: null,
+        lines: [],
+      });
 
       const put = await send(app, 'PUT', '/api/owner-money/opening-balance', cookie, accountId, {
         companyId,
@@ -267,7 +270,10 @@ describe('opening balances — starting position', () => {
         cookie,
         accountId,
       );
-      expect((await read.json()) as { openingBalance: unknown }).toEqual({ openingBalance: null });
+      expect((await read.json()) as { openingBalance: unknown }).toEqual({
+        openingBalance: null,
+        lines: [],
+      });
 
       // Cash netted away — no 1000 asset line remains on the balance sheet.
       const bs = (await (
@@ -345,6 +351,143 @@ describe('opening balances — starting position', () => {
         accountId,
       );
       expect(read.status).toBe(200);
+    } finally {
+      await handle.close();
+    }
+  });
+});
+
+// The full shape — an opening trial balance entered account by account. What a
+// business arriving from QuickBooks or Xero actually has, and what the three
+// plain questions structurally cannot express.
+describe('opening balances — full trial balance', () => {
+  beforeEach(resetDb);
+
+  async function coaId(companyId: string, code: string): Promise<string> {
+    const [row] = await getTestDb()
+      .select({ id: chartOfAccounts.id })
+      .from(chartOfAccounts)
+      .where(and(eq(chartOfAccounts.companyId, companyId), eq(chartOfAccounts.code, code)));
+    if (!row) throw new Error(`COA ${code} not seeded for ${companyId}`);
+    return row.id;
+  }
+
+  it('opens the books with a part-depreciated asset and a loan', async () => {
+    const { app, handle } = buildApp();
+    try {
+      const cookie = await signUp(app, 'ob-full@example.com');
+      const { accountId, companyId } = await ownerContext('ob-full@example.com');
+
+      // A real starting position: cash, a mower that cost 6,000 and has already
+      // been written down by 2,400, and 3,000 still owed on it. None of this can
+      // be said with three numbers.
+      const lines = [
+        { coaAccountId: await coaId(companyId, '1000'), side: 'debit', amount: '4000.00' },
+        { coaAccountId: await coaId(companyId, '1500'), side: 'debit', amount: '6000.00' },
+        { coaAccountId: await coaId(companyId, '1900'), side: 'credit', amount: '2400.00' },
+        { coaAccountId: await coaId(companyId, '2700'), side: 'credit', amount: '3000.00' },
+        { coaAccountId: await coaId(companyId, '3000'), side: 'credit', amount: '4600.00' },
+      ];
+
+      const put = await send(app, 'PUT', '/api/owner-money/opening-balance', cookie, accountId, {
+        companyId,
+        asOfDate: '2026-01-01',
+        lines,
+      });
+      expect(put.status).toBe(201);
+      expect(((await put.json()) as { shape: string }).shape).toBe('full');
+
+      const bs = (await (
+        await get(
+          app,
+          `/api/companies/${companyId}/balance-sheet?asOf=2026-01-01`,
+          cookie,
+          accountId,
+        )
+      ).json()) as {
+        assets: { code: string; amount: string }[];
+        liabilities: { code: string; amount: string }[];
+        equity: { code: string; amount: string }[];
+        totalAssets: string;
+        balanced: boolean;
+      };
+
+      expect(bs.balanced).toBe(true);
+      const assets = new Map(bs.assets.map((a) => [a.code, a.amount]));
+      expect(assets.get('1000')).toBe('4000.00');
+      expect(assets.get('1500')).toBe('6000.00');
+      // 1900 is a contra-asset seeded debit-normal, so its credit balance nets
+      // negative and reduces total assets — no special-casing anywhere.
+      expect(assets.get('1900')).toBe('-2400.00');
+      expect(bs.totalAssets).toBe('7600.00');
+      expect(new Map(bs.liabilities.map((l) => [l.code, l.amount])).get('2700')).toBe('3000.00');
+      expect(new Map(bs.equity.map((e) => [e.code, e.amount])).get('3000')).toBe('4600.00');
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('refuses an entry that does not balance', async () => {
+    const { app, handle } = buildApp();
+    try {
+      const cookie = await signUp(app, 'ob-unbalanced@example.com');
+      const { accountId, companyId } = await ownerContext('ob-unbalanced@example.com');
+
+      const res = await send(app, 'PUT', '/api/owner-money/opening-balance', cookie, accountId, {
+        companyId,
+        asOfDate: '2026-01-01',
+        lines: [
+          { coaAccountId: await coaId(companyId, '1000'), side: 'debit', amount: '100.00' },
+          { coaAccountId: await coaId(companyId, '3000'), side: 'credit', amount: '90.00' },
+        ],
+      });
+      // A clean 400 the form can show inline, not a deferred trigger abort.
+      expect(res.status).toBe(400);
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('switching from simple to full reverses the old posting exactly', async () => {
+    const { app, handle } = buildApp();
+    try {
+      const cookie = await signUp(app, 'ob-switch@example.com');
+      const { accountId, companyId } = await ownerContext('ob-switch@example.com');
+
+      await send(app, 'PUT', '/api/owner-money/opening-balance', cookie, accountId, {
+        companyId,
+        asOfDate: '2026-01-01',
+        cash: '1000.00',
+      });
+
+      // Re-enter the same position as a full trial balance touching DIFFERENT
+      // accounts. The reversal has to be built from what was stored, not from
+      // what's replacing it, or the old cash line would be stranded.
+      await send(app, 'PUT', '/api/owner-money/opening-balance', cookie, accountId, {
+        companyId,
+        asOfDate: '2026-01-01',
+        lines: [
+          { coaAccountId: await coaId(companyId, '1500'), side: 'debit', amount: '2500.00' },
+          { coaAccountId: await coaId(companyId, '3000'), side: 'credit', amount: '2500.00' },
+        ],
+      });
+
+      const bs = (await (
+        await get(
+          app,
+          `/api/companies/${companyId}/balance-sheet?asOf=2026-01-01`,
+          cookie,
+          accountId,
+        )
+      ).json()) as {
+        assets: { code: string; amount: string }[];
+        totalAssets: string;
+        balanced: boolean;
+      };
+      expect(bs.balanced).toBe(true);
+      expect(bs.totalAssets).toBe('2500.00');
+      // The original cash must be gone, not merely outweighed.
+      expect(bs.assets.some((a) => a.code === '1000')).toBe(false);
     } finally {
       await handle.close();
     }

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
+  import { untrack } from 'svelte';
   import type { PageProps } from './$types';
 
   let { data, form }: PageProps = $props();
@@ -18,6 +19,58 @@
     return typeof val === 'string' ? val : '';
   }
   const dateValue = $derived(v('asOfDate') || current?.asOfDate || data.today);
+
+  // The full opening trial balance — for a business arriving with real books.
+  // Only offered to roles that can post adjustments, and only when the chart came
+  // back with the load. The three plain questions stay the default: they're the
+  // right first ask, and most people starting out have nothing else to say.
+  const canEnterFull = $derived(data.accounts.length > 0);
+
+  type Line = { coaAccountId: string; side: 'debit' | 'credit'; amount: string };
+
+  // Seeded once, then owned by the form. `untrack` says that deliberately: these
+  // are the starting values of an editable draft, not a view of `data` — without
+  // it Svelte warns that only the initial value is captured, which is exactly
+  // what's wanted here (same pattern as the ledger list's row state).
+  let advanced = $state(untrack(() => data.current?.shape === 'full'));
+  let lines = $state<Line[]>(
+    untrack(() => {
+      const saved = data.lines.map((l) => ({
+        coaAccountId: l.coaAccountId,
+        side: l.side as 'debit' | 'credit',
+        amount: l.amount,
+      }));
+      return saved.length > 0
+        ? saved
+        : [
+            { coaAccountId: '', side: 'debit', amount: '' },
+            { coaAccountId: '', side: 'credit', amount: '' },
+          ];
+    }),
+  );
+
+  // Live balance, in integer cents so the check is exact — the same discipline
+  // the API applies with sumMoney. Submit stays disabled until it's zero, so a
+  // user never round-trips just to be told the entry doesn't balance.
+  const cents = (s: string) => Math.round(Number(s || '0') * 100);
+  const debitCents = $derived(
+    lines.filter((l) => l.side === 'debit').reduce((sum, l) => sum + cents(l.amount), 0),
+  );
+  const creditCents = $derived(
+    lines.filter((l) => l.side === 'credit').reduce((sum, l) => sum + cents(l.amount), 0),
+  );
+  const balanced = $derived(debitCents === creditCents && debitCents > 0);
+  const complete = $derived(
+    lines.every((l) => l.coaAccountId !== '' && cents(l.amount) > 0) && lines.length >= 2,
+  );
+  const money = (c: number) => (c / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+
+  function addLine() {
+    lines = [...lines, { coaAccountId: '', side: 'debit', amount: '' }];
+  }
+  function removeLine(i: number) {
+    lines = lines.filter((_, idx) => idx !== i);
+  }
 </script>
 
 <a href="/owner-money" class="eyebrow text-fg/60 hover:text-fg">← My Money</a>
@@ -35,7 +88,8 @@
   </div>
 {/if}
 
-<form method="post" action="?/save" class="mt-8 space-y-6" use:enhance>
+{#if !advanced}
+  <form method="post" action="?/save" class="mt-8 space-y-6" use:enhance>
   <div>
     <label for="asOfDate" class="label">When did you start?<span class="text-accent">*</span></label>
     <input id="asOfDate" name="asOfDate" type="date" required value={dateValue} class="field mt-1" />
@@ -89,11 +143,112 @@
     />
   </div>
 
-  <div class="flex items-center gap-4">
-    <button type="submit" class="btn">Save</button>
-    <a href="/owner-money" class="text-sm text-fg/60 hover:text-fg">Cancel</a>
+    <div class="flex items-center gap-4">
+      <button type="submit" class="btn">Save</button>
+      <a href="/owner-money" class="text-sm text-fg/60 hover:text-fg">Cancel</a>
+    </div>
+  </form>
+{/if}
+
+{#if canEnterFull}
+  <div class="mt-8 border-t border-fg/10 pt-6">
+    <button
+      type="button"
+      class="link text-sm"
+      onclick={() => (advanced = !advanced)}
+    >
+      {advanced ? '← Just the three questions' : 'Coming from other accounting software?'}
+    </button>
+    {#if !advanced}
+      <p class="mt-2 max-w-2xl text-sm text-fg/50">
+        If you've been trading a while, you probably have more than three figures — equipment
+        you've already written down, a loan, tax you've collected. Enter your full opening
+        balances instead.
+      </p>
+    {/if}
   </div>
-</form>
+{/if}
+
+{#if advanced}
+  <form method="post" action="?/saveFull" class="mt-6" use:enhance>
+    <input type="hidden" name="asOfDate" value={dateValue} />
+    <input type="hidden" name="lines" value={JSON.stringify(lines)} />
+
+    <p class="max-w-2xl text-sm text-fg/60">
+      Your closing balances from the software you're leaving, account by account. Your accountant
+      will call this a trial balance — the debits and credits have to come out equal.
+    </p>
+
+    {#if form?.fullError}
+      <div class="mt-4 rounded-sm border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
+        {form.fullError}
+      </div>
+    {/if}
+
+    <div class="mt-5 space-y-3">
+      {#each lines as line, i (i)}
+        <div class="flex flex-wrap items-center gap-3">
+          <select
+            bind:value={line.coaAccountId}
+            class="min-w-[18rem] flex-1 rounded-sm border border-fg/15 bg-surface-2 px-3 py-2 text-sm text-fg focus:border-accent focus:outline-none"
+          >
+            <option value="">Pick an account…</option>
+            {#each data.accounts as a (a.id)}
+              <option value={a.id}>{a.code} · {a.name}</option>
+            {/each}
+          </select>
+          <select
+            bind:value={line.side}
+            class="rounded-sm border border-fg/15 bg-surface-2 px-3 py-2 text-sm text-fg focus:border-accent focus:outline-none"
+          >
+            <option value="debit">Debit</option>
+            <option value="credit">Credit</option>
+          </select>
+          <input
+            type="text"
+            inputmode="decimal"
+            placeholder="0.00"
+            bind:value={line.amount}
+            class="w-32 rounded-sm border border-fg/15 bg-surface-2 px-3 py-2 font-mono tabular-nums text-fg focus:border-accent focus:outline-none"
+          />
+          {#if lines.length > 2}
+            <button
+              type="button"
+              class="text-sm text-fg/40 hover:text-danger"
+              onclick={() => removeLine(i)}
+              aria-label="Remove line"
+            >
+              ×
+            </button>
+          {/if}
+        </div>
+      {/each}
+    </div>
+
+    <button type="button" class="link mt-4 text-sm" onclick={addLine}>+ Add another account</button>
+
+    <div class="mt-6 flex flex-wrap items-center gap-6 border-t border-fg/10 pt-4">
+      <div class="font-mono text-sm tabular-nums">
+        <span class="text-fg/50">Debits</span>
+        <span class="ml-2 text-fg">{money(debitCents)}</span>
+        <span class="ml-5 text-fg/50">Credits</span>
+        <span class="ml-2 text-fg">{money(creditCents)}</span>
+      </div>
+      {#if !balanced && debitCents + creditCents > 0}
+        <span class="text-sm text-danger">
+          Out by {money(Math.abs(debitCents - creditCents))}
+        </span>
+      {:else if balanced}
+        <span class="text-sm text-fg/50">Balanced</span>
+      {/if}
+    </div>
+
+    <div class="mt-6 flex items-center gap-4">
+      <button type="submit" class="btn" disabled={!balanced || !complete}>Save</button>
+      <a href="/owner-money" class="text-sm text-fg/60 hover:text-fg">Cancel</a>
+    </div>
+  </form>
+{/if}
 
 {#if current}
   <form method="post" action="?/clear" class="mt-8 border-t border-fg/10 pt-6" use:enhance>

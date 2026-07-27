@@ -1,6 +1,16 @@
 import { sql } from 'drizzle-orm';
-import { date, index, numeric, pgTable, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import {
+  date,
+  index,
+  numeric,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core';
 import { accounts } from './accounts.js';
+import { chartOfAccounts } from './chart_of_accounts.js';
 import { companies } from './companies.js';
 
 // Opening balances — what the business already had when it started using
@@ -39,6 +49,17 @@ export const openingBalances = pgTable(
       .notNull()
       .references(() => companies.id, { onDelete: 'cascade' }),
     asOfDate: date('as_of_date', { mode: 'string' }).notNull(),
+    // 'simple' — the three plain questions, and the three columns below hold the
+    //            answers verbatim.
+    // 'full'    — an opening trial balance entered account by account (what Xero
+    //            calls conversion balances). The three columns are 0 and mean
+    //            nothing; read openingBalanceLines instead.
+    // Display only. LINES ARE ALWAYS AUTHORITATIVE FOR POSTING, whichever shape
+    // produced them, so there is exactly one path into the ledger.
+    shape: text('shape').notNull().default('simple'),
+    // The simple shape's three figures, kept as a denormalization so the plain
+    // "what was in the bank when you started" screen reads them without walking
+    // lines. Zero under the 'full' shape.
     cash: numeric('cash', { precision: 15, scale: 2 }).notNull().default('0'),
     receivables: numeric('receivables', { precision: 15, scale: 2 }).notNull().default('0'),
     payables: numeric('payables', { precision: 15, scale: 2 }).notNull().default('0'),
@@ -58,3 +79,43 @@ export const openingBalances = pgTable(
 
 export type OpeningBalance = typeof openingBalances.$inferSelect;
 export type NewOpeningBalance = typeof openingBalances.$inferInsert;
+
+// One account's starting balance. Same {account, side, amount} shape as
+// journal_lines and as a manual journal entry's lines — direction lives in
+// `side`, never in the sign, so there is only ever one way to say a thing.
+//
+// This is what actually gets posted. The simple shape's three figures are
+// expanded into four of these (Dr Cash / Dr A/R / Cr A/P, Owner's Equity as the
+// sign-aware plug) at write time, so the ledger has a single entry path
+// regardless of which screen the user filled in.
+//
+// coa_account_id is RESTRICT on delete, matching journal_lines: a starting
+// balance is evidence, and an account it references must not vanish underneath
+// it. Rows are replaced wholesale on edit (delete-then-insert) rather than
+// patched — the parent's edit is already a reverse-and-repost, so per-line
+// identity would buy nothing.
+export const openingBalanceLines = pgTable(
+  'opening_balance_lines',
+  {
+    id: uuid('id').primaryKey(),
+    accountId: uuid('account_id')
+      .notNull()
+      .references(() => accounts.id, { onDelete: 'cascade' }),
+    openingBalanceId: uuid('opening_balance_id')
+      .notNull()
+      .references(() => openingBalances.id, { onDelete: 'cascade' }),
+    coaAccountId: uuid('coa_account_id')
+      .notNull()
+      .references(() => chartOfAccounts.id, { onDelete: 'restrict' }),
+    side: text('side').notNull(),
+    amount: numeric('amount', { precision: 15, scale: 2 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    accountIdIdx: index('opening_balance_lines_account_id_idx').on(table.accountId),
+    parentIdx: index('opening_balance_lines_parent_idx').on(table.openingBalanceId),
+  }),
+);
+
+export type OpeningBalanceLine = typeof openingBalanceLines.$inferSelect;
+export type NewOpeningBalanceLine = typeof openingBalanceLines.$inferInsert;

@@ -1,11 +1,18 @@
-import { companies, openingBalances, ownerMoneyEvents } from '@thalermark/db';
+import {
+  chartOfAccounts,
+  companies,
+  openingBalanceLines,
+  openingBalances,
+  ownerMoneyEvents,
+} from '@thalermark/db';
 import {
   type OwnerMoneyEventKind,
+  openingBalanceFullUpsertSchema,
   openingBalanceUpsertSchema,
   ownerMoneyEventCreateSchema,
   ownerMoneyEventUpdateSchema,
 } from '@thalermark/validation';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 import { v7 as uuidv7 } from 'uuid';
@@ -14,6 +21,7 @@ import {
   postOpeningBalanceReversal,
   postOwnerMoneyEvent,
   postOwnerMoneyEventReversal,
+  simpleOpeningBalanceLines,
 } from '../lib/ledger.js';
 import { applyCursor, keysetOrderBy, parseLimit, slicePage } from '../lib/pagination.js';
 import { UUID_RE, expenseDateToPostedAt } from '../lib/route-helpers.js';
@@ -148,17 +156,48 @@ export function ownerMoneyRoutes() {
             ),
           )
           .limit(1);
-        return c.json({ openingBalance: row ?? null });
+        if (!row) return c.json({ openingBalance: null, lines: [] });
+        // Lines come back joined to the chart so a client can render "1500
+        // Vehicles & Equipment" without a second lookup, the same enrichment the
+        // ledger portal's entry detail does.
+        const lines = await tx
+          .select({
+            coaAccountId: openingBalanceLines.coaAccountId,
+            code: chartOfAccounts.code,
+            accountName: chartOfAccounts.name,
+            accountType: chartOfAccounts.accountType,
+            side: openingBalanceLines.side,
+            amount: openingBalanceLines.amount,
+          })
+          .from(openingBalanceLines)
+          .innerJoin(chartOfAccounts, eq(openingBalanceLines.coaAccountId, chartOfAccounts.id))
+          .where(
+            and(
+              eq(openingBalanceLines.accountId, accountId),
+              eq(openingBalanceLines.openingBalanceId, row.id),
+            ),
+          )
+          .orderBy(chartOfAccounts.code);
+        return c.json({ openingBalance: row, lines });
       })
       .put('/api/owner-money/opening-balance', requireCapability('expenses:write'), async (c) => {
         const body = await c.req.json().catch(() => null);
-        const parsed = openingBalanceUpsertSchema.safeParse(body);
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+
+        // Two shapes, one route. `lines` present means the full opening trial
+        // balance; otherwise it's the three plain questions. Discriminated on the
+        // payload rather than split into two endpoints because the result is the
+        // same singular row either way — a company has one starting position, and
+        // switching how you describe it shouldn't mean a different URL.
+        const isFull = body !== null && typeof body === 'object' && 'lines' in body;
+        const parsed = isFull
+          ? openingBalanceFullUpsertSchema.safeParse(body)
+          : openingBalanceUpsertSchema.safeParse(body);
         if (!parsed.success) {
           return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
         }
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
-        const { companyId, asOfDate, cash, receivables, payables } = parsed.data;
+        const { companyId, asOfDate } = parsed.data;
 
         const [company] = await tx
           .select({ id: companies.id })
@@ -166,6 +205,60 @@ export function ownerMoneyRoutes() {
           .where(and(eq(companies.id, companyId), eq(companies.accountId, accountId)))
           .limit(1);
         if (!company) return c.json({ error: 'company_not_found' }, 404);
+
+        // Resolve whichever shape arrived down to account-id-keyed lines, which
+        // are what gets stored and posted.
+        let lines: { coaAccountId: string; side: 'debit' | 'credit'; amount: string }[];
+        if ('lines' in parsed.data) {
+          // Every account must belong to this company and be active — the same
+          // check the ledger portal makes, and for the same reason: an id from
+          // another company would post silently into the wrong books.
+          const wanted = Array.from(new Set(parsed.data.lines.map((l) => l.coaAccountId)));
+          const rows = await tx
+            .select({ id: chartOfAccounts.id })
+            .from(chartOfAccounts)
+            .where(
+              and(
+                eq(chartOfAccounts.accountId, accountId),
+                eq(chartOfAccounts.companyId, companyId),
+                eq(chartOfAccounts.isActive, true),
+                inArray(chartOfAccounts.id, wanted),
+              ),
+            );
+          if (rows.length !== wanted.length) return c.json({ error: 'invalid_account' }, 400);
+          lines = parsed.data.lines;
+        } else {
+          const { cash, receivables, payables } = parsed.data;
+          const coded = simpleOpeningBalanceLines({ cash, receivables, payables });
+          const codes = coded.map((l) => l.code);
+          const rows = await tx
+            .select({ id: chartOfAccounts.id, code: chartOfAccounts.code })
+            .from(chartOfAccounts)
+            .where(
+              and(
+                eq(chartOfAccounts.accountId, accountId),
+                eq(chartOfAccounts.companyId, companyId),
+                inArray(chartOfAccounts.code, codes),
+              ),
+            );
+          const byCode = new Map(rows.map((r) => [r.code, r.id]));
+          const missing = codes.filter((code) => !byCode.has(code));
+          if (missing.length > 0) return c.json({ error: 'invalid_account' }, 400);
+          lines = coded.map((l) => ({
+            coaAccountId: byCode.get(l.code) as string,
+            side: l.side,
+            amount: l.amount,
+          }));
+        }
+
+        const shape = isFull ? 'full' : 'simple';
+        const figures = isFull
+          ? { cash: '0', receivables: '0', payables: '0' }
+          : {
+              cash: (parsed.data as { cash: string }).cash,
+              receivables: (parsed.data as { receivables: string }).receivables,
+              payables: (parsed.data as { payables: string }).payables,
+            };
 
         const [current] = await tx
           .select()
@@ -180,31 +273,73 @@ export function ownerMoneyRoutes() {
           .limit(1);
 
         if (current) {
-          // Edit = reverse the prior posting (old figures at the old date) +
-          // repost the new one, keeping the GL append-only.
+          // Edit = reverse the prior posting + repost, keeping the GL append-only.
+          // The reversal is built from the lines AS STORED, not from what's about
+          // to replace them — otherwise an edit that changes which accounts are
+          // involved would leave the old ones stranded on the books.
+          const priorLines = await tx
+            .select({
+              coaAccountId: openingBalanceLines.coaAccountId,
+              side: openingBalanceLines.side,
+              amount: openingBalanceLines.amount,
+            })
+            .from(openingBalanceLines)
+            .where(
+              and(
+                eq(openingBalanceLines.accountId, accountId),
+                eq(openingBalanceLines.openingBalanceId, current.id),
+              ),
+            );
           await postOpeningBalanceReversal(tx, {
-            openingBalance: current,
+            openingBalanceId: current.id,
+            lines: priorLines.map((l) => ({
+              coaAccountId: l.coaAccountId,
+              side: l.side as 'debit' | 'credit',
+              amount: l.amount,
+            })),
             accountId,
             companyId,
             postedAt: expenseDateToPostedAt(current.asOfDate),
           });
+
           const [updated] = await tx
             .update(openingBalances)
-            .set({ asOfDate, cash, receivables, payables, updatedAt: new Date() })
+            .set({ asOfDate, shape, ...figures, updatedAt: new Date() })
             .where(
               and(eq(openingBalances.id, current.id), eq(openingBalances.accountId, accountId)),
             )
             .returning();
+          // Lines are replaced wholesale — the parent edit is already a
+          // reverse-and-repost, so per-line identity would buy nothing.
+          await tx
+            .delete(openingBalanceLines)
+            .where(
+              and(
+                eq(openingBalanceLines.accountId, accountId),
+                eq(openingBalanceLines.openingBalanceId, current.id),
+              ),
+            );
+          await tx.insert(openingBalanceLines).values(
+            lines.map((l) => ({
+              id: uuidv7(),
+              accountId,
+              openingBalanceId: current.id,
+              coaAccountId: l.coaAccountId,
+              side: l.side,
+              amount: l.amount,
+            })),
+          );
           await c.var.audit({
             entityType: 'opening_balance',
             entityId: current.id,
             action: 'update',
             before: current,
-            after: updated,
+            after: { ...updated, lines },
             companyId,
           });
           await postOpeningBalance(tx, {
-            openingBalance: { id: current.id, cash, receivables, payables },
+            openingBalanceId: current.id,
+            lines,
             accountId,
             companyId,
             postedAt: expenseDateToPostedAt(asOfDate),
@@ -215,17 +350,28 @@ export function ownerMoneyRoutes() {
         const id = uuidv7();
         const [created] = await tx
           .insert(openingBalances)
-          .values({ id, accountId, companyId, asOfDate, cash, receivables, payables })
+          .values({ id, accountId, companyId, asOfDate, shape, ...figures })
           .returning();
+        await tx.insert(openingBalanceLines).values(
+          lines.map((l) => ({
+            id: uuidv7(),
+            accountId,
+            openingBalanceId: id,
+            coaAccountId: l.coaAccountId,
+            side: l.side,
+            amount: l.amount,
+          })),
+        );
         await c.var.audit({
           entityType: 'opening_balance',
           entityId: id,
           action: 'create',
-          after: created,
+          after: { ...created, lines },
           companyId,
         });
         await postOpeningBalance(tx, {
-          openingBalance: { id, cash, receivables, payables },
+          openingBalanceId: id,
+          lines,
           accountId,
           companyId,
           postedAt: expenseDateToPostedAt(asOfDate),
@@ -271,9 +417,30 @@ export function ownerMoneyRoutes() {
             after: deleted,
             companyId,
           });
-          // Soft delete keeps history; the reversal nets the GL to zero.
+          // Soft delete keeps history; the reversal nets the GL to zero. Built
+          // from the stored lines, so it undoes exactly what was posted whatever
+          // shape it was entered in. The line rows are left in place — they're
+          // the evidence of what the reversal reversed.
+          const priorLines = await tx
+            .select({
+              coaAccountId: openingBalanceLines.coaAccountId,
+              side: openingBalanceLines.side,
+              amount: openingBalanceLines.amount,
+            })
+            .from(openingBalanceLines)
+            .where(
+              and(
+                eq(openingBalanceLines.accountId, accountId),
+                eq(openingBalanceLines.openingBalanceId, current.id),
+              ),
+            );
           await postOpeningBalanceReversal(tx, {
-            openingBalance: current,
+            openingBalanceId: current.id,
+            lines: priorLines.map((l) => ({
+              coaAccountId: l.coaAccountId,
+              side: l.side as 'debit' | 'credit',
+              amount: l.amount,
+            })),
             accountId,
             companyId,
             postedAt: expenseDateToPostedAt(current.asOfDate),
