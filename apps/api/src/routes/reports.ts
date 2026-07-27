@@ -6,6 +6,7 @@ import {
   createCashFlowAdvisor,
 } from '@thalermark/ai';
 import {
+  type Transaction,
   bills,
   chartOfAccounts,
   companies,
@@ -18,14 +19,7 @@ import {
   journalEntries,
   journalLines,
 } from '@thalermark/db';
-import {
-  type BusinessType,
-  TAX_FORM_BY_BUSINESS_TYPE,
-  centsToMoney,
-  filesScheduleC,
-  sumMoney,
-  toCents,
-} from '@thalermark/validation';
+import { centsToMoney, sumMoney, toCents } from '@thalermark/validation';
 import type { AnyColumn, SQL } from 'drizzle-orm';
 import { and, asc, eq, gte, inArray, isNull, lt, lte, ne, notInArray, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
@@ -35,7 +29,13 @@ import { apBalance, arBalance, cashFlowNet, cashOnHand } from '../lib/ledger.js'
 import { recordLlmCallHealth } from '../lib/llm-connection.js';
 import { resolveAccountCredential } from '../lib/llm-credentials.js';
 import { UUID_RE } from '../lib/route-helpers.js';
-import { type ExpenseAccountAmount, rollUpPartII, taxYearWindow } from '../lib/schedule-c.js';
+import {
+  type ExpenseAccountAmount,
+  type TaxLineRow,
+  rollUpDeductions,
+  taxFormFor,
+  taxYearWindow,
+} from '../lib/tax-worksheet.js';
 import { requireEntitlement } from '../middleware/entitlement.js';
 import { RATE_LIMITS, rateLimit } from '../middleware/rate-limit.js';
 import type { RlsVariables } from '../middleware/rls-context.js';
@@ -174,6 +174,302 @@ function parseAsOf(
     asOf = localToday(tz);
   }
   return { asOf, asOfExclusiveInstant: dayStartInstant(addDays(asOf, 1), tz) };
+}
+
+// --- Tax worksheet --------------------------------------------------------
+// Shared by GET /tax-worksheet and its legacy /schedule-c alias. The SQL runs
+// once; the two routes are two projections of the same result.
+
+// Query shape for both routes. Extracted so the alias can't drift from the
+// endpoint it aliases.
+function taxWorksheetQuery(v: Record<string, string | string[] | undefined>) {
+  const basis = v.basis;
+  if (basis !== undefined && basis !== 'cash' && basis !== 'accrual') {
+    return { error: 'invalid_basis' as const };
+  }
+  const yearRaw = v.year;
+  let year: number | undefined;
+  if (typeof yearRaw === 'string') {
+    year = Number(yearRaw);
+    // A tax year outside this range is a typo, not a filing. Bounding it also
+    // keeps taxYearWindow from building nonsense Dates.
+    if (!Number.isInteger(year) || year < 1900 || year > 2200) {
+      return { error: 'invalid_year' as const };
+    }
+  }
+  return { basis: basis as 'cash' | 'accrual' | undefined, year };
+}
+
+type TaxWorksheet = {
+  form: string;
+  formCode: string;
+  year: number;
+  basis: 'cash' | 'accrual';
+  companyAccountingMethod: string;
+  from: string;
+  to: string;
+  income: TaxLineRow[];
+  deductions: TaxLineRow[];
+  unmappedExpenses: { code: string; name: string; amount: string }[];
+  totalDeductions: string;
+  netIncome: string;
+};
+
+async function buildTaxWorksheet(
+  tx: Transaction,
+  accountId: string,
+  id: string,
+  q: { basis?: 'cash' | 'accrual'; year?: number },
+): Promise<{ error: 'company_not_found'; status: 404 } | { worksheet: TaxWorksheet }> {
+  // accounting_method rides along on the company lookup — it's the basis
+  // default, so we'd need the row either way.
+  const [company] = await tx
+    .select({
+      id: companies.id,
+      businessType: companies.businessType,
+      accountingMethod: companies.accountingMethod,
+      timezone: companies.timezone,
+    })
+    .from(companies)
+    .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
+    .limit(1);
+  if (!company) return { error: 'company_not_found', status: 404 };
+
+  const form = taxFormFor(company.businessType);
+  const basis = q.basis ?? (company.accountingMethod === 'accrual' ? 'accrual' : 'cash');
+  // Default to the current year *where the business is* — on 1 January a US
+  // operator should not still be defaulting to last year because UTC hasn't
+  // rolled over, nor the reverse.
+  const year = q.year ?? Number(localToday(company.timezone).slice(0, 4));
+  const { from, to, toExclusiveDate } = taxYearWindow(year);
+  // The tax year runs midnight-to-midnight in the company's zone: a payment
+  // taken at 8pm on 31 December belongs to that year, not the next one
+  // (TMC-157).
+  const fromInstant = dayStartInstant(from, company.timezone);
+  const toExclusiveInstant = dayStartInstant(toExclusiveDate, company.timezone);
+
+  // Per-account net in the account's normal-balance direction, same convention
+  // as profit-loss: a line on the account's normal side adds, the other side
+  // subtracts. Reversal-safe by construction.
+  //
+  // coalesce matters: the revenue query below has no GROUP BY, so over an empty
+  // window Postgres returns a single row with a NULL sum rather than zero rows
+  // — and a null would reach toCents.
+  const glAmount = sql<string>`coalesce(sum(case when ${journalLines.side} = ${chartOfAccounts.normalBalance} then ${journalLines.amount} else -${journalLines.amount} end), 0)::numeric(15,2)`;
+
+  const glExpenseFilters = [
+    eq(journalEntries.companyId, id),
+    eq(journalEntries.accountId, accountId),
+    eq(chartOfAccounts.accountType, 'expense'),
+    gte(journalEntries.postedAt, fromInstant),
+    lt(journalEntries.postedAt, toExclusiveInstant),
+    notAClosingEntry(),
+  ];
+  // Cash basis: a bill's expense belongs to the period the bill was PAID, not
+  // opened. Both legs of a bill (open, and any void reversal) carry
+  // source_entity_type 'bill', so excluding the source wholesale keeps
+  // reversals consistent, and the paid-bill query below re-adds the cash-basis
+  // amount at the right date.
+  if (basis === 'cash') {
+    glExpenseFilters.push(ne(journalEntries.sourceEntityType, 'bill'));
+  }
+
+  const expenseRows = await tx
+    .select({
+      code: chartOfAccounts.code,
+      name: chartOfAccounts.name,
+      taxMapping: chartOfAccounts.taxMapping,
+      amount: glAmount,
+    })
+    .from(journalLines)
+    .innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id))
+    .innerJoin(chartOfAccounts, eq(journalLines.coaAccountId, chartOfAccounts.id))
+    .where(and(...glExpenseFilters))
+    .groupBy(chartOfAccounts.code, chartOfAccounts.name, chartOfAccounts.taxMapping)
+    .orderBy(asc(chartOfAccounts.code));
+
+  // Merge on account code so a category that received both a direct expense and
+  // a paid bill lands on one line.
+  const expenseByCode = new Map<string, ExpenseAccountAmount>();
+  const addExpense = (row: ExpenseAccountAmount) => {
+    const existing = expenseByCode.get(row.code);
+    if (!existing) {
+      expenseByCode.set(row.code, { ...row });
+      return;
+    }
+    existing.amount = centsToMoney(toCents(existing.amount) + toCents(row.amount));
+  };
+  for (const row of expenseRows) addExpense(row);
+
+  if (basis === 'cash') {
+    const paidBills = await tx
+      .select({
+        code: chartOfAccounts.code,
+        name: chartOfAccounts.name,
+        taxMapping: chartOfAccounts.taxMapping,
+        amount: sql<string>`coalesce(sum(${bills.amount}), 0)::numeric(15,2)`,
+      })
+      .from(bills)
+      .innerJoin(chartOfAccounts, eq(bills.categoryAccountId, chartOfAccounts.id))
+      .where(
+        and(
+          eq(bills.accountId, accountId),
+          eq(bills.companyId, id),
+          eq(bills.status, 'paid'),
+          gte(bills.paidAt, fromInstant),
+          lt(bills.paidAt, toExclusiveInstant),
+        ),
+      )
+      .groupBy(chartOfAccounts.code, chartOfAccounts.name, chartOfAccounts.taxMapping)
+      .orderBy(asc(chartOfAccounts.code));
+    for (const row of paidBills) addExpense(row);
+  }
+
+  const rollup = rollUpDeductions([...expenseByCode.values()], form);
+
+  // Gross receipts.
+  let grossReceiptsCents: number;
+  if (basis === 'cash') {
+    // Direct method, and deliberately off the GL: summing cash debits would
+    // also sweep in owner contributions and loan proceeds, which are cash in
+    // but not revenue. Querying invoices excludes them structurally rather than
+    // by blocklist. subtotal is pre-tax — sales tax collected is not income.
+    // Safe against later edits because 'paid' is a terminal status, so a filed
+    // year can't be retroactively altered.
+    //
+    // NOTE: this assumes payment is all-or-nothing (there is no partial payment
+    // or deposit model today). If deposits land, this silently becomes wrong —
+    // it must move to a payments table at that point. All four forms inherit
+    // this.
+    const [row] = await tx
+      .select({
+        gross: sql<string>`coalesce(sum(${invoices.subtotal}), 0)::numeric(15,2)`,
+      })
+      .from(invoices)
+      .where(
+        and(
+          eq(invoices.accountId, accountId),
+          eq(invoices.companyId, id),
+          eq(invoices.status, 'paid'),
+          gte(invoices.paidAt, fromInstant),
+          lt(invoices.paidAt, toExclusiveInstant),
+        ),
+      );
+    grossReceiptsCents = toCents(row?.gross ?? '0.00');
+  } else {
+    const revenueRows = await tx
+      .select({ amount: glAmount })
+      .from(journalLines)
+      .innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id))
+      .innerJoin(chartOfAccounts, eq(journalLines.coaAccountId, chartOfAccounts.id))
+      .where(
+        and(
+          eq(journalEntries.companyId, id),
+          eq(journalEntries.accountId, accountId),
+          eq(chartOfAccounts.accountType, 'revenue'),
+          gte(journalEntries.postedAt, fromInstant),
+          lt(journalEntries.postedAt, toExclusiveInstant),
+          notAClosingEntry(),
+        ),
+      );
+    grossReceiptsCents = revenueRows.reduce((sum, r) => sum + toCents(r.amount), 0);
+  }
+
+  // The income section. Returns/allowances, other income and the various
+  // gain/loss lines have no data model — no refunds, no securities, no farm.
+  // Cost of goods sold has none either: there is no inventory model, and the
+  // seed routes materials to Supplies (matching Wave's sole-prop default), so a
+  // figure entered here would double-count against that account. All emitted at
+  // zero rather than omitted, so the form reads whole.
+  const totalDeductionsCents = toCents(rollup.totalDeductions);
+  const netIncomeCents = grossReceiptsCents - totalDeductionsCents;
+  const incomeAmount = (role: string): string => {
+    switch (role) {
+      case 'grossReceipts':
+      case 'netReceipts':
+      case 'grossProfit':
+      case 'totalIncome':
+        return centsToMoney(grossReceiptsCents);
+      default:
+        return '0.00';
+    }
+  };
+
+  const income: TaxLineRow[] = form.income.map((line) => ({
+    ...line,
+    amount: incomeAmount(line.role),
+    accounts: [],
+  }));
+
+  const deductions: TaxLineRow[] = rollup.rows.map((row) => {
+    if (row.role === 'totalDeductions') return { ...row, amount: rollup.totalDeductions };
+    if (row.role === 'netIncome') return { ...row, amount: centsToMoney(netIncomeCents) };
+    return row;
+  });
+
+  return {
+    worksheet: {
+      form: form.name,
+      formCode: form.code,
+      year,
+      basis,
+      // Lets the UI say "showing accrual, your saved method is cash" instead of
+      // silently disagreeing with Settings.
+      companyAccountingMethod: company.accountingMethod,
+      from,
+      to,
+      income,
+      deductions,
+      unmappedExpenses: rollup.unmapped,
+      totalDeductions: rollup.totalDeductions,
+      netIncome: centsToMoney(netIncomeCents),
+    },
+  };
+}
+
+// Projects the general worksheet back into the Schedule C response shape that
+// shipped in TMC-155, for the legacy alias. Field-for-field identical to what
+// mobile builds in the stores already parse — do not "improve" it.
+function toLegacyScheduleC(w: TaxWorksheet) {
+  const byLine = new Map(w.income.map((l) => [l.line, l.amount ?? '0.00']));
+  const gross = byLine.get('1') ?? '0.00';
+  return {
+    year: w.year,
+    basis: w.basis,
+    companyAccountingMethod: w.companyAccountingMethod,
+    from: w.from,
+    to: w.to,
+    partI: {
+      grossReceipts: gross,
+      returnsAndAllowances: byLine.get('2') ?? '0.00',
+      netReceipts: byLine.get('3') ?? gross,
+      costOfGoodsSold: byLine.get('4') ?? '0.00',
+      grossProfit: byLine.get('5') ?? gross,
+      otherIncome: byLine.get('6') ?? '0.00',
+      grossIncome: byLine.get('7') ?? gross,
+    },
+    // The old shape carried only lines 8–27a here; 28/29/30/31 were separate
+    // top-level fields. The generalised table folds them into `deductions`, so
+    // the tail is filtered back out.
+    partII: w.deductions
+      .filter((r) => r.role === 'mapped')
+      .map((r) => ({
+        line: r.line,
+        label: r.label,
+        amount: r.amount ?? '0.00',
+        accounts: r.accounts,
+        ...(r.userSupplied ? { userSupplied: true as const } : {}),
+      })),
+    unmappedExpenses: w.unmappedExpenses,
+    totalExpenses: w.totalDeductions,
+    tentativeProfit: w.netIncome,
+    // Line 30 has no data model. Explicitly null rather than 0.00 so the UI
+    // renders "you must supply this" — a silent zero would read as "you have no
+    // home office".
+    homeOffice: null,
+    // Line 31. Excludes line 30 by construction; the UI has to say so.
+    netProfit: w.netIncome,
+  };
 }
 
 // Stateless cash-flow advisor — the reasoning model is resolved per call from
@@ -465,11 +761,16 @@ export function reportsRoutes(deps: AppDeps) {
           });
         },
       )
-      // Schedule C worksheet (TMC-155) — the accountant handoff. Not a filing:
-      // a form-shaped view the user hands over or types into consumer tax
-      // software. The COA already carries the mapping (chart_of_accounts
-      // .tax_mapping, seeded per account), so this groups by tax line instead
+      // Tax worksheet (TMC-155 for Schedule C, TMC-162 for the other three) —
+      // the accountant handoff. Not a filing: a form-shaped view the user hands
+      // over or types into consumer tax software. The COA already carries the
+      // mapping (chart_of_accounts.tax_mapping, seeded per account against the
+      // return that entity actually files), so this groups by tax line instead
       // of by account code and fills the rest of the form's skeleton.
+      //
+      // One endpoint, four forms: which one you get is dispatched off the
+      // company's business type, so clients never route by entity type. See
+      // lib/tax-worksheet.ts for the line tables.
       //
       // Basis is the interesting part. The GL is *always* accrual — that's what
       // double-entry is — so cash basis is a reporting lens applied at read
@@ -488,241 +789,38 @@ export function reportsRoutes(deps: AppDeps) {
       //             post Dr expense / Cr AP when *opened*. So we drop
       //             bill-sourced GL postings and add back bills paid in-window
       //             against their original category.
-      .get(
-        '/api/companies/:id/schedule-c',
-        validator('query', (v) => {
-          const basis = v.basis;
-          if (basis !== undefined && basis !== 'cash' && basis !== 'accrual') {
-            return { error: 'invalid_basis' as const };
-          }
-          const yearRaw = v.year;
-          let year: number | undefined;
-          if (typeof yearRaw === 'string') {
-            year = Number(yearRaw);
-            // A tax year outside this range is a typo, not a filing. Bounding it
-            // also keeps taxYearWindow from building nonsense Dates.
-            if (!Number.isInteger(year) || year < 1900 || year > 2200) {
-              return { error: 'invalid_year' as const };
-            }
-          }
-          return { basis: basis as 'cash' | 'accrual' | undefined, year };
-        }),
-        async (c) => {
-          const id = c.req.param('id');
-          if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+      .get('/api/companies/:id/tax-worksheet', validator('query', taxWorksheetQuery), async (c) => {
+        const id = c.req.param('id');
+        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+        const q = c.req.valid('query');
+        if ('error' in q) return c.json({ error: q.error }, 400);
 
-          const q = c.req.valid('query');
-          if ('error' in q) return c.json({ error: q.error }, 400);
+        const built = await buildTaxWorksheet(c.get('tx'), c.get('accountId'), id, q);
+        if ('error' in built) return c.json({ error: built.error }, built.status);
+        return c.json(built.worksheet);
+      })
+      // Legacy alias, kept because mobile ships through the app stores and an
+      // older binary must not 404 on upgrade. Deliberately reproduces the OLD
+      // response shape byte for byte — partI/partII/homeOffice/netProfit, and
+      // the 409 for a business that doesn't file a Schedule C — rather than
+      // returning the general shape a shipped client can't read. One
+      // computation, two projections: the SQL below runs once either way.
+      //
+      // Retire once the store-minimum app version is past the TMC-162 release.
+      .get('/api/companies/:id/schedule-c', validator('query', taxWorksheetQuery), async (c) => {
+        const id = c.req.param('id');
+        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+        const q = c.req.valid('query');
+        if ('error' in q) return c.json({ error: q.error }, 400);
 
-          const tx = c.get('tx');
-          const accountId = c.get('accountId');
-
-          // accounting_method rides along on the company lookup — it's the
-          // basis default, so we'd need the row either way.
-          const [company] = await tx
-            .select({
-              id: companies.id,
-              businessType: companies.businessType,
-              accountingMethod: companies.accountingMethod,
-              timezone: companies.timezone,
-            })
-            .from(companies)
-            .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
-            .limit(1);
-          if (!company) return c.json({ error: 'company_not_found' }, 404);
-
-          // A partnership or corporation doesn't file Schedule C, and since
-          // TMC-124 its chart of accounts is mapped to its own return instead —
-          // so this worksheet would render every line at zero with the real
-          // figures stranded in the unmapped bucket. Refuse and name the form
-          // they actually file rather than hand back a plausible-looking blank.
-          if (!filesScheduleC(company.businessType)) {
-            return c.json(
-              {
-                error: 'wrong_tax_form',
-                taxForm:
-                  TAX_FORM_BY_BUSINESS_TYPE[company.businessType as BusinessType] ?? 'another form',
-              },
-              409,
-            );
-          }
-
-          const basis = q.basis ?? (company.accountingMethod === 'accrual' ? 'accrual' : 'cash');
-          // Default to the current year *where the business is* — on 1 January
-          // a US operator should not still be defaulting to last year because
-          // UTC hasn't rolled over, nor the reverse.
-          const year = q.year ?? Number(localToday(company.timezone).slice(0, 4));
-          const { from, to, toExclusiveDate } = taxYearWindow(year);
-          // The tax year runs midnight-to-midnight in the company's zone: a
-          // payment taken at 8pm on 31 December belongs to that year, not the
-          // next one (TMC-157).
-          const fromInstant = dayStartInstant(from, company.timezone);
-          const toExclusiveInstant = dayStartInstant(toExclusiveDate, company.timezone);
-
-          // Per-account net in the account's normal-balance direction, same
-          // convention as profit-loss: a line on the account's normal side adds,
-          // the other side subtracts. Reversal-safe by construction.
-          //
-          // coalesce matters: the revenue query below has no GROUP BY, so over
-          // an empty window Postgres returns a single row with a NULL sum rather
-          // than zero rows — and a null would reach toCents.
-          const glAmount = sql<string>`coalesce(sum(case when ${journalLines.side} = ${chartOfAccounts.normalBalance} then ${journalLines.amount} else -${journalLines.amount} end), 0)::numeric(15,2)`;
-
-          const glExpenseFilters = [
-            eq(journalEntries.companyId, id),
-            eq(journalEntries.accountId, accountId),
-            eq(chartOfAccounts.accountType, 'expense'),
-            gte(journalEntries.postedAt, fromInstant),
-            lt(journalEntries.postedAt, toExclusiveInstant),
-            notAClosingEntry(),
-          ];
-          // Cash basis: a bill's expense belongs to the period the bill was
-          // PAID, not opened. Both legs of a bill (open, and any void reversal)
-          // carry source_entity_type 'bill', so excluding the source wholesale
-          // keeps reversals consistent, and the paid-bill query below re-adds
-          // the cash-basis amount at the right date.
-          if (basis === 'cash') {
-            glExpenseFilters.push(ne(journalEntries.sourceEntityType, 'bill'));
-          }
-
-          const expenseRows = await tx
-            .select({
-              code: chartOfAccounts.code,
-              name: chartOfAccounts.name,
-              taxMapping: chartOfAccounts.taxMapping,
-              amount: glAmount,
-            })
-            .from(journalLines)
-            .innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id))
-            .innerJoin(chartOfAccounts, eq(journalLines.coaAccountId, chartOfAccounts.id))
-            .where(and(...glExpenseFilters))
-            .groupBy(chartOfAccounts.code, chartOfAccounts.name, chartOfAccounts.taxMapping)
-            .orderBy(asc(chartOfAccounts.code));
-
-          // Merge on account code so a category that received both a direct
-          // expense and a paid bill lands on one Part II row.
-          const expenseByCode = new Map<string, ExpenseAccountAmount>();
-          const addExpense = (row: ExpenseAccountAmount) => {
-            const existing = expenseByCode.get(row.code);
-            if (!existing) {
-              expenseByCode.set(row.code, { ...row });
-              return;
-            }
-            existing.amount = centsToMoney(toCents(existing.amount) + toCents(row.amount));
-          };
-          for (const row of expenseRows) addExpense(row);
-
-          if (basis === 'cash') {
-            const paidBills = await tx
-              .select({
-                code: chartOfAccounts.code,
-                name: chartOfAccounts.name,
-                taxMapping: chartOfAccounts.taxMapping,
-                amount: sql<string>`coalesce(sum(${bills.amount}), 0)::numeric(15,2)`,
-              })
-              .from(bills)
-              .innerJoin(chartOfAccounts, eq(bills.categoryAccountId, chartOfAccounts.id))
-              .where(
-                and(
-                  eq(bills.accountId, accountId),
-                  eq(bills.companyId, id),
-                  eq(bills.status, 'paid'),
-                  gte(bills.paidAt, fromInstant),
-                  lt(bills.paidAt, toExclusiveInstant),
-                ),
-              )
-              .groupBy(chartOfAccounts.code, chartOfAccounts.name, chartOfAccounts.taxMapping)
-              .orderBy(asc(chartOfAccounts.code));
-            for (const row of paidBills) addExpense(row);
-          }
-
-          const partII = rollUpPartII([...expenseByCode.values()]);
-
-          // Gross receipts (line 1).
-          let grossReceiptsCents: number;
-          if (basis === 'cash') {
-            // Direct method, and deliberately off the GL: summing cash debits
-            // would also sweep in owner contributions and loan proceeds, which
-            // are cash in but not revenue. Querying invoices excludes them
-            // structurally rather than by blocklist. subtotal is pre-tax —
-            // sales tax collected is not income. Safe against later edits
-            // because 'paid' is a terminal status, so a filed year can't be
-            // retroactively altered.
-            //
-            // NOTE: this assumes payment is all-or-nothing (there is no partial
-            // payment or deposit model today). If deposits land, this silently
-            // becomes wrong — it must move to a payments table at that point.
-            const [row] = await tx
-              .select({
-                gross: sql<string>`coalesce(sum(${invoices.subtotal}), 0)::numeric(15,2)`,
-              })
-              .from(invoices)
-              .where(
-                and(
-                  eq(invoices.accountId, accountId),
-                  eq(invoices.companyId, id),
-                  eq(invoices.status, 'paid'),
-                  gte(invoices.paidAt, fromInstant),
-                  lt(invoices.paidAt, toExclusiveInstant),
-                ),
-              );
-            grossReceiptsCents = toCents(row?.gross ?? '0.00');
-          } else {
-            const revenueRows = await tx
-              .select({ amount: glAmount })
-              .from(journalLines)
-              .innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id))
-              .innerJoin(chartOfAccounts, eq(journalLines.coaAccountId, chartOfAccounts.id))
-              .where(
-                and(
-                  eq(journalEntries.companyId, id),
-                  eq(journalEntries.accountId, accountId),
-                  eq(chartOfAccounts.accountType, 'revenue'),
-                  gte(journalEntries.postedAt, fromInstant),
-                  lt(journalEntries.postedAt, toExclusiveInstant),
-                  notAClosingEntry(),
-                ),
-              );
-            grossReceiptsCents = revenueRows.reduce((sum, r) => sum + toCents(r.amount), 0);
-          }
-
-          // Part I. Returns/allowances (2), COGS (4) and other income (6) have
-          // no data model — no refunds, no inventory (the seed routes materials
-          // to Supplies, line 22, matching Wave's sole-prop default). They're
-          // emitted at zero rather than omitted so the form reads whole.
-          const totalExpensesCents = toCents(partII.totalExpenses);
-          const tentativeProfitCents = grossReceiptsCents - totalExpensesCents;
-
-          return c.json({
-            year,
-            basis,
-            // Lets the UI say "showing accrual, your saved method is cash"
-            // instead of silently disagreeing with Settings.
-            companyAccountingMethod: company.accountingMethod,
-            from,
-            to,
-            partI: {
-              grossReceipts: centsToMoney(grossReceiptsCents),
-              returnsAndAllowances: '0.00',
-              netReceipts: centsToMoney(grossReceiptsCents),
-              costOfGoodsSold: '0.00',
-              grossProfit: centsToMoney(grossReceiptsCents),
-              otherIncome: '0.00',
-              grossIncome: centsToMoney(grossReceiptsCents),
-            },
-            partII: partII.rows,
-            unmappedExpenses: partII.unmapped,
-            totalExpenses: partII.totalExpenses,
-            tentativeProfit: centsToMoney(tentativeProfitCents),
-            // Line 30 (business use of home) has no data model. Explicitly null
-            // rather than 0.00 so the UI renders "you must supply this" — a
-            // silent zero would read as "you have no home office".
-            homeOffice: null,
-            // Line 31. Excludes line 30 by construction; the UI has to say so.
-            netProfit: centsToMoney(tentativeProfitCents),
-          });
-        },
-      )
+        const built = await buildTaxWorksheet(c.get('tx'), c.get('accountId'), id, q);
+        if ('error' in built) return c.json({ error: built.error }, built.status);
+        const { worksheet } = built;
+        if (worksheet.formCode !== 'schedule_c') {
+          return c.json({ error: 'wrong_tax_form', taxForm: worksheet.form }, 409);
+        }
+        return c.json(toLegacyScheduleC(worksheet));
+      })
       // Sales by customer (insight set). Pre-tax sales (subtotal) per customer
       // for invoices issued in the window, sent or paid (drafts + voided
       // excluded). Top 25 by sales; the grand total sums ALL contacts (computed
