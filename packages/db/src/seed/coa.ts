@@ -123,7 +123,16 @@ const BASE_COA: readonly CoaAccount[] = [
   // takes a draw, a shareholder takes a distribution, a C-corp shareholder takes
   // a dividend — so the overlays rename them and the posting logic never knows.
   { code: '3000', name: "Owner's Equity", accountType: 'equity', normalBalance: 'credit' },
-  { code: '3100', name: "Owner's Draw", accountType: 'equity', normalBalance: 'debit' },
+  // Contra-EQUITY, and seeded 'credit' for exactly the same reason 1900 above is
+  // seeded 'debit': normal_balance is the direction the report nets in, not the
+  // side the account really carries. A draw posts Dr 3100, so netting against a
+  // 'credit' normal makes it come out NEGATIVE — money taken out REDUCES equity,
+  // and Assets = Liabilities + Equity holds with no contra special-casing.
+  //
+  // Seeded 'debit' until migration 0018: a draw then matched its normal balance,
+  // came out positive, and *increased* reported equity — so any company that had
+  // recorded a draw reported balanced=false on the balance sheet.
+  { code: '3100', name: "Owner's Draw", accountType: 'equity', normalBalance: 'credit' },
 
   // Revenue — split by line type at posting time (service vs product lines).
   { code: '4000', name: 'Service Revenue', accountType: 'revenue', normalBalance: 'credit' },

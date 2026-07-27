@@ -127,6 +127,13 @@
       "when": 1785129600000,
       "tag": "0017_company_depreciation_convention",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1785216000000,
+      "tag": "0018_owner_draw_contra_equity",
+      "breakpoints": true
     }
   ]
 }

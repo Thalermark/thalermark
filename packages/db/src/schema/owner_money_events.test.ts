@@ -31,7 +31,10 @@ describe('owner_money_events', () => {
     const equity = coa.find((r) => r.code === '3000');
     const draw = coa.find((r) => r.code === '3100');
     expect(equity).toMatchObject({ accountType: 'equity', normalBalance: 'credit' });
-    expect(draw).toMatchObject({ accountType: 'equity', normalBalance: 'debit' });
+    // 3100 is contra-equity, so it is seeded 'credit' (migration 0018) — the
+    // direction the balance sheet nets in, not the side a draw posts on. With
+    // 'debit' a draw netted positive and *increased* reported equity.
+    expect(draw).toMatchObject({ accountType: 'equity', normalBalance: 'credit' });
   });
 
   it('inserts and reads back an event with sensible defaults', async () => {

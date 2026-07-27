@@ -205,6 +205,54 @@ describe('owner money events — CRUD + ledger (equity/draw)', () => {
     }
   });
 
+  // Regression (migration 0018): a draw is a contra-EQUITY posting, so it must
+  // REDUCE reported equity. 3100 was seeded normal_balance 'debit', which meant
+  // the balance sheet netted a draw in its own direction and added it — equity
+  // came out overstated by twice the withdrawal and `balanced` went false. The
+  // sibling assertions above cover the postings themselves; this covers the
+  // report that reads them, which is where the bug actually surfaced.
+  it('a draw reduces equity and keeps the balance sheet balanced', async () => {
+    const ctx = buildApp();
+    try {
+      const cookie = await signUp(ctx.app, 'ome-bs@example.com');
+      const { accountId, companyId } = await userContext('ome-bs@example.com');
+
+      await createEvent(ctx.app, cookie, accountId, {
+        companyId,
+        kind: 'contribution',
+        amount: '2000.00',
+      });
+      await createEvent(ctx.app, cookie, accountId, {
+        companyId,
+        kind: 'draw',
+        amount: '800.00',
+      });
+
+      const bs = (await (
+        await ctx.app.request(`/api/companies/${companyId}/balance-sheet`, {
+          headers: { cookie, 'x-account-id': accountId },
+        })
+      ).json()) as {
+        equity: { code: string; amount: string }[];
+        totalAssets: string;
+        totalEquity: string;
+        balanced: boolean;
+      };
+
+      // Cash 2000 in − 800 out, and equity has to agree with it.
+      expect(bs.totalAssets).toBe('1200.00');
+      expect(bs.totalEquity).toBe('1200.00');
+      expect(bs.balanced).toBe(true);
+      // The draw shows as a negative line inside equity — the same way
+      // Accumulated Depreciation shows negative inside assets.
+      const byCode = new Map(bs.equity.map((l) => [l.code, l.amount]));
+      expect(byCode.get('3000')).toBe('2000.00');
+      expect(byCode.get('3100')).toBe('-800.00');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
   it('edit reverses the prior posting and reposts the new amount', async () => {
     const ctx = buildApp();
     try {
