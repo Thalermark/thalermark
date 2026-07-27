@@ -31,6 +31,22 @@
       : [...transferAssetIds, id];
   }
 
+  // Account names in the reader's words. The chart's own names are correct
+  // accounting and stay that way in the reports, which carry codes and export to
+  // CSV — but this page is the plain-language surface, and "Accumulated
+  // Depreciation" is exactly the vocabulary the product exists to hide.
+  // Anything unmapped falls through to the account's own name.
+  const PLAIN_NAMES: Record<string, string> = {
+    '1200': 'Money customers owe you',
+    '1500': 'Equipment and vehicles',
+    '1900': 'Less what you’ve written off',
+    '2000': 'Bills you haven’t paid',
+    '2200': 'Sales tax you’ve collected',
+    '2300': 'Payroll taxes you owe',
+    '2400': 'Income tax you owe',
+  };
+  const plain = (b: { code: string; name: string }) => PLAIN_NAMES[b.code] ?? b.name;
+
   // What the old business is handing over, in the reader's terms rather than
   // debits and credits: a positive raw balance on an asset is something it owns.
   const owns = $derived(
@@ -38,6 +54,20 @@
   );
   const owes = $derived(
     data.preview.balances.filter((b) => b.accountType === 'liability' && Number(b.amount) !== 0),
+  );
+
+  // Loans are NOT in `balances` — 2700 is excluded from the aggregate sweep and
+  // moves per purchase instead, so loanBalance can still find it by source id.
+  // Without this the panel read "What it owes: Nothing" directly beneath a mower
+  // row saying "still owing $5,000", which understates the one number a reader
+  // most wants before confirming.
+  //
+  // Derived from the TICKED assets, so unticking the mower drops its loan from
+  // the summary — which is what actually happens.
+  const owedOnAssets = $derived(
+    data.preview.assets
+      .filter((a) => transferAssetIds.includes(a.id))
+      .reduce((sum, a) => sum + Number(a.outstandingLoan), 0),
   );
 </script>
 
@@ -212,7 +242,7 @@
       <span class="eyebrow">What moves onto the new books</span>
     </header>
     <div class="px-6 py-6">
-      {#if owns.length === 0 && owes.length === 0}
+      {#if owns.length === 0 && owes.length === 0 && owedOnAssets === 0}
         <p class="text-sm text-fg/60">Nothing yet — {data.company.name} has no balances to move.</p>
       {:else}
         <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
@@ -221,7 +251,7 @@
             <ul class="mt-2 space-y-1 text-sm">
               {#each owns as b (b.code)}
                 <li class="flex justify-between gap-4">
-                  <span class="text-fg/70">{b.name}</span>
+                  <span class="text-fg/70">{plain(b)}</span>
                   <span class="font-mono tabular-nums text-fg">{money(b.amount)}</span>
                 </li>
               {/each}
@@ -229,16 +259,24 @@
           </div>
           <div>
             <p class="label">What it owes</p>
-            {#if owes.length === 0}
+            {#if owes.length === 0 && owedOnAssets === 0}
               <p class="mt-2 text-sm text-fg/50">Nothing.</p>
             {:else}
               <ul class="mt-2 space-y-1 text-sm">
                 {#each owes as b (b.code)}
                   <li class="flex justify-between gap-4">
-                    <span class="text-fg/70">{b.name}</span>
+                    <span class="text-fg/70">{plain(b)}</span>
                     <span class="font-mono tabular-nums text-fg">{money(b.amount)}</span>
                   </li>
                 {/each}
+                {#if owedOnAssets > 0}
+                  <li class="flex justify-between gap-4">
+                    <span class="text-fg/70">Still owing on your equipment</span>
+                    <span class="font-mono tabular-nums text-fg">
+                      {money(owedOnAssets.toFixed(2))}
+                    </span>
+                  </li>
+                {/if}
               </ul>
             {/if}
           </div>
