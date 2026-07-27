@@ -15,6 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { DateField } from '../../../components/DateField';
 import { pickActiveCompany } from '../../../lib/active-company';
 import { api } from '../../../lib/api';
+import { apiErrorMessage } from '../../../lib/api-errors';
 
 // Mirror of apps/web's /owner-money/new. The owner records money they put in or
 // took out, in plain language; the double-entry is hidden. `kind` fully
@@ -96,7 +97,7 @@ export default function NewOwnerMoney() {
       const res = await api.api['owner-money'].$post({ json: parsed.data });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
-        setFormError(body?.error ?? 'create_failed');
+        setFormError(apiErrorMessage(body?.error, 'create_failed', body));
         return;
       }
       const created = await res.json();

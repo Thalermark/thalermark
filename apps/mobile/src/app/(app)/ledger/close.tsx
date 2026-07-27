@@ -39,6 +39,7 @@ export default function LedgerClose() {
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [closable, setClosable] = useState<Closable[]>([]);
+  const [emptyYears, setEmptyYears] = useState<number[]>([]);
   const [closes, setCloses] = useState<ClosedRow[]>([]);
   const [busy, setBusy] = useState(false);
 
@@ -93,7 +94,12 @@ export default function LedgerClose() {
           };
         }),
       );
-      setClosable(previews.filter((p): p is Closable => p !== null));
+      const offered = previews.filter((p): p is Closable => p !== null);
+      // Only years with something on them get a card — an empty year has nothing
+      // to close and no button to press. The rest are named in one line so it's
+      // still clear why they aren't listed.
+      setClosable(offered.filter((p) => !p.empty));
+      setEmptyYears(offered.filter((p) => p.empty).map((p) => p.fiscalYear));
       setState('ready');
     } catch {
       setState('error');
@@ -211,26 +217,22 @@ export default function LedgerClose() {
               className="mt-4 rounded-sm border border-ink/10 bg-cream-warm p-5"
             >
               <Text className="font-serif text-xl text-ink">{year.fiscalYear}</Text>
-              {year.empty ? (
-                <Text className="mt-1 text-sm text-ink/60">Nothing on the books this year.</Text>
-              ) : (
-                <Text className="mt-1 text-sm text-ink/70">
-                  {Number(year.netIncome) < 0 ? 'Loss' : 'Profit'} of{' '}
-                  <Text className="font-mono tabular-nums text-ink">
-                    {money(String(Math.abs(Number(year.netIncome))))}
-                  </Text>
-                  {Number(year.withdrawals) > 0 ? (
-                    <Text className="text-ink/70">
-                      {' · '}
-                      <Text className="font-mono tabular-nums text-ink">
-                        {money(year.withdrawals)}
-                      </Text>
-                      {' taken out'}
-                    </Text>
-                  ) : null}
+              <Text className="mt-1 text-sm text-ink/70">
+                {Number(year.netIncome) < 0 ? 'Loss' : 'Profit'} of{' '}
+                <Text className="font-mono tabular-nums text-ink">
+                  {money(String(Math.abs(Number(year.netIncome))))}
                 </Text>
-              )}
-              {canAdjust && !year.empty ? (
+                {Number(year.withdrawals) > 0 ? (
+                  <Text className="text-ink/70">
+                    {' · '}
+                    <Text className="font-mono tabular-nums text-ink">
+                      {money(year.withdrawals)}
+                    </Text>
+                    {' taken out'}
+                  </Text>
+                ) : null}
+              </Text>
+              {canAdjust ? (
                 <Pressable
                   onPress={() => confirmClose(year)}
                   disabled={busy}
@@ -242,6 +244,18 @@ export default function LedgerClose() {
             </View>
           ))
         )}
+
+        {/* Years with no activity get one line rather than a card each — there's
+            nothing to close, but naming them answers "why isn't 2023 listed?". */}
+        {emptyYears.length > 0 ? (
+          <Text className="mt-4 text-sm text-ink/50">
+            Nothing on the books for{' '}
+            {new Intl.ListFormat('en', { style: 'long', type: 'conjunction' }).format(
+              emptyYears.map(String),
+            )}
+            .
+          </Text>
+        ) : null}
 
         {closes.length > 0 ? (
           <>

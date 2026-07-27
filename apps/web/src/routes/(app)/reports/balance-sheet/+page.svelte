@@ -100,8 +100,13 @@
             <td class="px-5 py-3 text-right font-mono tabular-nums text-fg">{fmt(e.amount)}</td>
           </tr>
         {/each}
+        <!-- Profit the books still carry loose, i.e. everything earned since the
+             last year-end close (or since day one if there's never been one).
+             Deliberately NOT called "retained earnings": a corporation has a real
+             3400 Retained Earnings account listed just above, and two rows by the
+             same name is the first thing their accountant would query. -->
         <tr>
-          <td class="px-5 py-3 text-fg/80">Retained earnings (net income)</td>
+          <td class="px-5 py-3 text-fg/80">Net income (not yet closed)</td>
           <td class="px-5 py-3 text-right font-mono tabular-nums text-fg">{fmt(report.netIncome)}</td>
         </tr>
         <tr class="border-t border-fg/10 font-mono text-xs uppercase tracking-widest">

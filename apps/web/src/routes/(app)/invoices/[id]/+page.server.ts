@@ -1,4 +1,5 @@
 import { pickActiveCompany } from '$lib/active-company';
+import { apiErrorMessage } from '$lib/api-errors';
 import { serverApiClient } from '$lib/api.server';
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
@@ -85,7 +86,9 @@ async function runTransition(
   if (res.status === 404) throw error(404, 'invoice not found');
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
-    return fail(res.status, { transitionError: body?.error ?? 'transition_failed' });
+    return fail(res.status, {
+      transitionError: apiErrorMessage(body?.error, 'transition_failed', body),
+    });
   }
   redirect(303, `/invoices/${id}`);
 }
@@ -121,7 +124,9 @@ async function postPayment(
   if (res.status === 404) throw error(404, 'invoice not found');
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
-    return fail(res.status, { transitionError: body?.error ?? `${endpoint}_failed` });
+    return fail(res.status, {
+      transitionError: apiErrorMessage(body?.error, `${endpoint}_failed`, body),
+    });
   }
   redirect(303, `/invoices/${id}`);
 }
@@ -145,7 +150,7 @@ async function runSend(event: Parameters<Actions[string]>[0]) {
   if (res.status === 404) throw error(404, 'invoice not found');
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
-    return fail(res.status, { transitionError: body?.error ?? 'send_failed' });
+    return fail(res.status, { transitionError: apiErrorMessage(body?.error, 'send_failed', body) });
   }
   const body = (await res.json()) as { sentTo?: string };
   const qs = body.sentTo ? `?sent=${encodeURIComponent(body.sentTo)}` : '';
@@ -160,7 +165,9 @@ async function runDuplicate(event: Parameters<Actions[string]>[0]) {
   if (res.status === 404) throw error(404, 'invoice not found');
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
-    return fail(res.status, { transitionError: body?.error ?? 'duplicate_failed' });
+    return fail(res.status, {
+      transitionError: apiErrorMessage(body?.error, 'duplicate_failed', body),
+    });
   }
   const { id } = (await res.json()) as { id: string };
   redirect(303, `/invoices/${id}/edit`);
@@ -185,7 +192,7 @@ async function runAddBusinessDetails(event: Parameters<Actions[string]>[0]) {
   });
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
-    return fail(res.status, { transitionError: body?.error ?? 'save_failed' });
+    return fail(res.status, { transitionError: apiErrorMessage(body?.error, 'save_failed', body) });
   }
   redirect(303, `/invoices/${id}`);
 }

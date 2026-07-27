@@ -62,7 +62,12 @@ export default function BalanceSheetReport() {
               {d.equity.map((e) => (
                 <AmountRow key={e.code} label={e.name} amount={fmt(e.amount)} />
               ))}
-              <AmountRow label="Retained earnings (net income)" amount={fmt(d.netIncome)} />
+              {/* Profit the books still carry loose — everything earned since the
+                  last year-end close. Deliberately NOT "retained earnings": a
+                  corporation has a real 3400 Retained Earnings row listed above,
+                  and two rows by the same name is the first thing their
+                  accountant would query. */}
+              <AmountRow label="Net income (not yet closed)" amount={fmt(d.netIncome)} />
               <TotalRow label="Total equity" amount={fmt(d.totalEquity)} />
 
               <View className="border-t-2 border-ink/15">

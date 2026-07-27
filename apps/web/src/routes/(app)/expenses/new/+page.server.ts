@@ -1,4 +1,5 @@
 import { pickActiveCompany } from '$lib/active-company';
+import { apiErrorMessage } from '$lib/api-errors';
 import { serverApiClient } from '$lib/api.server';
 import { resolveVendorField } from '$lib/expense-vendor';
 import { error, fail, redirect } from '@sveltejs/kit';
@@ -229,7 +230,10 @@ export const actions: Actions = {
     const res = await client.api.expenses.$post({ json: parsed.data });
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      return fail(res.status, { values, formError: formErrorFor(body?.error ?? 'create_failed') });
+      return fail(res.status, {
+        values,
+        formError: formErrorFor(apiErrorMessage(body?.error, 'create_failed', body)),
+      });
     }
     const created = await res.json();
     redirect(303, `/expenses/${created.id}`);

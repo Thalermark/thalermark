@@ -16,6 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ContactField } from '../../../../components/ContactField';
 import { DateField } from '../../../../components/DateField';
 import { api } from '../../../../lib/api';
+import { apiErrorMessage } from '../../../../lib/api-errors';
 
 // Edit half of apps/web's /bills/[id]/edit. Only OPEN bills are editable — the
 // detail screen gates the Edit button, and this screen bounces paid/voided bills
@@ -129,7 +130,7 @@ export default function EditBill() {
       const res = await api.api.bills[':id'].$patch({ param: { id }, json: parsed.data });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
-        const code = body?.error ?? 'save_failed';
+        const code = apiErrorMessage(body?.error, 'save_failed', body);
         const msg =
           code === 'bill_not_editable'
             ? 'This bill can no longer be edited.'

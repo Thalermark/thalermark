@@ -28,6 +28,7 @@ import { type ItemPatch, ItemPickerField } from '../../../../components/ItemPick
 import { TaxRow } from '../../../../components/TaxRow';
 import { TypeRow } from '../../../../components/TypeRow';
 import { api } from '../../../../lib/api';
+import { apiErrorMessage } from '../../../../lib/api-errors';
 import { type TaxPolicyLite, lineTax, policyRate, resolvePolicyId } from '../../../../lib/line-tax';
 
 // Edit half of apps/web's /invoices/[id]/edit — draft-only on the API (the
@@ -272,7 +273,7 @@ export default function EditInvoice() {
       const res = await api.api.invoices[':id'].$patch({ param: { id }, json: parsed.data });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
-        const code = body?.error ?? 'save_failed';
+        const code = apiErrorMessage(body?.error, 'save_failed', body);
         setFormError(FRIENDLY[code] ?? code);
         return;
       }

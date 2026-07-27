@@ -1,4 +1,5 @@
 import { pickActiveCompany } from '$lib/active-company';
+import { apiErrorMessage } from '$lib/api-errors';
 import { serverApiClient } from '$lib/api.server';
 import { error, fail, redirect } from '@sveltejs/kit';
 import { openingBalanceUpsertSchema } from '@thalermark/validation';
@@ -65,7 +66,10 @@ export const actions: Actions = {
     const res = await client.api['owner-money']['opening-balance'].$put({ json: parsed.data });
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      return fail(res.status, { values, formError: body?.error ?? 'save_failed' });
+      return fail(res.status, {
+        values,
+        formError: apiErrorMessage(body?.error, 'save_failed', body),
+      });
     }
     redirect(303, '/owner-money');
   },
@@ -83,7 +87,7 @@ export const actions: Actions = {
     });
     if (!res.ok && res.status !== 404) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      return fail(res.status, { formError: body?.error ?? 'clear_failed' });
+      return fail(res.status, { formError: apiErrorMessage(body?.error, 'clear_failed', body) });
     }
     redirect(303, '/owner-money');
   },

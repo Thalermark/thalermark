@@ -1,3 +1,4 @@
+import { apiErrorMessage } from '$lib/api-errors';
 import { serverApiClient } from '$lib/api.server';
 import { resolveVendorField } from '$lib/expense-vendor';
 import { error, fail, redirect } from '@sveltejs/kit';
@@ -204,7 +205,10 @@ export const actions: Actions = {
     if (res.status === 404) throw error(404, 'expense not found');
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      return fail(res.status, { values, formError: formErrorFor(body?.error ?? 'update_failed') });
+      return fail(res.status, {
+        values,
+        formError: formErrorFor(apiErrorMessage(body?.error, 'update_failed', body)),
+      });
     }
     redirect(303, `/expenses/${event.params.id}`);
   },

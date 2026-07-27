@@ -51,23 +51,18 @@
         <div class="flex flex-wrap items-baseline justify-between gap-4">
           <div>
             <h3 class="font-serif text-xl text-fg">{year.fiscalYear}</h3>
-            {#if year.empty}
-              <p class="mt-1 text-sm text-fg/60">Nothing on the books for this year.</p>
-            {:else}
-              <p class="mt-1 text-sm text-fg/70">
-                {Number(year.netIncome) < 0 ? 'Loss' : 'Profit'} of
-                <span class="font-mono tabular-nums text-fg"
-                  >{money(String(Math.abs(Number(year.netIncome))))}</span
-                >
-                {#if Number(year.withdrawals) > 0}
-                  · <span class="font-mono tabular-nums text-fg"
-                    >{money(year.withdrawals)}</span
-                  > taken out
-                {/if}
-              </p>
-            {/if}
+            <p class="mt-1 text-sm text-fg/70">
+              {Number(year.netIncome) < 0 ? 'Loss' : 'Profit'} of
+              <span class="font-mono tabular-nums text-fg"
+                >{money(String(Math.abs(Number(year.netIncome))))}</span
+              >
+              {#if Number(year.withdrawals) > 0}
+                · <span class="font-mono tabular-nums text-fg">{money(year.withdrawals)}</span> taken
+                out
+              {/if}
+            </p>
           </div>
-          {#if canAdjust && !year.empty}
+          {#if canAdjust}
             <button
               type="button"
               class="btn"
@@ -111,6 +106,17 @@
   </div>
 {/if}
 
+<!-- Years with no activity aren't given a card of their own — there's nothing to
+     close and no button to press. Naming them in one line answers "why isn't 2023
+     listed?" without turning the page into a stack of empty boxes. -->
+{#if data.emptyYears.length > 0}
+  <p class="mt-4 text-sm text-fg/50">
+    Nothing on the books for {new Intl.ListFormat('en', { style: 'long', type: 'conjunction' }).format(
+      data.emptyYears.map(String),
+    )}.
+  </p>
+{/if}
+
 {#if data.closes.length > 0}
   <h2 class="mt-12 font-serif text-2xl font-light text-fg">Closed years</h2>
   <div class="mt-4 overflow-hidden rounded-sm border border-fg/10 bg-surface-2">
@@ -118,7 +124,9 @@
       <thead class="bg-surface">
         <tr class="label">
           <th class="px-5 py-3">Year</th>
-          <th class="px-5 py-3 text-right">Profit</th>
+          <!-- "Profit or loss": a closed year can be either, and the column
+               happily shows a negative. -->
+          <th class="px-5 py-3 text-right">Profit or loss</th>
           <th class="px-5 py-3">Closed on</th>
           <th class="px-5 py-3"></th>
         </tr>

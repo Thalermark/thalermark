@@ -1,3 +1,4 @@
+import { apiErrorMessage } from '$lib/api-errors';
 import { serverApiClient } from '$lib/api.server';
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
@@ -83,7 +84,9 @@ export const actions: Actions = {
     if (res.status === 404) throw error(404, 'bill not found');
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      return fail(res.status, { transitionError: body?.error ?? 'mark_paid_failed' });
+      return fail(res.status, {
+        transitionError: apiErrorMessage(body?.error, 'mark_paid_failed', body),
+      });
     }
     redirect(303, `/bills/${id}`);
   },
@@ -96,7 +99,9 @@ export const actions: Actions = {
     if (res.status === 404) throw error(404, 'bill not found');
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      return fail(res.status, { transitionError: body?.error ?? 'void_failed' });
+      return fail(res.status, {
+        transitionError: apiErrorMessage(body?.error, 'void_failed', body),
+      });
     }
     redirect(303, `/bills/${id}`);
   },

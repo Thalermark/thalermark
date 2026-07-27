@@ -44,7 +44,11 @@ export const load: PageServerLoad = async (event) => {
   // any year is closed the only candidates are the ones after it.
   const closedYears = new Set(closes.map((c) => c.fiscalYear));
   const newestClosed = closes.length > 0 ? Math.max(...closes.map((c) => c.fiscalYear)) : null;
-  const lastFinished = new Date().getUTCFullYear() - 1;
+  // Local year, matching mobile. The server is the authority either way — it
+  // resolves the boundary in the COMPANY's timezone and refuses a year that
+  // hasn't finished there, so an offered-but-unfinished year is filtered out
+  // below when its preview comes back not-ok.
+  const lastFinished = new Date().getFullYear() - 1;
 
   const candidates: number[] = [];
   for (let y = lastFinished; y > lastFinished - YEARS_OFFERED; y--) {
@@ -72,9 +76,16 @@ export const load: PageServerLoad = async (event) => {
     }),
   );
 
+  const offered = previews.filter((p): p is Closable => p !== null);
+
   return {
     companyId: company.id,
-    closable: previews.filter((p): p is Closable => p !== null),
+    // Only years with something on them get a card. A business that started last
+    // year would otherwise meet a wall of identical "nothing here" cards with no
+    // action on them; the empty years are named in one line instead, so it's
+    // still clear why they aren't listed.
+    closable: offered.filter((p) => !p.empty),
+    emptyYears: offered.filter((p) => p.empty).map((p) => p.fiscalYear),
     closes: closes.map((c) => ({
       id: c.id,
       fiscalYear: c.fiscalYear,
