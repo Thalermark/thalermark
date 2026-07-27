@@ -2,8 +2,12 @@
 // (MinIO), and tiny self-host (local filesystem) all sit behind one interface
 // with no call-site changes — receipts are written and read the same way
 // regardless of where the bytes live. The interface is intentionally narrow:
-// upload, hand back a time-limited download URL, delete. No list/copy/move
-// until a feature needs them.
+// upload, hand back a time-limited download URL, read, delete, copy. It stays
+// that way — no list/move until a feature needs them.
+//
+// copyObject earned its place when a company's setup became copyable to another
+// company: a storage key embeds the company id, so two rows can never share one
+// (deleting either would break both).
 
 export interface PutObjectInput {
   // Storage key, e.g. accounts/<id>/companies/<id>/expenses/<id>/<uuid>.jpg.
@@ -34,4 +38,13 @@ export interface StorageProvider {
   // absent.
   getObject(key: string): Promise<Uint8Array>;
   deleteObject(key: string): Promise<void>;
+  // Duplicate an object under a new key. Needed because storage keys embed the
+  // company id (accounts/<a>/companies/<c>/...), so a copied company's logo must
+  // live at its own key — sharing the string would mean deleting either
+  // company's logo silently breaks the other's.
+  //
+  // Server-side where the backend supports it (S3 CopyObject, an fs copy), so
+  // the bytes never round-trip through the API process. Rejects when the source
+  // key is absent.
+  copyObject(sourceKey: string, destKey: string): Promise<void>;
 }
