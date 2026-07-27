@@ -18,7 +18,7 @@ import { items } from './schema/items.js';
 import { memberships } from './schema/memberships.js';
 import { recurringInvoiceLineItems, recurringInvoices } from './schema/recurring-invoices.js';
 import { telemetryEvents } from './schema/telemetry_events.js';
-import { seedChartOfAccounts } from './seed/coa-sole-prop.js';
+import { seedChartOfAccounts } from './seed/coa.js';
 
 // Slice 1.5 — full isolation matrix. Tests connect AS thalermark_app and
 // thalermark_staff_readonly (not the testcontainer superuser) so RLS is

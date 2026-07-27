@@ -24,13 +24,16 @@ export default function ExpensesByCategoryReport() {
     [from, to],
   );
 
+  // The note names no tax form: the categories map to whichever return the
+  // business files (Schedule C / 1065 / 1120-S / 1120), and each row prints its
+  // own tax line anyway.
   return (
     <ReportScaffold
       title="Expenses by category"
       selector={
         <PeriodSelector from={from} to={to} onChange={(f, t) => setWindow({ from: f, to: t })} />
       }
-      note={`${from} → ${to}. Spending grouped by category (your Schedule C buckets), biggest first.`}
+      note={`${from} → ${to}. Where your money went, biggest first.`}
     >
       <ReportBody data={data} error={error}>
         {(d) => {

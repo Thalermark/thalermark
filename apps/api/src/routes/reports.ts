@@ -18,7 +18,14 @@ import {
   journalEntries,
   journalLines,
 } from '@thalermark/db';
-import { centsToMoney, sumMoney, toCents } from '@thalermark/validation';
+import {
+  type BusinessType,
+  TAX_FORM_BY_BUSINESS_TYPE,
+  centsToMoney,
+  filesScheduleC,
+  sumMoney,
+  toCents,
+} from '@thalermark/validation';
 import type { AnyColumn, SQL } from 'drizzle-orm';
 import { and, asc, eq, gte, inArray, isNull, lt, lte, ne, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
@@ -500,6 +507,7 @@ export function reportsRoutes(deps: AppDeps) {
           const [company] = await tx
             .select({
               id: companies.id,
+              businessType: companies.businessType,
               accountingMethod: companies.accountingMethod,
               timezone: companies.timezone,
             })
@@ -507,6 +515,22 @@ export function reportsRoutes(deps: AppDeps) {
             .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
             .limit(1);
           if (!company) return c.json({ error: 'company_not_found' }, 404);
+
+          // A partnership or corporation doesn't file Schedule C, and since
+          // TMC-124 its chart of accounts is mapped to its own return instead —
+          // so this worksheet would render every line at zero with the real
+          // figures stranded in the unmapped bucket. Refuse and name the form
+          // they actually file rather than hand back a plausible-looking blank.
+          if (!filesScheduleC(company.businessType)) {
+            return c.json(
+              {
+                error: 'wrong_tax_form',
+                taxForm:
+                  TAX_FORM_BY_BUSINESS_TYPE[company.businessType as BusinessType] ?? 'another form',
+              },
+              409,
+            );
+          }
 
           const basis = q.basis ?? (company.accountingMethod === 'accrual' ? 'accrual' : 'cash');
           // Default to the current year *where the business is* — on 1 January

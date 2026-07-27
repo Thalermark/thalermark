@@ -27,7 +27,9 @@ This matters for two reasons:
 1. **Accountants can actually verify the books.** A real GL trial-balances. A flat list of categorized transactions doesn't. Users who hand off to a tax preparer get something their accountant trusts at face value — not a pile to re-categorize.
 2. **The growth path is open.** Sole proprietors today; single-member LLCs, partnerships, S-corps tomorrow. All four entity types need the same underlying ledger; only the chart-of-accounts seed and which reports surface change. A single-entry system would foreclose this — single-entry → double-entry migration after launch is lossy, because flat transactions can't reconstruct a journal.
 
-Business type is picked once at company creation (sole prop / single-member LLC / partnership / S-corp / C-corp) in the same wizard as company name and address. That choice seeds the chart of accounts. The MVP only ships the sole-prop seed; other entity types fall back to it until v1.x adds their seeds and reports. The user never has to know the difference.
+Business type is picked once at company creation (sole prop / single-member LLC / partnership / S-corp / C-corp) in the same wizard as company name and address. That choice seeds the chart of accounts — one per federal return: Schedule C for the two disregarded-entity types, Form 1065 for a partnership, Form 1120-S for an S-corp, Form 1120 for a C-corp. Account *numbers* are identical across all five so the posting layer never varies; what changes is how the owner's stake is named, a handful of entity-specific accounts, and which tax line each account rolls up to. Changing the type later re-maps the chart in place rather than forcing a fresh set of books. The user never has to know the difference.
+
+Tax *worksheets* lag the charts: Schedule C has one, the other three don't yet, and the reports hub says so plainly rather than showing a form that can't be filled.
 
 ---
 

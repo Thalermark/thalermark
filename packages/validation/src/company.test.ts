@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   BUSINESS_TYPES,
-  SELECTABLE_BUSINESS_TYPES,
+  TAX_FORM_BY_BUSINESS_TYPE,
   businessTypeSchema,
   companyUpdateSchema,
-  isSelectableBusinessType,
+  filesScheduleC,
 } from './company.js';
 
 describe('businessTypeSchema', () => {
@@ -21,24 +21,44 @@ describe('businessTypeSchema', () => {
   });
 });
 
-describe('SELECTABLE_BUSINESS_TYPES', () => {
-  it('covers the Schedule C types the sole-prop COA seed is correct for', () => {
-    expect([...SELECTABLE_BUSINESS_TYPES]).toEqual(['sole_prop', 'llc_single_member']);
+describe('TAX_FORM_BY_BUSINESS_TYPE', () => {
+  it('names the return every business type files', () => {
+    expect(TAX_FORM_BY_BUSINESS_TYPE).toEqual({
+      sole_prop: 'Schedule C (Form 1040)',
+      llc_single_member: 'Schedule C (Form 1040)',
+      partnership: 'Form 1065',
+      s_corp: 'Form 1120-S',
+      c_corp: 'Form 1120',
+    });
   });
 
-  it('is a subset of the full stored-value enum', () => {
-    for (const bt of SELECTABLE_BUSINESS_TYPES) {
-      expect(BUSINESS_TYPES).toContain(bt);
+  it('covers every stored-value enum member', () => {
+    for (const bt of BUSINESS_TYPES) {
+      expect(TAX_FORM_BY_BUSINESS_TYPE[bt]).toBeTruthy();
     }
   });
+});
 
-  it('isSelectableBusinessType gates only the seeded types', () => {
-    expect(isSelectableBusinessType('sole_prop')).toBe(true);
-    expect(isSelectableBusinessType('llc_single_member')).toBe(true);
-    expect(isSelectableBusinessType('partnership')).toBe(false);
-    expect(isSelectableBusinessType('s_corp')).toBe(false);
-    expect(isSelectableBusinessType('c_corp')).toBe(false);
-    expect(isSelectableBusinessType('bogus')).toBe(false);
+describe('filesScheduleC', () => {
+  // A single-member LLC is a disregarded entity — it files the same Schedule C a
+  // sole proprietor does. Everything else files a return of its own.
+  it('is true for the two disregarded-entity types', () => {
+    expect(filesScheduleC('sole_prop')).toBe(true);
+    expect(filesScheduleC('llc_single_member')).toBe(true);
+  });
+
+  it('is false for the entity types with their own return', () => {
+    expect(filesScheduleC('partnership')).toBe(false);
+    expect(filesScheduleC('s_corp')).toBe(false);
+    expect(filesScheduleC('c_corp')).toBe(false);
+  });
+
+  // Not captured yet — the provisional chart seeded at signup is the sole-prop
+  // one, so the Schedule C surfaces match what's actually in the books.
+  it('is true when the type is unset', () => {
+    expect(filesScheduleC(null)).toBe(true);
+    expect(filesScheduleC(undefined)).toBe(true);
+    expect(filesScheduleC('')).toBe(true);
   });
 });
 

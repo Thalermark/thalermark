@@ -5,6 +5,7 @@ import {
   emailTemplates,
   journalEntries,
   journalLines,
+  reconcileChartOfAccounts,
   seedChartOfAccounts,
 } from '@thalermark/db';
 import { emit } from '@thalermark/telemetry';
@@ -120,8 +121,8 @@ export function companiesRoutes(deps: AppDeps) {
       // is seeded at signup; this is the multi-company create path. Gated by
       // settings:manage (owner + admin) — same reach as editing a company's
       // profile. Name + type are required so the new company never trips the
-      // first-run gate; the sole-prop COA is seeded in the same tx so the ledger
-      // can post immediately.
+      // first-run gate; the chart of accounts for that entity type is seeded in
+      // the same tx so the ledger can post immediately.
       .post(
         '/api/companies',
         requireCapability('settings:manage'),
@@ -143,7 +144,7 @@ export function companiesRoutes(deps: AppDeps) {
             .values({ id, accountId, name, businessType })
             .returning();
           if (!created) return c.json({ error: 'create_failed' }, 500);
-          await seedChartOfAccounts(tx, { accountId, companyId: id });
+          await seedChartOfAccounts(tx, { accountId, companyId: id, businessType });
 
           await c.var.audit({
             entityType: 'company',
@@ -262,6 +263,24 @@ export function companiesRoutes(deps: AppDeps) {
             .returning();
           if (!after) return c.json({ error: 'company_not_found' }, 404);
 
+          // Entity type changed — move the chart of accounts onto the return the
+          // business now files (TMC-124). Two paths reach here: the welcome
+          // wizard answering "what kind of business is this?" for a company whose
+          // chart was seeded provisionally at signup (the common case — nothing
+          // posted yet, so it converts cleanly), and an established business
+          // changing type in settings after incorporating. Money never moves;
+          // see reconcileChartOfAccounts for exactly what it will and won't
+          // touch. Same tx as the company update, so a failure rolls both back
+          // rather than leaving the type and the chart disagreeing.
+          const chart =
+            data.businessType !== undefined && after.businessType !== before.businessType
+              ? await reconcileChartOfAccounts(tx, {
+                  accountId,
+                  companyId: id,
+                  businessType: after.businessType,
+                })
+              : null;
+
           // Mirror the workspace (account) name to the business name for solo
           // workspaces. The account was seeded with the person's name at signup;
           // a single-company account IS that one business, so keep its label in
@@ -320,6 +339,11 @@ export function companiesRoutes(deps: AppDeps) {
               showPhoneOnEstimate: after.showPhoneOnEstimate,
               showEmailOnEstimate: after.showEmailOnEstimate,
               ...paymentMethodsView(after),
+              // What re-mapping the chart actually did, when the entity type
+              // changed. Recorded because it's the one company edit that
+              // rewrites other rows — including the accounts it deliberately
+              // left alone (keptName) because they already carry history.
+              ...(chart ? { chartOfAccounts: chart } : {}),
             },
             companyId: id,
           });

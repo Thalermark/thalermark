@@ -1,7 +1,13 @@
 <script lang="ts">
+  import { BUSINESS_TYPES, BUSINESS_TYPE_LABELS } from '@thalermark/validation';
   import type { PageProps } from './$types';
 
   let { data, form }: PageProps = $props();
+
+  // How the business is set up. Picked during onboarding, changeable here —
+  // saving it re-maps the company's categories onto the return that entity
+  // files. Falls back to sole prop, which is what the signup seed assumes.
+  const businessType = $derived(data.company.businessType ?? 'sole_prop');
 
   // Show the just-saved value back after an action, else the stored value from
   // load. Empty string renders as a cleared field. `??` respects a returned
@@ -236,16 +242,48 @@
 
 <section class="mt-8 rounded-sm border border-fg/15 bg-surface-2">
   <header class="border-b border-fg/10 px-6 py-5">
+    <span class="eyebrow">How your business is set up</span>
+    <p class="mt-2 font-serif text-lg text-fg">{data.company.name}</p>
+  </header>
+  <form method="POST" action="?/saveBusinessType" class="px-6 py-6">
+    <input type="hidden" name="companyId" value={data.company.id} />
+    <p class="max-w-prose text-sm leading-relaxed text-fg/70">
+      You told us this when you set up. If it's changed — you've incorporated, or taken on a partner
+      — update it here and we'll adjust your categories to match. Nothing you've already recorded
+      moves or disappears.
+    </p>
+    <div class="mt-5 space-y-3">
+      {#each BUSINESS_TYPES as bt (bt)}
+        <label class="flex cursor-pointer items-center gap-3 text-sm text-fg">
+          <input type="radio" name="businessType" value={bt} checked={businessType === bt} />
+          <span>{BUSINESS_TYPE_LABELS[bt]}</span>
+        </label>
+      {/each}
+    </div>
+    <div class="mt-5 flex items-center gap-4">
+      <button type="submit" class="btn">Save</button>
+      {#if form?.businessTypeSaved}
+        <span class="text-sm text-fg/60">Saved.</span>
+      {:else if form?.businessTypeError}
+        <span class="text-sm text-danger">Couldn't save: {form.businessTypeError}</span>
+      {/if}
+    </div>
+  </form>
+</section>
+
+<section class="mt-8 rounded-sm border border-fg/15 bg-surface-2">
+  <header class="border-b border-fg/10 px-6 py-5">
     <span class="eyebrow">When you count income</span>
     <p class="mt-2 font-serif text-lg text-fg">{data.company.name}</p>
   </header>
   <form method="POST" action="?/saveAccountingMethod" class="px-6 py-6">
     <input type="hidden" name="companyId" value={data.company.id} />
     <p class="max-w-prose text-sm leading-relaxed text-fg/70">
-      This decides which year money lands in on your Schedule C worksheet. Most people count income
-      when they get paid — that's the usual choice for freelancers and trades. Only change this if
-      whoever files your taxes told you to; switching methods with the IRS isn't something you do
-      casually.
+      <!-- Names no specific form: this setting applies whichever return the business
+           files, and a corporation would be told about a Schedule C it never files. -->
+      This is about timing — which year a payment counts for. Most people count it when the money
+      actually turns up, and that's the usual choice for freelancers and trades. Only change it if
+      whoever does your taxes tells you to; switching is a bigger deal with the IRS than it looks.
     </p>
     <div class="mt-5 space-y-3">
       <label class="flex items-start gap-3">

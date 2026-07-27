@@ -19,13 +19,12 @@ export const companies = pgTable(
       .references(() => accounts.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
     // Business entity type — picked at company creation; drives which
-    // chart-of-accounts gets seeded and which tax reports surface. MVP
-    // seeds the sole-prop COA regardless of value (other types fall
-    // back to sole-prop until v1.x adds their seeds + reports). Null
-    // is treated as 'sole_prop' by the application layer so pre-ledger
-    // rows keep working. Allowed values enforced at the app layer for
-    // now; CHECK constraint deferred until the wizard slice locks the
-    // enum.
+    // chart-of-accounts gets seeded (one per federal return: Schedule C,
+    // 1065, 1120-S, 1120 — see packages/db/src/seed/coa.ts) and which
+    // tax reports surface. Changing it re-maps the company's chart in
+    // place via reconcileChartOfAccounts. Null is treated as 'sole_prop'
+    // by the application layer, which is what the signup hook seeds
+    // against before the welcome wizard asks the question.
     businessType: text('business_type'),
     // When this business counts income — 'cash' | 'accrual' (TMC-155).
     // Orthogonal to business_type: Schedule C asks them separately (entity

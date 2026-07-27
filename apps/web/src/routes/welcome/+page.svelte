@@ -2,20 +2,10 @@
   import { enhance } from '$app/forms';
   import { trackEvent } from '$lib/telemetry';
   import { untrack } from 'svelte';
-  import { BUSINESS_TYPES, isSelectableBusinessType } from '@thalermark/validation';
+  import { BUSINESS_TYPES, BUSINESS_TYPE_LABELS } from '@thalermark/validation';
   import type { PageProps } from './$types';
 
   let { data, form }: PageProps = $props();
-
-  // Friendly labels — business *structure*, not accounting jargon. Sole prop is
-  // worded as "Just me" because that's how a solo tradesperson thinks of it.
-  const BUSINESS_TYPE_LABELS: Record<(typeof BUSINESS_TYPES)[number], string> = {
-    sole_prop: 'Just me (sole proprietor)',
-    llc_single_member: 'LLC (single-member)',
-    partnership: 'Partnership',
-    s_corp: 'S-Corporation',
-    c_corp: 'C-Corporation',
-  };
 
   // Re-render seed: a 4xx bounce re-runs load(), so the $state initializers
   // prefer the just-submitted form?.values, falling back to the stored company
@@ -91,22 +81,16 @@
     <legend class="label block">How's your business set up?</legend>
     <div class="mt-4 space-y-3">
       {#each BUSINESS_TYPES as bt (bt)}
-        {@const available = isSelectableBusinessType(bt)}
-        <label
-          class="flex items-center gap-3 text-sm {available
-            ? 'cursor-pointer text-fg'
-            : 'cursor-not-allowed text-fg/40'}"
-        >
+        <label class="flex cursor-pointer items-center gap-3 text-sm text-fg">
           <input
             type="radio"
             name="businessType"
             value={bt}
             bind:group={businessType}
             required
-            disabled={!available}
-            class="h-4 w-4 border-fg/30 text-accent focus:ring-accent disabled:opacity-50"
+            class="h-4 w-4 border-fg/30 text-accent focus:ring-accent"
           />
-          <span>{BUSINESS_TYPE_LABELS[bt]}{available ? '' : ' — coming soon'}</span>
+          <span>{BUSINESS_TYPE_LABELS[bt]}</span>
         </label>
       {/each}
     </div>

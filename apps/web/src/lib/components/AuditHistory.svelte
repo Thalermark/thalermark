@@ -107,6 +107,11 @@
     // Skip line-item arrays in the diff — they bloat the row and the
     // entity's own page already shows them.
     keys.delete('lineItems');
+    // Same reason: a business-type change carries the chart-of-accounts
+    // re-map result (which accounts were added / renamed / kept), which
+    // JSON-stringifies into an unreadable wall next to "businessType:
+    // sole_prop → s_corp". The full payload stays in the audit row.
+    keys.delete('chartOfAccounts');
     for (const k of keys) {
       const bv = b[k];
       const av = a[k];

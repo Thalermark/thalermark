@@ -1,12 +1,14 @@
 import { z } from 'zod';
 
-// Business types surfaced by the slice L3 wizard. Wire format is the
-// snake_case internal code (matches what the L1 schema CHECK constraint
-// — added in migration 0027 — pins the column to); UI maps these to the
-// human labels ("Sole proprietor", "LLC (single-member)", etc.). Per the
-// locked ledger decision, MVP seeds the sole-prop COA regardless of the
-// pick; the column captures the operator's real answer for the v1.x
-// entity-aware seeder switch.
+// Business types surfaced by the onboarding + create-company wizards. Wire
+// format is the snake_case internal code (matches what the schema CHECK
+// constraint — added in migration 0027 — pins the column to); UI maps these to
+// the human labels ("Sole proprietor", "LLC (single-member)", etc.).
+//
+// All five are seeded and selectable as of TMC-124: each one gets a chart of
+// accounts built against the federal return it actually files (see
+// packages/db/src/seed/coa.ts). The stored value drives that chart, so changing
+// it re-maps the company's accounts.
 export const BUSINESS_TYPES = [
   'sole_prop',
   'llc_single_member',
@@ -18,24 +20,46 @@ export const BUSINESS_TYPES = [
 export const businessTypeSchema = z.enum(BUSINESS_TYPES);
 export type BusinessType = z.infer<typeof businessTypeSchema>;
 
-// Which business types a user can actually pick today. A sole proprietor and a
-// single-member LLC are both disregarded entities that file Schedule C, so the
-// sole-prop COA seed (packages/db seed/coa-sole-prop) is *correct* for both.
-// Partnership / S-corp / C-corp have materially different equity structure and
-// tax mapping and get their own seeds in v1.x — until then the onboarding and
-// create-company pickers show them as "coming soon" rather than silently seeding
-// them with the sole-prop chart under a mismatched label. `BUSINESS_TYPES` stays
-// the full set of *valid stored values* (the column CHECK and the display labels
-// still cover all five, so any pre-existing row renders correctly).
-export const SELECTABLE_BUSINESS_TYPES = ['sole_prop', 'llc_single_member'] as const;
+// How the pickers describe each business type. Deliberately not the legal
+// wording: a landscaper knows whether it's "just me" or "me and a partner", and
+// may have no idea what a "disregarded entity" is. The legal term rides along in
+// parentheses where it helps someone recognise the setup their accountant named,
+// and is dropped where the plain phrase already says it.
+//
+// Lives here, next to the enum, because both clients render this list and four
+// hand-kept copies of it drifted the moment any of them was edited.
+export const BUSINESS_TYPE_LABELS: Record<BusinessType, string> = {
+  sole_prop: 'Just me (sole proprietor)',
+  llc_single_member: 'Just me, with an LLC',
+  partnership: 'Me and a partner or two (partnership)',
+  s_corp: 'A corporation, taxed as an S-corp',
+  c_corp: 'A corporation, taxed as a C-corp',
+};
 
-const selectableBusinessTypes: ReadonlySet<string> = new Set(SELECTABLE_BUSINESS_TYPES);
+// The federal return each entity type files, in the words the IRS uses. Shared
+// across web + mobile so the product can say "your business files Form 1120-S"
+// wherever it has to explain that a Schedule C surface isn't theirs. Mirrors the
+// `taxForm` on each COA overlay in packages/db — kept here rather than fetched
+// because it's a constant of US tax law, not per-company data.
+export const TAX_FORM_BY_BUSINESS_TYPE: Record<BusinessType, string> = {
+  sole_prop: 'Schedule C (Form 1040)',
+  llc_single_member: 'Schedule C (Form 1040)',
+  partnership: 'Form 1065',
+  s_corp: 'Form 1120-S',
+  c_corp: 'Form 1120',
+};
 
-// Predicate the pickers use to gate a type. Takes a plain string so callers can
-// pass a `BusinessType` without tripping the tuple-narrowing that `Array.includes`
-// on a `const` subset would.
-export function isSelectableBusinessType(bt: string): boolean {
-  return selectableBusinessTypes.has(bt);
+// Whether this entity reports its profit on Schedule C. True for a sole
+// proprietor and for a single-member LLC — the IRS treats the latter as a
+// disregarded entity, so both file the same form. Everything else files a
+// return of its own, and showing it a Schedule C worksheet would be wrong.
+//
+// Null (business type not captured yet) counts as true: the chart seeded before
+// the wizard's answer is the sole-prop one, so the Schedule C surfaces match it.
+// Takes a plain string so callers can pass a `BusinessType` without tripping
+// tuple-narrowing.
+export function filesScheduleC(businessType: string | null | undefined): boolean {
+  return !businessType || businessType === 'sole_prop' || businessType === 'llc_single_member';
 }
 
 // Accounting method — when the business counts income (TMC-155). Orthogonal to
@@ -189,8 +213,9 @@ export type CompanyUpdateInput = z.infer<typeof companyUpdateSchema>;
 // the new company starts fully named + typed and never trips the first-run
 // gate. Optional identity/payment fields are intentionally NOT here: keep
 // creation a two-field decision, then the operator fills the rest from settings
-// (or the create flow can PATCH them after). Sole-prop COA is seeded server-side
-// regardless of type, same as signup (per the locked ledger decision).
+// (or the create flow can PATCH them after). businessType is required here
+// precisely because the server seeds the matching chart of accounts in the same
+// transaction — unlike signup, this path knows the answer up front.
 export const companyCreateSchema = z.object({
   name: z.string().trim().min(1).max(200),
   businessType: businessTypeSchema,

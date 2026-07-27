@@ -1,6 +1,7 @@
 import { pickActiveCompany } from '$lib/active-company';
 import { apiBaseUrl, serverApiClient, serverApiHeaders } from '$lib/api.server';
 import { error, fail, redirect } from '@sveltejs/kit';
+import { BUSINESS_TYPES } from '@thalermark/validation';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async (event) => {
@@ -93,6 +94,32 @@ export const actions: Actions = {
       showPhoneOnEstimate,
       showEmailOnEstimate,
     };
+  },
+
+  // How the business is set up (TMC-124). Asked once during onboarding, but it
+  // genuinely changes — a sole proprietor incorporates, a solo operator takes on
+  // a partner — and this is the only place to say so afterwards. The server
+  // re-maps the company's categories to match; past records keep the wording
+  // they were filed under.
+  saveBusinessType: async (event) => {
+    const client = serverApiClient(event);
+    const formData = await event.request.formData();
+    const companyId = String(formData.get('companyId') ?? '');
+    const businessType = String(formData.get('businessType') ?? '');
+    if (!companyId) return fail(400, { businessTypeError: 'missing_company_id' });
+    if (!BUSINESS_TYPES.includes(businessType as (typeof BUSINESS_TYPES)[number])) {
+      return fail(400, { businessTypeError: 'invalid_business_type' });
+    }
+
+    const res = await client.api.companies[':id'].$patch({
+      param: { id: companyId },
+      json: { businessType: businessType as (typeof BUSINESS_TYPES)[number] },
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      return fail(res.status, { businessTypeError: body?.error ?? 'save_failed' });
+    }
+    return { businessTypeSaved: true };
   },
 
   // Saves the reply-to address shown to the contact's mail client. Empty input

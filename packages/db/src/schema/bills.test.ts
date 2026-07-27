@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { getTestDb, resetDb } from '../../tests/db-test-helper.js';
-import { seedChartOfAccounts } from '../seed/coa-sole-prop.js';
+import { seedChartOfAccounts } from '../seed/coa.js';
 import { accounts } from './accounts.js';
 import { bills } from './bills.js';
 import { chartOfAccounts } from './chart_of_accounts.js';
