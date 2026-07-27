@@ -20,7 +20,7 @@ import {
   toCents,
   unknownPlaceholders,
 } from '@thalermark/validation';
-import { and, asc, eq, gte, lt, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, isNull, lt, ne, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 import { v7 as uuidv7 } from 'uuid';
@@ -111,11 +111,21 @@ export function companiesRoutes(deps: AppDeps) {
             paymentCheckAddress: companies.paymentCheckAddress,
             paymentVenmoHandle: companies.paymentVenmoHandle,
             paymentZelleContact: companies.paymentZelleContact,
+            retiredAt: companies.retiredAt,
           })
           .from(companies)
           .where(eq(companies.accountId, accountId))
           .orderBy(asc(companies.createdAt));
-        return c.json({ companies: rows });
+        // Retired companies are returned, NOT filtered out. Filtering here looks
+        // tidier and is a trap: `pickActiveCompany` on both clients falls back to
+        // the first company when its stored pick isn't in the list, so hiding a
+        // retired-but-active company would silently swap it for a different one —
+        // and every report page would then render another company's figures under
+        // the name the user still sees. Silent wrong financials are far worse than
+        // a retired company appearing in a list. Callers filter on `retiredAt`.
+        return c.json({
+          companies: rows.map((r) => ({ ...r, retiredAt: r.retiredAt?.toISOString() ?? null })),
+        });
       })
       // POST company — add another business to the workspace. The first company
       // is seeded at signup; this is the multi-company create path. Gated by
@@ -185,6 +195,92 @@ export function companiesRoutes(deps: AppDeps) {
           );
         },
       )
+      // Retire / un-retire a company — a business that has stopped trading.
+      //
+      // NOT a delete: the books stay readable and reportable forever, because a
+      // sole proprietor who incorporates still owes a final Schedule C for the
+      // stub period. What retirement buys is that the ledger refuses NEW business
+      // (lib/company-lock.ts) while still letting the company settle what it was
+      // already owed — the customer paying an invoice it had already sent.
+      .post('/api/companies/:id/retire', requireCapability('settings:manage'), async (c) => {
+        const id = c.req.param('id');
+        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+
+        const [company] = await tx
+          .select({ id: companies.id, name: companies.name, retiredAt: companies.retiredAt })
+          .from(companies)
+          .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
+          .limit(1);
+        if (!company) return c.json({ error: 'company_not_found' }, 404);
+        if (company.retiredAt) return c.json({ error: 'already_retired' }, 409);
+
+        // A workspace must always have somewhere to work. pickActiveCompany on
+        // both clients contracts to return undefined only for an EMPTY list, and
+        // every company-scoped screen treats that as "no company in this
+        // workspace" — retiring the last one would strand the user in that state
+        // with no way back.
+        const [other] = await tx
+          .select({ id: companies.id })
+          .from(companies)
+          .where(
+            and(
+              eq(companies.accountId, accountId),
+              ne(companies.id, id),
+              isNull(companies.retiredAt),
+            ),
+          )
+          .limit(1);
+        if (!other) return c.json({ error: 'last_active_company' }, 409);
+
+        const retiredAt = new Date();
+        await tx
+          .update(companies)
+          .set({ retiredAt, updatedAt: retiredAt })
+          .where(and(eq(companies.id, id), eq(companies.accountId, accountId)));
+
+        await c.var.audit({
+          entityType: 'company',
+          entityId: id,
+          action: 'retire',
+          before: { retiredAt: null },
+          after: { retiredAt: retiredAt.toISOString() },
+          companyId: id,
+        });
+
+        return c.json({ id, name: company.name, retiredAt: retiredAt.toISOString() });
+      })
+      .post('/api/companies/:id/unretire', requireCapability('settings:manage'), async (c) => {
+        const id = c.req.param('id');
+        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+
+        const [company] = await tx
+          .select({ id: companies.id, name: companies.name, retiredAt: companies.retiredAt })
+          .from(companies)
+          .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
+          .limit(1);
+        if (!company) return c.json({ error: 'company_not_found' }, 404);
+        if (!company.retiredAt) return c.json({ error: 'not_retired' }, 409);
+
+        await tx
+          .update(companies)
+          .set({ retiredAt: null, updatedAt: new Date() })
+          .where(and(eq(companies.id, id), eq(companies.accountId, accountId)));
+
+        await c.var.audit({
+          entityType: 'company',
+          entityId: id,
+          action: 'unretire',
+          before: { retiredAt: company.retiredAt.toISOString() },
+          after: { retiredAt: null },
+          companyId: id,
+        });
+
+        return c.json({ id, name: company.name, retiredAt: null });
+      })
       // PATCH company — slice L3. Sparse semantics: only the keys present in
       // the body get written. Used by the post-signup business-type wizard
       // (sends { businessType, name? }) and any future rename surface from

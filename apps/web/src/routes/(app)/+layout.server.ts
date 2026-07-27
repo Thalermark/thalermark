@@ -25,7 +25,10 @@ export const load: LayoutServerLoad = async (event) => {
   const res = await client.api.companies.$get();
   if (!res.ok) return {};
   const { companies } = await res.json();
-  if (companies.some((c) => c.businessType === null)) {
+  // Retired companies are exempt from the first-run gate. A business that has
+  // stopped trading is never going to answer the welcome wizard, so counting one
+  // here would pin the user at /welcome permanently with no way out.
+  if (companies.some((c) => c.businessType === null && !c.retiredAt)) {
     throw redirect(303, '/welcome');
   }
   // Feed the nav company switcher (UserMenu). The first-run gate already

@@ -14,7 +14,7 @@ import {
 } from '@thalermark/db';
 import { getLogger } from '@thalermark/logger';
 import type { RecurringFrequency } from '@thalermark/validation';
-import { and, asc, eq, lte } from 'drizzle-orm';
+import { and, asc, eq, isNull, lte } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
 import { type AuditWriter, createAuditWriter } from '../middleware/audit.js';
 import { resolveEmailTemplate } from './email-templates.js';
@@ -387,12 +387,23 @@ export async function sweepRecurringInvoices(args: {
   const todayIso = isoDate(now);
   const entitlement = args.entitlement ?? communityEntitlements;
 
+  // Retired companies are excluded at the source. This is customer-visible, not
+  // just a ledger concern: a business that has stopped trading must not keep
+  // emailing invoices under its old name. The join is the belt — the handoff also
+  // ends the predecessor's schedules explicitly — but the belt is what protects a
+  // company retired by any other route.
   const due = await args.bootstrapDb
-    .select()
+    .select({ schedule: recurringInvoices })
     .from(recurringInvoices)
+    .innerJoin(companies, eq(companies.id, recurringInvoices.companyId))
     .where(
-      and(eq(recurringInvoices.status, 'active'), lte(recurringInvoices.nextRunDate, todayIso)),
-    );
+      and(
+        eq(recurringInvoices.status, 'active'),
+        lte(recurringInvoices.nextRunDate, todayIso),
+        isNull(companies.retiredAt),
+      ),
+    )
+    .then((rows) => rows.map((r) => r.schedule));
 
   let generated = 0;
   let skipped = 0;

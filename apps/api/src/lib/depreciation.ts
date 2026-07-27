@@ -150,7 +150,17 @@ export async function sweepDepreciation(args: {
     })
     .from(capitalPurchases)
     .innerJoin(companies, eq(companies.id, capitalPurchases.companyId))
-    .where(and(eq(capitalPurchases.taxTreatment, 'spread'), isNull(capitalPurchases.deletedAt)));
+    .where(
+      and(
+        eq(capitalPurchases.taxTreatment, 'spread'),
+        isNull(capitalPurchases.deletedAt),
+        // A retired company's books take no new postings, so its purchases would
+        // fail the lock and be logged as an error on every daily run forever.
+        // Skipping them here keeps the sweep quiet and is also just correct: a
+        // business that has stopped trading stops depreciating.
+        isNull(companies.retiredAt),
+      ),
+    );
 
   let purchasesPosted = 0;
   let entriesPosted = 0;

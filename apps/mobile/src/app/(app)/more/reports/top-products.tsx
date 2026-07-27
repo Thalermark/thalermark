@@ -2,6 +2,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { pickActiveCompany } from '../../../../lib/active-company';
 import { api } from '../../../../lib/api';
 import { useTrackReportView } from '../../../../lib/use-report-view';
 
@@ -48,7 +49,7 @@ export default function TopProducts() {
         .then(async (res) => {
           if (!active || !res.ok) return;
           const { companies } = await res.json();
-          setCompanyId(companies[0]?.id ?? null);
+          setCompanyId((await pickActiveCompany(companies))?.id ?? null);
         })
         .catch(() => {});
       return () => {

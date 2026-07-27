@@ -9,6 +9,13 @@
   // files. Falls back to sole prop, which is what the signup seed assumes.
   const businessType = $derived(data.company.businessType ?? 'sole_prop');
 
+  // Whether this business has stopped trading. Closing is a two-click action —
+  // it's easily reversed, but it changes what the app will let you record, so it
+  // shouldn't happen on a stray click.
+  const retired = $derived(data.company.retiredAt != null);
+  const retiredOn = $derived(data.company.retiredAt?.slice(0, 10) ?? '');
+  let confirmingRetire = $state(false);
+
   // Show the just-saved value back after an action, else the stored value from
   // load. Empty string renders as a cleared field. `??` respects a returned
   // `false` flag (only null/undefined falls through to the stored default).
@@ -473,6 +480,63 @@
     </form>
     {#if form?.logoError}
       <p class="mt-3 text-sm text-danger">{form.logoError}</p>
+    {/if}
+  </div>
+</section>
+
+<!-- Closing a business is deliberately last on the page, and deliberately not
+     styled as a danger zone: it is a normal thing that happens to a business,
+     not a destructive action. Nothing is deleted and nothing is hidden — the
+     records stay because they still have to be filed. -->
+<section class="mt-8 rounded-sm border border-fg/15 bg-surface-2">
+  <header class="border-b border-fg/10 px-6 py-5">
+    <span class="eyebrow">{retired ? 'Closed business' : 'Closing this business'}</span>
+    <p class="mt-2 text-sm text-fg/70">
+      {#if retired}
+        You closed this business. Its records are all still here and every report still works —
+        you just can't record new work against it.
+      {:else}
+        If you've stopped trading as <strong class="font-medium text-fg">{data.company.name}</strong
+        >, close it here. Everything you've recorded stays put and stays reportable, so you can
+        still file for it. You just won't be able to record new work against it — though you can
+        still take payment on invoices you'd already sent.
+      {/if}
+    </p>
+  </header>
+  <div class="px-6 py-6">
+    {#if retired}
+      <p class="text-sm text-fg/60">
+        Closed on <span class="font-mono tabular-nums text-fg">{retiredOn}</span>.
+      </p>
+      <form method="POST" action="?/unretire" class="mt-4">
+        <input type="hidden" name="companyId" value={data.company.id} />
+        <button type="submit" class="btn">Reopen this business</button>
+      </form>
+    {:else if confirmingRetire}
+      <p class="max-w-prose text-sm leading-relaxed text-fg/80">
+        Close <strong class="font-medium text-fg">{data.company.name}</strong>? You can reopen it
+        from this page if you change your mind.
+      </p>
+      <div class="mt-4 flex items-center gap-4">
+        <form method="POST" action="?/retire">
+          <input type="hidden" name="companyId" value={data.company.id} />
+          <button type="submit" class="btn">Yes, close it</button>
+        </form>
+        <button type="button" class="text-sm text-fg/60 hover:text-fg" onclick={() => (confirmingRetire = false)}>
+          Cancel
+        </button>
+      </div>
+    {:else}
+      <button
+        type="button"
+        class="rounded-sm border border-fg/20 px-3 py-1.5 text-sm text-fg/70 transition-colors hover:border-accent/40 hover:text-fg"
+        onclick={() => (confirmingRetire = true)}
+      >
+        Close this business
+      </button>
+    {/if}
+    {#if form?.retireError}
+      <p class="mt-3 text-sm text-danger">{form.retireError}</p>
     {/if}
   </div>
 </section>

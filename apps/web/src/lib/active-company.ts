@@ -31,11 +31,20 @@ export function cookieCompanyId(cookies: Cookies): string | undefined {
 
 // Resolve the active company from the workspace's company list. Honors the
 // cookie only when it points at a company the account actually has — so a stale
-// id (left over from another workspace, or a deleted company) self-heals to the
-// first company rather than 404-ing the whole app. Falls back to the first
-// company, matching the pre-switcher `companies[0]` behavior for single-company
-// accounts. Returns undefined only for an empty list.
-export function pickActiveCompany<T extends { id: string }>(
+// id (left over from another workspace, or a deleted company) self-heals rather
+// than 404-ing the whole app. Returns undefined only for an empty list.
+//
+// Retired companies (a business that has stopped trading) are still SELECTABLE,
+// deliberately: their books have to stay readable and reportable for years, so a
+// user who explicitly switches to one must land on it. What retirement changes is
+// only the FALLBACK — an unset or stale cookie resolves to the first company
+// still trading, so nobody is dropped onto dead books by accident.
+//
+// The ordering here is load-bearing. Honoring the cookie BEFORE preferring an
+// active company is what stops a retired-but-selected company being silently
+// swapped for a different one — which would render another company's figures
+// under the name the user still sees in the switcher.
+export function pickActiveCompany<T extends { id: string; retiredAt?: string | null }>(
   cookies: Cookies,
   companies: T[],
 ): T | undefined {
@@ -44,5 +53,5 @@ export function pickActiveCompany<T extends { id: string }>(
     const match = companies.find((c) => c.id === wanted);
     if (match) return match;
   }
-  return companies[0];
+  return companies.find((c) => !c.retiredAt) ?? companies[0];
 }

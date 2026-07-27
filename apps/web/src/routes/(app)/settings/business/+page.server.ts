@@ -268,4 +268,52 @@ export const actions: Actions = {
     }
     redirect(303, '/settings/business');
   },
+
+  // Retire / bring back a business that has stopped trading.
+  //
+  // Not a delete and not reversible-by-accident: the books stay readable and
+  // reportable forever (a business that closes still files a final return), and
+  // the only thing that changes is that the ledger stops accepting new work.
+  // Settling what was already owed keeps working — see lib/company-lock.ts.
+  retire: async (event) => {
+    const client = serverApiClient(event);
+    const formData = await event.request.formData();
+    const companyId = String(formData.get('companyId') ?? '');
+    if (!companyId) return fail(400, { retireError: 'Could not tell which business to close.' });
+
+    const res = await client.api.companies[':id'].retire.$post({ param: { id: companyId } });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      return fail(res.status, { retireError: retireErrorMessage(body?.error) });
+    }
+    redirect(303, '/settings/business');
+  },
+
+  unretire: async (event) => {
+    const client = serverApiClient(event);
+    const formData = await event.request.formData();
+    const companyId = String(formData.get('companyId') ?? '');
+    if (!companyId) return fail(400, { retireError: 'Could not tell which business to reopen.' });
+
+    const res = await client.api.companies[':id'].unretire.$post({ param: { id: companyId } });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      return fail(res.status, { retireError: retireErrorMessage(body?.error) });
+    }
+    redirect(303, '/settings/business');
+  },
 };
+
+// Server error codes are mechanical; the user reads plain sentences.
+function retireErrorMessage(code: string | undefined): string {
+  switch (code) {
+    case 'last_active_company':
+      return "This is your only open business, so it can't be closed. Add another one first.";
+    case 'already_retired':
+      return 'This business is already closed.';
+    case 'not_retired':
+      return 'This business is already open.';
+    default:
+      return 'Could not change this business.';
+  }
+}
