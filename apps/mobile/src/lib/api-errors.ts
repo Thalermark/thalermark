@@ -19,6 +19,17 @@ function periodClosedMessage(closedThrough: string | undefined): string {
     : "That year is closed, so it can't be changed. Re-open it in the Ledger first.";
 }
 
+// A business that has stopped trading takes no NEW work — see the retirement
+// lock in apps/api/src/lib/company-lock.ts. Reachable from every money-writing
+// route, exactly like the period lock, and for the same structural reason: it is
+// raised in the posting funnel rather than by any one handler.
+//
+// Deliberately does not name a date. "Closed on 3 March" invites the reader to
+// think the date is the problem; it isn't — the business is finished, and the
+// fix is to pick a different one or reopen it.
+const COMPANY_RETIRED_MESSAGE =
+  "This business is closed, so you can't record new work against it. Switch to another business, or reopen it in Business settings.";
+
 // Pull `closedThrough` off a parsed error body without caring how the call site
 // typed it — every screen casts its error body differently, so taking `unknown`
 // keeps the call sites free of cast-widening churn.
@@ -39,6 +50,8 @@ export function apiErrorMessage(
   switch (code) {
     case 'period_closed':
       return periodClosedMessage(closedThroughOf(body));
+    case 'company_retired':
+      return COMPANY_RETIRED_MESSAGE;
     default:
       return code ?? fallback;
   }

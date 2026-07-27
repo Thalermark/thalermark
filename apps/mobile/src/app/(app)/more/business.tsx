@@ -25,6 +25,7 @@ import { uploadLogo } from '../../../lib/upload';
 type Company = {
   id: string;
   name: string;
+  retiredAt: string | null;
   businessAddress: string | null;
   businessPhone: string | null;
   businessEmail: string | null;
@@ -40,6 +41,21 @@ type Company = {
   showEmailOnEstimate: boolean;
 };
 type Logo = { url: string; contentType: string };
+
+// Mirrors the web copy in settings/business/+page.server.ts. Both endpoints
+// share a mapper because both can return either code.
+function retireErrorMessage(code: string | undefined): string {
+  switch (code) {
+    case 'last_active_company':
+      return "This is your only open business, so it can't be closed. Set up another one first.";
+    case 'already_retired':
+      return 'This business is already closed.';
+    case 'not_retired':
+      return 'This business is already open.';
+    default:
+      return 'Could not save.';
+  }
+}
 type LoadState =
   | { state: 'loading' }
   | { state: 'ready'; company: Company; logo: Logo | null }
@@ -103,6 +119,9 @@ export default function BusinessSettings() {
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<'idle' | 'saved' | 'error'>('idle');
   const [logoBusy, setLogoBusy] = useState(false);
+  const [confirmingRetire, setConfirmingRetire] = useState(false);
+  const [retireBusy, setRetireBusy] = useState(false);
+  const [retireError, setRetireError] = useState<string | null>(null);
   const [logoError, setLogoError] = useState<string | null>(null);
 
   const fetchCompany = useCallback(async (active: () => boolean) => {
@@ -127,6 +146,7 @@ export default function BusinessSettings() {
       company: {
         id: company.id,
         name: company.name,
+        retiredAt: company.retiredAt,
         businessAddress: company.businessAddress,
         businessPhone: company.businessPhone,
         businessEmail: company.businessEmail,
@@ -291,6 +311,33 @@ export default function BusinessSettings() {
       setTzStatus('error');
     } finally {
       setTzSaving(false);
+    }
+  }
+
+  // Closing and reopening are their own endpoints rather than a PATCH, because
+  // both have rules a column write can't express — you can't close your last
+  // open business, and you can't close one twice.
+  async function onSetRetired(next: boolean) {
+    if (!company) return;
+    setRetireBusy(true);
+    setRetireError(null);
+    try {
+      const res = next
+        ? await api.api.companies[':id'].retire.$post({ param: { id: company.id } })
+        : await api.api.companies[':id'].unretire.$post({ param: { id: company.id } });
+      if (res.ok) {
+        setConfirmingRetire(false);
+        // Re-read rather than patch locally: the close changes what the whole
+        // screen is allowed to do, and the server owns the timestamp.
+        await fetchCompany(() => true);
+      } else {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        setRetireError(retireErrorMessage(body?.error));
+      }
+    } catch {
+      setRetireError('Could not reach the server.');
+    } finally {
+      setRetireBusy(false);
     }
   }
 
@@ -527,8 +574,17 @@ export default function BusinessSettings() {
               <Text className="mt-2 font-serif text-lg text-ink">{company.name}</Text>
               <Text className="mt-3 text-sm text-ink/70">
                 You told us this when you set up. If it's changed — you've incorporated, or taken on
-                a partner — update it here and we'll adjust your categories to match. Nothing you've
-                already recorded moves or disappears.
+                a partner — update it here and we'll adjust your categories to match.
+              </Text>
+              {/* Registering a NEW business is a different thing from changing
+                  how this one is taxed, and it needs a fresh set of books plus
+                  several decisions about what carries over. That's a sit-down
+                  job, so it lives on the web rather than being squeezed onto a
+                  phone. Saying so here beats letting someone tap through a
+                  re-map that quietly asserts one continuous taxpayer. */}
+              <Text className="mt-3 text-sm leading-relaxed text-ink/50">
+                Did you register a new business with its own EIN? That needs its own set of books.
+                Open Thalermark on a computer to set it up.
               </Text>
               <View className="mt-5 gap-3">
                 {BUSINESS_TYPES.map((bt) => (
@@ -726,6 +782,75 @@ export default function BusinessSettings() {
                 ) : null}
               </View>
               {logoError ? <Text className="mt-3 text-sm text-oxblood">{logoError}</Text> : null}
+            </View>
+
+            {/* Closing a business. Deliberately the same weight as every other
+                card rather than a red danger zone: it is a normal thing that
+                happens to a business, not a destructive action. Nothing is
+                deleted and nothing is hidden — the records stay because they
+                still have to be filed. */}
+            <View className="mt-8 rounded-sm border border-ink/15 bg-cream-warm p-6">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                {company.retiredAt ? 'Closed business' : 'Closing this business'}
+              </Text>
+              {company.retiredAt ? (
+                <>
+                  <Text className="mt-3 text-sm leading-relaxed text-ink/70">
+                    You closed this business. Its records are all still here and every report still
+                    works — you just can't record new work against it.
+                  </Text>
+                  <Text className="mt-4 text-sm text-ink/60">
+                    Closed on{' '}
+                    <Text className="font-mono text-ink">{company.retiredAt.slice(0, 10)}</Text>.
+                  </Text>
+                  <Pressable
+                    onPress={() => onSetRetired(false)}
+                    disabled={retireBusy}
+                    className="mt-4 self-start rounded-sm bg-ink px-4 py-3 active:bg-gold-deep disabled:opacity-50"
+                  >
+                    <Text className="text-sm font-medium text-cream">Reopen this business</Text>
+                  </Pressable>
+                </>
+              ) : (
+                <>
+                  <Text className="mt-3 text-sm leading-relaxed text-ink/70">
+                    If you've stopped trading as {company.name}, close it here. Everything you've
+                    recorded stays put and stays reportable, so you can still file for it. You just
+                    won't be able to record new work against it — though you can still take payment
+                    on invoices you'd already sent.
+                  </Text>
+                  {confirmingRetire ? (
+                    <>
+                      <Text className="mt-4 text-sm leading-relaxed text-ink/80">
+                        Close {company.name}? You can reopen it from this screen if you change your
+                        mind.
+                      </Text>
+                      <View className="mt-4 flex-row items-center gap-4">
+                        <Pressable
+                          onPress={() => onSetRetired(true)}
+                          disabled={retireBusy}
+                          className="rounded-sm bg-ink px-4 py-3 active:bg-gold-deep disabled:opacity-50"
+                        >
+                          <Text className="text-sm font-medium text-cream">Yes, close it</Text>
+                        </Pressable>
+                        <Pressable onPress={() => setConfirmingRetire(false)}>
+                          <Text className="text-sm text-ink/60">Cancel</Text>
+                        </Pressable>
+                      </View>
+                    </>
+                  ) : (
+                    <Pressable
+                      onPress={() => setConfirmingRetire(true)}
+                      className="mt-4 self-start rounded-sm border border-ink/20 px-4 py-3 active:bg-ink/5"
+                    >
+                      <Text className="text-sm font-medium text-ink">Close this business</Text>
+                    </Pressable>
+                  )}
+                </>
+              )}
+              {retireError ? (
+                <Text className="mt-3 text-sm text-oxblood">{retireError}</Text>
+              ) : null}
             </View>
           </>
         )}
