@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Checkbox } from '../../../components/Checkbox';
+import { pickActiveCompany } from '../../../lib/active-company';
 import { api } from '../../../lib/api';
 import { getServerUrl } from '../../../lib/server-url';
 import { uploadLogo } from '../../../lib/upload';
@@ -111,7 +112,7 @@ export default function BusinessSettings() {
       setLoad({ state: 'error' });
       return;
     }
-    const company = (await res.json()).companies[0];
+    const company = await pickActiveCompany((await res.json()).companies);
     if (!company) {
       setLoad({ state: 'error' });
       return;

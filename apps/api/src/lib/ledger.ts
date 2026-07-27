@@ -11,6 +11,7 @@ import type { DepreciationConvention } from '@thalermark/validation';
 import type { SQL } from 'drizzle-orm';
 import { and, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
+import { type PostingIntent, assertCompanyActive } from './company-lock.js';
 import { assertPeriodOpen } from './period-lock.js';
 
 // Hidden double-entry posting helper. Called from the invoice state machine
@@ -209,6 +210,10 @@ export async function postJournalEntry(
     postedAt: Date;
     memo: string;
     lines: LedgerLine[];
+    // Whether this is new business or the settlement of an existing obligation.
+    // Only consulted by the retirement lock; omitted means 'origination', which
+    // is the safe default (see company-lock.ts).
+    intent?: PostingIntent;
   },
 ): Promise<string | null> {
   const lines = spec.lines.filter((l) => Number(l.amount) > 0);
@@ -223,6 +228,15 @@ export async function postJournalEntry(
     accountId: spec.accountId,
     companyId: spec.companyId,
     postedAt: spec.postedAt,
+  });
+  // The retirement lock, on the same funnel. Where the period lock bars a DATE
+  // range, this bars new business outright — but still lets a retired company
+  // settle what it was already owed or already owed others. `intent` defaults to
+  // 'origination', so a posting helper added later is refused by default.
+  await assertCompanyActive(tx, {
+    accountId: spec.accountId,
+    companyId: spec.companyId,
+    intent: spec.intent,
   });
 
   const codes = Array.from(new Set(lines.map((l) => l.code)));
@@ -456,6 +470,9 @@ export async function postBillPayment(
     postedAt: args.postedAt,
     memo: `Bill ${args.bill.label} paid`,
     lines: billPaymentLines({ paymentCode: args.paymentCode, amount: args.bill.amount }),
+    // Paying a bill the business had already opened is settlement — a retired
+    // company still has to be able to pay what it owed (see company-lock.ts).
+    intent: 'settlement',
   });
 }
 
@@ -730,6 +747,9 @@ export async function postLoanPayment(
     postedAt: args.postedAt,
     memo: `Payment toward ${args.description}`,
     lines: loanPaymentLines({ amount: args.amount, interest: args.interest }),
+    // Paying down a loan the business already owed is settlement, not new
+    // borrowing (see company-lock.ts).
+    intent: 'settlement',
   });
 }
 
@@ -989,11 +1009,13 @@ export type ManualJournalLine = {
 // for the same reason a manual entry's are (any account type, resolved from the
 // company's own COA).
 //
-// Deliberately does NOT check the period lock: the closing entry and its
-// reversal post at the boundary of the very period they open or close, so
-// they'd fail their own check. The lock lives one level up, in
-// postManualJournalEntry / reverseManualJournalEntry, which is where every
-// caller that ISN'T a close goes through.
+// Deliberately checks NEITHER lock. The closing entry and its reversal post at
+// the boundary of the very period they open or close, so the period lock would
+// fail them against their own close; and a retired company must still be
+// closeable (its final year) and must still accept the entry that hands its
+// balances over. Both locks live one level up, in postManualJournalEntry /
+// reverseManualJournalEntry, which is where every caller that ISN'T a close or a
+// handover goes through.
 export async function insertEntryWithAccountIds(
   tx: Database | Transaction,
   spec: {
@@ -1048,6 +1070,7 @@ export async function postManualJournalEntry(
     companyId: args.companyId,
     postedAt: args.postedAt,
   });
+  await assertCompanyActive(tx, { accountId: args.accountId, companyId: args.companyId });
   const entryId = uuidv7();
   await insertEntryWithAccountIds(tx, {
     entryId,
@@ -1095,6 +1118,7 @@ export async function reverseManualJournalEntry(
     companyId: args.companyId,
     postedAt: args.postedAt,
   });
+  await assertCompanyActive(tx, { accountId: args.accountId, companyId: args.companyId });
   const reversalId = uuidv7();
   await insertEntryWithAccountIds(tx, {
     entryId: reversalId,
@@ -1146,6 +1170,10 @@ export async function postInvoiceTransition(
     postedAt: args.postedAt,
     memo: `Invoice ${args.invoice.number} ${args.nextStatus}`,
     lines,
+    // Collecting on an invoice the business had already sent is settlement, so a
+    // retired company can still bank the cheque for work it billed under the old
+    // name. Every other transition — issuing, voiding — is new business.
+    intent: args.prevStatus === 'sent' && args.nextStatus === 'paid' ? 'settlement' : 'origination',
   });
 }
 

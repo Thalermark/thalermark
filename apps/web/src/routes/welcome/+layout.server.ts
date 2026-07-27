@@ -19,7 +19,10 @@ export const load: LayoutServerLoad = async (event) => {
   const res = await client.api.companies.$get();
   if (!res.ok) throw error(res.status, 'failed to load your business');
   const { companies } = await res.json();
-  const company = companies[0];
+  // The company still trading — a retired one has stopped, and setting it up
+  // would be pointless. Falls back to the first company so a workspace whose
+  // companies are all retired still renders something rather than bouncing.
+  const company = companies.find((c) => !c.retiredAt) ?? companies[0];
   // No company means signup never provisioned one (0-membership / invited-only
   // user who hasn't created a business). Send them to the account picker, which
   // owns that empty state — the wizard has nothing to set up.

@@ -4,7 +4,7 @@
   import AvatarBubble from './AvatarBubble.svelte';
   import ThemeToggle from './ThemeToggle.svelte';
 
-  type Company = { id: string; name: string };
+  type Company = { id: string; name: string; retiredAt?: string | null };
   type Props = {
     name: string;
     email: string;
@@ -29,6 +29,20 @@
   }: Props = $props();
   let open = $state(false);
   let root: HTMLDivElement | undefined = $state();
+
+  // Businesses that have stopped trading are split out rather than dropped. They
+  // stay switchable — their books have to stay readable for years — but someone
+  // running one business shouldn't scroll past every business they ever closed.
+  // The active company is always shown, even when retired, so the menu never
+  // disagrees with the company whose figures are on screen.
+  const activeCompanies = $derived(companies.filter((c) => !c.retiredAt));
+  const retiredCompanies = $derived(
+    companies.filter((c) => c.retiredAt && c.id !== activeCompanyId),
+  );
+  const activeIsRetired = $derived(
+    companies.some((c) => c.id === activeCompanyId && c.retiredAt != null),
+  );
+  let showRetired = $state(false);
 
   function toggle() {
     open = !open;
@@ -83,7 +97,7 @@
         <p class="px-4 pb-1 pt-2 font-mono text-[10px] uppercase tracking-widest text-fg/40">
           Company
         </p>
-        {#each companies as c (c.id)}
+        {#each activeCompanies as c (c.id)}
           {#if c.id === activeCompanyId}
             <div class="flex items-center gap-2 px-4 py-2 text-sm text-fg">
               <span class="text-accent">✓</span>
@@ -104,6 +118,44 @@
             </form>
           {/if}
         {/each}
+        <!-- A retired company that's currently selected is pinned here regardless
+             of the toggle: the menu must never disagree with whose figures are
+             on screen. -->
+        {#if activeIsRetired}
+          <div class="flex items-center gap-2 px-4 py-2 text-sm text-fg">
+            <span class="text-accent">✓</span>
+            <span class="truncate">{companies.find((c) => c.id === activeCompanyId)?.name}</span>
+            <span class="font-mono text-[10px] uppercase tracking-widest text-fg/40">Closed</span>
+          </div>
+        {/if}
+        {#if retiredCompanies.length > 0}
+          {#if showRetired}
+            {#each retiredCompanies as c (c.id)}
+              <form method="POST" action="/companies/switch">
+                <input type="hidden" name="companyId" value={c.id} />
+                <input type="hidden" name="returnTo" value={currentPath} />
+                <button
+                  type="submit"
+                  role="menuitem"
+                  class="flex w-full items-center gap-2 px-4 py-2 text-left text-sm text-fg/60 transition-colors hover:bg-surface-2 hover:text-fg"
+                >
+                  <span class="w-3"></span>
+                  <span class="truncate">{c.name}</span>
+                  <span class="font-mono text-[10px] uppercase tracking-widest text-fg/40">
+                    Closed
+                  </span>
+                </button>
+              </form>
+            {/each}
+          {/if}
+          <button
+            type="button"
+            class="block w-full px-4 py-2 text-left text-xs text-fg/50 transition-colors hover:bg-surface-2 hover:text-fg/70"
+            onclick={() => (showRetired = !showRetired)}
+          >
+            {showRetired ? 'Hide' : 'Show'} closed ({retiredCompanies.length})
+          </button>
+        {/if}
         {#if canManageCompanies}
           <a
             href="/companies/new"

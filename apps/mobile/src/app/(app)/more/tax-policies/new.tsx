@@ -2,11 +2,12 @@ import { taxPolicyCreateSchema } from '@thalermark/validation';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { TaxPolicyForm, type TaxPolicyFormValues } from '../../../../components/TaxPolicyForm';
+import { pickActiveCompany } from '../../../../lib/active-company';
 import { api } from '../../../../lib/api';
 
-// Mirror of apps/web's /settings/tax-policies/new. Grabs companies[0] for the
-// required companyId (single-company MVP). A blank rate is omitted so the API
-// defaults rate_pct to '0'.
+// Mirror of apps/web's /settings/tax-policies/new. Resolves the active company
+// for the required companyId. A blank rate is omitted so the API defaults
+// rate_pct to '0'.
 const EMPTY: TaxPolicyFormValues = { name: '', ratePct: '', isDefault: false };
 
 export default function NewTaxPolicy() {
@@ -28,7 +29,7 @@ export default function NewTaxPolicy() {
           if (!active) return;
           if (res.ok) {
             const { companies } = await res.json();
-            setCompanyId(companies[0]?.id ?? null);
+            setCompanyId((await pickActiveCompany(companies))?.id ?? null);
           }
           setBootstrapped(true);
         })

@@ -8,6 +8,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { pickActiveCompany } from '../../../../lib/active-company';
 import { api } from '../../../../lib/api';
 
 // Per-template editor — native mirror of apps/web's /settings/email/[type].
@@ -72,7 +73,7 @@ export default function EmailTemplateEditor() {
             setLoad({ state: 'error' });
             return;
           }
-          const company = (await cRes.json()).companies[0];
+          const company = await pickActiveCompany((await cRes.json()).companies);
           if (!company) {
             setLoad({ state: 'error' });
             return;

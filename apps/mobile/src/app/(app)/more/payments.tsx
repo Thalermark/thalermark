@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { pickActiveCompany } from '../../../lib/active-company';
 import { api } from '../../../lib/api';
 
 // Payment settings — native mirror of apps/web's /settings/payments. Two parts:
@@ -63,7 +64,7 @@ export default function PaymentsSettings() {
       setLoad({ state: 'error' });
       return;
     }
-    const company = (await compRes.json()).companies[0];
+    const company = await pickActiveCompany((await compRes.json()).companies);
     if (!company) {
       setLoad({ state: 'error' });
       return;

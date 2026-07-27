@@ -2,12 +2,13 @@ import { type LineItemType, itemCreateSchema } from '@thalermark/validation';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { type ItemFieldKey, ItemForm, type ItemFormValues } from '../../../../components/ItemForm';
+import { pickActiveCompany } from '../../../../lib/active-company';
 import { api } from '../../../../lib/api';
 import { type TaxPolicyLite, resolvePolicyId } from '../../../../lib/line-tax';
 
-// Mirror of apps/web's /settings/items/new. The API doesn't auto-pick a
-// company, so this grabs companies[0] for the required companyId (single-company
-// MVP). Empty optionals are omitted so undefined (not '') reaches the schema.
+// Mirror of apps/web's /settings/items/new. The API doesn't auto-pick a company,
+// so this resolves the active one for the required companyId. Empty optionals are
+// omitted so undefined (not '') reaches the schema.
 const OPTIONAL_KEYS: Exclude<ItemFieldKey, 'name'>[] = [
   'description',
   'unitPrice',
@@ -46,7 +47,7 @@ export default function NewItem() {
           if (!active) return;
           if (res.ok) {
             const { companies } = await res.json();
-            const cId = companies[0]?.id ?? null;
+            const cId = (await pickActiveCompany(companies))?.id ?? null;
             setCompanyId(cId);
             if (cId) {
               const polRes = await api.api['tax-policies'].$get({ query: { companyId: cId } });

@@ -20,7 +20,7 @@ import { type DupeCandidate, findEmailDupe, findNameDupes } from '../../../lib/c
 // Mirror of apps/web's /contacts/new (+page.svelte + its server action),
 // client-side. The API has no dupe endpoint and doesn't auto-pick a company,
 // so this screen does both: load the contact list for live dupe hints, grab
-// companies[0] for the required companyId, hard-block on an exact email dupe.
+// the active company for the required companyId, hard-block on an exact email dupe.
 type OptionalKey =
   | 'email'
   | 'phone'

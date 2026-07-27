@@ -17,6 +17,7 @@ import { cors } from 'hono/cors';
 import { HTTPException } from 'hono/http-exception';
 import type { AccountNoticeProvider } from './lib/account-notice.js';
 import type { ApiAuth } from './lib/auth.js';
+import { CompanyRetiredError } from './lib/company-lock.js';
 import type { EntitlementProvider } from './lib/entitlement.js';
 import type { LegalConsentConfig } from './lib/legal-consent.js';
 import type { LlmConnectionStore } from './lib/llm-connection.js';
@@ -204,6 +205,12 @@ function createMainApp(deps: AppDeps) {
             { error: 'period_closed', closedThrough: err.closedThrough.toISOString() },
             409,
           );
+        }
+        // A posting into a company that has stopped trading. Same shape and same
+        // reasoning as the period lock above — raised in the ledger funnel, so
+        // mapping it once here spares every posting route a catch.
+        if (err instanceof CompanyRetiredError) {
+          return c.json({ error: 'company_retired', retiredAt: err.retiredAt.toISOString() }, 409);
         }
         Sentry.captureException(err);
         log.error('unhandled request error: {msg}', {

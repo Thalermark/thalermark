@@ -148,6 +148,16 @@ export const companies = pgTable(
     cashFlowNudges: jsonb('cash_flow_nudges'),
     nudgesInputHash: text('nudges_input_hash'),
     nudgesGeneratedAt: timestamp('nudges_generated_at', { withTimezone: true }),
+    // When this business stopped trading. A retired company is READ-ONLY, not
+    // deleted: its books still have to be filable years later (a sole proprietor
+    // who incorporates still owes a final Schedule C), so nothing is removed and
+    // every report keeps working.
+    //
+    // Deliberately NOT a soft delete. `deleted_at` elsewhere in the schema means
+    // "pretend this never happened"; this means "this happened, and then ended".
+    // The switcher hides retired companies behind a toggle rather than dropping
+    // them, and the ledger refuses to post into one (lib/company-lock.ts).
+    retiredAt: timestamp('retired_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

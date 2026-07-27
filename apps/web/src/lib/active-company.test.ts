@@ -26,4 +26,33 @@ describe('pickActiveCompany', () => {
   it('returns undefined for an empty list', () => {
     expect(pickActiveCompany(cookiesWith('a'), [])).toBeUndefined();
   });
+
+  // Retirement — a business that has stopped trading. Its books stay readable
+  // for years, so it stays selectable; only the FALLBACK avoids it.
+  describe('with retired companies', () => {
+    const mixed = [
+      { id: 'old', retiredAt: '2026-01-01T00:00:00.000Z' },
+      { id: 'new', retiredAt: null },
+    ];
+
+    it('honors an explicit pick of a retired company', () => {
+      // THE one that matters. If this fell through to the active company, every
+      // report page would render the NEW company's figures while the switcher
+      // still showed the old company's name — silent wrong financials.
+      expect(pickActiveCompany(cookiesWith('old'), mixed)?.id).toBe('old');
+    });
+
+    it('skips retired companies when falling back', () => {
+      expect(pickActiveCompany(cookiesWith(undefined), mixed)?.id).toBe('new');
+      // A stale cookie is a fallback too — it must not land on dead books.
+      expect(pickActiveCompany(cookiesWith('gone'), mixed)?.id).toBe('new');
+    });
+
+    it('still returns something when every company is retired', () => {
+      // Retiring the last active company is refused by the API, but a workspace
+      // could still reach this state; returning undefined would strand the user.
+      const allRetired = [{ id: 'x', retiredAt: '2026-01-01T00:00:00.000Z' }];
+      expect(pickActiveCompany(cookiesWith(undefined), allRetired)?.id).toBe('x');
+    });
+  });
 });
