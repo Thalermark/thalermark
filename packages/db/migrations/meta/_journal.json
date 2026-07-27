@@ -162,6 +162,13 @@
       "when": 1785230400000,
       "tag": "0022_capital_purchase_carryover",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1785234000000,
+      "tag": "0023_entity_transfers",
+      "breakpoints": true
     }
   ]
 }

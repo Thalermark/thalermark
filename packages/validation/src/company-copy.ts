@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isoDateString } from './money.js';
 
 // Copying one company's setup into another — the reference data and settings a
 // business carries with it, without any of its history.
@@ -71,3 +72,21 @@ export type CompanyCopyResult = {
   logo: boolean;
   profile: boolean;
 };
+
+// The handoff itself: everything the wizard collects before committing.
+export const entityHandoffSchema = z.object({
+  // The new legal entity.
+  name: z.string().trim().min(1).max(200),
+  businessType: z.enum(['sole_prop', 'llc_single_member', 'partnership', 's_corp', 'c_corp']),
+  // When the new business took over. Both transfer entries post at the start of
+  // this day, so the predecessor's last trading position is the day before.
+  effectiveDate: isoDateString,
+  // Who collects invoices already sent but unpaid. 'stay' is the common answer —
+  // the old business billed the work, so the old business banks the cheque.
+  openInvoicesDisposition: z.enum(['stay', 'transfer']).optional().default('stay'),
+  // Which capital purchases come across. Omitted means all of them.
+  transferAssetIds: z.array(z.string().uuid()).max(500).optional(),
+  include: companyCopyIncludeSchema.optional(),
+});
+
+export type EntityHandoffInput = z.infer<typeof entityHandoffSchema>;

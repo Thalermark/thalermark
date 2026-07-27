@@ -7,6 +7,7 @@ export * from './chart_of_accounts.js';
 export * from './companies.js';
 export * from './contacts.js';
 export * from './email_templates.js';
+export * from './entity_transfers.js';
 export * from './estimates.js';
 export * from './expenses.js';
 export * from './invitations.js';

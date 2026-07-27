@@ -134,6 +134,18 @@ const BASE_COA: readonly CoaAccount[] = [
   // recorded a draw reported balanced=false on the balance sheet.
   { code: '3100', name: "Owner's Draw", accountType: 'equity', normalBalance: 'credit' },
 
+  // Where a business's assets go when it hands its books to a successor — a sole
+  // proprietor incorporating. The plug on the transfer-out entry. Putting that on
+  // 3000 instead would leave a final balance sheet reading "Owner's Equity −$X"
+  // beside "Net income +$X": arithmetically right, alarming to read, and wrong in
+  // spirit — the equity didn't go negative, it went somewhere else.
+  {
+    code: '3900',
+    name: 'Business transferred out',
+    accountType: 'equity',
+    normalBalance: 'credit',
+  },
+
   // Revenue — split by line type at posting time (service vs product lines).
   { code: '4000', name: 'Service Revenue', accountType: 'revenue', normalBalance: 'credit' },
   { code: '4100', name: 'Product Revenue', accountType: 'revenue', normalBalance: 'credit' },
