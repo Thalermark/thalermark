@@ -1,4 +1,4 @@
-import { BUSINESS_TYPES, isSelectableBusinessType } from '@thalermark/validation';
+import { BUSINESS_TYPES } from '@thalermark/validation';
 import { Redirect, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
@@ -8,9 +8,8 @@ import { useMay } from '../../../../lib/role';
 import { setActiveCompanyId } from '../../../../lib/secure-store';
 
 // Mobile mirror of web's /companies/new — add a second company to the workspace.
-// Name + business type only (the sole-prop COA is seeded server-side regardless
-// of type, per the locked ledger decision); the rest is filled later in Business
-// settings. On success we switch the active company to the new one and bounce
+// Name + business type only (the type picks which chart of accounts the server
+// seeds); the rest is filled later in Business settings. On success we switch the active company to the new one and bounce
 // home, matching the web flow. Gated by settings:manage — the API enforces it,
 // so this guard just keeps a member off a form whose submit would only 403.
 type BusinessType = (typeof BUSINESS_TYPES)[number];
@@ -91,20 +90,15 @@ export default function NewCompany() {
           <View className="mt-3 overflow-hidden rounded-sm border border-ink/10 bg-cream-warm">
             {BUSINESS_TYPES.map((bt, i) => {
               const selected = bt === businessType;
-              const available = isSelectableBusinessType(bt);
               return (
                 <Pressable
                   key={bt}
-                  onPress={available ? () => setBusinessType(bt) : undefined}
-                  disabled={!available}
-                  className={`flex-row items-center justify-between px-5 py-4 ${
-                    available ? 'active:bg-cream' : 'opacity-40'
-                  } ${i > 0 ? 'border-t border-ink/10' : ''}`}
+                  onPress={() => setBusinessType(bt)}
+                  className={`flex-row items-center justify-between px-5 py-4 active:bg-cream ${
+                    i > 0 ? 'border-t border-ink/10' : ''
+                  }`}
                 >
-                  <Text className="text-sm text-ink">
-                    {BUSINESS_TYPE_LABELS[bt]}
-                    {available ? '' : ' — coming soon'}
-                  </Text>
+                  <Text className="text-sm text-ink">{BUSINESS_TYPE_LABELS[bt]}</Text>
                   {selected ? <Text className="text-gold-deep">✓</Text> : null}
                 </Pressable>
               );

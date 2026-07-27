@@ -80,7 +80,7 @@ Key constraints behind the picks:
 
 **Hidden double-entry.** Thalermark keeps a real general ledger under the hood — every invoice/payment/expense state change posts balanced journal entries against a per-company chart of accounts. Users never see "debit," "credit," or "journal entry." They see invoices, expenses, customers, and answers. See PROJECT.md "How the books work" for the full rationale and TECH-STACK.md "Database" row for the ACID justification.
 
-Business type (sole prop / LLC / partnership / S-corp / C-corp) is picked once at company creation and drives the COA seed. MVP ships the sole-prop seed only; other types fall back until v1.x.
+Business type (sole prop / LLC / partnership / S-corp / C-corp) is picked once at company creation and drives the COA seed. All five are seeded, each against the federal return that entity actually files (Schedule C / 1065 / 1120-S / 1120). Changing the type later re-maps the chart in place. Only the Schedule C worksheet report exists so far — the other three forms' worksheets are still to come.
 
 ---
 

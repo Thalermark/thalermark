@@ -6,9 +6,9 @@ import type { LayoutServerLoad } from './$types';
 // First-run gate. Any (app) route load forces a fresh signup through the
 // /welcome wizard if the active company has no business_type set yet, so the
 // operator's real entity-type answer is captured (and the company named) before
-// they start booking transactions. The COA seeded at signup is sole-prop
-// regardless of the pick (per the locked decision) — the column is just captured
-// for the v1.x entity-aware re-seed. Step 1 of the wizard sets business_type,
+// they start booking transactions. Signup seeds a provisional sole-prop chart of
+// accounts (it has no answer yet); the wizard's pick re-maps that chart onto the
+// return the business actually files. Step 1 of the wizard sets business_type,
 // which satisfies this gate, so the optional later steps never force a re-entry.
 //
 // The /welcome wizard lives OUTSIDE the (app) group (its own focused layout), so
@@ -66,6 +66,11 @@ export const load: LayoutServerLoad = async (event) => {
   return {
     companies: companies.map((c) => ({ id: c.id, name: c.name })),
     activeCompanyId: active?.id ?? null,
+    // Which federal return the active business files, for the surfaces that are
+    // entity-specific (the Schedule C worksheet is only some businesses'). Rides
+    // the list this load already fetched, and layout data merges into every
+    // child page's `data`, so no page needs its own lookup.
+    activeBusinessType: active?.businessType ?? null,
     telemetry,
     legal,
   };

@@ -75,6 +75,11 @@ export default function ScheduleCReport() {
   // null = follow the company's stored election. Only a deliberate tap pins a
   // basis, which is what makes the "you're overriding Settings" notice honest.
   const [basis, setBasis] = useState<Basis | null>(null);
+  // The API 409s when the business doesn't file a Schedule C (partnership /
+  // S-corp / C-corp — TMC-124). The hub hides the card for them, so this only
+  // happens on a back-navigation or a deep link after the type changed. Naming
+  // their actual form beats the generic "couldn't load this report".
+  const [wrongForm, setWrongForm] = useState<string | null>(null);
 
   const { data, error } = useReport(
     (companyId) =>
@@ -83,9 +88,29 @@ export default function ScheduleCReport() {
           param: { id: companyId },
           query: { year, ...(basis ? { basis } : {}) },
         })
-        .then((res) => (res.ok ? res.json() : null)),
+        .then(async (res) => {
+          if (res.status === 409) {
+            const body = (await res.json().catch(() => null)) as { taxForm?: string } | null;
+            setWrongForm(body?.taxForm ?? 'a different return');
+            return null;
+          }
+          setWrongForm(null);
+          return res.ok ? res.json() : null;
+        }),
     [year, basis],
   );
+
+  if (wrongForm) {
+    return (
+      <ReportScaffold
+        title="Schedule C"
+        selector={null}
+        note={`Schedule C isn't your form — your business files ${wrongForm}. A worksheet for it is on the way; meanwhile your profit & loss and general ledger have the figures your accountant needs.`}
+      >
+        {null}
+      </ReportScaffold>
+    );
+  }
 
   return (
     <ReportScaffold

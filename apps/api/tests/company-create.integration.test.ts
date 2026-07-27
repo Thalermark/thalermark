@@ -9,7 +9,9 @@ import { createApiDatabase } from '../src/lib/db.js';
 import { appDatabaseUrl, getTestDb, resetDb } from './test-helper.js';
 
 // POST /api/companies — the multi-company create path. Adds another business to
-// an existing workspace, seeds its sole-prop COA, gated by settings:manage.
+// an existing workspace, seeds the chart of accounts for the business type it
+// was given, gated by settings:manage. The per-entity chart shapes are covered
+// in business-type-chart.integration.test.ts.
 
 const testEnv: Env = {
   nodeEnv: 'test',
@@ -100,8 +102,8 @@ describe('POST /api/companies', () => {
       const created = (await res.json()) as Company;
       expect(created).toMatchObject({ name: 'Handyman LLC', businessType: 'llc_single_member' });
 
-      // The new company carries its own seeded sole-prop COA (seed is type-
-      // agnostic per the locked ledger decision).
+      // The new company carries its own chart, seeded for the type it was
+      // created with (a single-member LLC files Schedule C, same as a sole prop).
       const coa = await ctx.app.request(`/api/companies/${created.id}/accounts`, {
         headers: { cookie, 'x-account-id': accountId },
       });

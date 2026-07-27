@@ -8,7 +8,7 @@ import { chartOfAccounts } from './schema/chart_of_accounts.js';
 import { companies } from './schema/companies.js';
 import { journalEntries } from './schema/journal_entries.js';
 import { journalLines } from './schema/journal_lines.js';
-import { SOLE_PROP_COA, seedChartOfAccounts } from './seed/coa-sole-prop.js';
+import { SOLE_PROP_COA, seedChartOfAccounts } from './seed/coa.js';
 
 // Slice L1 — ledger foundation. Covers tenant isolation on the three new
 // tables, append-only enforcement on journal_entries / journal_lines, the
