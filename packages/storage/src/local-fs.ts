@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, resolve, sep } from 'node:path';
 import { signFileToken } from './tokens.js';
 import type { PutObjectInput, StorageProvider } from './types.js';
@@ -46,6 +46,15 @@ export function createLocalFsProvider(config: LocalFsProviderConfig): StoragePro
       // force: true swallows ENOENT so a double-delete (or deleting an object
       // whose write never landed) is a no-op rather than a throw.
       await rm(safeResolve(config.baseDir, key), { force: true });
+    },
+    async copyObject(sourceKey, destKey) {
+      const dest = safeResolve(config.baseDir, destKey);
+      // Same mkdir-then-write shape as putObject: a destination key nests into
+      // directories that may not exist yet.
+      await mkdir(dirname(dest), { recursive: true });
+      // Deliberately NOT force/COPYFILE_EXCL-free of an error: a missing source
+      // should reject, matching the S3 adapter and the interface contract.
+      await copyFile(safeResolve(config.baseDir, sourceKey), dest);
     },
   };
 }

@@ -52,6 +52,32 @@ describe('local-fs provider', () => {
     await expect(provider.deleteObject(KEY)).resolves.toBeUndefined();
   });
 
+  it('copies an object to a new key, leaving the original', async () => {
+    const provider = createLocalFsProvider({ baseDir, secret: SECRET });
+    const dest = 'accounts/a/companies/OTHER/branding/copy.jpg';
+    await provider.putObject({
+      key: KEY,
+      body: new Uint8Array([1, 2, 3]),
+      contentType: 'image/jpeg',
+    });
+
+    await provider.copyObject(KEY, dest);
+
+    // Both keys resolve independently — the whole point, since deleting either
+    // company's logo must not disturb the other's.
+    expect(await readLocalObject(baseDir, dest)).toEqual(Buffer.from([1, 2, 3]));
+    expect(await readLocalObject(baseDir, KEY)).toEqual(Buffer.from([1, 2, 3]));
+    await provider.deleteObject(KEY);
+    expect(await readLocalObject(baseDir, dest)).toEqual(Buffer.from([1, 2, 3]));
+  });
+
+  it('rejects copying a key that is not there', async () => {
+    const provider = createLocalFsProvider({ baseDir, secret: SECRET });
+    await expect(
+      provider.copyObject('accounts/a/nope.jpg', 'accounts/a/dest.jpg'),
+    ).rejects.toThrow();
+  });
+
   it('rejects keys that escape the base dir', async () => {
     const provider = createLocalFsProvider({ baseDir, secret: SECRET });
     await expect(

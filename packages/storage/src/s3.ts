@@ -1,4 +1,5 @@
 import {
+  CopyObjectCommand,
   DeleteObjectCommand,
   GetObjectCommand,
   PutObjectCommand,
@@ -62,6 +63,18 @@ export function createS3Provider(config: S3ProviderConfig): StorageProvider {
     },
     async deleteObject(key) {
       await client.send(new DeleteObjectCommand({ Bucket: config.bucket, Key: key }));
+    },
+    async copyObject(sourceKey, destKey) {
+      // Server-side: the object never travels through this process. CopySource
+      // is `bucket/key` and must be URI-encoded — a key with a space or a `+`
+      // silently copies the wrong object otherwise.
+      await client.send(
+        new CopyObjectCommand({
+          Bucket: config.bucket,
+          CopySource: encodeURI(`${config.bucket}/${sourceKey}`),
+          Key: destKey,
+        }),
+      );
     },
   };
 }

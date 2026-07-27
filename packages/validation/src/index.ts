@@ -1,6 +1,7 @@
 export * from './bill.js';
 export * from './capital-purchase.js';
 export * from './company.js';
+export * from './company-copy.js';
 export * from './contact.js';
 export * from './email-template.js';
 export * from './estimate.js';
