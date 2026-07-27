@@ -134,6 +134,13 @@
       "when": 1785216000000,
       "tag": "0018_owner_draw_contra_equity",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1785219600000,
+      "tag": "0019_period_closes",
+      "breakpoints": true
     }
   ]
 }

@@ -88,6 +88,20 @@
      and the profit & loss genuinely covers the gap. Sits above the grid because
      someone following an old Schedule C link is redirected here and needs to see
      why straight away, not after scrolling past ten cards. -->
+<!-- Year-end close prompt. The action lives behind The Ledger's airlock, which
+     someone who never opens that portal would never find — so the reminder goes
+     where people actually land at tax time. Only rendered for roles that can act
+     on it (see the loader). -->
+{#if data.unclosedYear}
+  <div class="callout mt-8">
+    <p class="text-sm text-fg/70">
+      <span class="text-fg">{data.unclosedYear} is ready to close out.</span>
+      Closing a year moves its profit into your equity and locks it so nothing can change it.
+      <a href="/ledger/close" class="link">Close out {data.unclosedYear}</a>.
+    </p>
+  </div>
+{/if}
+
 {#if !showScheduleC && taxForm}
   <div class="callout mt-8">
     <p class="text-sm text-fg/70">

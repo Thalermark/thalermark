@@ -169,6 +169,10 @@ function EntryList() {
         ) : null}
       </View>
 
+      <Pressable onPress={() => router.push('/ledger/close')} className="px-6 pt-3">
+        <Text className="text-sm text-gold-deep">Close out a year →</Text>
+      </Pressable>
+
       {list.state === 'loading' ? (
         <View className="mt-12 items-center">
           <ActivityIndicator color="#0f1626" />

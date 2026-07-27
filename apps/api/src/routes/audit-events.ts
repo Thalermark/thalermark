@@ -10,6 +10,7 @@ import {
   items,
   journalEntries,
   ownerMoneyEvents,
+  periodCloses,
   recurringInvoices,
 } from '@thalermark/db';
 import { and, eq, inArray } from 'drizzle-orm';
@@ -50,6 +51,7 @@ export function auditEventsRoutes() {
       'opening_balance',
       'capital_purchase',
       'manual_adjustment',
+      'period_close',
       'recurring_invoice',
       'item',
     ] as const;
@@ -126,6 +128,7 @@ export function auditEventsRoutes() {
         opening_balance: [],
         capital_purchase: [],
         manual_adjustment: [],
+        period_close: [],
         recurring_invoice: [],
         item: [],
       };
@@ -225,6 +228,22 @@ export function auditEventsRoutes() {
           );
         for (const r of jeRows) {
           labelMap.set(`manual_adjustment:${r.id}`, r.memo ?? 'Journal entry');
+        }
+      }
+      // A year-end close is identified by the year it closed, which is on the
+      // period_closes row rather than derivable from the id.
+      if (idsByType.period_close.length > 0) {
+        const pcRows = await tx
+          .select({ id: periodCloses.id, fiscalYear: periodCloses.fiscalYear })
+          .from(periodCloses)
+          .where(
+            and(
+              eq(periodCloses.accountId, accountId),
+              inArray(periodCloses.id, idsByType.period_close),
+            ),
+          );
+        for (const r of pcRows) {
+          labelMap.set(`period_close:${r.id}`, `${r.fiscalYear} year-end`);
         }
       }
       // Schedules have no number — label them by customer name (joined).

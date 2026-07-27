@@ -14,6 +14,7 @@ export * from './money.js';
 export * from './opening-balance.js';
 export * from './owner-money-event.js';
 export * from './password-strength.js';
+export * from './period-close.js';
 export * from './recurring-invoice.js';
 export * from './roles.js';
 export * from './tax-policy.js';

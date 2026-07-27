@@ -11,6 +11,7 @@ import type { DepreciationConvention } from '@thalermark/validation';
 import type { SQL } from 'drizzle-orm';
 import { and, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
+import { assertPeriodOpen } from './period-lock.js';
 
 // Hidden double-entry posting helper. Called from the invoice state machine
 // (mark-sent / mark-paid / void) inside the existing tenant tx, and from the
@@ -212,6 +213,17 @@ export async function postJournalEntry(
 ): Promise<string | null> {
   const lines = spec.lines.filter((l) => Number(l.amount) > 0);
   if (lines.length < 2) return null;
+
+  // The period lock (TMC-159). Checked here rather than in each route because
+  // this is the funnel every code-keyed posting flows through — invoice
+  // transitions, expenses, bills, owner money, opening balances, capital
+  // purchases, loan payments, the depreciation sweep and the Stripe webhook all
+  // land on it. Throws PeriodClosedError, which app.ts maps to a 409.
+  await assertPeriodOpen(tx, {
+    accountId: spec.accountId,
+    companyId: spec.companyId,
+    postedAt: spec.postedAt,
+  });
 
   const codes = Array.from(new Set(lines.map((l) => l.code)));
   const coa = await tx
@@ -972,7 +984,17 @@ export type ManualJournalLine = {
   amount: string;
 };
 
-async function insertManualEntry(
+// The account-id-keyed insert primitive. Exported because the year-end close
+// (lib/period-close.ts) writes through it too — its lines are account-id-keyed
+// for the same reason a manual entry's are (any account type, resolved from the
+// company's own COA).
+//
+// Deliberately does NOT check the period lock: the closing entry and its
+// reversal post at the boundary of the very period they open or close, so
+// they'd fail their own check. The lock lives one level up, in
+// postManualJournalEntry / reverseManualJournalEntry, which is where every
+// caller that ISN'T a close goes through.
+export async function insertEntryWithAccountIds(
   tx: Database | Transaction,
   spec: {
     entryId: string;
@@ -1018,8 +1040,16 @@ export async function postManualJournalEntry(
     lines: ManualJournalLine[];
   },
 ): Promise<string> {
+  // A manual adjustment into a closed year is exactly what the lock is for: the
+  // accountant should re-open the year deliberately, not slip an entry behind
+  // the close (see period-lock.ts).
+  await assertPeriodOpen(tx, {
+    accountId: args.accountId,
+    companyId: args.companyId,
+    postedAt: args.postedAt,
+  });
   const entryId = uuidv7();
-  await insertManualEntry(tx, {
+  await insertEntryWithAccountIds(tx, {
     entryId,
     accountId: args.accountId,
     companyId: args.companyId,
@@ -1057,8 +1087,16 @@ export async function reverseManualJournalEntry(
     memo: string;
   },
 ): Promise<string> {
+  // Reversals are dated at the original's posted_at, so reversing an entry from
+  // a closed year would reach back behind the close — blocked for the same
+  // reason a fresh adjustment is.
+  await assertPeriodOpen(tx, {
+    accountId: args.accountId,
+    companyId: args.companyId,
+    postedAt: args.postedAt,
+  });
   const reversalId = uuidv7();
-  await insertManualEntry(tx, {
+  await insertEntryWithAccountIds(tx, {
     entryId: reversalId,
     accountId: args.accountId,
     companyId: args.companyId,

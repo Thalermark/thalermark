@@ -22,6 +22,7 @@ import type { LegalConsentConfig } from './lib/legal-consent.js';
 import type { LlmConnectionStore } from './lib/llm-connection.js';
 import type { LlmCredentialResolver } from './lib/llm-credentials.js';
 import type { Mailer } from './lib/mailer.js';
+import { PeriodClosedError } from './lib/period-lock.js';
 import type { StripeBundle } from './lib/stripe.js';
 import { type RlsVariables, rlsContext } from './middleware/rls-context.js';
 import { accountRoutes } from './routes/account.js';
@@ -192,6 +193,18 @@ function createMainApp(deps: AppDeps) {
       // so pass them straight through without capturing.
       .onError((err, c) => {
         if (err instanceof HTTPException) return err.getResponse();
+        // A posting into a closed fiscal year (TMC-159). Thrown from the ledger
+        // posting funnels rather than any one route, because every domain that
+        // posts can hit it — an invoice edit, a backdated expense, a bill
+        // payment, a manual adjustment. Mapping it once here gives them all the
+        // same 409 without each route catching it, and closedThrough lets the
+        // client name the year instead of showing a bare conflict.
+        if (err instanceof PeriodClosedError) {
+          return c.json(
+            { error: 'period_closed', closedThrough: err.closedThrough.toISOString() },
+            409,
+          );
+        }
         Sentry.captureException(err);
         log.error('unhandled request error: {msg}', {
           msg: err instanceof Error ? err.message : String(err),
