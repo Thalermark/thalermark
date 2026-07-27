@@ -1,6 +1,6 @@
 # Scaffolding Plan
 
-**Status:** Phases 0–8 shipped; **Phase 9 (mobile catch-up) COMPLETE (2026-06-09)** — the RN/Expo app now mirrors every web MVP flow (slices M1–M11f, PRs #174–#190). Phase 8 (MVP features) slices 8.1–8.4f, 8.5a–8.5e, 8.6a–8.6c, 8.7a–8.7e, 8.8a–8.8b, L1–L4, 8.9a–8.9h, 8.10–8.15, R1–R4, I1–I5 merged (latest 2026-06-07). Invoice CRUD + status flow, the send-invoice chain (public view → email → Stripe self-host pay → SaaS Stripe Connect onboarding + connected payments), the customer-creation chain (inline create → dupe detection → address autocomplete), the full estimates chain (DB + RLS, CRUD/transitions, web pages, convert-to-invoice, public view + send + accept/decline), audit-history UI (per-entity tab + account-wide /activity feed with collapsible inline diffs), the hidden-double-entry ledger reshape (foundation + invoice-transition postings + business-type wizard + GL / trial-balance export), and the full expenses chain (DB + RLS → ledger posting policy → CRUD API → web list/create/detail/edit → object-storage package → receipt capture → vision-LLM receipt extraction) all complete; plus the position dashboard, the full AI insight layer (5 insights: receipt extraction, expense categorization, cash-flow nudges, late-payer detection, spending anomalies), duplicate-as-template across invoices/estimates/expenses, and the recurring-invoice chain (schema → CRUD → pg-boss generation engine + sweeper → web UI — the first pg-boss consumer); plus the items / products & services catalog (Slice I, scoped 2026-06-07 — table + provenance FK → CRUD API → management surface → line-item autocomplete → top-products report). The full locked MVP web scope is feature-complete, and the **mobile catch-up is now complete too (Phase 9)** — every web MVP flow has a native equivalent. **Remaining MVP product work is polish + ship.** **Post-MVP web polish (not slice-tracked here):** keyset pagination across the lists, the report lineup grown to 9, and **#237** — client-side CSV export on every report page + the GL/ledger export finally surfaced in the UI (detail on the **L4** row). **Pre-launch email overhaul (slice-tracked below):** the customer-facing emails got a branded shell (#251) then became **per-company editable** across web + mobile (#252–#255) — see *Post-MVP polish — editable email templates*. **Invoice & estimate "from" block (slice-tracked below):** per-invoice / per-estimate control over which company contact details (address / phone / a new business email) print in the public "from" block, with separate per-document-type company defaults, plus the company logo brought to the public estimate — across web + mobile (#257–#262); see *Post-MVP polish — invoice & estimate from-block*. **Post-Phase-9 tracks (all shipped api→web→mobile; cataloged in the *Post-MVP polish* sections below):** workspace-membership management + granular roles, onboarding welcome wizard, multi-company create/switch, social sign-in + email verification, the web design-system refactor, per-item tax, line-item product/service revenue split, password reset, login brute-force backoff, wrong-method sign-in rescue, **telemetry wiring** (consent + both emit paths, #280–#281), and the **contacts unification** (Xero-style `customers`→`contacts` rename + an expense vendor link with OCR scan-and-forget needs-review — its own *Post-MVP polish* section below). **Modular API sub-apps (refactor track, #316–#325):** the ~7,726-line `apps/api/src/app.ts` monolith carved into per-domain `routes/<domain>.ts` sub-apps behind a unified client facade — app.ts down to **201 lines** with no route handler left in it, and the Accounts Payable second-client point-patch folded away; see *Post-MVP polish — Modular API sub-apps*. **Owner money events (contributions + draws):** the plain-language flow that finally posts to Owner's Equity (3000) / Owner's Draw (3100) — closing the audit finding that they were seeded but never touched; api → web → mobile, on the unified facade; see *Post-MVP polish — Owner money events*. **Ledger-adjustments track now fully complete:** "The Ledger" gated manual-adjustment portal (Prong B, #330–#333), plus "Starting balances" opening balances (Prong A's third piece, #334) — see *Post-MVP polish — The Ledger (Prong B) + opening balances*. **Log a big purchase (equipment financing + depreciation, #336–#338):** the hardest bookkeeping case in plain language — durable gear ("a mower on payments") recorded as a capital asset + optional loan with a §179-or-spread tax choice, all hidden behind life-questions; api → web → mobile, reached from a branch in the Expenses flow — see *Post-MVP polish — Log a big purchase*. **Phase 10 — production hardening + open-core seams (in progress):** scale/pool + security hardening (#340–#346, #350), the five open-core seam doors (entitlement #351, credential resolver #352, onAccountCreated #353, account-notice #354, sign-up consent #355), and the **AI-connection track (#357–#364)** — which replaced the frozen `LLM_*`-env AI default with a per-account, encrypted, in-app connection (Settings → AI), deleting the env entirely; see *Post-MVP polish — AI connection*. The managed layer that fills those seams is maintained out-of-repo.
+**Status:** Phases 0–8 shipped; **Phase 9 (mobile catch-up) COMPLETE (2026-06-09)** — the RN/Expo app now mirrors every web MVP flow (slices M1–M11f, PRs #174–#190). Phase 8 (MVP features) slices 8.1–8.4f, 8.5a–8.5e, 8.6a–8.6c, 8.7a–8.7e, 8.8a–8.8b, L1–L4, 8.9a–8.9h, 8.10–8.15, R1–R4, I1–I5 merged (latest 2026-06-07). Invoice CRUD + status flow, the send-invoice chain (public view → email → Stripe self-host pay → SaaS Stripe Connect onboarding + connected payments), the customer-creation chain (inline create → dupe detection → address autocomplete), the full estimates chain (DB + RLS, CRUD/transitions, web pages, convert-to-invoice, public view + send + accept/decline), audit-history UI (per-entity tab + account-wide /activity feed with collapsible inline diffs), the hidden-double-entry ledger reshape (foundation + invoice-transition postings + business-type wizard + GL / trial-balance export), and the full expenses chain (DB + RLS → ledger posting policy → CRUD API → web list/create/detail/edit → object-storage package → receipt capture → vision-LLM receipt extraction) all complete; plus the position dashboard, the full AI insight layer (5 insights: receipt extraction, expense categorization, cash-flow nudges, late-payer detection, spending anomalies), duplicate-as-template across invoices/estimates/expenses, and the recurring-invoice chain (schema → CRUD → pg-boss generation engine + sweeper → web UI — the first pg-boss consumer); plus the items / products & services catalog (Slice I, scoped 2026-06-07 — table + provenance FK → CRUD API → management surface → line-item autocomplete → top-products report). The full locked MVP web scope is feature-complete, and the **mobile catch-up is now complete too (Phase 9)** — every web MVP flow has a native equivalent. **Remaining MVP product work is polish + ship.** **Post-MVP web polish (not slice-tracked here):** keyset pagination across the lists, the report lineup grown to 9, and **#237** — client-side CSV export on every report page + the GL/ledger export finally surfaced in the UI (detail on the **L4** row). **Pre-launch email overhaul (slice-tracked below):** the customer-facing emails got a branded shell (#251) then became **per-company editable** across web + mobile (#252–#255) — see *Post-MVP polish — editable email templates*. **Invoice & estimate "from" block (slice-tracked below):** per-invoice / per-estimate control over which company contact details (address / phone / a new business email) print in the public "from" block, with separate per-document-type company defaults, plus the company logo brought to the public estimate — across web + mobile (#257–#262); see *Post-MVP polish — invoice & estimate from-block*. **Post-Phase-9 tracks (all shipped api→web→mobile; cataloged in the *Post-MVP polish* sections below):** workspace-membership management + granular roles, onboarding welcome wizard, multi-company create/switch, social sign-in + email verification, the web design-system refactor, per-item tax, line-item product/service revenue split, password reset, login brute-force backoff, wrong-method sign-in rescue, **telemetry wiring** (consent + both emit paths, #280–#281), and the **contacts unification** (Xero-style `customers`→`contacts` rename + an expense vendor link with OCR scan-and-forget needs-review — its own *Post-MVP polish* section below). **Modular API sub-apps (refactor track, #316–#325):** the ~7,726-line `apps/api/src/app.ts` monolith carved into per-domain `routes/<domain>.ts` sub-apps behind a unified client facade — app.ts down to **201 lines** with no route handler left in it, and the Accounts Payable second-client point-patch folded away; see *Post-MVP polish — Modular API sub-apps*. **Owner money events (contributions + draws):** the plain-language flow that finally posts to Owner's Equity (3000) / Owner's Draw (3100) — closing the audit finding that they were seeded but never touched; api → web → mobile, on the unified facade; see *Post-MVP polish — Owner money events*. **Ledger-adjustments track now fully complete:** "The Ledger" gated manual-adjustment portal (Prong B, #330–#333), plus "Starting balances" opening balances (Prong A's third piece, #334) — see *Post-MVP polish — The Ledger (Prong B) + opening balances*. **Log a big purchase (equipment financing + depreciation, #336–#338):** the hardest bookkeeping case in plain language — durable gear ("a mower on payments") recorded as a capital asset + optional loan with a §179-or-spread tax choice, all hidden behind life-questions; api → web → mobile, reached from a branch in the Expenses flow — see *Post-MVP polish — Log a big purchase*. **Phase 10 — production hardening + open-core seams (in progress):** scale/pool + security hardening (#340–#346, #350), the five open-core seam doors (entitlement #351, credential resolver #352, onAccountCreated #353, account-notice #354, sign-up consent #355), and the **AI-connection track (#357–#364)** — which replaced the frozen `LLM_*`-env AI default with a per-account, encrypted, in-app connection (Settings → AI), deleting the env entirely; see *Post-MVP polish — AI connection*. The managed layer that fills those seams is maintained out-of-repo. **Accounting & tax reporting track (#409–#414):** the Schedule C worksheet (TMC-155), report day boundaries resolved in the company's timezone (TMC-157), auto-posted yearly depreciation (TMC-123), and **a chart of accounts per business type** (TMC-124) — all five entity types now seed the chart for the federal return they actually file, replacing the sole-prop-only seed the others fell back to; see *Post-MVP polish — Accounting & tax reporting*.
 **Reads:** Assumes you've read PROJECT.md and TECH-STACK.md.
 
 The shape of work between "all decisions locked" and shipping the MVP. Eight foundation phases (0–7), a Phase 8 for the MVP-feature slices, and a Phase 9 for the mobile catch-up — roughly sequential, each builds on the previous one. Phases 0–7 are the foundation; Phase 8 is where the product becomes visible on web; Phase 9 brings the mobile app to parity.
@@ -1119,6 +1119,78 @@ it goes live, and health-tracked — and **deleted the `LLM_*` env entirely.** F
 config screen, not a field workflow). **Flagged, unscoped:** AI-unavailable returns `503`, arguably a
 category error for an intentionally-optional feature (and "not entitled" is a plan question that
 shouldn't be a `503`). See [[project_ai_connection_track]], [[architecture_ai_layer]], [[project_saas_plan]].
+
+---
+
+## Post-MVP polish — Accounting & tax reporting (TMC-155, 157, 123, 124)
+
+Four tracks that shipped together as one arc: the books grew a tax-shaped read surface, then the
+things that surface got wrong were fixed underneath it. Grouped here because each one exposed the
+next.
+
+| Ticket | PRs | What landed |
+|---|---|---|
+| TMC-155 | #409 api, #410 web, #412 mobile | **Schedule C worksheet.** The accountant handoff — a form-shaped view grouped by `tax_mapping` rather than by account code, filling the rest of the form's skeleton so a user comparing against the IRS PDF finds every line. Cash + accrual. |
+| TMC-157 | #411 | **Report day boundaries in the company's timezone.** `companies.timezone`; windows resolved via `AT TIME ZONE` in Postgres. |
+| TMC-123 | #413 | **Auto-post yearly depreciation** for spread-it-out purchases. Half-year convention, ledger-derived backfill, daily sweep. |
+| TMC-124 | #414 | **A chart of accounts per business type.** All five entity types, each built against the return it actually files. |
+
+**The locked principle: the general ledger is always accrual; basis is a read-time lens.** Double-entry
+records events when they happen. Cash basis is applied when the report is read — the same one-ledger
+model QuickBooks and Xero use — so `companies.accounting_method` selects a lens, never a second set of
+books. Cash is the default and the right answer for effectively the whole audience.
+
+**Timezone is a correctness bug, not a preference.** Before TMC-157 every window was UTC, so a payment
+taken at 8pm on 31 December in `America/Chicago` stored as `2027-01-01T02:00Z` and fell into the *next*
+tax year. Resolved in Postgres rather than JS on purpose: `AT TIME ZONE` reads the same tz database the
+server ships, so DST transitions and historical offset changes are handled — hand-rolled offset math
+gets the ordinary cases right and the interesting ones wrong. Companies default to `UTC`, reproducing
+the old behaviour exactly until someone sets a real zone.
+
+**One chart per federal return (TMC-124).** Replaces the sole-prop-only seed every business type fell
+back to. A shared base chart plus a per-entity overlay in `packages/db/src/seed/`, one overlay file per
+IRS form so each can be read side by side with the real form:
+
+| Business type | Files | Overlay |
+|---|---|---|
+| `sole_prop` / `llc_single_member` | Schedule C (Form 1040) | `coa-sole-prop.ts` |
+| `partnership` | Form 1065 | `coa-partnership.ts` |
+| `s_corp` | Form 1120-S | `coa-s-corp.ts` |
+| `c_corp` | Form 1120 | `coa-c-corp.ts` |
+
+**Account code numbers are identical across all five, deliberately.** `apps/api/src/lib/ledger.ts` posts
+by literal code (`COA_CASH = '1000'`, `COA_OWNERS_DRAW = '3100'`, …), so an entity that renumbered would
+silently post to the wrong account. Renaming 3100 to "Shareholder Distributions" is safe; renumbering is
+not. A unit test asserts every posting code exists on every chart. The price is that expense codes stay
+in Schedule C Part II order even for a corporation — the `tax_mapping` carries the real line, and one
+stable numbering means a business that incorporates doesn't watch its account numbers shuffle.
+
+Entity-specific accounts: guaranteed payments to partners (1065 L10, kept off the employee wages line
+because a partner can't be their own employee); capital stock, paid-in capital, retained earnings,
+payroll taxes payable and officer compensation on its own line for both corp types (1120-S L7 vs L8;
+1120 L12 vs L13 — the IRS watches that ratio); and income tax expense + payable for C-corp only, the one
+entity here that isn't a pass-through, **mapped to 1120 L31 rather than Other deductions**, which would
+understate taxable income. Partner capital stays pooled — the 1065 balance sheet reports it as a single
+figure, and per-partner splitting is a Schedule K-1 concern needing a partners entity we don't have.
+
+**Changing business type re-maps the chart in place.** `reconcileChartOfAccounts` adds what the new
+entity needs, renames accounts with no postings, refreshes every tax mapping, clears the mapping on
+accounts that leave the chart, and deactivates unused unposted ones (never deletes — journal lines FK
+with RESTRICT). Money never moves. Signup seeds a provisional sole-prop chart because the welcome wizard
+hasn't asked yet; that PATCH converts it, and a Business-settings control covers a later change.
+
+**Realized structure differs from plan** — the L1/L3 rows above (#122/#124, Phase 8) describe the
+sole-prop-only seed and the business-type column as "captured for a v1.x re-seed". TMC-124 is that
+re-seed, and the L3 row carries a supersession note. No migration was needed: `chart_of_accounts`
+already had every column.
+
+**Known limits, ticketed rather than fixed:** an established business that switches keeps old labels on
+accounts that already carry postings (TMC-160); no year-end close, so corp retained earnings never
+accumulates (TMC-159); no payroll for officer compensation (TMC-161); no worksheets for 1065 / 1120-S /
+1120 — the reports hub says so rather than rendering a form full of zeros (TMC-162); the AI prompt
+persona still assumes a sole trader (TMC-163); opening equity posts entirely to 3000 (TMC-164).
+See [[project_entity_coa_seeds]], [[project_schedule_c_export]], [[project_report_timezone]],
+[[project_fixed_assets_financing]].
 
 ---
 
