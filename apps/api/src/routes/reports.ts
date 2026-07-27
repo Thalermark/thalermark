@@ -27,7 +27,7 @@ import {
   toCents,
 } from '@thalermark/validation';
 import type { AnyColumn, SQL } from 'drizzle-orm';
-import { and, asc, eq, gte, inArray, isNull, lt, lte, ne, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, isNull, lt, lte, ne, notInArray, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 import type { AppDeps } from '../app.js';
@@ -130,6 +130,20 @@ function parseReportWindow(
     toExclusiveInstant: dayStartInstant(addDays(to, 1), tz),
   };
 }
+
+// Year-end closing entries must not appear in a P&L-shaped report (TMC-159).
+//
+// A close zeroes the revenue and expense accounts by posting the opposite of
+// each balance, dated inside the year it closes. That is right for the balance
+// sheet — it's what moves the profit into equity — but any report that sums P&L
+// activity over a window would see those flip lines and report the closed year
+// as zero. So every revenue/expense aggregation below excludes both the close
+// and its reversal.
+//
+// The GL export and trial balance deliberately do NOT filter them: those are the
+// raw ledger, and the closing entry is a real entry an accountant expects to see.
+const CLOSING_ENTRY_SOURCES = ['year_end_close', 'year_end_close_reversal'];
+const notAClosingEntry = () => notInArray(journalEntries.sourceEntityType, CLOSING_ENTRY_SOURCES);
 
 // Today's date *in the company's zone* — "year to date" and "as of today" should
 // roll over at the operator's midnight, not UTC's.
@@ -404,6 +418,7 @@ export function reportsRoutes(deps: AppDeps) {
                 inArray(chartOfAccounts.accountType, ['revenue', 'expense']),
                 gte(journalEntries.postedAt, fromInstant),
                 lt(journalEntries.postedAt, toExclusiveInstant),
+                notAClosingEntry(),
               ),
             )
             .groupBy(
@@ -559,6 +574,7 @@ export function reportsRoutes(deps: AppDeps) {
             eq(chartOfAccounts.accountType, 'expense'),
             gte(journalEntries.postedAt, fromInstant),
             lt(journalEntries.postedAt, toExclusiveInstant),
+            notAClosingEntry(),
           ];
           // Cash basis: a bill's expense belongs to the period the bill was
           // PAID, not opened. Both legs of a bill (open, and any void reversal)
@@ -664,6 +680,7 @@ export function reportsRoutes(deps: AppDeps) {
                   eq(chartOfAccounts.accountType, 'revenue'),
                   gte(journalEntries.postedAt, fromInstant),
                   lt(journalEntries.postedAt, toExclusiveInstant),
+                  notAClosingEntry(),
                 ),
               );
             grossReceiptsCents = revenueRows.reduce((sum, r) => sum + toCents(r.amount), 0);

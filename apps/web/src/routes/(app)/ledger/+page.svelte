@@ -48,9 +48,12 @@
       Journal entries<span class="text-accent">.</span>
     </h1>
   </div>
-  {#if canAdjust}
-    <a href="/ledger/new" class="btn">+ New entry</a>
-  {/if}
+  <div class="flex items-center gap-4">
+    <a href="/ledger/close" class="link text-sm">Close out a year</a>
+    {#if canAdjust}
+      <a href="/ledger/new" class="btn">+ New entry</a>
+    {/if}
+  </div>
 </div>
 
 <p class="mt-4 max-w-2xl text-sm text-fg/60">
