@@ -344,7 +344,7 @@ export type BillsAppType = ReturnType<typeof billsRoutes>;
 export type OwnerMoneyEventsAppType = ReturnType<typeof ownerMoneyRoutes>;
 export type PurchasesAppType = ReturnType<typeof purchasesRoutes>;
 export type LedgerAppType = ReturnType<typeof ledgerRoutes>;
-export type { EntityTransferAppType } from './routes/entity-transfer.js';
+export type EntityTransferAppType = ReturnType<typeof entityTransferRoutes>;
 export type ItemsAppType = ReturnType<typeof itemsRoutes>;
 export type TaxPoliciesAppType = ReturnType<typeof taxPoliciesRoutes>;
 export type SocialProvidersAppType = ReturnType<typeof socialProvidersRoutes>;

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { BUSINESS_TYPES, BUSINESS_TYPE_LABELS } from '@thalermark/validation';
+  import { untrack } from 'svelte';
   import type { PageProps } from './$types';
 
   let { data, form }: PageProps = $props();
@@ -15,6 +16,11 @@
   const retired = $derived(data.company.retiredAt != null);
   const retiredOn = $derived(data.company.retiredAt?.slice(0, 10) ?? '');
   let confirmingRetire = $state(false);
+
+  // Which type the radios currently show, so the EIN question appears the moment
+  // the answer starts to matter rather than after a round trip.
+  let pickedType = $state(untrack(() => data.company.businessType ?? 'sole_prop'));
+  const typeChanged = $derived(!retired && pickedType !== businessType);
 
   // Show the just-saved value back after an action, else the stored value from
   // load. Empty string renders as a cleared field. `??` respects a returned
@@ -256,25 +262,59 @@
     <input type="hidden" name="companyId" value={data.company.id} />
     <p class="max-w-prose text-sm leading-relaxed text-fg/70">
       You told us this when you set up. If it's changed — you've incorporated, or taken on a partner
-      — update it here and we'll adjust your categories to match. Nothing you've already recorded
-      moves or disappears.
+      — update it here and we'll adjust your categories to match.
     </p>
     <div class="mt-5 space-y-3">
       {#each BUSINESS_TYPES as bt (bt)}
         <label class="flex cursor-pointer items-center gap-3 text-sm text-fg">
-          <input type="radio" name="businessType" value={bt} checked={businessType === bt} />
+          <input
+            type="radio"
+            name="businessType"
+            value={bt}
+            checked={businessType === bt}
+            onchange={() => (pickedType = bt)}
+            disabled={retired}
+          />
           <span>{BUSINESS_TYPE_LABELS[bt]}</span>
         </label>
       {/each}
     </div>
-    <div class="mt-5 flex items-center gap-4">
-      <button type="submit" class="btn">Save</button>
-      {#if form?.businessTypeSaved}
-        <span class="text-sm text-fg/60">Saved.</span>
-      {:else if form?.businessTypeError}
-        <span class="text-sm text-danger">Couldn't save: {form.businessTypeError}</span>
-      {/if}
-    </div>
+
+    <!-- The question the app cannot answer for them, asked the moment the answer
+         matters. A business type change and a NEW LEGAL ENTITY are different
+         things: an LLC electing S-corp status keeps its EIN and is genuinely
+         just a re-map, while incorporating creates a different taxpayer whose
+         books have to start clean. Guessing from the transition would be wrong
+         for the election case, which is the common one. -->
+    {#if typeChanged}
+      <div class="mt-6 rounded-sm border border-accent/30 bg-accent/5 px-5 py-4">
+        <p class="text-sm font-medium text-fg">
+          Did you register this as a new business — a new EIN from the IRS?
+        </p>
+        <p class="mt-2 max-w-prose text-sm leading-relaxed text-fg/70">
+          If you set up a company with its own tax ID, it's a separate business as far as the tax
+          office is concerned, and it needs its own set of books. If you only changed how the same
+          business is taxed, nothing else has to move.
+        </p>
+        <div class="mt-4 flex flex-wrap items-center gap-4">
+          <a href="/companies/handoff?type={pickedType}" class="btn">
+            Yes — set up the new business
+          </a>
+          <button type="submit" class="link text-sm">
+            No — same business, just update my categories
+          </button>
+        </div>
+      </div>
+    {:else}
+      <div class="mt-5 flex items-center gap-4">
+        <button type="submit" class="btn" disabled={retired}>Save</button>
+        {#if form?.businessTypeSaved}
+          <span class="text-sm text-fg/60">Saved.</span>
+        {:else if form?.businessTypeError}
+          <span class="text-sm text-danger">Couldn't save: {form.businessTypeError}</span>
+        {/if}
+      </div>
+    {/if}
   </form>
 </section>
 
