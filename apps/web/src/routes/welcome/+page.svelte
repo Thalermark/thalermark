@@ -2,20 +2,10 @@
   import { enhance } from '$app/forms';
   import { trackEvent } from '$lib/telemetry';
   import { untrack } from 'svelte';
-  import { BUSINESS_TYPES } from '@thalermark/validation';
+  import { BUSINESS_TYPES, BUSINESS_TYPE_LABELS } from '@thalermark/validation';
   import type { PageProps } from './$types';
 
   let { data, form }: PageProps = $props();
-
-  // Friendly labels — business *structure*, not accounting jargon. Sole prop is
-  // worded as "Just me" because that's how a solo tradesperson thinks of it.
-  const BUSINESS_TYPE_LABELS: Record<(typeof BUSINESS_TYPES)[number], string> = {
-    sole_prop: 'Just me (sole proprietor)',
-    llc_single_member: 'LLC (single-member)',
-    partnership: 'Partnership',
-    s_corp: 'S-Corporation',
-    c_corp: 'C-Corporation',
-  };
 
   // Re-render seed: a 4xx bounce re-runs load(), so the $state initializers
   // prefer the just-submitted form?.values, falling back to the stored company

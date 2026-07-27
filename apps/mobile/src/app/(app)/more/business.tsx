@@ -1,3 +1,4 @@
+import { BUSINESS_TYPES, BUSINESS_TYPE_LABELS, type BusinessType } from '@thalermark/validation';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
@@ -79,6 +80,11 @@ export default function BusinessSettings() {
   const [method, setMethod] = useState<'cash' | 'accrual'>('cash');
   const [methodSaving, setMethodSaving] = useState(false);
   const [methodStatus, setMethodStatus] = useState<'idle' | 'saved' | 'error'>('idle');
+  // How the business is set up (TMC-124). Asked at onboarding, changed here when
+  // it actually changes; saving re-maps the company's categories server-side.
+  const [businessType, setBusinessType] = useState<BusinessType>('sole_prop');
+  const [businessTypeSaving, setBusinessTypeSaving] = useState(false);
+  const [businessTypeStatus, setBusinessTypeStatus] = useState<'idle' | 'saved' | 'error'>('idle');
   const [convention, setConvention] = useState<'half_year' | 'full_year'>('half_year');
   const [conventionSaving, setConventionSaving] = useState(false);
   const [conventionStatus, setConventionStatus] = useState<'idle' | 'saved' | 'error'>('idle');
@@ -141,6 +147,7 @@ export default function BusinessSettings() {
     setEmail(company.businessEmail ?? '');
     setReplyTo(company.replyToEmail ?? '');
     setMethod(company.accountingMethod === 'accrual' ? 'accrual' : 'cash');
+    setBusinessType((company.businessType as BusinessType | null) ?? 'sole_prop');
     setConvention(company.depreciationConvention === 'full_year' ? 'full_year' : 'half_year');
     setTimezone(company.timezone ?? 'UTC');
     setShowAddrInv(company.showAddressOnInvoice);
@@ -225,6 +232,24 @@ export default function BusinessSettings() {
       setMethodStatus('error');
     } finally {
       setMethodSaving(false);
+    }
+  }
+
+  async function onSaveBusinessType(next: BusinessType) {
+    if (!company) return;
+    setBusinessType(next);
+    setBusinessTypeSaving(true);
+    setBusinessTypeStatus('idle');
+    try {
+      const res = await api.api.companies[':id'].$patch({
+        param: { id: company.id },
+        json: { businessType: next },
+      });
+      setBusinessTypeStatus(res.ok ? 'saved' : 'error');
+    } catch {
+      setBusinessTypeStatus('error');
+    } finally {
+      setBusinessTypeSaving(false);
     }
   }
 
@@ -491,6 +516,40 @@ export default function BusinessSettings() {
               )}
             </View>
 
+            {/* How the business is set up — the one place to change it after
+                onboarding. Saving re-maps the company's categories onto the
+                return that entity files; nothing already recorded moves. */}
+            <View className="mt-8 rounded-sm border border-ink/15 bg-cream-warm p-6">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                How your business is set up
+              </Text>
+              <Text className="mt-2 font-serif text-lg text-ink">{company.name}</Text>
+              <Text className="mt-3 text-sm text-ink/70">
+                You told us this when you set up. If it's changed — you've incorporated, or taken on
+                a partner — update it here and we'll adjust your categories to match. Nothing you've
+                already recorded moves or disappears.
+              </Text>
+              <View className="mt-5 gap-3">
+                {BUSINESS_TYPES.map((bt) => (
+                  <Pressable
+                    key={bt}
+                    onPress={() => onSaveBusinessType(bt)}
+                    disabled={businessTypeSaving}
+                    className={`rounded-sm border px-4 py-3 ${
+                      businessType === bt ? 'border-gold-deep bg-gold-deep/10' : 'border-ink/15'
+                    }`}
+                  >
+                    <Text className="text-ink">{BUSINESS_TYPE_LABELS[bt]}</Text>
+                  </Pressable>
+                ))}
+              </View>
+              {businessTypeStatus === 'saved' ? (
+                <Text className="mt-4 text-sm text-ink/60">Saved.</Text>
+              ) : businessTypeStatus === 'error' ? (
+                <Text className="mt-4 text-sm text-oxblood">Couldn't save.</Text>
+              ) : null}
+            </View>
+
             {/* Accounting method, in plain words — the user never sees
                 "cash"/"accrual" as a label, only what it means. Saves on tap
                 since it's a two-option choice. */}
@@ -500,9 +559,9 @@ export default function BusinessSettings() {
               </Text>
               <Text className="mt-2 font-serif text-lg text-ink">{company.name}</Text>
               <Text className="mt-3 text-sm text-ink/70">
-                This decides which tax year money lands in. Most people count income when they get
-                paid — the usual choice for freelancers and trades. Only change it if whoever files
-                your taxes told you to.
+                This is about timing — which year a payment counts for. Most people count it when
+                the money actually turns up, the usual choice for freelancers and trades. Only
+                change it if whoever does your taxes tells you to.
               </Text>
               <View className="mt-5 gap-3">
                 {(

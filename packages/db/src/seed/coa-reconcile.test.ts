@@ -230,6 +230,31 @@ describe('reconcileChartOfAccounts', () => {
     expect((await coaByCode()).get('7800')?.isActive).toBe(true);
   });
 
+  // An account the new entity has no line for must not keep pointing at the old
+  // one, or a sole proprietor's spending prints "Form 1120, Line 31" beside it.
+  // Null instead — the tax worksheet has a visible unmapped bucket, so the money
+  // still shows up, just not filed under a line that isn't on their return.
+  it('clears the tax mapping of an account that leaves the chart', async () => {
+    await seedTenant('c_corp');
+    await postAgainst('7800', '2400');
+    expect((await coaByCode()).get('7800')?.taxMapping).toBe('Form 1120, Line 31');
+
+    await reconcileChartOfAccounts(getTestDb(), {
+      accountId,
+      companyId,
+      businessType: 'sole_prop',
+    });
+
+    const byCode = await coaByCode();
+    // Kept (it has history) but no longer claiming a line on a form this
+    // business doesn't file.
+    expect(byCode.get('7800')?.isActive).toBe(true);
+    expect(byCode.get('7800')?.taxMapping).toBeNull();
+    // The unposted ones are switched off and cleared too.
+    expect(byCode.get('7450')?.isActive).toBe(false);
+    expect(byCode.get('7450')?.taxMapping).toBeNull();
+  });
+
   it('reactivates an account that comes back with a later switch', async () => {
     await seedTenant('c_corp');
     await reconcileChartOfAccounts(getTestDb(), {

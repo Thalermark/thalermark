@@ -1,19 +1,10 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
   import { untrack } from 'svelte';
-  import { BUSINESS_TYPES } from '@thalermark/validation';
+  import { BUSINESS_TYPES, BUSINESS_TYPE_LABELS } from '@thalermark/validation';
   import type { PageProps } from './$types';
 
   let { form }: PageProps = $props();
-
-  // Same friendly labels as the welcome wizard — structure, not jargon.
-  const BUSINESS_TYPE_LABELS: Record<(typeof BUSINESS_TYPES)[number], string> = {
-    sole_prop: 'Just me (sole proprietor)',
-    llc_single_member: 'LLC (single-member)',
-    partnership: 'Partnership',
-    s_corp: 'S-Corporation',
-    c_corp: 'C-Corporation',
-  };
 
   const formValue = (key: string) => (form?.values as Record<string, string> | undefined)?.[key];
   let name = $state(untrack(() => formValue('name') ?? ''));

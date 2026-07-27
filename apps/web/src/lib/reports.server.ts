@@ -1,6 +1,6 @@
 import { pickActiveCompany } from '$lib/active-company';
 import { apiBaseUrl, serverApiClient, serverApiHeaders } from '$lib/api.server';
-import { error } from '@sveltejs/kit';
+import { error, redirect } from '@sveltejs/kit';
 
 // Shared loaders for the report pages. They all read a from/to window (default
 // YTD) off a single company (single-company MVP picks the first), surface the
@@ -362,14 +362,11 @@ export async function loadScheduleC(event: Parameters<typeof serverApiClient>[0]
   });
   // 409 = this business doesn't file a Schedule C (partnership / S-corp / C-corp
   // — see TMC-124). The hub already hides the card, so this only catches a typed
-  // or bookmarked URL; say which form they file rather than "failed to load".
-  if (res.status === 409) {
-    const body = (await res.json().catch(() => null)) as { taxForm?: string } | null;
-    throw error(
-      404,
-      `Schedule C isn't your form — your business files ${body?.taxForm ?? 'a different return'}.`,
-    );
-  }
+  // or bookmarked URL. Bounce to the hub, which names the form this business does
+  // file, rather than throwing: the root error boundary prints fixed copy for a
+  // 404 ("the link may be broken") and appends "please try again in a moment" to
+  // every other status, so either would misdescribe what happened.
+  if (res.status === 409) throw redirect(303, '/reports');
   if (!res.ok) throw error(res.status, 'failed to load the Schedule C worksheet');
   const report = (await res.json()) as ScheduleC;
   return { report, years };

@@ -33,7 +33,7 @@ export default function ExpensesByCategoryReport() {
       selector={
         <PeriodSelector from={from} to={to} onChange={(f, t) => setWindow({ from: f, to: t })} />
       }
-      note={`${from} → ${to}. Spending grouped by tax category, biggest first.`}
+      note={`${from} → ${to}. Where your money went, biggest first.`}
     >
       <ReportBody data={data} error={error}>
         {(d) => {

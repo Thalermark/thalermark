@@ -25,7 +25,7 @@
     {
       href: '/reports/expenses-by-category',
       title: 'Expenses by category',
-      blurb: 'Where the money went, grouped by tax category.',
+      blurb: 'Where the money went, grouped by category.',
     },
     ...(showScheduleC
       ? [
@@ -81,6 +81,23 @@
   </h1>
 </div>
 
+<!-- Say plainly why there's no tax sheet here, instead of leaving a gap where a
+     Schedule C card sits for other businesses. Framed as "we haven't built it
+     yet" rather than "you can't have it" — the books underneath are already set
+     up for this business's own form; it's only the fill-in sheet that's missing,
+     and the profit & loss genuinely covers the gap. Sits above the grid because
+     someone following an old Schedule C link is redirected here and needs to see
+     why straight away, not after scrolling past ten cards. -->
+{#if !showScheduleC && taxForm}
+  <div class="callout mt-8">
+    <p class="text-sm text-fg/70">
+      <span class="text-fg">We haven't built the tax sheet for your kind of business yet.</span>
+      Yours is called {taxForm} — it's on our list. Until then, your profit &amp; loss has what
+      whoever does your taxes will ask for.
+    </p>
+  </div>
+{/if}
+
 <div class="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2">
   {#each reports as r (r.href)}
     <a
@@ -107,16 +124,3 @@
     </a>
   {/if}
 </div>
-
-<!-- Say plainly why there's no tax worksheet here, instead of leaving a gap
-     where a Schedule C card sits for other businesses. The books underneath are
-     mapped to this entity's own return already — it's the fill-in worksheet
-     that's missing, and the P&L export is the honest interim answer. -->
-{#if !showScheduleC && taxForm}
-  <div class="callout mt-8">
-    <p class="text-sm text-fg/70">
-      <span class="text-fg">Your business files {taxForm}.</span> A worksheet for it is on the way. In
-      the meantime, your profit &amp; loss and general ledger have the figures your accountant needs.
-    </p>
-  </div>
-{/if}

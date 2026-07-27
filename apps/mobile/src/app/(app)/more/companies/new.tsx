@@ -1,4 +1,4 @@
-import { BUSINESS_TYPES } from '@thalermark/validation';
+import { BUSINESS_TYPES, BUSINESS_TYPE_LABELS } from '@thalermark/validation';
 import { Redirect, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
@@ -13,16 +13,6 @@ import { setActiveCompanyId } from '../../../../lib/secure-store';
 // home, matching the web flow. Gated by settings:manage — the API enforces it,
 // so this guard just keeps a member off a form whose submit would only 403.
 type BusinessType = (typeof BUSINESS_TYPES)[number];
-
-// Friendly labels — business structure, not accounting jargon. Same wording as
-// web's create + welcome forms.
-const BUSINESS_TYPE_LABELS: Record<BusinessType, string> = {
-  sole_prop: 'Just me (sole proprietor)',
-  llc_single_member: 'LLC (single-member)',
-  partnership: 'Partnership',
-  s_corp: 'S-Corporation',
-  c_corp: 'C-Corporation',
-};
 
 export default function NewCompany() {
   const router = useRouter();

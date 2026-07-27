@@ -1,4 +1,4 @@
-import { BUSINESS_TYPES } from '@thalermark/validation';
+import { BUSINESS_TYPES, BUSINESS_TYPE_LABELS } from '@thalermark/validation';
 import { Redirect, useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
@@ -15,14 +15,6 @@ import { markCompanySetupDone } from '../../lib/welcome-progress';
 // only show on invoices. Mirror of web's welcome/+page. Operates on the active
 // company — the fresh signup's untyped seed in the common case.
 type BusinessType = (typeof BUSINESS_TYPES)[number];
-
-const BUSINESS_TYPE_LABELS: Record<BusinessType, string> = {
-  sole_prop: 'Just me (sole proprietor)',
-  llc_single_member: 'LLC (single-member)',
-  partnership: 'Partnership',
-  s_corp: 'S-Corporation',
-  c_corp: 'C-Corporation',
-};
 
 export default function WelcomeBusiness() {
   const router = useRouter();

@@ -105,7 +105,7 @@ export default function ScheduleCReport() {
       <ReportScaffold
         title="Schedule C"
         selector={null}
-        note={`Schedule C isn't your form — your business files ${wrongForm}. A worksheet for it is on the way; meanwhile your profit & loss and general ledger have the figures your accountant needs.`}
+        note={`This sheet is for a different kind of business. Yours uses ${wrongForm}, and we haven't built that one yet — until we do, your profit & loss has what whoever does your taxes will ask for.`}
       >
         {null}
       </ReportScaffold>

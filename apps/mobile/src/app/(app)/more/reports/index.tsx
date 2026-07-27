@@ -39,7 +39,7 @@ const REPORTS: { href: ReportHref; title: string; blurb: string }[] = [
   {
     href: '/more/reports/expenses-by-category',
     title: 'Expenses by category',
-    blurb: 'Where the money went, grouped by tax category.',
+    blurb: 'Where the money went, grouped by category.',
   },
   {
     href: '/more/reports/schedule-c',
@@ -138,9 +138,11 @@ export default function ReportsHub() {
         {taxForm && !showScheduleC ? (
           <View className="mt-8 rounded-sm border border-ink/10 bg-cream-warm p-5">
             <Text className="text-sm text-ink/70">
-              <Text className="text-ink">Your business files {taxForm}.</Text> A worksheet for it is
-              on the way. In the meantime, your profit & loss and general ledger have the figures
-              your accountant needs.
+              <Text className="text-ink">
+                We haven't built the tax sheet for your kind of business yet.
+              </Text>{' '}
+              Yours is called {taxForm} — it's on our list. Until then, your profit & loss has what
+              whoever does your taxes will ask for.
             </Text>
           </View>
         ) : null}

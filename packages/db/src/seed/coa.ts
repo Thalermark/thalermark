@@ -342,16 +342,27 @@ export async function reconcileChartOfAccounts(
   for (const row of existing) {
     const want = targetByCode.get(row.code);
 
-    // Not in the new entity's chart. Switch it off so it drops out of the
-    // account pickers, unless it has history worth keeping reachable.
+    // Not in the new entity's chart. Two things happen, independently.
+    //
+    // Its tax mapping always goes to null: the line it pointed at is on a form
+    // this business no longer files, and leaving it would print "Form 1120-S,
+    // Line 7" next to a sole proprietor's spending. Null is the honest answer —
+    // the account has no home on the new return, and the tax worksheet already
+    // has a visible bucket for exactly that, so the money is surfaced rather
+    // than quietly filed under a line that doesn't exist for them.
+    //
+    // And it's switched off so it drops out of the category pickers — unless it
+    // carries history, in which case it stays reachable.
     if (!want) {
-      if (!posted.has(row.id) && row.isActive) {
-        await tx
-          .update(chartOfAccounts)
-          .set({ isActive: false, updatedAt: now })
-          .where(eq(chartOfAccounts.id, row.id));
-        result.deactivated.push(row.code);
+      const patch: Record<string, unknown> = {};
+      if (row.taxMapping !== null) patch.taxMapping = null;
+      const deactivate = !posted.has(row.id) && row.isActive;
+      if (deactivate) patch.isActive = false;
+      if (Object.keys(patch).length > 0) {
+        patch.updatedAt = now;
+        await tx.update(chartOfAccounts).set(patch).where(eq(chartOfAccounts.id, row.id));
       }
+      if (deactivate) result.deactivated.push(row.code);
       continue;
     }
 

@@ -20,6 +20,22 @@ export const BUSINESS_TYPES = [
 export const businessTypeSchema = z.enum(BUSINESS_TYPES);
 export type BusinessType = z.infer<typeof businessTypeSchema>;
 
+// How the pickers describe each business type. Deliberately not the legal
+// wording: a landscaper knows whether it's "just me" or "me and a partner", and
+// may have no idea what a "disregarded entity" is. The legal term rides along in
+// parentheses where it helps someone recognise the setup their accountant named,
+// and is dropped where the plain phrase already says it.
+//
+// Lives here, next to the enum, because both clients render this list and four
+// hand-kept copies of it drifted the moment any of them was edited.
+export const BUSINESS_TYPE_LABELS: Record<BusinessType, string> = {
+  sole_prop: 'Just me (sole proprietor)',
+  llc_single_member: 'Just me, with an LLC',
+  partnership: 'Me and a partner or two (partnership)',
+  s_corp: 'A corporation, taxed as an S-corp',
+  c_corp: 'A corporation, taxed as a C-corp',
+};
+
 // The federal return each entity type files, in the words the IRS uses. Shared
 // across web + mobile so the product can say "your business files Form 1120-S"
 // wherever it has to explain that a Schedule C surface isn't theirs. Mirrors the
