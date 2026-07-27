@@ -14,8 +14,8 @@ import { api } from '../../../../lib/api';
 import { fmt, todayYmd } from '../../../../lib/report-periods';
 import { useReport } from '../../../../lib/use-report';
 
-// Mirror of web's /reports/balance-sheet — point-in-time A = L + E, with
-// current-year net income carried in equity as retained earnings.
+// Mirror of web's /reports/balance-sheet — point-in-time A = L + E, with any
+// profit not yet closed out carried in equity.
 export default function BalanceSheetReport() {
   const [asOf, setAsOf] = useState(todayYmd());
   const { data, error } = useReport(
@@ -30,7 +30,7 @@ export default function BalanceSheetReport() {
     <ReportScaffold
       title="Balance sheet"
       selector={<AsOfSelector asOf={asOf} onChange={setAsOf} />}
-      note={`As of ${asOf}. What the business owns and owes. Assets equal liabilities plus equity — current-year net income is carried in equity as retained earnings.`}
+      note={`As of ${asOf}. What the business owns and owes. Assets equal liabilities plus equity — profit you haven't closed out yet is carried in equity.`}
     >
       <ReportBody data={data} error={error}>
         {(d) => (

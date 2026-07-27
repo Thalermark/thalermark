@@ -37,7 +37,7 @@
 
 <p class="mt-4 text-sm text-fg/60">
   As of {report.asOf}. What the business owns and owes. Assets equal liabilities plus equity —
-  current-year net income is carried in equity as retained earnings.
+  profit you haven't closed out yet is carried in equity.
 </p>
 
 <div class="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-2">
