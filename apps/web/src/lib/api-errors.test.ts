@@ -23,6 +23,17 @@ describe('apiErrorMessage', () => {
     expect(apiErrorMessage('period_closed', 'x', 'not an object')).toBe(generic);
   });
 
+  it('names a closed business without naming a date', () => {
+    // Same structural cause as period_closed — raised in the posting funnel, so
+    // it can surface from any route that writes money. It shipped as a raw code
+    // for one release because the code was added without a message.
+    const msg = apiErrorMessage('company_retired', 'x');
+    expect(msg).toContain('closed');
+    expect(msg).toContain('Business settings');
+    // No date: the date isn't the problem, the business being finished is.
+    expect(msg).not.toMatch(/\d{4}/);
+  });
+
   it('passes an unrecognised code through untouched', () => {
     // This is what keeps `formErrorFor(apiErrorMessage(...))` working: the inner
     // call must not swallow the code the outer switch is about to match on.

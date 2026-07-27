@@ -6,13 +6,25 @@ import { api } from '../../../../lib/api';
 import { useMay } from '../../../../lib/role';
 import { getActiveCompanyId, setActiveCompanyId } from '../../../../lib/secure-store';
 
+// Which companies to render: everything still trading, plus the active one even
+// when it's closed (the list must never disagree with the company whose figures
+// are on screen), plus the rest only when asked for.
+function visible(companies: Company[], activeId: string | null, showClosed: boolean): Company[] {
+  if (showClosed) return companies;
+  return companies.filter((c) => !c.retiredAt || c.id === activeId);
+}
+
+function closedCount(companies: Company[], activeId: string | null): number {
+  return companies.filter((c) => c.retiredAt && c.id !== activeId).length;
+}
+
 // Company switcher — the mobile equivalent of web's UserMenu "Company" section.
 // A workspace (account) can hold several companies; this picks which one every
 // company-scoped screen works in (see lib/active-company.ts). Switching persists
 // the choice and bounces home so the whole app re-scopes (Home + each tab's
 // focus effect re-resolve the active company). Adding a company is gated by
 // settings:manage, matching the API and the web "+ Add company" entry.
-type Company = { id: string; name: string };
+type Company = { id: string; name: string; retiredAt: string | null };
 type State =
   | { state: 'loading' }
   | { state: 'ready'; companies: Company[]; activeId: string | null }
@@ -22,6 +34,10 @@ export default function CompaniesScreen() {
   const router = useRouter();
   const canManage = useMay('settings:manage');
   const [screen, setScreen] = useState<State>({ state: 'loading' });
+  // Businesses that have stopped trading stay switchable — their books have to
+  // stay readable for years — but someone running one business shouldn't scroll
+  // past every business they ever closed. Mirrors web's UserMenu.
+  const [showClosed, setShowClosed] = useState(false);
 
   const load = useCallback((isActive: () => boolean) => {
     Promise.all([api.api.companies.$get(), getActiveCompanyId()])
@@ -34,7 +50,7 @@ export default function CompaniesScreen() {
         const { companies } = await res.json();
         setScreen({
           state: 'ready',
-          companies: companies.map((c) => ({ id: c.id, name: c.name })),
+          companies: companies.map((c) => ({ id: c.id, name: c.name, retiredAt: c.retiredAt })),
           activeId,
         });
       })
@@ -54,11 +70,13 @@ export default function CompaniesScreen() {
   );
 
   // The active company id is only stored once a pick is made; before then every
-  // screen falls back to the first company. Mark the first as current in that
-  // case so the list never shows zero selected.
+  // screen falls back to the first company STILL TRADING — matching
+  // pickActiveCompany, so this list never marks a different company current than
+  // the one the rest of the app is actually using.
   function isCurrent(company: Company, activeId: string | null, companies: Company[]): boolean {
     if (activeId) return company.id === activeId;
-    return company.id === companies[0]?.id;
+    const fallback = companies.find((c) => !c.retiredAt) ?? companies[0];
+    return company.id === fallback?.id;
   }
 
   async function onPick(companyId: string) {
@@ -87,7 +105,7 @@ export default function CompaniesScreen() {
         ) : (
           <>
             <View className="mt-8 overflow-hidden rounded-sm border border-ink/10 bg-cream-warm">
-              {screen.companies.map((c, i) => {
+              {visible(screen.companies, screen.activeId, showClosed).map((c, i) => {
                 const current = isCurrent(c, screen.activeId, screen.companies);
                 return (
                   <Pressable
@@ -98,7 +116,14 @@ export default function CompaniesScreen() {
                       i > 0 ? 'border-t border-ink/10' : ''
                     }`}
                   >
-                    <Text className="font-serif text-lg text-ink">{c.name}</Text>
+                    <View className="flex-1 pr-3">
+                      <Text className="font-serif text-lg text-ink">{c.name}</Text>
+                      {c.retiredAt ? (
+                        <Text className="mt-0.5 font-mono text-[10px] uppercase tracking-widest text-ink/40">
+                          Closed
+                        </Text>
+                      ) : null}
+                    </View>
                     {current ? (
                       <Text className="font-mono text-xs uppercase tracking-widest text-gold-deep">
                         Current
@@ -112,6 +137,15 @@ export default function CompaniesScreen() {
                 );
               })}
             </View>
+
+            {closedCount(screen.companies, screen.activeId) > 0 ? (
+              <Pressable onPress={() => setShowClosed(!showClosed)} className="mt-4 py-2">
+                <Text className="text-sm text-ink/50">
+                  {showClosed ? 'Hide' : 'Show'} closed (
+                  {closedCount(screen.companies, screen.activeId)})
+                </Text>
+              </Pressable>
+            ) : null}
 
             {canManage ? (
               <Pressable
