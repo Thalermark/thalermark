@@ -1,4 +1,12 @@
-import { authUser, capitalPurchases, companies, journalLines, memberships } from '@thalermark/db';
+import {
+  authUser,
+  capitalPurchases,
+  chartOfAccounts,
+  companies,
+  journalEntries,
+  journalLines,
+  memberships,
+} from '@thalermark/db';
 import { and, eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
@@ -147,7 +155,13 @@ async function seedSpreadPurchase(
   cookie: string,
   accountId: string,
   companyId: string,
-  opts: { purchaseDate: string; amount: string; usefulLifeYears?: number },
+  opts: {
+    purchaseDate: string;
+    amount: string;
+    usefulLifeYears?: number;
+    priorAccumulatedDepreciation?: string;
+    depreciationStartYear?: number;
+  },
 ): Promise<string> {
   const res = await send(app, 'POST', '/api/purchases', cookie, accountId, {
     companyId,
@@ -157,6 +171,10 @@ async function seedSpreadPurchase(
     funding: 'paid_in_full',
     taxTreatment: 'spread',
     ...(opts.usefulLifeYears ? { usefulLifeYears: opts.usefulLifeYears } : {}),
+    ...(opts.priorAccumulatedDepreciation
+      ? { priorAccumulatedDepreciation: opts.priorAccumulatedDepreciation }
+      : {}),
+    ...(opts.depreciationStartYear ? { depreciationStartYear: opts.depreciationStartYear } : {}),
   });
   if (res.status !== 201) throw new Error(`purchase create failed: ${res.status}`);
   return ((await res.json()) as { id: string }).id;
@@ -498,6 +516,129 @@ describe('depreciation auto-posting', () => {
         .from(capitalPurchases)
         .where(and(eq(capitalPurchases.id, id), eq(capitalPurchases.accountId, accountId)));
       expect(row).toBeDefined();
+    } finally {
+      await handle.close();
+    }
+  });
+});
+
+// Assets that were already part-way through their life when they arrived — an
+// accountant entering a mower the previous books had already depreciated, or an
+// incorporation handoff (§351 carryover basis).
+//
+// The load-bearing property: the schedule is IDENTICAL to an ordinary purchase's
+// (same cost, life, convention, clock — carryover basis means stepping into the
+// transferor's shoes). Only which of its years belong to this company differs.
+describe('depreciation carryover', () => {
+  beforeEach(resetDb);
+
+  it('resumes mid-schedule instead of back-posting the previous books years', async () => {
+    const { app, handle } = buildApp();
+    try {
+      const cookie = await signUp(app, 'dep-carry@example.com');
+      const { accountId, companyId } = await ownerContext('dep-carry@example.com');
+
+      // Bought 2024 for 6,000 over 5 years. Half-year convention: 600 in 2024,
+      // then 1,200 a year. The previous books took 2024 + 2025 = 1,800.
+      const id = await seedSpreadPurchase(app, cookie, accountId, companyId, {
+        purchaseDate: '2024-03-01',
+        amount: '6000.00',
+        usefulLifeYears: 5,
+        priorAccumulatedDepreciation: '1800.00',
+        depreciationStartYear: 2026,
+      });
+
+      await sweep(new Date('2027-06-01T12:00:00Z'));
+
+      const posted = await getTestDb()
+        .select({ postedAt: journalEntries.postedAt, amount: journalLines.amount })
+        .from(journalEntries)
+        .innerJoin(journalLines, eq(journalLines.journalEntryId, journalEntries.id))
+        .innerJoin(chartOfAccounts, eq(chartOfAccounts.id, journalLines.coaAccountId))
+        .where(
+          and(
+            eq(journalEntries.accountId, accountId),
+            eq(journalEntries.sourceEntityId, id),
+            eq(chartOfAccounts.code, '6350'),
+          ),
+        );
+      const years = posted.map((r) => r.postedAt.getUTCFullYear()).sort();
+      // 2026 belongs to this company; 2024 and 2025 belong to the old books and
+      // must never appear here.
+      expect(years).toEqual([2026]);
+      expect(posted[0]?.amount).toBe('1200.00');
+      expect(await tenantBalanced(accountId)).toBe(true);
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('never writes off more than the asset cost across both sets of books', async () => {
+    const { app, handle } = buildApp();
+    try {
+      const cookie = await signUp(app, 'dep-clamp@example.com');
+      const { accountId, companyId } = await ownerContext('dep-clamp@example.com');
+
+      // 5,400 of a 6,000 asset already taken elsewhere: only 600 is left, however
+      // many years the plan still nominally has.
+      const id = await seedSpreadPurchase(app, cookie, accountId, companyId, {
+        purchaseDate: '2024-03-01',
+        amount: '6000.00',
+        usefulLifeYears: 5,
+        priorAccumulatedDepreciation: '5400.00',
+        depreciationStartYear: 2026,
+      });
+
+      await sweep(new Date('2032-06-01T12:00:00Z'));
+
+      const rows = await getTestDb()
+        .select({ amount: journalLines.amount })
+        .from(journalEntries)
+        .innerJoin(journalLines, eq(journalLines.journalEntryId, journalEntries.id))
+        .innerJoin(chartOfAccounts, eq(chartOfAccounts.id, journalLines.coaAccountId))
+        .where(
+          and(
+            eq(journalEntries.accountId, accountId),
+            eq(journalEntries.sourceEntityId, id),
+            eq(chartOfAccounts.code, '6350'),
+          ),
+        );
+      const total = rows.reduce((sum, r) => sum + Math.round(Number(r.amount) * 100), 0);
+      expect(total).toBe(60000);
+      expect(await tenantBalanced(accountId)).toBe(true);
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('leaves an ordinary purchase completely unchanged', async () => {
+    const { app, handle } = buildApp();
+    try {
+      const cookie = await signUp(app, 'dep-ordinary@example.com');
+      const { accountId, companyId } = await ownerContext('dep-ordinary@example.com');
+
+      // Both fields omitted — the regression pin on today's semantics.
+      const id = await seedSpreadPurchase(app, cookie, accountId, companyId, {
+        purchaseDate: '2024-03-01',
+        amount: '6000.00',
+        usefulLifeYears: 5,
+      });
+
+      await sweep(new Date('2027-06-01T12:00:00Z'));
+
+      const posted = await getTestDb()
+        .select({ postedAt: journalEntries.postedAt, amount: journalLines.amount })
+        .from(journalEntries)
+        .innerJoin(journalLines, eq(journalLines.journalEntryId, journalEntries.id))
+        .innerJoin(chartOfAccounts, eq(chartOfAccounts.id, journalLines.coaAccountId))
+        .where(
+          and(
+            eq(journalEntries.accountId, accountId),
+            eq(journalEntries.sourceEntityId, id),
+            eq(chartOfAccounts.code, '6350'),
+          ),
+        );
+      expect(posted.map((r) => r.postedAt.getUTCFullYear()).sort()).toEqual([2024, 2025, 2026]);
     } finally {
       await handle.close();
     }

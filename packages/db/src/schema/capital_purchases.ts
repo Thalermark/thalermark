@@ -58,6 +58,32 @@ export const capitalPurchases = pgTable(
       onDelete: 'set null',
     }),
     memo: text('memo'),
+    // --- Carried-over assets -------------------------------------------------
+    // An asset that was already part-way through its life when it arrived on
+    // these books: an accountant entering a mower bought two years ago, or a
+    // sole proprietor incorporating (§351 carryover basis — the corporation
+    // steps into the transferor's shoes, same cost, same life, same clock).
+    //
+    // What was already written off ELSEWHERE. Schedule metadata only: it caps
+    // how much this company may still take. The accumulated depreciation itself
+    // reaches these books through the opening balance's Cr 1900, so counting it
+    // here as well would double it.
+    priorAccumulatedDepreciation: numeric('prior_accumulated_depreciation', {
+      precision: 15,
+      scale: 2,
+    })
+      .notNull()
+      .default('0'),
+    // First year THIS company posts depreciation for. Null derives it from
+    // purchase_date, which is exactly today's behaviour — so every existing row
+    // is untouched and an ordinary purchase needs no thought.
+    depreciationStartYear: bigint('depreciation_start_year', { mode: 'number' }),
+    // Provenance, and load-bearing rather than decorative: a transferred purchase
+    // never had a create posting (it arrives through an opening balance, not a
+    // Dr 1500 / Cr Cash), so the delete path must not try to reverse one.
+    // Deliberately no FK — it points at a row in another company's books and has
+    // to survive independently of it.
+    transferredFromPurchaseId: uuid('transferred_from_purchase_id'),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

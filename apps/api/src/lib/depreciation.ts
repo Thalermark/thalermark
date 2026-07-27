@@ -59,6 +59,8 @@ export async function depreciateOnce(
       | 'purchaseDate'
       | 'usefulLifeYears'
       | 'description'
+      | 'priorAccumulatedDepreciation'
+      | 'depreciationStartYear'
     >;
     convention: DepreciationConvention;
     timezone: string;
@@ -71,14 +73,27 @@ export async function depreciateOnce(
   const purchaseYear = Number(purchase.purchaseDate.slice(0, 4));
   const currentYear = localYear(args.timezone, now);
 
+  // The plan is deliberately unchanged for a carried-over asset. §351 carryover
+  // basis means the successor steps into the transferor's shoes — same cost,
+  // same life, same convention, same clock — so the schedule computed here is
+  // byte-identical to the one the previous books were working through. Only
+  // WHICH of its years belong to this company differs.
   const plan = depreciationSchedule(purchase.amount, purchase.usefulLifeYears, {
     convention: args.convention,
     purchaseYear,
   });
   const postedByYear = await depreciationPostedByYear(tx, { ...scope, purchaseId: purchase.id });
 
+  // Null start year = an ordinary purchase, whose first year is its purchase
+  // year. That is exactly the pre-existing behaviour, so nothing changes for the
+  // rows that predate this.
+  const startYear = purchase.depreciationStartYear ?? purchaseYear;
+
   const totalCents = Math.round(Number(plan.total) * 100);
-  let postedCents = 0;
+  // Seed the clamp with what was written off on the OTHER books. Without this a
+  // carried-over asset could be depreciated for more than it ever cost, across
+  // the two sets of books combined.
+  let postedCents = Math.round(Number(purchase.priorAccumulatedDepreciation ?? '0') * 100);
   for (const amount of postedByYear.values()) postedCents += Math.round(Number(amount) * 100);
 
   let posted = 0;
@@ -86,6 +101,10 @@ export async function depreciateOnce(
   for (const [index, row] of plan.rows.entries()) {
     // Only closed years. A purchase made this year posts nothing until January.
     if (row.year >= currentYear) break;
+    // Years that belong to the previous books. Without this the sweep would
+    // back-post the asset's entire prior history into a company that never
+    // owned it during those years.
+    if (row.year < startYear) continue;
     if (postedByYear.has(row.year)) continue;
 
     let cents = Math.round(Number(row.amount) * 100);

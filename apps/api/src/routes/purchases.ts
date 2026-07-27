@@ -98,6 +98,12 @@ export function purchasesRoutes() {
           usefulLifeYears: rest.usefulLifeYears ?? 5,
           vendorContactId: vendorContactId ?? null,
           memo: rest.memo ?? null,
+          // Both omitted for an ordinary purchase, which behaves exactly as
+          // before. Set when the asset was already being depreciated somewhere
+          // else — they only shift the schedule, never the purchase posting,
+          // because a purchase entered here IS one this business paid for.
+          priorAccumulatedDepreciation: rest.priorAccumulatedDepreciation ?? '0',
+          depreciationStartYear: rest.depreciationStartYear ?? null,
         })
         .returning();
 
@@ -375,18 +381,28 @@ export function purchasesRoutes() {
 
       // Soft delete keeps history; the reversal nets the purchase posting to
       // zero (same args reconstruct the original lines).
-      await postCapitalPurchaseReversal(tx, {
-        purchase: {
-          id,
-          amount: current.amount,
-          paidNow: paidNowFor(current.funding, current.amount, current.downPayment),
-          taxTreatment: current.taxTreatment as CapitalPurchaseTaxTreatment,
-          description: current.description,
-        },
-        accountId,
-        companyId: current.companyId,
-        postedAt: expenseDateToPostedAt(current.purchaseDate),
-      });
+      //
+      // EXCEPT for a carried-over asset, which never had a create posting: it
+      // arrived on these books through an opening balance (Dr 1500 / Cr 1900
+      // against equity), not through capitalPurchaseLines' Dr 1500 / Cr Cash.
+      // Reversing a posting that was never made would credit 1500 and DEBIT CASH
+      // the business never received — inventing money. The depreciation reversal
+      // above is still correct and still runs, because it only ever undoes what
+      // this company actually posted.
+      if (!current.transferredFromPurchaseId) {
+        await postCapitalPurchaseReversal(tx, {
+          purchase: {
+            id,
+            amount: current.amount,
+            paidNow: paidNowFor(current.funding, current.amount, current.downPayment),
+            taxTreatment: current.taxTreatment as CapitalPurchaseTaxTreatment,
+            description: current.description,
+          },
+          accountId,
+          companyId: current.companyId,
+          postedAt: expenseDateToPostedAt(current.purchaseDate),
+        });
+      }
 
       return c.json(deleted);
     });
