@@ -548,17 +548,27 @@ export async function postOwnerMoneyEventReversal(
 }
 
 // --- Opening balances ------------------------------------------------------
-// What the business already had at the start (surfaced plainly in "My Money").
-// Posts ONE combined balanced entry against the standard accounts, with Owner's
-// Equity (3000) as the balancing plug:
+// Where the books start. Two ways in, one way through.
+//
+// The SIMPLE shape asks three plain questions in "My Money" — what was in the
+// bank, who owed you, who did you owe — and expands them here into the four
+// lines they always implied, with Owner's Equity (3000) as the sign-aware plug:
 //   Dr Cash 1000            = cash
 //   Dr Accounts Receivable  = receivables
 //   Cr Accounts Payable     = payables
 //   Owner's Equity 3000     = cash + receivables − payables (Cr if +, Dr if −)
-// Zero-amount legs are dropped by postJournalEntry, so a cash-only opening
-// balance posts the 2-line Dr Cash / Cr Owner's Equity (same shape as an owner
-// contribution). Edit = reverse + repost; clear = soft-delete + reverse.
-export function openingBalanceLines(args: {
+// Zero legs are dropped, so a cash-only start posts the 2-line Dr Cash / Cr
+// Owner's Equity — the same shape as an owner contribution.
+//
+// The FULL shape is an opening trial balance entered account by account, for a
+// business arriving with real books: a part-depreciated mower, an outstanding
+// loan, sales tax already collected, a corporation's capital-stock split. None
+// of that fits three numbers.
+//
+// Both are stored as opening_balance_lines and posted from there, so the ledger
+// has exactly one entry path. Edit = reverse + repost; clear = soft-delete +
+// reverse.
+export function simpleOpeningBalanceLines(args: {
   cash: string;
   receivables: string;
   payables: string;
@@ -566,7 +576,7 @@ export function openingBalanceLines(args: {
   const cents = (s: string) => Math.round(Number(s) * 100);
   const equityCents = cents(args.cash) + cents(args.receivables) - cents(args.payables);
   const fromCents = (c: number) => (Math.abs(c) / 100).toFixed(2);
-  return [
+  const lines: LedgerLine[] = [
     { code: COA_CASH, side: 'debit', amount: args.cash },
     { code: COA_AR, side: 'debit', amount: args.receivables },
     { code: COA_AP, side: 'credit', amount: args.payables },
@@ -574,45 +584,74 @@ export function openingBalanceLines(args: {
       ? { code: COA_OWNERS_EQUITY, side: 'credit', amount: fromCents(equityCents) }
       : { code: COA_OWNERS_EQUITY, side: 'debit', amount: fromCents(equityCents) },
   ];
+  // Zero legs are dropped here rather than by the posting helper, because these
+  // lines are now STORED before they're posted — a persisted 0.00 row would be a
+  // line claiming an account opened at nothing.
+  return lines.filter((l) => Number(l.amount) > 0);
 }
 
-export async function postOpeningBalance(
+// Post a stored opening balance from its lines.
+//
+// Account-id-keyed, so it writes through insertEntryWithAccountIds rather than
+// postJournalEntry — which means the two locks that helper deliberately skips
+// have to be asserted here explicitly. They are: an opening balance is ordinary
+// business, not a close or a handover, so it must respect both a closed period
+// and a retired company.
+type OpeningBalancePosting = {
+  openingBalanceId: string;
+  lines: ManualJournalLine[];
+  accountId: string;
+  companyId: string;
+  postedAt: Date;
+};
+
+async function postOpeningBalanceEntry(
   tx: Database | Transaction,
-  args: {
-    openingBalance: { id: string; cash: string; receivables: string; payables: string };
-    accountId: string;
-    companyId: string;
-    postedAt: Date;
-  },
+  args: OpeningBalancePosting & { memo: string },
 ): Promise<string | null> {
-  return postJournalEntry(tx, {
+  if (args.lines.length < 2) return null;
+  await assertPeriodOpen(tx, {
     accountId: args.accountId,
     companyId: args.companyId,
-    sourceEntityType: 'opening_balance',
-    sourceEntityId: args.openingBalance.id,
     postedAt: args.postedAt,
-    memo: 'Opening balances',
-    lines: openingBalanceLines(args.openingBalance),
   });
-}
+  await assertCompanyActive(tx, { accountId: args.accountId, companyId: args.companyId });
 
-export async function postOpeningBalanceReversal(
-  tx: Database | Transaction,
-  args: {
-    openingBalance: { id: string; cash: string; receivables: string; payables: string };
-    accountId: string;
-    companyId: string;
-    postedAt: Date;
-  },
-): Promise<string | null> {
-  return postJournalEntry(tx, {
+  const entryId = uuidv7();
+  await insertEntryWithAccountIds(tx, {
+    entryId,
     accountId: args.accountId,
     companyId: args.companyId,
     sourceEntityType: 'opening_balance',
-    sourceEntityId: args.openingBalance.id,
+    // The opening-balance row, NOT the entry — so the original and every later
+    // reversal share one source group and cashFlowNet's per-source netting
+    // cancels an edited starting position for free.
+    sourceEntityId: args.openingBalanceId,
     postedAt: args.postedAt,
+    memo: args.memo,
+    lines: args.lines,
+  });
+  return entryId;
+}
+
+export function postOpeningBalance(
+  tx: Database | Transaction,
+  args: OpeningBalancePosting,
+): Promise<string | null> {
+  return postOpeningBalanceEntry(tx, { ...args, memo: 'Opening balances' });
+}
+
+// The same lines with each side flipped, dated at the posting being undone.
+// Callers pass the lines that were originally stored, so an edit reverses what
+// was actually posted rather than what is about to be.
+export function postOpeningBalanceReversal(
+  tx: Database | Transaction,
+  args: OpeningBalancePosting,
+): Promise<string | null> {
+  return postOpeningBalanceEntry(tx, {
+    ...args,
+    lines: flipManualLines(args.lines),
     memo: 'Opening balances reversal',
-    lines: reverseLedgerLines(openingBalanceLines(args.openingBalance)),
   });
 }
 

@@ -148,6 +148,13 @@
       "when": 1785223200000,
       "tag": "0020_company_retirement",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1785226800000,
+      "tag": "0021_opening_balance_lines",
+      "breakpoints": true
     }
   ]
 }
