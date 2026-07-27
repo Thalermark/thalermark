@@ -1,4 +1,4 @@
-import { pickActiveCompany } from '$lib/active-company';
+import { pickActiveCompany, setActiveCompany } from '$lib/active-company';
 import { apiBaseUrl, serverApiClient, serverApiHeaders } from '$lib/api.server';
 import { error, fail, redirect } from '@sveltejs/kit';
 import { BUSINESS_TYPES } from '@thalermark/validation';
@@ -27,7 +27,24 @@ export const load: PageServerLoad = async (event) => {
   // rejecting somebody's real zone.
   const timezones = Intl.supportedValuesOf('timeZone');
 
-  return { company, logo, timezones };
+  // Did this business take over from another, and can that still be undone?
+  // Asked here because Business settings is where someone who has just realised
+  // the handoff was a mistake will go looking for the way back.
+  let handoff: {
+    id: string;
+    effectiveDate: string;
+    predecessorName: string | null;
+    reversible: boolean;
+  } | null = null;
+  const handoffRes = await client.api['entity-transfers'].current.$get({
+    query: { companyId: company.id },
+  });
+  if (handoffRes.ok) {
+    const body = await handoffRes.json();
+    handoff = body.transfer;
+  }
+
+  return { company, logo, timezones, handoff };
 };
 
 export const actions: Actions = {
@@ -289,6 +306,27 @@ export const actions: Actions = {
     redirect(303, '/settings/business');
   },
 
+  // Undo a handoff. Everything is one API call — the endpoint does both
+  // companies in one transaction — so there is nothing to sequence here.
+  undoHandoff: async (event) => {
+    const client = serverApiClient(event);
+    const data = await event.request.formData();
+    const transferId = String(data.get('transferId') ?? '');
+    if (!transferId) return fail(400, { handoffError: 'Could not tell which handover to undo.' });
+
+    const res = await client.api['entity-transfers'][':id'].reverse.$post({
+      param: { id: transferId },
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      return fail(res.status, { handoffError: undoErrorMessage(body?.error) });
+    }
+    // Land on the business that is trading again, not the one just closed.
+    const { predecessorCompanyId } = (await res.json()) as { predecessorCompanyId: string };
+    setActiveCompany(event.cookies, predecessorCompanyId);
+    redirect(303, '/settings/business');
+  },
+
   unretire: async (event) => {
     const client = serverApiClient(event);
     const formData = await event.request.formData();
@@ -315,5 +353,18 @@ function retireErrorMessage(code: string | undefined): string {
       return 'This business is already open.';
     default:
       return 'Could not change this business.';
+  }
+}
+
+function undoErrorMessage(code: string | undefined): string {
+  switch (code) {
+    case 'successor_has_activity':
+      return "You've already recorded work against this business, so the handover can't be undone. Nothing has changed.";
+    case 'already_reversed':
+      return 'This handover has already been undone.';
+    case 'period_closed':
+      return "The handover falls in a year you've already closed. Reopen that year first.";
+    default:
+      return 'Could not undo the handover.';
   }
 }
