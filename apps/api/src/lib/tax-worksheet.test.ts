@@ -12,7 +12,7 @@ import {
 
 // Pure-policy coverage for the four form mappings. The SQL that feeds them — and
 // the cash/accrual basis split — is covered in
-// apps/api/tests/schedule-c.integration.test.ts.
+// apps/api/tests/tax-worksheet.integration.test.ts.
 
 const acct = (
   code: string,
@@ -229,9 +229,7 @@ describe('rollUpDeductions', () => {
     );
     // Line 7 on the 1120 is gross royalties, an income line — nothing lands.
     expect(rows.find((r) => r.line === '12')?.amount).toBe('0.00');
-    expect(unmapped).toEqual([
-      { code: '7450', name: 'Officer Compensation', amount: '5000.00' },
-    ]);
+    expect(unmapped).toEqual([{ code: '7450', name: 'Officer Compensation', amount: '5000.00' }]);
   });
 
   it('flags the itemised catch-all line on every form', () => {
