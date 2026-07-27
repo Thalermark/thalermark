@@ -5,9 +5,15 @@ import {
   journalEntries,
   journalLines,
 } from '@thalermark/db';
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, not, sql } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
-import { type ManualJournalLine, insertEntryWithAccountIds, loanBalance } from './ledger.js';
+import {
+  CAPITAL_PURCHASE_DEPRECIATION_SOURCE,
+  type ManualJournalLine,
+  flipManualLines,
+  insertEntryWithAccountIds,
+  loanBalance,
+} from './ledger.js';
 
 // Handing one business's books to another — a sole proprietor incorporating.
 //
@@ -251,7 +257,13 @@ export async function transferLoanLegs(
       entryId: uuidv7(),
       accountId: args.accountId,
       companyId: args.predecessorCompanyId,
-      sourceEntityType: 'capital_purchase',
+      // The transfer's own source type, not 'capital_purchase'. loanBalance
+      // keys on source ID alone, so this costs nothing there — and it means
+      // "everything the handoff posted on this side" is one query, which is
+      // what makes the reversal exact instead of a date-and-memo guess.
+      sourceEntityType: TRANSFER_OUT_SOURCE,
+      // ...but the source ID stays the ORIGINAL purchase, so loanBalance still
+      // reads zero on the predecessor afterwards.
       sourceEntityId: loan.purchaseId,
       postedAt: args.postedAt,
       memo: 'Loan transferred out',
@@ -267,7 +279,7 @@ export async function transferLoanLegs(
       entryId: uuidv7(),
       accountId: args.accountId,
       companyId: args.successorCompanyId,
-      sourceEntityType: 'capital_purchase',
+      sourceEntityType: TRANSFER_IN_SOURCE,
       sourceEntityId: loan.successorPurchaseId,
       postedAt: args.postedAt,
       memo: 'Loan taken over',
@@ -408,3 +420,128 @@ export async function createCarriedAssets(
 }
 
 export { COA_AR, COA_OWNER_EQUITY, COA_TRANSFERRED_OUT, COA_LOANS_PAYABLE };
+
+// --- Undoing a handoff ------------------------------------------------------
+//
+// A handoff is a big, irreversible-feeling thing done from a wizard, so it needs
+// an undo. The undo is append-only like every other reversal in the ledger: it
+// posts mirror entries rather than deleting rows, because the fact that a
+// handoff happened and was undone is itself part of the audit history.
+
+export type PostedTransferEntry = {
+  id: string;
+  sourceEntityId: string;
+  postedAt: Date;
+  lines: ManualJournalLine[];
+};
+
+// Everything this handoff posted on one side, aggregate entry and per-purchase
+// loan legs alike — they share a source type precisely so this is one query.
+export async function transferEntries(
+  tx: Transaction,
+  args: { accountId: string; companyId: string; sourceEntityType: string },
+): Promise<PostedTransferEntry[]> {
+  const rows = await tx
+    .select({
+      id: journalEntries.id,
+      sourceEntityId: journalEntries.sourceEntityId,
+      postedAt: journalEntries.postedAt,
+      coaAccountId: journalLines.coaAccountId,
+      side: journalLines.side,
+      amount: journalLines.amount,
+    })
+    .from(journalEntries)
+    .innerJoin(journalLines, eq(journalLines.journalEntryId, journalEntries.id))
+    .where(
+      and(
+        eq(journalEntries.accountId, args.accountId),
+        eq(journalEntries.companyId, args.companyId),
+        eq(journalEntries.sourceEntityType, args.sourceEntityType),
+      ),
+    );
+
+  const byEntry = new Map<string, PostedTransferEntry>();
+  for (const r of rows) {
+    let entry = byEntry.get(r.id);
+    if (!entry) {
+      entry = { id: r.id, sourceEntityId: r.sourceEntityId, postedAt: r.postedAt, lines: [] };
+      byEntry.set(r.id, entry);
+    }
+    entry.lines.push({
+      coaAccountId: r.coaAccountId,
+      side: r.side as 'debit' | 'credit',
+      amount: r.amount,
+    });
+  }
+  return Array.from(byEntry.values());
+}
+
+// Mirror each entry, preserving its source ID and date.
+//
+// The source ID matters as much here as it did on the way out: the predecessor's
+// loan leg was tagged with the purchase so loanBalance would read zero, and the
+// reversal has to carry the same tag or the loan never comes back. The DATE
+// matters for the same reason a depreciation reversal is dated to the year it
+// undoes — a balance-sheet event that moved across a year boundary on the way
+// back would leave both years wrong.
+export async function reverseTransferEntries(
+  tx: Transaction,
+  args: {
+    accountId: string;
+    companyId: string;
+    entries: PostedTransferEntry[];
+    sourceEntityType: string;
+    memo: string;
+  },
+): Promise<string[]> {
+  const ids: string[] = [];
+  for (const entry of args.entries) {
+    const entryId = uuidv7();
+    await insertEntryWithAccountIds(tx, {
+      entryId,
+      accountId: args.accountId,
+      companyId: args.companyId,
+      sourceEntityType: args.sourceEntityType,
+      sourceEntityId: entry.sourceEntityId,
+      postedAt: entry.postedAt,
+      memo: args.memo,
+      lines: flipManualLines(entry.lines),
+    });
+    ids.push(entryId);
+  }
+  return ids;
+}
+
+// What the successor has done under its own steam. Anything here means the undo
+// is refused: reversing a handoff out from under real trading would leave those
+// invoices and expenses sitting on a company with no opening position.
+//
+// One query over journal entries covers every case, because every movement of
+// money in this app posts to the ledger — invoices, expenses, bills, draws,
+// manual entries, all of it. Two source types are excluded: the handoff's own
+// entries, and depreciation on a carried asset. Depreciation is excluded because
+// the nightly sweep posts it without anyone asking, and a machine-generated
+// entry must not be able to take the undo away overnight — so the reversal
+// undoes it instead.
+export async function successorActivity(
+  tx: Transaction,
+  args: { accountId: string; companyId: string },
+): Promise<string[]> {
+  const rows = await tx
+    .selectDistinct({ sourceEntityType: journalEntries.sourceEntityType })
+    .from(journalEntries)
+    .where(
+      and(
+        eq(journalEntries.accountId, args.accountId),
+        eq(journalEntries.companyId, args.companyId),
+        not(
+          inArray(journalEntries.sourceEntityType, [
+            TRANSFER_IN_SOURCE,
+            TRANSFER_IN_REVERSAL_SOURCE,
+            CAPITAL_PURCHASE_DEPRECIATION_SOURCE,
+          ]),
+        ),
+      ),
+    );
+  return rows.map((r) => r.sourceEntityType);
+}

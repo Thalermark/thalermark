@@ -432,4 +432,175 @@ describe('incorporation handoff', () => {
       await close();
     }
   });
+
+  // --- Undoing a handoff ----------------------------------------------------
+
+  it('puts both businesses back the way they were', async () => {
+    const { ctx, close } = await setup('et-undo@example.com');
+    try {
+      await seedSoleProp(ctx);
+      const before = await balanceSheet(ctx, ctx.companyId, '2026-06-30');
+
+      const { transferId, successorCompanyId } = (await (await handoff(ctx)).json()) as {
+        transferId: string;
+        successorCompanyId: string;
+      };
+      // Sanity: it really did empty out first.
+      expect((await balanceSheet(ctx, ctx.companyId, EFFECTIVE)).totalAssets).toBe('0.00');
+
+      const undo = await req(ctx, `/api/entity-transfers/${transferId}/reverse`, {
+        method: 'POST',
+      });
+      expect(undo.status).toBe(200);
+
+      // The predecessor is trading again, with the position it had.
+      const restored = await balanceSheet(ctx, ctx.companyId, '2026-06-30');
+      expect(restored.balanced).toBe(true);
+      expect(restored.totalAssets).toBe(before.totalAssets);
+      expect(restored.totalEquity).toBe(before.totalEquity);
+      const [predecessor] = await getTestDb()
+        .select()
+        .from(companies)
+        .where(eq(companies.id, ctx.companyId));
+      expect(predecessor?.retiredAt).toBeNull();
+
+      // The successor is emptied and closed — not deleted. The ledger is
+      // append-only, so the entries stay and simply net to nothing.
+      const emptied = await balanceSheet(ctx, successorCompanyId, '2026-06-30');
+      expect(emptied.balanced).toBe(true);
+      expect(emptied.totalAssets).toBe('0.00');
+      expect(emptied.totalEquity).toBe('0.00');
+      const [successor] = await getTestDb()
+        .select()
+        .from(companies)
+        .where(eq(companies.id, successorCompanyId));
+      expect(successor?.retiredAt).not.toBeNull();
+    } finally {
+      await close();
+    }
+  });
+
+  it('gives the loan back to the business that took it out', async () => {
+    const { ctx, close } = await setup('et-undo-loan@example.com');
+    try {
+      const originalId = await seedSoleProp(ctx);
+      const owedBefore = (await (await req(ctx, `/api/purchases/${originalId}`)).json()) as {
+        owing: string;
+      };
+      expect(Number(owedBefore.owing)).toBeGreaterThan(0);
+
+      const { transferId, successorCompanyId } = (await (await handoff(ctx)).json()) as {
+        transferId: string;
+        successorCompanyId: string;
+      };
+      await req(ctx, `/api/entity-transfers/${transferId}/reverse`, { method: 'POST' });
+
+      // The subtle one. The loan leg was tagged with the purchase id on the way
+      // out so loanBalance would read zero; the reversal has to carry the SAME
+      // tag or the debt never comes back.
+      const after = (await (await req(ctx, `/api/purchases/${originalId}`)).json()) as {
+        owing: string;
+      };
+      expect(after.owing).toBe(owedBefore.owing);
+
+      // The carried copy is gone from the successor's asset list.
+      const carried = await getTestDb()
+        .select()
+        .from(capitalPurchases)
+        .where(eq(capitalPurchases.companyId, successorCompanyId));
+      expect(carried).toHaveLength(1);
+      expect(carried[0]?.deletedAt).not.toBeNull();
+    } finally {
+      await close();
+    }
+  });
+
+  it('undoes depreciation the sweep posted rather than refusing over it', async () => {
+    const { ctx, close } = await setup('et-undo-depr@example.com');
+    try {
+      await seedSoleProp(ctx);
+      const { transferId, successorCompanyId } = (await (await handoff(ctx)).json()) as {
+        transferId: string;
+        successorCompanyId: string;
+      };
+
+      // The nightly sweep runs and writes down the carried asset. Nobody asked
+      // it to, so it must not be able to take the undo away. Dated into 2027
+      // because the sweep only posts years that have finished, and the
+      // successor's first depreciable year is the one it took over in.
+      await sweepDepreciation({
+        bootstrapDb: getTestDb(),
+        tenantDb: getTestDb(),
+        now: new Date('2027-01-02T12:00:00Z'),
+      });
+
+      const undo = await req(ctx, `/api/entity-transfers/${transferId}/reverse`, {
+        method: 'POST',
+      });
+      expect(undo.status).toBe(200);
+      expect(((await undo.json()) as { depreciationReversed: number }).depreciationReversed).toBe(
+        1,
+      );
+
+      const emptied = await balanceSheet(ctx, successorCompanyId, '2027-12-31');
+      expect(emptied.balanced).toBe(true);
+      expect(emptied.totalAssets).toBe('0.00');
+    } finally {
+      await close();
+    }
+  });
+
+  it('refuses once the new business has traded', async () => {
+    const { ctx, close } = await setup('et-undo-traded@example.com');
+    try {
+      await seedSoleProp(ctx);
+      const { transferId, successorCompanyId } = (await (await handoff(ctx)).json()) as {
+        transferId: string;
+        successorCompanyId: string;
+      };
+
+      const expense = await req(ctx, '/api/expenses', {
+        method: 'POST',
+        body: JSON.stringify({
+          companyId: successorCompanyId,
+          categoryAccountId: await coaId(successorCompanyId, '6200'),
+          paymentAccountId: await coaId(successorCompanyId, '1000'),
+          amount: '75.00',
+          expenseDate: '2026-07-05',
+          merchant: 'Fuel',
+        }),
+      });
+      expect(expense.status).toBe(201);
+
+      const undo = await req(ctx, `/api/entity-transfers/${transferId}/reverse`, {
+        method: 'POST',
+      });
+      expect(undo.status).toBe(409);
+      expect(((await undo.json()) as { error: string }).error).toBe('successor_has_activity');
+
+      // ...and the page is told BEFORE offering the button.
+      const current = (await (
+        await req(ctx, `/api/entity-transfers/current?companyId=${successorCompanyId}`)
+      ).json()) as { transfer: { reversible: boolean } };
+      expect(current.transfer.reversible).toBe(false);
+    } finally {
+      await close();
+    }
+  });
+
+  it('will not undo the same handoff twice', async () => {
+    const { ctx, close } = await setup('et-undo-twice@example.com');
+    try {
+      await seedSoleProp(ctx);
+      const { transferId } = (await (await handoff(ctx)).json()) as { transferId: string };
+      const path = `/api/entity-transfers/${transferId}/reverse`;
+      expect((await req(ctx, path, { method: 'POST' })).status).toBe(200);
+
+      const again = await req(ctx, path, { method: 'POST' });
+      expect(again.status).toBe(409);
+      expect(((await again.json()) as { error: string }).error).toBe('already_reversed');
+    } finally {
+      await close();
+    }
+  });
 });

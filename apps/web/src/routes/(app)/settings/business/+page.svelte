@@ -13,6 +13,7 @@
   // Whether this business has stopped trading. Closing is a two-click action —
   // it's easily reversed, but it changes what the app will let you record, so it
   // shouldn't happen on a stray click.
+  let confirmingUndo = $state(false);
   const retired = $derived(data.company.retiredAt != null);
   const retiredOn = $derived(data.company.retiredAt?.slice(0, 10) ?? '');
   let confirmingRetire = $state(false);
@@ -523,6 +524,72 @@
     {/if}
   </div>
 </section>
+
+<!-- Undoing a handoff. Sits above the close section because it is the more
+     specific thing: someone reading "this business took over from X" and
+     realising that was wrong wants the way back right there, not after a
+     paragraph about closing.
+
+     Framed as "undo", never "delete". Nothing is deleted — the entries stay and
+     net to zero, which is what an append-only ledger means. -->
+{#if data.handoff}
+  <section class="mt-8 rounded-sm border border-fg/15 bg-surface-2">
+    <header class="border-b border-fg/10 px-6 py-5">
+      <span class="eyebrow">Took over from another business</span>
+      <p class="mt-2 text-sm text-fg/70">
+        {data.company.name} took over from
+        <strong class="font-medium text-fg"
+          >{data.handoff.predecessorName ?? 'another business'}</strong
+        >
+        on <span class="font-mono tabular-nums text-fg">{data.handoff.effectiveDate}</span>.
+      </p>
+    </header>
+    <div class="px-6 py-6">
+      {#if data.handoff.reversible}
+        <p class="max-w-prose text-sm leading-relaxed text-fg/70">
+          Set this up by mistake, or got the date wrong? Undo it and everything goes back —
+          {data.handoff.predecessorName ?? 'the old business'} reopens with what it had, and this one
+          closes. You can then set it up again properly.
+        </p>
+        {#if confirmingUndo}
+          <p class="mt-4 max-w-prose text-sm leading-relaxed text-fg/80">
+            Undo the handover? {data.handoff.predecessorName ?? 'The old business'} starts trading
+            again and {data.company.name} closes.
+          </p>
+          <div class="mt-4 flex items-center gap-4">
+            <form method="POST" action="?/undoHandoff">
+              <input type="hidden" name="transferId" value={data.handoff.id} />
+              <button type="submit" class="btn">Yes, undo it</button>
+            </form>
+            <button
+              type="button"
+              class="text-sm text-fg/60 hover:text-fg"
+              onclick={() => (confirmingUndo = false)}
+            >
+              Cancel
+            </button>
+          </div>
+        {:else}
+          <button
+            type="button"
+            class="mt-4 rounded-sm border border-fg/20 px-3 py-1.5 text-sm text-fg/70 transition-colors hover:border-accent/40 hover:text-fg"
+            onclick={() => (confirmingUndo = true)}
+          >
+            Undo this handover
+          </button>
+        {/if}
+      {:else}
+        <p class="max-w-prose text-sm leading-relaxed text-fg/60">
+          You've already recorded work against {data.company.name}, so the handover can't be undone —
+          those records need the position it opened with.
+        </p>
+      {/if}
+      {#if form?.handoffError}
+        <p class="mt-3 text-sm text-danger">{form.handoffError}</p>
+      {/if}
+    </div>
+  </section>
+{/if}
 
 <!-- Closing a business is deliberately last on the page, and deliberately not
      styled as a danger zone: it is a normal thing that happens to a business,
