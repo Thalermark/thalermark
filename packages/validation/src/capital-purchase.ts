@@ -34,9 +34,37 @@ export const capitalPurchaseCreateSchema = z
     usefulLifeYears: z.number().int().min(1).max(40).optional(),
     vendorContactId: z.string().uuid().optional(),
     memo: z.string().max(5000).optional(),
+    // --- Already part-way through its life -----------------------------------
+    // For an asset that was depreciated somewhere else before it got here: an
+    // accountant entering a mower bought two years ago, or an incorporation
+    // handoff (§351 carryover basis — same cost, same life, same clock).
+    //
+    // Both omitted is the ordinary case and behaves exactly as before.
+    priorAccumulatedDepreciation: moneyString.optional(),
+    depreciationStartYear: z.number().int().min(1900).max(2999).optional(),
   })
   .superRefine((v, ctx) => {
     const amount = Number(v.amount);
+    // Can't already have written off more than it cost.
+    if (
+      v.priorAccumulatedDepreciation !== undefined &&
+      Number(v.priorAccumulatedDepreciation) > amount
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "That's more than the asset cost.",
+        path: ['priorAccumulatedDepreciation'],
+      });
+    }
+    // Depreciation can't start before the asset existed.
+    const purchaseYear = Number(v.purchaseDate.slice(0, 4));
+    if (v.depreciationStartYear !== undefined && v.depreciationStartYear < purchaseYear) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Depreciation can't start before the purchase year.",
+        path: ['depreciationStartYear'],
+      });
+    }
     if (v.funding === 'paid_in_full') {
       // Down payment is meaningless when paid outright — if sent, it must equal
       // the amount; normally omitted and the server sets paidNow = amount.
