@@ -17,9 +17,13 @@ function periodClosedMessage(closedThrough: string | undefined): string {
   // closed_through is the exclusive upper bound (1 Jan of the following year),
   // so the year the user actually cares about is the one before it.
   const year = closedThrough ? new Date(closedThrough).getUTCFullYear() - 1 : null;
+  // "changed" alone undersold it: a closed year also refuses anything NEWLY
+  // dated inside it, which is how sending an invoice dated last December can
+  // fail in March. Wording covers both so the reader isn't left wondering what
+  // the year has to do with what they just did.
   return year
-    ? `${year} is closed, so it can't be changed. Re-open it in the Ledger first.`
-    : "That year is closed, so it can't be changed. Re-open it in the Ledger first.";
+    ? `${year} is closed. Re-open it in the Ledger to record or change anything dated in that year.`
+    : 'That year is closed. Re-open it in the Ledger to record or change anything dated in it.';
 }
 
 // A business that has stopped trading takes no NEW work — see the retirement

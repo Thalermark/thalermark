@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { companies, contacts, invoiceLineItems, invoices } from '@thalermark/db';
+import { type Transaction, companies, contacts, invoiceLineItems, invoices } from '@thalermark/db';
 import { emit } from '@thalermark/telemetry';
 import {
   invoiceCreateSchema,
@@ -18,7 +18,14 @@ import { sendInvoiceEmail } from '../lib/invoice-email.js';
 import { suggestNextInvoiceNumber } from '../lib/invoice-number.js';
 import { postInvoiceTransition, repostInvoicePaymentDate } from '../lib/ledger.js';
 import { applyCursor, keysetOrderBy, parseLimit, slicePage } from '../lib/pagination.js';
-import { EMAIL_RE, UUID_RE, escapeLike, isValidDateParam } from '../lib/route-helpers.js';
+import {
+  EMAIL_RE,
+  UUID_RE,
+  escapeLike,
+  expenseDateToPostedAt,
+  isValidDateParam,
+} from '../lib/route-helpers.js';
+import type { AuditWriter } from '../middleware/audit.js';
 import { requireCapability } from '../middleware/authz.js';
 import { requireEntitlement } from '../middleware/entitlement.js';
 import { RATE_LIMITS, rateLimit } from '../middleware/rate-limit.js';
@@ -56,37 +63,83 @@ const INVOICE_TRANSITIONS: Record<TransitionKey, TransitionSpec> = {
   void: { from: ['draft', 'sent'], to: 'voided', stamp: 'voidedAt' },
 };
 
-async function transitionInvoice(
-  c: Context<{ Variables: RlsVariables }>,
-  id: string,
-  key: TransitionKey,
-  spec: TransitionSpec,
-  // Per-transition extras (mark-paid only, today): `patch` adds columns merged
-  // after the base patch (payment method/reference); `effectiveAt` overrides the
-  // economic date used for BOTH the status stamp (e.g. paidAt) and the ledger
-  // posting date, so a backdated payment lands in the right reporting period.
-  // Defaults to now when omitted.
-  opts?: { patch?: Record<string, unknown>; effectiveAt?: Date },
-) {
-  if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
-  const tx = c.get('tx');
-  const accountId = c.get('accountId');
+// Which ledger date a transition belongs on.
+//
+// draft→sent recognises revenue, and revenue is earned when the invoice is
+// ISSUED — not when someone got round to clicking send. Billing on 2 June and
+// sending on 27 July is one economic event dated 2 June; posting it in July
+// moves income between reporting periods and, if the two fall either side of a
+// year end, onto the wrong return.
+//
+// sent→voided has to follow it. Both sides post at `now` today, so they net
+// within a period by accident; moving only the first would swap a hidden bug for
+// a visible one — revenue in June, its reversal in July.
+//
+// The cash transitions are deliberately NOT here. draft→paid and sent→paid
+// belong on the day the money actually arrived, which the caller already
+// supplies as `paidOn`.
+function postsOnIssueDate(from: InvoiceStatus, to: InvoiceStatus): boolean {
+  return (from === 'draft' && to === 'sent') || (from === 'sent' && to === 'voided');
+}
+
+type TransitionResult =
+  | { ok: true; invoice: typeof invoices.$inferSelect; from: InvoiceStatus }
+  | { ok: false; error: 'invoice_not_found' }
+  | { ok: false; error: 'invalid_transition'; from: string; to: InvoiceStatus };
+
+// The ONE path that moves an invoice between statuses, status flip and ledger
+// posting welded together.
+//
+// It is a tx-level helper rather than a route handler because two routes need
+// it: the mark-* endpoints and the email send, which runs its flip inside a
+// larger transaction so the connection is released before Resend is called.
+// /send used to do its own inline UPDATE instead — it shipped five days before
+// ledger posting was wired into transitions and never got it, so every emailed
+// invoice was off the books entirely. Having one function own both halves is
+// what stops that recurring; a new caller cannot flip a status without posting.
+//
+// Telemetry stays with the callers: the two send paths report different
+// delivery methods for the same transition.
+async function applyInvoiceTransition(
+  tx: Transaction,
+  audit: AuditWriter,
+  args: {
+    accountId: string;
+    id: string;
+    key: TransitionKey;
+    spec: TransitionSpec;
+    // `patch` adds columns merged after the base patch (payment method/
+    // reference); `effectiveAt` overrides the economic date used for the status
+    // stamp and, for the cash transitions, the ledger posting date — so a
+    // backdated payment lands in the right reporting period. Defaults to now.
+    patch?: Record<string, unknown>;
+    effectiveAt?: Date;
+  },
+): Promise<TransitionResult> {
+  const { accountId, id, key, spec } = args;
 
   const [current] = await tx
     .select()
     .from(invoices)
     .where(and(eq(invoices.id, id), eq(invoices.accountId, accountId)))
     .limit(1);
-  if (!current) return c.json({ error: 'invoice_not_found' }, 404);
+  if (!current) return { ok: false, error: 'invoice_not_found' };
 
   if (!(spec.from as readonly string[]).includes(current.status)) {
-    return c.json({ error: 'invalid_transition', from: current.status, to: spec.to }, 409);
+    return { ok: false, error: 'invalid_transition', from: current.status, to: spec.to };
   }
+  const from = current.status as InvoiceStatus;
 
   const now = new Date();
   // updatedAt is always record-time; the stamp (paidAt/sentAt/voidedAt) uses the
-  // economic date, which a caller can backdate via opts.effectiveAt.
-  const effectiveAt = opts?.effectiveAt ?? now;
+  // economic date, which a caller can backdate via effectiveAt.
+  const effectiveAt = args.effectiveAt ?? now;
+  // sentAt deliberately stays at `now` even when the posting is backdated. When
+  // the invoice went out is an operational fact and the ledger date is an
+  // economic one; only mark-paid's `paidOn` is genuinely both.
+  const postedAt = postsOnIssueDate(from, spec.to)
+    ? expenseDateToPostedAt(current.issueDate)
+    : effectiveAt;
   const patch: Record<string, unknown> = {
     status: spec.to,
     updatedAt: now,
@@ -100,7 +153,7 @@ async function transitionInvoice(
   if (key === 'mark-sent' && !current.publicToken) {
     patch.publicToken = randomBytes(32).toString('hex');
   }
-  if (opts?.patch) Object.assign(patch, opts.patch);
+  if (args.patch) Object.assign(patch, args.patch);
   // Re-assert the exact status we validated above so a concurrent transition
   // (an overlapping mark-paid, or the Stripe webhook flipping sent → paid)
   // can't double-apply. Under READ COMMITTED the losing UPDATE re-checks this
@@ -120,10 +173,10 @@ async function transitionInvoice(
     )
     .returning();
   if (!updated) {
-    return c.json({ error: 'invalid_transition', from: current.status, to: spec.to }, 409);
+    return { ok: false, error: 'invalid_transition', from: current.status, to: spec.to };
   }
 
-  await c.var.audit({
+  await audit({
     entityType: 'invoice',
     entityId: id,
     action: key,
@@ -154,12 +207,42 @@ async function transitionInvoice(
   // amount transitions (draft → voided, total=0 invoice) post nothing.
   await postInvoiceTransition(tx, {
     invoice: updated,
-    prevStatus: current.status as InvoiceStatus,
+    prevStatus: from,
     nextStatus: updated.status as InvoiceStatus,
     accountId,
     companyId: updated.companyId,
-    postedAt: effectiveAt,
+    postedAt,
   });
+
+  return { ok: true, invoice: updated, from };
+}
+
+// Route-handler wrapper: runs the transition on the request's tenant tx and maps
+// the outcome to JSON. The mark-* endpoints use this; /send drives
+// applyInvoiceTransition directly because its flip belongs inside a wider tx.
+async function transitionInvoice(
+  c: Context<{ Variables: RlsVariables }>,
+  id: string,
+  key: TransitionKey,
+  spec: TransitionSpec,
+  opts?: { patch?: Record<string, unknown>; effectiveAt?: Date },
+) {
+  if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+  const tx = c.get('tx');
+  const accountId = c.get('accountId');
+
+  const result = await applyInvoiceTransition(tx, c.var.audit, {
+    accountId,
+    id,
+    key,
+    spec,
+    patch: opts?.patch,
+    effectiveAt: opts?.effectiveAt,
+  });
+  if (!result.ok) {
+    if (result.error === 'invoice_not_found') return c.json({ error: result.error }, 404);
+    return c.json({ error: result.error, from: result.from, to: result.to }, 409);
+  }
 
   // Telemetry (opt-in; no-op unless the account enabled it). mark-sent here is
   // the "share a link" delivery; the /send route emits invoice_sent{email}
@@ -170,7 +253,7 @@ async function transitionInvoice(
     await emit(tx, { name: 'invoice_marked_paid' });
   }
 
-  return c.json(updated);
+  return c.json(result.invoice);
 }
 
 export function invoicesRoutes(deps: AppDeps) {
@@ -869,44 +952,28 @@ export function invoicesRoutes(deps: AppDeps) {
               .limit(1);
 
             // First-send transition: draft → sent, stamps sent_at, mints the
-            // public token if missing (same idempotent pattern as mark-sent).
-            // Resend leaves status / sent_at / public_token untouched.
+            // public token if missing, and posts to the ledger. A resend
+            // (already 'sent') leaves all of that untouched.
+            //
+            // Goes through applyInvoiceTransition rather than its own UPDATE.
+            // The inline version that used to live here is why emailing an
+            // invoice never reached the books: it predated ledger posting by
+            // five days and was never revisited.
             let invoice = current;
             if (current.status === 'draft') {
-              const now = new Date();
-              const [updated] = await tx
-                .update(invoices)
-                .set({
-                  status: 'sent',
-                  sentAt: now,
-                  updatedAt: now,
-                  publicToken: current.publicToken ?? randomBytes(32).toString('hex'),
-                })
-                .where(and(eq(invoices.id, id), eq(invoices.accountId, accountId)))
-                .returning();
-              if (!updated) return c.json({ error: 'invoice_not_found' }, 404);
-              invoice = updated;
-
-              await audit({
-                entityType: 'invoice',
-                entityId: id,
-                action: 'mark-sent',
-                before: {
-                  status: current.status,
-                  sentAt: current.sentAt,
-                  paidAt: current.paidAt,
-                  voidedAt: current.voidedAt,
-                  publicToken: current.publicToken,
-                },
-                after: {
-                  status: updated.status,
-                  sentAt: updated.sentAt,
-                  paidAt: updated.paidAt,
-                  voidedAt: updated.voidedAt,
-                  publicToken: updated.publicToken,
-                },
-                companyId: updated.companyId,
+              const result = await applyInvoiceTransition(tx, audit, {
+                accountId,
+                id,
+                key: 'mark-sent',
+                spec: INVOICE_TRANSITIONS['mark-sent'],
               });
+              if (!result.ok) {
+                if (result.error === 'invoice_not_found') {
+                  return c.json({ error: result.error }, 404);
+                }
+                return c.json({ error: result.error, from: result.from, to: result.to }, 409);
+              }
+              invoice = result.invoice;
             }
 
             if (!invoice.publicToken) {

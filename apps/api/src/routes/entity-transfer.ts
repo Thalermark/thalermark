@@ -6,7 +6,7 @@ import {
   seedChartOfAccounts,
 } from '@thalermark/db';
 import { entityHandoffSchema, resolveCopyInclude } from '@thalermark/validation';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull, lt } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { v7 as uuidv7 } from 'uuid';
 import { copyCompanyReferenceData, copyableProfile, targetIsEmpty } from '../lib/company-copy.js';
@@ -79,6 +79,12 @@ export function entityTransferRoutes() {
         // Invoices already sent but unpaid — the question only the user can
         // answer, because both answers are legitimate and they produce different
         // opening balances.
+        //
+        // Bounded by the effective date for the same reason the balances are: an
+        // invoice the old business issued AFTER the handover is not part of what
+        // changed hands, and its receivable is not in the transferring balance
+        // either. Listing one here and then not moving it is how the wizard came
+        // to ask a question it silently ignored.
         const openInvoices = await tx
           .select({
             id: invoices.id,
@@ -92,6 +98,7 @@ export function entityTransferRoutes() {
               eq(invoices.accountId, accountId),
               eq(invoices.companyId, id),
               eq(invoices.status, 'sent'),
+              lt(invoices.issueDate, effectiveDate),
             ),
           );
 
