@@ -25,8 +25,8 @@ import type { CoaOverlay } from './coa.js';
 // The big structural difference from Schedule C: Form 1065's deduction section is
 // far shorter. It has no line for advertising, office expense, supplies, travel,
 // meals, utilities, insurance, legal fees or commissions — all of them land on
-// line 20, "Other deductions", which is filed with an attached itemised
-// statement. So most of the chart maps to line 20 by design, and the accounts
+// line 21, "Other deductions", which is filed with an attached itemised
+// statement. So most of the chart maps to line 21 by design, and the accounts
 // remain the thing that produces that statement.
 export const PARTNERSHIP_OVERLAY: CoaOverlay = {
   taxForm: 'Form 1065',
@@ -57,19 +57,21 @@ export const PARTNERSHIP_OVERLAY: CoaOverlay = {
     '6500': 'Form 1065, Line 15', // Interest
     '6350': 'Form 1065, Line 16a', // Depreciation
 
-    // Line 20, Other deductions — everything the form has no dedicated line for.
-    '6000': 'Form 1065, Line 20', // Advertising
-    '6100': 'Form 1065, Line 20', // Car and truck
-    '6200': 'Form 1065, Line 20', // Commissions and fees
-    '6300': 'Form 1065, Line 20', // Contract labor
-    '6400': 'Form 1065, Line 20', // Insurance
-    '6600': 'Form 1065, Line 20', // Legal and professional
-    '6700': 'Form 1065, Line 20', // Office expense
-    '7000': 'Form 1065, Line 20', // Supplies
-    '7200': 'Form 1065, Line 20', // Travel
-    '7300': 'Form 1065, Line 20', // Meals
-    '7400': 'Form 1065, Line 20', // Utilities
-    '7900': 'Form 1065, Line 20', // Other expenses
-    '7950': 'Form 1065, Line 20', // Merchant processing fees
+    // Line 21, Other deductions — everything the form has no dedicated line for.
+    // (Line 20 is the energy efficient commercial buildings deduction as of
+    // TY2023; these sat on 20 until TMC-167 corrected them.)
+    '6000': 'Form 1065, Line 21', // Advertising
+    '6100': 'Form 1065, Line 21', // Car and truck
+    '6200': 'Form 1065, Line 21', // Commissions and fees
+    '6300': 'Form 1065, Line 21', // Contract labor
+    '6400': 'Form 1065, Line 21', // Insurance
+    '6600': 'Form 1065, Line 21', // Legal and professional
+    '6700': 'Form 1065, Line 21', // Office expense
+    '7000': 'Form 1065, Line 21', // Supplies
+    '7200': 'Form 1065, Line 21', // Travel
+    '7300': 'Form 1065, Line 21', // Meals
+    '7400': 'Form 1065, Line 21', // Utilities
+    '7900': 'Form 1065, Line 21', // Other expenses
+    '7950': 'Form 1065, Line 21', // Merchant processing fees
   },
 };

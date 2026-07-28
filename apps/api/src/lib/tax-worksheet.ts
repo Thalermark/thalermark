@@ -14,11 +14,27 @@ import { centsToMoney, toCents } from '@thalermark/validation';
 // P&L instead of a tax form. A user comparing it to the IRS PDF should find
 // every line, in order, with the numbering intact.
 //
-// Line numbering on all four has been structurally stable for years; the only
-// churn in the last decade was TCJA (2018) dropping entertainment from Schedule
-// C 24b and blanking Form 1120 line 25. Rates and thresholds move annually but
-// those live in the tax-readiness *estimate* work, not here. Expect to touch
-// these tables roughly once every few years.
+// ---------------------------------------------------------------------------
+// VERIFIED AGAINST: the tax-year 2025 forms as published on irs.gov —
+// f1040sc (rev. 4/3/25), f1065 (rev. 11/25/25), f1120s (rev. 4/7/25),
+// f1120 (rev. 9/26/25). Diffed line by line, TY2021 through TY2025 (TMC-167).
+//
+// RE-CHECK THIS WHEN THE IRS PUBLISHES A NEW TAX YEAR. Line numbering is NOT
+// as stable as it looks. TMC-167 found all four tables pointing at the wrong
+// lines because the §179D energy efficient commercial buildings deduction
+// (Form 7205) took a line on every form for TY2023 and pushed everything below
+// it down one — silently, for two years, on a Schedule C that was live in
+// production. Nothing in the test suite can catch that: the tests assert this
+// table against itself, and it was perfectly self-consistent. The only check
+// that works is opening the PDF.
+//
+// The catch-all "other deductions" line is the one that matters most — it
+// carries most of a chart on three of the four forms, so if it moves and we
+// don't follow, most of a business's spend lands somewhere wrong.
+// ---------------------------------------------------------------------------
+//
+// Rates and thresholds move annually but those live in the tax-readiness
+// *estimate* work, not here.
 
 export type TaxFormCode = 'schedule_c' | '1065' | '1120s' | '1120';
 
@@ -148,7 +164,16 @@ const SCHEDULE_C: TaxFormDef = {
     { line: '24b', label: 'Deductible meals', role: 'mapped' },
     { line: '25', label: 'Utilities', role: 'mapped' },
     { line: '26', label: 'Wages (less employment credits)', role: 'mapped' },
-    { line: '27a', label: 'Other expenses', role: 'mapped', itemized: true },
+    // 27a was "Other expenses" through TY2022. From TY2023 the §179D energy
+    // deduction took it and other expenses moved to 27b — the shift that
+    // TMC-167 found. Schedule C abbreviates "bldgs"; the corporate forms spell
+    // it out.
+    {
+      line: '27a',
+      label: 'Energy efficient commercial bldgs deduction (attach Form 7205)',
+      role: 'mapped',
+    },
+    { line: '27b', label: 'Other expenses (from line 48)', role: 'mapped', itemized: true },
     { line: '28', label: 'Total expenses', role: 'totalDeductions' },
     { line: '29', label: 'Tentative profit or loss', role: 'netIncome' },
     {
@@ -217,9 +242,15 @@ const FORM_1065: TaxFormDef = {
     { line: '17', label: 'Depletion (do not deduct oil and gas depletion)', role: 'mapped' },
     { line: '18', label: 'Retirement plans, etc.', role: 'mapped' },
     { line: '19', label: 'Employee benefit programs', role: 'mapped' },
-    { line: '20', label: 'Other deductions (attach statement)', role: 'mapped', itemized: true },
-    { line: '21', label: 'Total deductions', role: 'totalDeductions' },
-    { line: '22', label: 'Ordinary business income (loss)', role: 'netIncome' },
+    // TY2023 inserted the §179D line here and pushed 20/21/22 down to 21/22/23.
+    {
+      line: '20',
+      label: 'Energy efficient commercial buildings deduction (attach Form 7205)',
+      role: 'mapped',
+    },
+    { line: '21', label: 'Other deductions (attach statement)', role: 'mapped', itemized: true },
+    { line: '22', label: 'Total deductions', role: 'totalDeductions' },
+    { line: '23', label: 'Ordinary business income (loss)', role: 'netIncome' },
   ],
 };
 
@@ -259,16 +290,22 @@ const FORM_1120S: TaxFormDef = {
     { line: '13', label: 'Interest', role: 'mapped' },
     {
       line: '14',
-      label: 'Depreciation not claimed on Form 1125-A or elsewhere',
+      label: 'Depreciation from Form 4562 not claimed on Form 1125-A or elsewhere on return',
       role: 'mapped',
     },
     { line: '15', label: 'Depletion (do not deduct oil and gas depletion)', role: 'mapped' },
     { line: '16', label: 'Advertising', role: 'mapped' },
     { line: '17', label: 'Pension, profit-sharing, etc., plans', role: 'mapped' },
     { line: '18', label: 'Employee benefit programs', role: 'mapped' },
-    { line: '19', label: 'Other deductions (attach statement)', role: 'mapped', itemized: true },
-    { line: '20', label: 'Total deductions', role: 'totalDeductions' },
-    { line: '21', label: 'Ordinary business income (loss)', role: 'netIncome' },
+    // TY2023 inserted the §179D line here and pushed 19/20/21 down to 20/21/22.
+    {
+      line: '19',
+      label: 'Energy efficient commercial buildings deduction (attach Form 7205)',
+      role: 'mapped',
+    },
+    { line: '20', label: 'Other deductions (attach statement)', role: 'mapped', itemized: true },
+    { line: '21', label: 'Total deductions', role: 'totalDeductions' },
+    { line: '22', label: 'Ordinary business income (loss)', role: 'netIncome' },
   ],
 };
 
@@ -279,9 +316,9 @@ const FORM_1120S: TaxFormDef = {
 // tax itself, which is why line 31 exists on this form and nowhere else, and why
 // it carries excludeFromTotal.
 //
-// Line 25 is blank on the form ("Reserved for future use") since TCJA repealed
-// the domestic production activities deduction for tax years beginning after
-// 2017. Rendered anyway so the numbering reads continuously against the PDF.
+// Line 31 reports the corporation's own tax and points at Schedule J, line 12
+// (it was Schedule J, Part I, line 11 through TY2023 — the parenthetical moved
+// even though the line number didn't).
 //
 // Careful: Form 1120 has its own internal "Schedule C" (dividends and special
 // deductions) which lines 4 and 29b reference. That is NOT Schedule C (Form
@@ -325,7 +362,15 @@ const FORM_1120: TaxFormDef = {
     { line: '22', label: 'Advertising', role: 'mapped' },
     { line: '23', label: 'Pension, profit-sharing, etc., plans', role: 'mapped' },
     { line: '24', label: 'Employee benefit programs', role: 'mapped' },
-    { line: '25', label: 'Reserved for future use', role: 'zero' },
+    // Was "Reserved for future use" from TCJA until TY2022, when the §179D
+    // deduction claimed it. Unlike the other three forms nothing shifted here,
+    // because the new line landed in a slot that was already blank — which is
+    // why the 1120 was the only table TMC-167 found structurally intact.
+    {
+      line: '25',
+      label: 'Energy efficient commercial buildings deduction (attach Form 7205)',
+      role: 'mapped',
+    },
     { line: '26', label: 'Other deductions (attach statement)', role: 'mapped', itemized: true },
     { line: '27', label: 'Total deductions', role: 'totalDeductions' },
     {

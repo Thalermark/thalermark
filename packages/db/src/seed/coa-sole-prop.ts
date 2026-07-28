@@ -45,7 +45,8 @@ export const SOLE_PROP_OVERLAY: CoaOverlay = {
     '7300': 'Schedule C, Line 24b', // Deductible meals
     '7400': 'Schedule C, Line 25', // Utilities
     '7500': 'Schedule C, Line 26', // Wages (less employment credits)
-    '7900': 'Schedule C, Line 27a', // Other expenses
-    '7950': 'Schedule C, Line 27a', // Merchant processing fees
+    // 27b, not 27a — the §179D energy deduction took 27a in TY2023 (TMC-167).
+    '7900': 'Schedule C, Line 27b', // Other expenses
+    '7950': 'Schedule C, Line 27b', // Merchant processing fees
   },
 };
