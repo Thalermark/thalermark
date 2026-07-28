@@ -13,7 +13,11 @@ import type { CashFlowAdvisor, CashFlowNudge, CashFlowSignals } from './types.js
 // hashed struct, not a substitute for this constant: a prompt-only edit changes
 // no hash, and a refactor that made the key conditional would silently restore
 // old hashes for null companies. This is the only lever that always works.
-export const CASH_FLOW_NUDGE_VERSION = '3';
+//
+// '4' (TMC-171): the sole_prop persona was reworded. A pure copy edit like that
+// is exactly the case the paragraph above describes — the signals are byte-for-
+// byte identical, so nothing else would have regenerated a single cached nudge.
+export const CASH_FLOW_NUDGE_VERSION = '4';
 
 // Cash-flow nudges use the 'reasoning' role (Sonnet on Anthropic; a capable
 // local model on Ollama) — it's interpretation + prioritisation, where the
