@@ -9,11 +9,31 @@
     autoMap,
     entityByKey,
   } from '$lib/import/descriptors';
+  import StartingBalances from '$lib/components/StartingBalances.svelte';
+  import type { OpeningBalanceForm } from '$lib/opening-balance';
   import { may } from '$lib/perms';
+
   import Papa from 'papaparse';
   import type { PageProps } from './$types';
 
   let { data, form }: PageProps = $props();
+
+  // This page now runs two unrelated actions — the CSV import, and the three
+  // starting-balance ones. Hand the component only its own result, or an import
+  // error would render as a starting-balances error.
+  const balanceForm = $derived(
+    form && ('fieldErrors' in form || 'formError' in form || 'fullError' in form || 'values' in form)
+      ? (form as OpeningBalanceForm)
+      : null,
+  );
+
+  // Export half of the page. The download is a plain GET to the +server.ts
+  // endpoint, which streams the ZIP; format is appended to the URL.
+  // reports:export is enforced by the API — the gate here just shows a note
+  // instead of letting someone walk into a 403.
+  let exportFormat = $state<'csv' | 'json'>('csv');
+  const canExport = $derived(may(page.data.role, 'reports:export'));
+  const exportHref = $derived(`/settings/export/download?format=${exportFormat}`);
 
   // Only offer entities the role can actually create (the API gate is the real
   // authority; this just keeps the UI honest).
@@ -155,12 +175,35 @@
 
 <span class="eyebrow">Settings</span>
 <h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-fg">
-  Import<span class="text-accent">.</span>
+  Import &amp; export<span class="text-accent">.</span>
 </h1>
 <p class="mt-3 max-w-prose text-sm text-fg/60">
-  Bring in your existing contacts and items from a CSV — a spreadsheet export, or a download from
-  another tool. Upload the file, line up the columns, and review before anything is saved.
+  Getting your data in and out — the books you arrived with, your contacts and items, and a copy of
+  everything to take away.
 </p>
+
+<!-- Coming from other software goes FIRST. It's the one with a deadline attached:
+     someone who switched in July still files one return for the whole year, and if
+     they don't enter what they already traded, their tax worksheet is short by
+     however long they were elsewhere. Contacts and items can wait. -->
+{#if data.openingBalance}
+  <section class="mt-10 border-t border-fg/10 pt-8">
+    <h2 class="font-serif text-2xl font-light text-fg">Coming from other accounting software?</h2>
+    <p class="mt-2 max-w-prose text-sm text-fg/60">
+      Bring across what your business owns, owes, and has already earned this year, so your numbers
+      and your tax worksheet cover the whole year rather than just the part you spent here.
+    </p>
+    <StartingBalances data={data.openingBalance} form={balanceForm} cancelHref="/settings/import" />
+  </section>
+{/if}
+
+<section class="mt-12 border-t border-fg/10 pt-8">
+  <h2 class="font-serif text-2xl font-light text-fg">Contacts &amp; items</h2>
+  <p class="mt-2 max-w-prose text-sm text-fg/60">
+    Bring in your existing contacts and items from a CSV — a spreadsheet export, or a download from
+    another tool. Upload the file, line up the columns, and review before anything is saved.
+  </p>
+</section>
 
 {#if !data.companyId}
   <div class="callout mt-8">Pick a company from the switcher before importing.</div>
@@ -327,3 +370,47 @@
     </section>
   {/if}
 {/if}
+
+<!-- Export. Lifted from the old /settings/export route so getting data in and
+     getting it out sit together — the same job seen from both ends. -->
+<section class="mt-12 border-t border-fg/10 pt-8">
+  <h2 class="font-serif text-2xl font-light text-fg">Take a copy with you</h2>
+  <p class="mt-2 max-w-prose text-sm text-fg/60">
+    Download every record in this workspace — invoices, estimates, expenses, bills, contacts, items,
+    and more — as a single ZIP, with one folder per company. Your data is yours to keep or take
+    elsewhere. Contacts and items re-import cleanly through the section above.
+  </p>
+
+  {#if canExport}
+    <div class="mt-5 grid max-w-2xl gap-5 rounded-sm border border-fg/10 bg-surface-2 p-5">
+      <fieldset class="grid gap-3">
+        <legend class="label mb-1">Format</legend>
+        <label class="flex items-center gap-3 text-sm text-fg">
+          <input
+            type="radio"
+            bind:group={exportFormat}
+            value="csv"
+            class="size-4 border-fg/30 text-accent focus:ring-accent"
+          />
+          CSV — spreadsheet-friendly (Excel, Google Sheets)
+        </label>
+        <label class="flex items-center gap-3 text-sm text-fg">
+          <input
+            type="radio"
+            bind:group={exportFormat}
+            value="json"
+            class="size-4 border-fg/30 text-accent focus:ring-accent"
+          />
+          JSON — exact copy, line items nested
+        </label>
+      </fieldset>
+      <div>
+        <a href={exportHref} class="btn" download>Download ZIP</a>
+      </div>
+    </div>
+  {:else}
+    <p class="mt-5 text-sm text-fg/70">
+      You don't have permission to export this workspace's data. Ask an owner or admin.
+    </p>
+  {/if}
+</section>

@@ -26,17 +26,15 @@ export const load: PageServerLoad = async (event) => {
   if (!res.ok) throw error(res.status, 'failed to load owner money');
   const { events, nextCursor } = await res.json();
 
-  // The company's starting balances (or null) for the summary card — best-effort.
-  const obRes = await client.api['owner-money']['opening-balance'].$get({
-    query: { companyId: company.id },
-  });
-  const openingBalance = obRes.ok ? (await obRes.json()).openingBalance : null;
+  // The starting-balances fetch that used to feed a summary card here is gone
+  // with the card — that's setup, and it lives in Settings now. It also always
+  // showed the simple shape's cash figure, so a company that had entered a full
+  // trial balance saw one number standing in for a dozen.
 
   return {
     rows: mapOwnerMoneyRows(events),
     nextCursor,
     companyId: company.id,
     filters: { kind },
-    openingBalance,
   };
 };

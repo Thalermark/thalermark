@@ -1,4 +1,5 @@
 import { serverApiClient } from '$lib/api.server';
+import { loadOpeningBalance, openingBalanceActions } from '$lib/opening-balance.server';
 import { fail } from '@sveltejs/kit';
 import { contactImportSchema, itemImportSchema } from '@thalermark/validation';
 import type { Actions, PageServerLoad } from './$types';
@@ -51,17 +52,26 @@ async function itemNames(client: Client, companyId: string): Promise<string[]> {
 export const load: PageServerLoad = async (event) => {
   const { activeCompanyId } = await event.parent();
   if (!activeCompanyId) {
-    return { companyId: null, existing: { contacts: [], items: [] } };
+    return { companyId: null, existing: { contacts: [], items: [] }, openingBalance: null };
   }
   const client = serverApiClient(event);
-  const [contacts, items] = await Promise.all([
+  // Starting balances ride along: this page is now everything about getting
+  // data in and out, and someone arriving from other software needs the books
+  // section more than the contacts one.
+  const [contacts, items, openingBalance] = await Promise.all([
     customerNames(client, activeCompanyId),
     itemNames(client, activeCompanyId),
+    loadOpeningBalance(event),
   ]);
-  return { companyId: activeCompanyId, existing: { contacts, items } };
+  return { companyId: activeCompanyId, existing: { contacts, items }, openingBalance };
 };
 
 export const actions: Actions = {
+  // save / saveFull / clear come from the shared starting-balances helper, which
+  // the owner-money route and the welcome wizard also mount. No name collision
+  // with `import` below.
+  ...openingBalanceActions('/settings/import'),
+
   // The page parses + maps + previews client-side, then posts the chosen rows
   // here as a JSON string. We re-validate with the import schema (the same one
   // the API enforces) so a bad batch fails fast with a friendly message, then

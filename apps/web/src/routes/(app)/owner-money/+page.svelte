@@ -11,7 +11,6 @@
   const { filters } = $derived(data);
   const companyId = $derived(data.companyId);
   const hasFilters = $derived(!!filters.kind);
-  const openingBalance = $derived(data.openingBalance);
   const canWrite = $derived(may(data.role, 'expenses:write'));
 
   const money = (s: string) =>
@@ -69,34 +68,14 @@
   Money you put into the business from your own pocket, and money you take out to pay yourself.
 </p>
 
-<!-- Starting balances — what the business already had when it started. A
-     one-time setup; shows a summary once set. -->
-{#if canWrite}
-  <a
-    href="/owner-money/opening-balance"
-    class="mt-6 flex items-center justify-between gap-4 rounded-sm border border-fg/10 bg-surface-2 px-5 py-4 hover:border-accent"
-  >
-    {#if openingBalance}
-      <div>
-        <span class="label">Starting balances</span>
-        <p class="mt-1 font-mono text-sm tabular-nums text-fg/80">
-          {money(openingBalance.cash)} in the bank
-          {#if Number(openingBalance.receivables) > 0}
-            · {money(openingBalance.receivables)} owed to you{/if}
-          {#if Number(openingBalance.payables) > 0}
-            · {money(openingBalance.payables)} owed{/if}
-        </p>
-      </div>
-      <span class="font-mono text-xs uppercase tracking-widest text-accent">Edit</span>
-    {:else}
-      <div>
-        <span class="label">Starting balances</span>
-        <p class="mt-1 text-sm text-fg/60">Tell us what your business started with.</p>
-      </div>
-      <span class="font-mono text-xs uppercase tracking-widest text-accent">Set →</span>
-    {/if}
-  </a>
-{/if}
+<!-- Starting balances used to be a card here. They're setup, not a transaction,
+     so they moved to Settings alongside the other ways data gets in. A signpost
+     stays because someone thinking about money between them and the business is
+     plausibly thinking about where the books started. -->
+<p class="mt-2 text-sm text-fg/50">
+  Just getting set up? <a href="/settings/import" class="link">Starting balances</a> live in
+  Settings, with everything else about bringing your data across.
+</p>
 
 <!-- Filter bar. Plain GET form so the filter lives in the URL (shareable, back-
      button friendly) and the page works without JS. -->
