@@ -188,10 +188,14 @@
      however long they were elsewhere. Contacts and items can wait. -->
 {#if data.openingBalance}
   <section class="mt-10 border-t border-fg/10 pt-8">
-    <h2 class="font-serif text-2xl font-light text-fg">Coming from other accounting software?</h2>
+    <!-- Heading deliberately does NOT repeat "Coming from other accounting
+         software?" — that phrase belongs to the toggle inside the component,
+         and reading it twice makes the toggle look like a no-op. -->
+    <h2 class="font-serif text-2xl font-light text-fg">Starting balances</h2>
     <p class="mt-2 max-w-prose text-sm text-fg/60">
-      Bring across what your business owns, owes, and has already earned this year, so your numbers
-      and your tax worksheet cover the whole year rather than just the part you spent here.
+      Where your business stood when you arrived — what's in the bank, what you're owed, what you
+      owe. If you'd already been trading this year, include what you've earned and spent too, or
+      your tax worksheet will only cover the part of the year you spent here.
     </p>
     <StartingBalances data={data.openingBalance} form={balanceForm} cancelHref="/settings/import" />
   </section>
