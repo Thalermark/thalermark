@@ -1,12 +1,19 @@
 import { generateObject } from 'ai';
 import { z } from 'zod';
+import { businessPersona } from './persona.js';
 import { type LlmCredential, resolveModel } from './provider.js';
 import type { CashFlowAdvisor, CashFlowNudge, CashFlowSignals } from './types.js';
 
 // Bump whenever the prompt or the CashFlowSignals shape changes. The API folds
 // this into the nudge cache key so a logic change regenerates cached nudges
 // instead of serving stale text (the signals hash alone wouldn't change).
-export const CASH_FLOW_NUDGE_VERSION = '2';
+//
+// Note that signals now carries businessType, so an entity-type change
+// invalidates a company's cached nudge on its own. That is a property of the
+// hashed struct, not a substitute for this constant: a prompt-only edit changes
+// no hash, and a refactor that made the key conditional would silently restore
+// old hashes for null companies. This is the only lever that always works.
+export const CASH_FLOW_NUDGE_VERSION = '3';
 
 // Cash-flow nudges use the 'reasoning' role (Sonnet on Anthropic; a capable
 // local model on Ollama) — it's interpretation + prioritisation, where the
@@ -38,20 +45,22 @@ function buildPrompt(s: CashFlowSignals): string {
           .join('\n')
       : '  (no prior months on record yet)';
   return [
-    'You are a plain-English money assistant for a self-employed tradesperson.',
+    `You are a plain-English money assistant for ${businessPersona(s.businessType)}.`,
     'Write 1-3 short cash-flow nudges, each a single friendly sentence. Prefer one or two specific, grounded nudges over three vague ones — generic encouragement with no number is not useful.',
     'Rules:',
     '- GROUND every nudge in a specific figure below: name the actual dollar amount you are referring to (e.g. "You\'ve spent $4,074.99 this month" or "You have $800 on hand"). A nudge with no concrete number is not allowed.',
     '- Use ONLY the figures below. Never compute, estimate, or invent a number; quote the dollar amounts exactly as given.',
     '- NEVER contradict the figures. If "money out this month" is more than $0, there ARE transactions this month — do not say otherwise. If cash on hand is negative, say money is tight, not that there is nothing happening.',
     '- These are observations and gentle prompts, NOT financial, tax, or investment advice.',
+    '- How the business is set up is context for TONE ONLY. Never comment on entity structure, owner pay, distributions, payroll, retained earnings, or taxes.',
+    '- Address the reader directly as "you", whatever the business setup. Never write about them in the third person.',
     '- If there is genuinely too little data to say anything specific, return fewer nudges, or none.',
     '- tone: pick per nudge. "warning" when money is tight (cash on hand low or negative, money out exceeding money in, invoices overdue); "good" when things look healthy (cash positive, income up); "info" for a neutral observation. Do not default everything to "info".',
     '',
     `As of ${s.asOf}:`,
     `- Cash on hand: ${money(s.cashOnHand)}`,
     `- This month so far: money in ${money(s.monthToDate.moneyIn)}, money out ${money(s.monthToDate.moneyOut)}`,
-    `- Owed to them by customers (unpaid invoices): ${money(s.owed)}${
+    `- Owed to you by customers (unpaid invoices): ${money(s.owed)}${
       s.overdueCount > 0 ? ` — ${s.overdueCount} past due` : ''
     }`,
     'Recent full months (money in / money out):',
