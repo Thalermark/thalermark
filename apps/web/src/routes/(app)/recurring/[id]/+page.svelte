@@ -32,10 +32,10 @@
   );
 </script>
 
-<a href="/recurring" class="eyebrow text-fg/60 hover:text-fg">← Recurring</a>
+<a href="/recurring" class="eyebrow text-fg/60 hover:text-fg">← Repeating</a>
 <div class="mt-3 flex items-baseline justify-between gap-6">
   <h1 class="font-serif text-4xl font-light leading-none tracking-tight text-fg">
-    Recurring schedule<span class="text-accent">.</span>
+    Repeating invoice<span class="text-accent">.</span>
   </h1>
   <div class="flex items-center gap-3">
     {#if canEdit}

@@ -10,7 +10,9 @@ import { pageQuery, usePaginatedList } from '../../../lib/use-paginated-list';
 
 // Mirror of apps/web's /owner-money list — money the owner puts into the
 // business or takes out for themselves. The double-entry is hidden: a
-// 'contribution' reads as "Money in", a 'draw' as "Money out". Keyset infinite
+// 'contribution' reads as an "Investment", a 'draw' as a "Withdrawal" — NOT
+// "Money in / Money out", which the dashboard already uses for all business
+// income and expenses. Keyset infinite
 // scroll via usePaginatedList; the kind chip flips fetchPage's identity, which
 // reloads page 1. Unscoped by company like the expenses/bills lists.
 type EventRow = {
@@ -23,8 +25,8 @@ type EventRow = {
 
 const KIND_OPTIONS = [
   { label: 'All', value: '' },
-  { label: 'Money in', value: 'contribution' },
-  { label: 'Money out', value: 'draw' },
+  { label: 'Investments', value: 'contribution' },
+  { label: 'Withdrawals', value: 'draw' },
 ];
 
 type OpeningBalance = { cash: string; receivables: string; payables: string } | null;
@@ -90,9 +92,9 @@ export default function OwnerMoneyList() {
       <View className="flex-row items-end justify-between px-6 pt-6">
         <View>
           <Text className="font-mono text-xs uppercase tracking-widest text-gold-deep">
-            My Money
+            Investments &amp; withdrawals
           </Text>
-          <Text className="mt-2 font-serif text-3xl font-light text-ink">Money in &amp; out</Text>
+          <Text className="mt-2 font-serif text-3xl font-light text-ink">You and the business</Text>
         </View>
         {canCreate ? (
           <Pressable
@@ -168,7 +170,7 @@ export default function OwnerMoneyList() {
               >
                 <View className="flex-row items-center justify-between">
                   <Text className="flex-1 pr-3 font-serif text-lg text-ink">
-                    {isIn ? 'Money in' : 'Money out'}
+                    {isIn ? 'Investment' : 'Withdrawal'}
                   </Text>
                   <Text
                     className={`font-mono tabular-nums ${isIn ? 'text-gold-deep' : 'text-ink'}`}

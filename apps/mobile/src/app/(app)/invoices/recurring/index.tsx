@@ -6,8 +6,8 @@ import { api } from '../../../../lib/api';
 import { useMay } from '../../../../lib/role';
 import { pageQuery, usePaginatedList } from '../../../../lib/use-paginated-list';
 
-// Recurring schedules list. Lives in the invoices Stack (reached via the
-// "Recurring schedules →" link on the invoices list), not its own tab. Mirror
+// Repeating invoices list. Lives in the invoices Stack (reached via the
+// "Repeating invoices →" link on the invoices list), not its own tab. Mirror
 // of apps/web's /recurring. customerName is LEFT JOINed by the API (#195);
 // keyset infinite scroll via usePaginatedList.
 type RecurringRow = {
@@ -63,7 +63,7 @@ export default function RecurringList() {
           ← Invoices
         </Text>
         <View className="mt-2 flex-row items-end justify-between">
-          <Text className="font-serif text-3xl font-light text-ink">Recurring</Text>
+          <Text className="font-serif text-3xl font-light text-ink">Repeating</Text>
           {canCreate ? (
             <Pressable
               onPress={() => router.push('/invoices/recurring/new')}

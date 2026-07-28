@@ -13,7 +13,7 @@
   const canWrite = $derived(may(data.role, 'expenses:write'));
 </script>
 
-<a href="/owner-money" class="eyebrow text-fg/60 hover:text-fg">← My Money</a>
+<a href="/owner-money" class="eyebrow text-fg/60 hover:text-fg">← Investments</a>
 <div class="mt-3 flex items-baseline justify-between gap-6">
   <h1 class="font-serif text-4xl font-light leading-none tracking-tight text-fg">
     {kindLabel(e.kind)}<span class="text-accent">.</span>

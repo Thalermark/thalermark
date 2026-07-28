@@ -123,7 +123,7 @@
   }
 </script>
 
-<a href="/owner-money" class="eyebrow text-fg/60 hover:text-fg">← My Money</a>
+<a href="/owner-money" class="eyebrow text-fg/60 hover:text-fg">← Investments</a>
 <h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-fg">
   Starting balances<span class="text-accent">.</span>
 </h1>

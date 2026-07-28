@@ -197,7 +197,7 @@ export default function InvoicesList() {
         onPress={() => router.push('/invoices/recurring')}
         className="mt-4 flex-row items-center justify-between px-6 py-1"
       >
-        <Text className="text-sm font-medium text-gold-deep">Recurring schedules</Text>
+        <Text className="text-sm font-medium text-gold-deep">Repeating invoices</Text>
         <Text className="text-gold-deep">→</Text>
       </Pressable>
 

@@ -55,9 +55,9 @@
 
 <div class="flex items-baseline justify-between gap-6">
   <div>
-    <span class="eyebrow">My Money</span>
+    <span class="eyebrow">Investments &amp; withdrawals</span>
     <h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-fg">
-      Money in &amp; out<span class="text-accent">.</span>
+      You and the business<span class="text-accent">.</span>
     </h1>
   </div>
   {#if may(data.role, 'expenses:write')}
@@ -70,7 +70,7 @@
 </p>
 
 <!-- Starting balances — what the business already had when it started. A
-     one-time setup that lives here in My Money; shows a summary once set. -->
+     one-time setup; shows a summary once set. -->
 {#if canWrite}
   <a
     href="/owner-money/opening-balance"
@@ -109,8 +109,8 @@
       class="rounded-sm border border-fg/15 bg-surface px-2 py-1.5 text-sm normal-case tracking-normal text-fg"
     >
       <option value="" selected={filters.kind === ''}>All</option>
-      <option value="contribution" selected={filters.kind === 'contribution'}>Money in</option>
-      <option value="draw" selected={filters.kind === 'draw'}>Money out</option>
+      <option value="contribution" selected={filters.kind === 'contribution'}>Investments</option>
+      <option value="draw" selected={filters.kind === 'draw'}>Withdrawals</option>
     </select>
   </label>
   {#if hasFilters}
