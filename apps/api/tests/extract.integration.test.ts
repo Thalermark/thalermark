@@ -223,12 +223,44 @@ describe('receipt extraction', () => {
       // The route constrained the model to the company's expense COA.
       expect(lastInput?.mimeType).toBe('image/jpeg');
       expect(lastInput?.allowedCategories.some((c) => c.code === '6000')).toBe(true);
+      // A fresh company has no business type yet; the prompt persona falls back
+      // to sole prop. Null (not undefined) proves the route looked the company
+      // up rather than leaving the prompt on its old hardcoded persona.
+      expect(lastInput?.businessType).toBeNull();
 
       // Persisted on the row.
       const db = getTestDb();
       const [row] = await db.select().from(expenses).where(eq(expenses.id, expenseId));
       expect(row?.extractionStatus).toBe('succeeded');
       expect(row?.extractionPayload).toEqual(SAMPLE_RESULT);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it("passes the company's business type through to the extractor", async () => {
+    const ctx = buildApp();
+    try {
+      const cookie = await signUp(ctx.app, 'ext-entity@example.com');
+      const { accountId, companyId } = await userContext('ext-entity@example.com');
+      // Set directly rather than via PATCH /api/companies/:id, which reconciles
+      // the chart of accounts on a business-type change.
+      await getTestDb()
+        .update(companies)
+        .set({ businessType: 'partnership' })
+        .where(eq(companies.id, companyId));
+
+      const expenseId = await createExpense(ctx.app, cookie, accountId, companyId);
+      const auth = { cookie, 'x-account-id': accountId };
+      await uploadReceipt(ctx.app, expenseId, auth);
+
+      const res = await ctx.app.request(`/api/expenses/${expenseId}/extract`, {
+        method: 'POST',
+        headers: auth,
+      });
+
+      expect(res.status).toBe(200);
+      expect(lastInput?.businessType).toBe('partnership');
     } finally {
       await ctx.handle.close();
     }

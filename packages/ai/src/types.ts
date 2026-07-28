@@ -30,6 +30,11 @@ export interface ExtractionInput {
   // allowlist from slice 8.9g.
   mimeType: string;
   allowedCategories: ExpenseCategoryOption[];
+  // The company's business type, or null. Required-but-nullable on purpose: the
+  // defect this field exists to fix was a prompt silently addressing a sole
+  // trader, so a call site that forgets to pass it should fail to compile rather
+  // than quietly fall back. See persona.ts.
+  businessType: string | null;
 }
 
 // Every field is nullable — the model returns null for anything it can't read
@@ -61,6 +66,8 @@ export interface CategorizeInput {
   memo?: string | null;
   amount?: string | null;
   allowedCategories: ExpenseCategoryOption[];
+  // See ExtractionInput.businessType.
+  businessType: string | null;
 }
 
 // suggestedCategoryCode is one of the input codes or null — the model returns
@@ -78,6 +85,13 @@ export interface ExpenseCategorizer {
 // the API (the LLM must never do arithmetic on a ledger); the reasoning-role
 // model only turns them into short plain-English nudges. All money fields are
 // decimal strings ([[architecture_money_decimal_strings]]).
+//
+// businessType is the one member that is not a ledger figure. It rides in this
+// struct deliberately: the nudge route hashes the whole struct for its cache
+// key, so carrying the company's entity type here means changing it invalidates
+// the cached nudge for free. Before this, a company could switch from sole prop
+// to C-corp and keep serving nudges written for the old entity until its ledger
+// moved.
 export interface CashFlowSignals {
   asOf: string; // YYYY-MM-DD
   cashOnHand: string;
@@ -87,6 +101,11 @@ export interface CashFlowSignals {
   trailingMonths: { month: string; moneyIn: string; moneyOut: string }[]; // month: YYYY-MM
   owed: string;
   overdueCount: number;
+  // Last on purpose. JSON.stringify emits keys in insertion order and the route
+  // hashes that string, so this position is load-bearing for the cache key —
+  // moving it later silently changes every company's hash. See ExtractionInput
+  // for why it is required-but-nullable.
+  businessType: string | null;
 }
 
 // One nudge. tone drives styling: good (reassuring), warning (needs attention —

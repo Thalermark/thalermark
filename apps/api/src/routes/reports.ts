@@ -1316,6 +1316,7 @@ export function reportsRoutes(deps: AppDeps) {
             const [company] = await tx
               .select({
                 id: companies.id,
+                businessType: companies.businessType,
                 cachedNudges: companies.cashFlowNudges,
                 cachedHash: companies.nudgesInputHash,
                 generatedAt: companies.nudgesGeneratedAt,
@@ -1372,6 +1373,11 @@ export function reportsRoutes(deps: AppDeps) {
               trailingMonths,
               owed: await arBalance(tx, scope),
               overdueCount: overdue?.count ?? 0,
+              // Set unconditionally, and last. It is hashed with the rest of the
+              // signals, so a conditional spread would drop the key for
+              // null-business-type companies and quietly restore their old cache
+              // key; the insertion order is likewise part of the hashed JSON.
+              businessType: company.businessType,
             };
             // Version-tag the cache key so a prompt/advisor change (CASH_FLOW_NUDGE_VERSION)
             // regenerates cached nudges — the signals hash alone wouldn't change.

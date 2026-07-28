@@ -230,9 +230,9 @@ export function expensesRoutes(deps: AppDeps) {
           // tx1: validate the company + load the COA the model must choose from,
           // then release the connection — this is a deferred-tx route (see
           // rls-context) so the model call below never pins a pooled connection.
-          const categories = await c.var.runInTx(async (tx) => {
+          const loaded = await c.var.runInTx(async (tx) => {
             const [company] = await tx
-              .select({ id: companies.id })
+              .select({ id: companies.id, businessType: companies.businessType })
               .from(companies)
               .where(and(eq(companies.id, companyId), eq(companies.accountId, accountId)))
               .limit(1);
@@ -240,7 +240,7 @@ export function expensesRoutes(deps: AppDeps) {
             // The company's active expense COA — the model's suggestion is
             // constrained to these codes (in the prompt and by post-hoc validation
             // inside the categorizer) so it can't return a code that wouldn't post.
-            return tx
+            const rows = await tx
               .select({
                 id: chartOfAccounts.id,
                 code: chartOfAccounts.code,
@@ -256,8 +256,13 @@ export function expensesRoutes(deps: AppDeps) {
                 ),
               )
               .orderBy(asc(chartOfAccounts.code));
+            // Awaited rather than returning the query builder: runInTx awaits the
+            // thenable, which worked when the COA rows were the only thing this
+            // closure produced, but can't carry a second value.
+            return { businessType: company.businessType, categories: rows };
           });
-          if (!categories) return c.json({ error: 'company_not_found' }, 404);
+          if (!loaded) return c.json({ error: 'company_not_found' }, 404);
+          const { businessType, categories } = loaded;
 
           // Model call — no DB connection held.
           let suggestedCategoryCode: string | null;
@@ -268,6 +273,7 @@ export function expensesRoutes(deps: AppDeps) {
                 memo: memo ?? null,
                 amount: amount ?? null,
                 allowedCategories: categories.map((row) => ({ code: row.code, name: row.name })),
+                businessType,
               },
               credential,
             ));
@@ -802,10 +808,21 @@ export function expensesRoutes(deps: AppDeps) {
                 ),
               )
               .orderBy(asc(chartOfAccounts.code));
-            return { expense, categories };
+            // Business type for the prompt persona. A separate small select
+            // rather than joining companies into the expense query above: that
+            // one is select-all, and a join would reshape its rows to
+            // { expenses, companies } and break every expense.* reference below.
+            // No 404 branch on a miss — expenses.company_id is an FK and both
+            // tables are RLS-scoped to the same account, so it cannot be absent.
+            const [company] = await tx
+              .select({ businessType: companies.businessType })
+              .from(companies)
+              .where(and(eq(companies.id, expense.companyId), eq(companies.accountId, accountId)))
+              .limit(1);
+            return { expense, categories, businessType: company?.businessType ?? null };
           });
           if (!loaded) return c.json({ error: 'expense_not_found' }, 404);
-          const { expense, categories } = loaded;
+          const { expense, categories, businessType } = loaded;
           // Extraction operates on the already-uploaded receipt (capture is 8.9g).
           if (!expense.receiptStorageKey) return c.json({ error: 'no_receipt' }, 400);
 
@@ -823,6 +840,7 @@ export function expensesRoutes(deps: AppDeps) {
                 bytes,
                 mimeType,
                 allowedCategories: categories.map((row) => ({ code: row.code, name: row.name })),
+                businessType,
               },
               credential,
             );

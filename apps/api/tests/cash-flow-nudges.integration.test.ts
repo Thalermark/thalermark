@@ -187,6 +187,13 @@ describe('cash-flow nudges', () => {
       // The route computed deterministic signals (not the LLM).
       expect(lastSignals?.cashOnHand).toBe('0.00');
       expect(lastSignals?.trailingMonths).toHaveLength(3);
+      // A fresh company has no business type yet, and the key must still be
+      // PRESENT and null — it is part of the hashed signals struct, so a route
+      // that omitted it would restore the pre-change cache key. This is also the
+      // assertion that would have caught the original defect (the persona never
+      // reaching the prompt at all).
+      expect(lastSignals).toHaveProperty('businessType');
+      expect(lastSignals?.businessType).toBeNull();
     } finally {
       await ctx.handle.close();
     }
@@ -226,6 +233,36 @@ describe('cash-flow nudges', () => {
       await createExpense(ctx.app, cookie, accountId, companyId, '40.00');
       await nudges(ctx.app, cookie, accountId, companyId);
       expect(adviseCalls).toBe(2);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  // The cache-invalidation contract for business type. Without it, a company
+  // that incorporated would keep serving nudges written for its old entity
+  // until its ledger happened to move — and a later refactor that made the
+  // signals key conditional would silently reintroduce exactly that.
+  it('hands the advisor the business type and regenerates when it changes', async () => {
+    const ctx = buildApp();
+    try {
+      const cookie = await signUp(ctx.app, 'nudge-entity@example.com');
+      const { accountId, companyId } = await userContext('nudge-entity@example.com');
+
+      await nudges(ctx.app, cookie, accountId, companyId);
+      expect(adviseCalls).toBe(1);
+      expect(lastSignals?.businessType).toBeNull();
+
+      // Set it in the DB rather than via PATCH /api/companies/:id: that endpoint
+      // reconciles the chart of accounts on a business-type change, and coupling
+      // this test to COA-overlay internals buys nothing.
+      await getTestDb()
+        .update(companies)
+        .set({ businessType: 's_corp' })
+        .where(eq(companies.id, companyId));
+
+      await nudges(ctx.app, cookie, accountId, companyId);
+      expect(adviseCalls).toBe(2); // hash changed → no stale sole-trader nudge
+      expect(lastSignals?.businessType).toBe('s_corp');
     } finally {
       await ctx.handle.close();
     }

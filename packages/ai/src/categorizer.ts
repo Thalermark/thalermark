@@ -1,6 +1,7 @@
 import { generateObject } from 'ai';
 import { z } from 'zod';
 import { constrainCode } from './normalize.js';
+import { businessPersona } from './persona.js';
 import { type LlmCredential, resolveModel } from './provider.js';
 import type { CategorizeInput, CategorizeResult, ExpenseCategorizer } from './types.js';
 
@@ -27,7 +28,7 @@ function buildPrompt(input: CategorizeInput): string {
     .filter((line): line is string => line !== null)
     .join('\n');
   return [
-    'You are categorizing a business expense for a self-employed tradesperson.',
+    `You are categorizing a business expense for ${businessPersona(input.businessType)}.`,
     'Pick the single best-fitting expense category code from this list (or null if none clearly fit):',
     list,
     'Expense details:',
