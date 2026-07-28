@@ -415,7 +415,7 @@
     <p class="mt-3 max-w-prose text-fg/70">
       Bring your books across — what your business owns, owes, and has already earned this year — so
       your numbers and your tax worksheet cover the whole year, not just the part you've spent here.
-      Import a trial balance straight from QuickBooks, Xero or Wave.
+      Import them straight from QuickBooks, Xero or Wave.
     </p>
 
     <h3 class="label mt-8">Starting balances</h3>
@@ -427,7 +427,7 @@
       data={data.openingBalance}
       form={balanceForm}
       cancelHref="/settings/import"
-      advancedLabel="I have a trial balance to enter"
+      advancedLabel="I have my previous balances"
     />
   </section>
 {/if}

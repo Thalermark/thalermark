@@ -21,7 +21,7 @@
 <p class="mt-4 text-fg/70">
   If your business existed before today, tell us where it stood — what's in the bank, what you're
   owed, what you owe. Coming from other accounting software? There's a fuller option below that
-  takes your trial balance straight from a CSV.
+  takes your closing figures straight from a file.
 </p>
 <p class="mt-3 text-sm text-fg/50">
   Optional, and you can do it later from Settings → Import &amp; export. Worth doing before your

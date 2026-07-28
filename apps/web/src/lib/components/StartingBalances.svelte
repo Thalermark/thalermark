@@ -29,10 +29,16 @@
     cancelHref: string;
     // "Skip for now" in the wizard, where there's nothing to cancel back to.
     cancelLabel?: string;
-    // The toggle into the full trial balance. Overridable because a host whose
-    // own heading already asks "coming from other accounting software?" would
-    // otherwise render the identical phrase twice, making the toggle look like
-    // a no-op.
+    // The toggle into the account-by-account view. Overridable because a host
+    // whose own heading already asks "coming from other accounting software?"
+    // would otherwise render the identical phrase twice, making the toggle look
+    // like a no-op.
+    //
+    // Keep any override in PLAIN words. "Trial balance" is the accountant's
+    // term and this product's whole premise is that the user never has to learn
+    // it — it survives in exactly two places below, both earned: translating it
+    // once ("your accountant will call this…"), and naming the report they have
+    // to go and find in the software they're leaving.
     advancedLabel?: string;
     // The wizard has no "undo it later" affordance — you're mid-setup.
     showClear?: boolean;
@@ -267,7 +273,7 @@
     <div class="mt-5 max-w-2xl rounded-sm border border-fg/10 bg-surface-2 p-4">
       <div class="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p class="text-sm text-fg">Import a trial balance</p>
+          <p class="text-sm text-fg">Import them from a file</p>
           <p class="mt-0.5 text-xs text-fg/50">
             Export "Trial Balance" as CSV from QuickBooks, Xero or Wave. We'll match it to your
             accounts — you check it before saving.
