@@ -356,6 +356,43 @@ async function buildTaxWorksheet(
         ),
       );
     grossReceiptsCents = toCents(row?.gross ?? '0.00');
+
+    // Plus revenue carried in on a conversion balance (TMC-169).
+    //
+    // Someone who switches to Thalermark mid-year enters what they'd already
+    // traded that year as an opening trial balance, which posts straight to the
+    // GL. Expenses from that entry are picked up by the query above this one —
+    // it reads the GL, so it sees them on either basis. Revenue is NOT, because
+    // cash-basis gross receipts come off `invoices` rather than the GL, and a
+    // conversion line is not an invoice.
+    //
+    // Left alone, that asymmetry is the worst possible failure for this report:
+    // a full year of deductions against half a year of income, on a tax
+    // worksheet, silently. So the one bounded GL source that can legitimately
+    // carry revenue is added back explicitly. Everything else still has to
+    // arrive as an invoice, which is what keeps owner contributions and loan
+    // proceeds structurally out of income.
+    //
+    // Basis caveat, worth knowing: we take the figures the user gives us. If
+    // they kept their old books on accrual and file cash, the imported portion
+    // reflects their old basis and we cannot restate it — the same number
+    // appears under both lenses.
+    const [converted] = await tx
+      .select({ amount: glAmount })
+      .from(journalLines)
+      .innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id))
+      .innerJoin(chartOfAccounts, eq(journalLines.coaAccountId, chartOfAccounts.id))
+      .where(
+        and(
+          eq(journalEntries.companyId, id),
+          eq(journalEntries.accountId, accountId),
+          eq(chartOfAccounts.accountType, 'revenue'),
+          eq(journalEntries.sourceEntityType, 'opening_balance'),
+          gte(journalEntries.postedAt, fromInstant),
+          lt(journalEntries.postedAt, toExclusiveInstant),
+        ),
+      );
+    grossReceiptsCents += toCents(converted?.amount ?? '0.00');
   } else {
     const revenueRows = await tx
       .select({ amount: glAmount })

@@ -883,6 +883,70 @@ describe('GET /api/companies/:id/tax-worksheet', () => {
     }
   });
 
+  // TMC-169. Someone who switches to Thalermark mid-year enters what they had
+  // already traded that year as a conversion balance, which posts straight to
+  // the GL.
+  //
+  // The trap: expenses off that entry are read from the GL and so appear on
+  // BOTH bases, while cash-basis gross receipts come off `invoices` and so
+  // would miss the revenue entirely. Left alone that shows a full year of
+  // deductions against half a year of income — on a tax worksheet.
+  //
+  // Deliberately asserted on both bases: checking only one is exactly how this
+  // stays broken.
+  it('counts a mid-year conversion balance on cash AND accrual', async () => {
+    const { ctx, close } = await setup('tw-midyear@example.com');
+    try {
+      const [cash, supplies, revenue] = await Promise.all([
+        coaId(ctx.companyId, '1000'),
+        coaId(ctx.companyId, '7000'),
+        coaId(ctx.companyId, '4000'),
+      ]);
+      // Jan–Jul traded elsewhere: 8,000 income, 3,000 supplies, 5,000 left in
+      // the bank. Balances to zero, as a trial balance must.
+      const put = await ctx.app.request('/api/owner-money/opening-balance', {
+        method: 'PUT',
+        headers: headers(ctx),
+        body: JSON.stringify({
+          companyId: ctx.companyId,
+          asOfDate: '2026-07-28',
+          lines: [
+            { coaAccountId: cash, side: 'debit', amount: '5000.00' },
+            { coaAccountId: supplies, side: 'debit', amount: '3000.00' },
+            { coaAccountId: revenue, side: 'credit', amount: '8000.00' },
+          ],
+        }),
+      });
+      // 201 on first create, 200 on a later upsert.
+      expect([200, 201]).toContain(put.status);
+
+      // Then a month of trading inside Thalermark.
+      const contact = await createContact(ctx, 'Post-switch client');
+      await invoice(ctx, contact, {
+        number: 'INV-MY-1',
+        subtotal: '2000.00',
+        issueDate: '2026-08-01',
+        paidOn: '2026-08-05',
+      });
+      await expenseFor(ctx, ctx.companyId, {
+        categoryCode: '7000',
+        amount: '500.00',
+        expenseDate: '2026-08-02',
+      });
+
+      for (const basis of ['cash', 'accrual'] as const) {
+        const w = await getWorksheet(ctx, ctx.companyId, `?year=2026&basis=${basis}`);
+        // 8,000 carried in + 2,000 earned here. Not 2,000.
+        expect(row(w, '1').amount, `${basis} gross receipts`).toBe('10000.00');
+        // 3,000 carried in + 500 spent here.
+        expect(row(w, '22').amount, `${basis} supplies`).toBe('3500.00');
+        expect(w.netIncome, `${basis} net`).toBe('6500.00');
+      }
+    } finally {
+      await close();
+    }
+  });
+
   it('rejects a bad basis, a bad year, and a foreign company', async () => {
     const { ctx, close } = await setup('tw-validation@example.com');
     try {
