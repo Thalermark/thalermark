@@ -182,25 +182,6 @@
   everything to take away.
 </p>
 
-<!-- Coming from other software goes FIRST. It's the one with a deadline attached:
-     someone who switched in July still files one return for the whole year, and if
-     they don't enter what they already traded, their tax worksheet is short by
-     however long they were elsewhere. Contacts and items can wait. -->
-{#if data.openingBalance}
-  <section class="mt-10 border-t border-fg/10 pt-8">
-    <!-- Heading deliberately does NOT repeat "Coming from other accounting
-         software?" — that phrase belongs to the toggle inside the component,
-         and reading it twice makes the toggle look like a no-op. -->
-    <h2 class="font-serif text-2xl font-light text-fg">Starting balances</h2>
-    <p class="mt-2 max-w-prose text-sm text-fg/60">
-      Where your business stood when you arrived — what's in the bank, what you're owed, what you
-      owe. If you'd already been trading this year, include what you've earned and spent too, or
-      your tax worksheet will only cover the part of the year you spent here.
-    </p>
-    <StartingBalances data={data.openingBalance} form={balanceForm} cancelHref="/settings/import" />
-  </section>
-{/if}
-
 <section class="mt-12 border-t border-fg/10 pt-8">
   <h2 class="font-serif text-2xl font-light text-fg">Contacts &amp; items</h2>
   <p class="mt-2 max-w-prose text-sm text-fg/60">
@@ -418,3 +399,35 @@
     </p>
   {/if}
 </section>
+
+<!-- Last, and the loudest thing on the page. Contacts and items are a
+     convenience; this one has a deadline attached — someone who switched in
+     July still files ONE return for the whole year, and if they don't enter
+     what they already traded, their tax worksheet is short by however long they
+     were somewhere else, with nothing on it to say so.
+     The prominent heading asks the question, so the toggle inside the component
+     is relabelled rather than repeating it. -->
+{#if data.openingBalance}
+  <section class="mt-14 border-t-2 border-accent/30 pt-8">
+    <h2 class="font-serif text-3xl font-light leading-tight text-fg">
+      Coming from other accounting software?
+    </h2>
+    <p class="mt-3 max-w-prose text-fg/70">
+      Bring your books across — what your business owns, owes, and has already earned this year — so
+      your numbers and your tax worksheet cover the whole year, not just the part you've spent here.
+      Import a trial balance straight from QuickBooks, Xero or Wave.
+    </p>
+
+    <h3 class="label mt-8">Starting balances</h3>
+    <p class="mt-2 max-w-prose text-sm text-fg/60">
+      Where your business stood when you arrived. Just getting going? The three questions below are
+      all you need.
+    </p>
+    <StartingBalances
+      data={data.openingBalance}
+      form={balanceForm}
+      cancelHref="/settings/import"
+      advancedLabel="I have a trial balance to enter"
+    />
+  </section>
+{/if}

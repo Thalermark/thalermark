@@ -21,6 +21,7 @@
     form,
     cancelHref,
     cancelLabel = 'Cancel',
+    advancedLabel = 'Coming from other accounting software?',
     showClear = true,
   }: {
     data: OpeningBalanceData;
@@ -28,6 +29,11 @@
     cancelHref: string;
     // "Skip for now" in the wizard, where there's nothing to cancel back to.
     cancelLabel?: string;
+    // The toggle into the full trial balance. Overridable because a host whose
+    // own heading already asks "coming from other accounting software?" would
+    // otherwise render the identical phrase twice, making the toggle look like
+    // a no-op.
+    advancedLabel?: string;
     // The wizard has no "undo it later" affordance — you're mid-setup.
     showClear?: boolean;
   } = $props();
@@ -220,7 +226,7 @@
 {#if canEnterFull}
   <div class="mt-8 border-t border-fg/10 pt-6">
     <button type="button" class="link text-sm" onclick={() => (advanced = !advanced)}>
-      {advanced ? '← Just the three questions' : 'Coming from other accounting software?'}
+      {advanced ? '← Just the three questions' : advancedLabel}
     </button>
     {#if !advanced}
       <p class="mt-2 max-w-2xl text-sm text-fg/50">
