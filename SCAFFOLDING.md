@@ -1390,6 +1390,35 @@ print-and-hand-to-your-accountant and people bookmark it.
 `lib/schedule-c.ts` → `lib/tax-worksheet.ts`, still a static table per form so each can be diffed against
 the IRS PDF without reading query code. SQL stays in `routes/reports.ts`.
 
+**Then somebody actually did that diff — TMC-167.** All four tables were pointing at the wrong lines. The
+§179D **energy efficient commercial buildings deduction (Form 7205)** took a line on Schedule C, the 1065
+and the 1120-S for **TY2023**, pushing everything below it down one. On the 1120 it landed in the slot TCJA
+had left blank (line 25), so that form alone didn't shift.
+
+| Form | Catch-all was | Actually is |
+| --- | --- | --- |
+| Schedule C | 27a | **27b** (27a = energy) |
+| 1065 | 20 | **21** (20 = energy) |
+| 1120-S | 19 | **20** (19 = energy) |
+| 1120 | 26 | 26 — already right |
+
+Schedule C had been wrong **since TMC-155**, live in production, for two tax years. Beta carried 6 affected
+rows (3 sole-prop companies × accounts 7900/7950). Migration **0024** backfills by matching the exact old
+string, so a hand-edited chart is left alone and a re-run is a no-op.
+
+**Why nothing caught it.** Every test asserted the table against itself, and the table was perfectly
+self-consistent — `parseTaxMapping` resolved `Form 1065, Line 20` flawlessly, it just didn't know line 20
+had come to mean something else. Internal consistency cannot detect a form change. Only the PDF can. Two
+tests now pin the catch-all line per form and assert the energy line sits immediately before it and is
+never the itemised one.
+
+**Habit this establishes:** re-run the PDF diff whenever the IRS publishes a new tax year. The module
+header records which revisions the tables were verified against (TY2025: f1040sc 4/3/25, f1065 11/25/25,
+f1120s 4/7/25, f1120 9/26/25) so the next person knows when it was last checked rather than assuming.
+Deliberately *not* built: per-year line tables. The product launches in 2026 and operates forward, the
+year picker's whole range (2023–2026) shares one layout, and versioning would be a mechanism for a form
+change that hasn't happened yet.
+
 **Inherited limitation, unchanged:** cash-basis gross receipts query invoices with `status='paid'` and
 assume payment is all-or-nothing — there is no partial-payment or deposit model. All four forms inherit
 this. If deposits ever land it silently becomes wrong and must move to a payments table.
