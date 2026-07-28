@@ -204,6 +204,36 @@ describe('expense categorization', () => {
       expect(lastInput?.memo).toBe('lumber for deck');
       expect(lastInput?.amount).toBe('42.50');
       expect(lastInput?.allowedCategories.some((c) => c.code === '6000')).toBe(true);
+      // A fresh company has no business type yet; the prompt persona falls back
+      // to sole prop. Asserting null (not undefined) is the point — it proves the
+      // route passes the field rather than leaving the prompt to its old
+      // hardcoded sole-trader persona.
+      expect(lastInput?.businessType).toBeNull();
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it("passes the company's business type through to the categorizer", async () => {
+    const ctx = buildApp();
+    try {
+      const cookie = await signUp(ctx.app, 'cat-entity@example.com');
+      const { accountId, companyId } = await userContext('cat-entity@example.com');
+      // Set directly rather than via PATCH /api/companies/:id, which reconciles
+      // the chart of accounts on a business-type change.
+      await getTestDb()
+        .update(companies)
+        .set({ businessType: 'c_corp' })
+        .where(eq(companies.id, companyId));
+
+      const res = await categorize(
+        ctx.app,
+        { cookie, 'x-account-id': accountId },
+        { companyId, merchant: 'Home Depot' },
+      );
+
+      expect(res.status).toBe(200);
+      expect(lastInput?.businessType).toBe('c_corp');
     } finally {
       await ctx.handle.close();
     }
