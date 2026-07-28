@@ -2,6 +2,7 @@ import { generateObject } from 'ai';
 import { z } from 'zod';
 import { type RawExtraction, normalizeExtraction } from './normalize.js';
 import { renderPdfFirstPageToPng } from './pdf.js';
+import { businessPersona } from './persona.js';
 import { type LlmCredential, resolveModel } from './provider.js';
 import type { ExtractionInput, ExtractionResult, ReceiptExtractor } from './types.js';
 
@@ -18,10 +19,16 @@ const rawSchema = z.object({
     .describe('One expense category code from the provided list, or null'),
 });
 
-function buildPrompt(allowed: ExtractionInput['allowedCategories']): string {
-  const list = allowed.map((c) => `  ${c.code} — ${c.name}`).join('\n');
+function buildPrompt(input: ExtractionInput): string {
+  const list = input.allowedCategories.map((c) => `  ${c.code} — ${c.name}`).join('\n');
   return [
-    'You are reading a receipt to help a self-employed tradesperson log an expense.',
+    // The persona sits at the END of this sentence, unlike the original
+    // "help a <persona> log an expense". The phrases carry a trailing
+    // qualifier ("a small business set up as an S-corporation"), and mid-sentence
+    // that garden-paths: "help a small business set up as an S-corporation log
+    // an expense". The trailing slot is also what lets all three prompts in this
+    // package share one set of phrases.
+    `You are reading a receipt to help log an expense for ${businessPersona(input.businessType)}.`,
     'Extract the fields from the receipt image. Use null for anything not clearly legible — do not guess.',
     'For suggestedCategoryCode, pick the single best-fitting code from this list (or null if none fit):',
     list,
@@ -58,7 +65,7 @@ export function createReceiptExtractor(): ReceiptExtractor {
           {
             role: 'user',
             content: [
-              { type: 'text', text: buildPrompt(input.allowedCategories) },
+              { type: 'text', text: buildPrompt(input) },
               { type: 'image', image },
             ],
           },
