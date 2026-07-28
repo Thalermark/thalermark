@@ -661,10 +661,13 @@ describe('GET /api/companies/:id/tax-worksheet', () => {
       expect(w.formCode).toBe('1065');
       expect(w.form).toBe('Form 1065');
       expect(row(w, '11').amount).toBe('175.00');
-      expect(row(w, '20').amount).toBe('240.00');
-      expect(row(w, '21').role).toBe('totalDeductions');
+      // 21, not 20 — line 20 is the energy efficient buildings deduction as of
+      // TY2023, which is what TMC-167 corrected.
+      expect(row(w, '21').amount).toBe('240.00');
+      expect(row(w, '20').amount).toBe('0.00');
+      expect(row(w, '22').role).toBe('totalDeductions');
       expect(w.totalDeductions).toBe('415.00');
-      expect(row(w, '22').amount).toBe('-415.00');
+      expect(row(w, '23').amount).toBe('-415.00');
       // Income runs 1a–8 on this form, not 1–7.
       expect(w.income.at(0)?.line).toBe('1a');
       expect(w.income.at(-1)?.line).toBe('8');
@@ -689,7 +692,7 @@ describe('GET /api/companies/:id/tax-worksheet', () => {
       }
 
       const w = await getWorksheet(ctx, id, '?year=2026&basis=cash');
-      const other = row(w, '20');
+      const other = row(w, '21');
       expect(other.itemized).toBe(true);
       expect(other.amount).toBe('1433.72');
       expect(other.accounts.map((a) => a.code)).toEqual(['6700', '7000', '7400']);
@@ -714,7 +717,8 @@ describe('GET /api/companies/:id/tax-worksheet', () => {
       const w = await getWorksheet(ctx, id, '?year=2026&basis=cash');
       expect(w.formCode).toBe('1120s');
       expect(row(w, '16').amount).toBe('500.00');
-      expect(row(w, '19').itemized).toBe(true);
+      expect(row(w, '20').itemized).toBe(true);
+      expect(row(w, '19').amount).toBe('0.00');
       expect(w.totalDeductions).toBe('500.00');
       // Officer compensation renders at zero until payroll (TMC-161) lands —
       // the line must be visible, not omitted.

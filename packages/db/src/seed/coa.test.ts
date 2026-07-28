@@ -152,11 +152,11 @@ describe('entity-specific accounts', () => {
   // the rest — they file as one "other deductions" total with an itemised
   // statement, which is exactly what these accounts produce.
   it('rolls the accounts with no dedicated line into other deductions', () => {
-    expect(byCode('partnership').get('7000')?.taxMapping).toBe('Form 1065, Line 20');
-    expect(byCode('s_corp').get('7000')?.taxMapping).toBe('Form 1120-S, Line 19');
+    expect(byCode('partnership').get('7000')?.taxMapping).toBe('Form 1065, Line 21');
+    expect(byCode('s_corp').get('7000')?.taxMapping).toBe('Form 1120-S, Line 20');
     expect(byCode('c_corp').get('7000')?.taxMapping).toBe('Form 1120, Line 26');
     // Advertising does get its own line on the 1120s, but not on the 1065.
-    expect(byCode('partnership').get('6000')?.taxMapping).toBe('Form 1065, Line 20');
+    expect(byCode('partnership').get('6000')?.taxMapping).toBe('Form 1065, Line 21');
     expect(byCode('s_corp').get('6000')?.taxMapping).toBe('Form 1120-S, Line 16');
     expect(byCode('c_corp').get('6000')?.taxMapping).toBe('Form 1120, Line 22');
   });

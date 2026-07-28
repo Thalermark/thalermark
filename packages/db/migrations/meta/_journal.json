@@ -169,6 +169,13 @@
       "when": 1785234000000,
       "tag": "0023_entity_transfers",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1785237600000,
+      "tag": "0024_irs_line_renumbering",
+      "breakpoints": true
     }
   ]
 }

@@ -143,12 +143,12 @@ describe('rollUpDeductions', () => {
   it('rolls multiple accounts onto one line and keeps the breakdown', () => {
     const { rows } = rollUpDeductions(
       [
-        acct('7900', 'Other Expenses', 'Schedule C, Line 27a', '40.00'),
-        acct('7950', 'Merchant Processing Fees', 'Schedule C, Line 27a', '3.44'),
+        acct('7900', 'Other Expenses', 'Schedule C, Line 27b', '40.00'),
+        acct('7950', 'Merchant Processing Fees', 'Schedule C, Line 27b', '3.44'),
       ],
       SCHEDULE_C,
     );
-    const row = rows.find((r) => r.line === '27a');
+    const row = rows.find((r) => r.line === '27b');
     expect(row?.amount).toBe('43.44');
     expect(row?.accounts).toEqual([
       { code: '7900', name: 'Other Expenses', amount: '40.00' },
@@ -212,11 +212,11 @@ describe('rollUpDeductions', () => {
     const { rows, totalDeductions } = rollUpDeductions(
       [
         acct('7000', 'Supplies', 'Schedule C, Line 22', '100.00'),
-        acct('7900', 'Other Expenses', 'Schedule C, Line 27a', '-30.00'),
+        acct('7900', 'Other Expenses', 'Schedule C, Line 27b', '-30.00'),
       ],
       SCHEDULE_C,
     );
-    expect(rows.find((r) => r.line === '27a')?.amount).toBe('-30.00');
+    expect(rows.find((r) => r.line === '27b')?.amount).toBe('-30.00');
     expect(totalDeductions).toBe('70.00');
   });
 
@@ -232,11 +232,41 @@ describe('rollUpDeductions', () => {
     expect(unmapped).toEqual([{ code: '7450', name: 'Officer Compensation', amount: '5000.00' }]);
   });
 
-  it('flags the itemised catch-all line on every form', () => {
-    expect(SCHEDULE_C.deductions.find((l) => l.itemized)?.line).toBe('27a');
-    expect(FORM_1065.deductions.find((l) => l.itemized)?.line).toBe('20');
-    expect(FORM_1120S.deductions.find((l) => l.itemized)?.line).toBe('19');
+  // Pinned against the TY2025 forms (TMC-167). These four numbers are the ones
+  // that moved when the §179D energy deduction was inserted, and they carry
+  // most of a chart on three of the four forms — so if a future form shifts
+  // them again and nobody notices, most of a business's spend lands on the
+  // wrong line of a real tax return.
+  it('puts the itemised catch-all on the line the IRS prints it on', () => {
+    expect(SCHEDULE_C.deductions.find((l) => l.itemized)?.line).toBe('27b');
+    expect(FORM_1065.deductions.find((l) => l.itemized)?.line).toBe('21');
+    expect(FORM_1120S.deductions.find((l) => l.itemized)?.line).toBe('20');
     expect(FORM_1120.deductions.find((l) => l.itemized)?.line).toBe('26');
+  });
+
+  // The direct regression guard: the energy line must exist, sit immediately
+  // before the catch-all, and never BE the catch-all. Getting this wrong is
+  // precisely the bug TMC-167 fixed — and it is invisible to every other
+  // assertion in this file, because a table that points at the wrong line is
+  // still perfectly self-consistent.
+  it('keeps the energy deduction line distinct from other deductions', () => {
+    const cases = [
+      { form: SCHEDULE_C, energy: '27a', other: '27b' },
+      { form: FORM_1065, energy: '20', other: '21' },
+      { form: FORM_1120S, energy: '19', other: '20' },
+      { form: FORM_1120, energy: '25', other: '26' },
+    ];
+    for (const { form, energy, other } of cases) {
+      const lines = form.deductions.map((l) => l.line);
+      expect(lines.indexOf(energy), form.name).toBe(lines.indexOf(other) - 1);
+      expect(form.deductions.find((l) => l.line === energy)?.label, form.name).toMatch(
+        /energy efficient commercial (buildings|bldgs) deduction/i,
+      );
+      expect(form.deductions.find((l) => l.line === energy)?.itemized, form.name).toBeUndefined();
+      expect(form.deductions.find((l) => l.line === other)?.label, form.name).toMatch(
+        /other (expenses|deductions)/i,
+      );
+    }
   });
 
   // The statement attached to that line is the real output of the three
@@ -245,13 +275,13 @@ describe('rollUpDeductions', () => {
   it('keeps the full account breakdown behind the catch-all line', () => {
     const { rows } = rollUpDeductions(
       [
-        acct('6700', 'Office Expense', 'Form 1065, Line 20', '240.00'),
-        acct('7000', 'Supplies', 'Form 1065, Line 20', '1105.60'),
-        acct('7400', 'Utilities', 'Form 1065, Line 20', '88.12'),
+        acct('6700', 'Office Expense', 'Form 1065, Line 21', '240.00'),
+        acct('7000', 'Supplies', 'Form 1065, Line 21', '1105.60'),
+        acct('7400', 'Utilities', 'Form 1065, Line 21', '88.12'),
       ],
       FORM_1065,
     );
-    const row = rows.find((r) => r.line === '20');
+    const row = rows.find((r) => r.line === '21');
     expect(row?.amount).toBe('1433.72');
     expect(row?.accounts.map((a) => a.code)).toEqual(['6700', '7000', '7400']);
   });

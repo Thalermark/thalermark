@@ -126,7 +126,7 @@ describe('reconcileChartOfAccounts', () => {
     expect(byCode.get('3400')?.name).toBe('Retained Earnings');
     // The whole chart, not just the equity block, now points at the new return.
     expect(byCode.get('6000')?.taxMapping).toBe('Form 1120-S, Line 16');
-    expect(byCode.get('7000')?.taxMapping).toBe('Form 1120-S, Line 19');
+    expect(byCode.get('7000')?.taxMapping).toBe('Form 1120-S, Line 20');
   });
 
   it('leaves the chart alone when the type resolves to the same one', async () => {

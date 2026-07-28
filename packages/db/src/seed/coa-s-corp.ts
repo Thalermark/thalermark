@@ -28,7 +28,7 @@ import type { CoaOverlay } from './coa.js';
 //
 // Like Form 1065, 1120-S has a much shorter deduction list than Schedule C — no
 // line for office expense, supplies, travel, meals, utilities, insurance, legal
-// fees or commissions. Those land on line 19, Other deductions, with an attached
+// fees or commissions. Those land on line 20, Other deductions, with an attached
 // statement. Advertising, unlike on 1065, does get its own line (16).
 export const S_CORP_OVERLAY: CoaOverlay = {
   taxForm: 'Form 1120-S',
@@ -68,18 +68,20 @@ export const S_CORP_OVERLAY: CoaOverlay = {
     '6350': 'Form 1120-S, Line 14', // Depreciation
     '6000': 'Form 1120-S, Line 16', // Advertising
 
-    // Line 19, Other deductions — everything without a dedicated line.
-    '6100': 'Form 1120-S, Line 19', // Car and truck
-    '6200': 'Form 1120-S, Line 19', // Commissions and fees
-    '6300': 'Form 1120-S, Line 19', // Contract labor
-    '6400': 'Form 1120-S, Line 19', // Insurance
-    '6600': 'Form 1120-S, Line 19', // Legal and professional
-    '6700': 'Form 1120-S, Line 19', // Office expense
-    '7000': 'Form 1120-S, Line 19', // Supplies
-    '7200': 'Form 1120-S, Line 19', // Travel
-    '7300': 'Form 1120-S, Line 19', // Meals
-    '7400': 'Form 1120-S, Line 19', // Utilities
-    '7900': 'Form 1120-S, Line 19', // Other expenses
-    '7950': 'Form 1120-S, Line 19', // Merchant processing fees
+    // Line 20, Other deductions — everything without a dedicated line. (Line 19
+    // is the energy efficient commercial buildings deduction as of TY2023;
+    // these sat on 19 until TMC-167 corrected them.)
+    '6100': 'Form 1120-S, Line 20', // Car and truck
+    '6200': 'Form 1120-S, Line 20', // Commissions and fees
+    '6300': 'Form 1120-S, Line 20', // Contract labor
+    '6400': 'Form 1120-S, Line 20', // Insurance
+    '6600': 'Form 1120-S, Line 20', // Legal and professional
+    '6700': 'Form 1120-S, Line 20', // Office expense
+    '7000': 'Form 1120-S, Line 20', // Supplies
+    '7200': 'Form 1120-S, Line 20', // Travel
+    '7300': 'Form 1120-S, Line 20', // Meals
+    '7400': 'Form 1120-S, Line 20', // Utilities
+    '7900': 'Form 1120-S, Line 20', // Other expenses
+    '7950': 'Form 1120-S, Line 20', // Merchant processing fees
   },
 };
