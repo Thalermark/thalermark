@@ -1,6 +1,7 @@
 <script lang="ts">
   import LoadMore from '$lib/components/LoadMore.svelte';
   import MetricStrip from '$lib/components/MetricStrip.svelte';
+  import SplitButton from '$lib/components/SplitButton.svelte';
   import { fetchMore } from '$lib/load-more';
   import { may } from '$lib/perms';
   import { untrack } from 'svelte';
@@ -102,13 +103,43 @@
       All invoices<span class="text-accent">.</span>
     </h1>
   </div>
+  <!-- Repeating invoices used to have a top-nav slot it didn't earn. They live
+       behind this caret instead — the same place you'd go to make an invoice,
+       which is where someone actually thinks of it. Mobile already worked this
+       way (its repeating list hangs off the invoices stack, not a tab), so this
+       brings web into line rather than inventing a pattern.
+
+       The list stays reachable for read-only roles, matching the old nav link,
+       which was ungated. -->
   {#if may(data.role, 'sales:write')}
-    <a
-      href="/invoices/new"
-      class="btn"
+    <SplitButton
+      label="Invoice options"
+      caretClass="border-l border-surface/20 bg-inverse text-on-inverse hover:bg-accent"
     >
-      + New invoice
-    </a>
+      {#snippet primary()}
+        <a href="/invoices/new" class="btn rounded-r-none">+ New invoice</a>
+      {/snippet}
+      {#snippet menu(close)}
+        <a
+          href="/recurring/new"
+          role="menuitem"
+          onclick={close}
+          class="block px-4 py-2 text-sm text-fg/80 transition-colors hover:bg-surface-2 hover:text-fg"
+        >
+          Set up a repeating invoice
+        </a>
+        <a
+          href="/recurring"
+          role="menuitem"
+          onclick={close}
+          class="block px-4 py-2 text-sm text-fg/80 transition-colors hover:bg-surface-2 hover:text-fg"
+        >
+          Repeating invoices
+        </a>
+      {/snippet}
+    </SplitButton>
+  {:else}
+    <a href="/recurring" class="link text-sm">Repeating invoices →</a>
   {/if}
 </div>
 

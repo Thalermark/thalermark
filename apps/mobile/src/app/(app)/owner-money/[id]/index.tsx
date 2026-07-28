@@ -94,7 +94,7 @@ export default function OwnerMoneyDetail() {
           onPress={() => router.push('/owner-money')}
           className="font-mono text-xs uppercase tracking-widest text-ink/60"
         >
-          ← My Money
+          ← Investments
         </Text>
 
         {detail.state === 'loading' ? (
@@ -108,7 +108,7 @@ export default function OwnerMoneyDetail() {
             <View className="mt-3 flex-row items-start justify-between gap-3">
               <View className="flex-1">
                 <Text className="font-serif text-3xl font-light text-ink">
-                  {isIn ? 'Money in' : 'Money out'}
+                  {isIn ? 'Investment' : 'Withdrawal'}
                 </Text>
                 <Text
                   className={`mt-1 font-mono text-2xl tabular-nums ${isIn ? 'text-gold-deep' : 'text-ink'}`}

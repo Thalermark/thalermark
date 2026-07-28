@@ -49,5 +49,5 @@
 
 <div class="mt-10 flex items-center justify-between gap-4">
   <a href="/" class="label hover:text-fg"> Go to dashboard </a>
-  <a href="/invoices/new" class="btn px-6 py-3"> Send your first invoice → </a>
+  <a href="/welcome/books" class="btn px-6 py-3"> Next: your starting figures → </a>
 </div>

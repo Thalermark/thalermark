@@ -58,9 +58,9 @@
     estimate: 'Estimate',
     expense: 'Expense',
     bill: 'Bill',
-    owner_money_event: 'My Money',
+    owner_money_event: 'Investment or withdrawal',
     company: 'Company',
-    recurring_invoice: 'Recurring',
+    recurring_invoice: 'Repeating invoice',
     item: 'Item',
   };
   const ENTITY_PATHS: Record<string, string> = {

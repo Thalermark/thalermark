@@ -108,7 +108,7 @@
   }
 </script>
 
-<a href="/recurring" class="eyebrow text-fg/60 hover:text-fg">← Recurring</a>
+<a href="/recurring" class="eyebrow text-fg/60 hover:text-fg">← Repeating</a>
 <h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-fg">
   New schedule<span class="text-accent">.</span>
 </h1>

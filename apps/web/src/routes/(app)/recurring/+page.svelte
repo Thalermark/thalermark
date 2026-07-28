@@ -42,9 +42,9 @@
 
 <div class="flex items-baseline justify-between gap-6">
   <div>
-    <span class="eyebrow">Recurring</span>
+    <span class="eyebrow">Repeating</span>
     <h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-fg">
-      Recurring invoices<span class="text-accent">.</span>
+      Repeating invoices<span class="text-accent">.</span>
     </h1>
   </div>
   {#if may(data.role, 'sales:write')}

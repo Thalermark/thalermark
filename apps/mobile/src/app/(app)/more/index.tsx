@@ -58,7 +58,7 @@ const SALES_ENTRIES: Entry[] = [
   {
     href: '/invoices/recurring',
     icon: 'repeat-outline',
-    title: 'Recurring invoices',
+    title: 'Repeating invoices',
     subtitle: 'Schedules that generate and email invoices on their own.',
   },
 ];
@@ -78,7 +78,7 @@ const BILLS_ENTRY: Entry = {
 const OWNER_MONEY_ENTRY: Entry = {
   href: '/owner-money',
   icon: 'swap-vertical-outline',
-  title: 'My Money',
+  title: 'Investments & withdrawals',
   subtitle: 'Money you put in from your own pocket, or take out to pay yourself.',
 };
 

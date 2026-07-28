@@ -188,7 +188,7 @@ export default function RecurringDetail() {
           onPress={() => router.push('/invoices/recurring')}
           className="font-mono text-xs uppercase tracking-widest text-ink/60"
         >
-          ← Recurring
+          ← Repeating
         </Text>
 
         {detail.state === 'loading' ? (

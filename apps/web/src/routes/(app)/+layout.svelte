@@ -79,7 +79,6 @@
     {#if session}
       <nav class="flex items-center gap-6 font-mono text-xs uppercase tracking-widest text-fg/60">
         <a href="/invoices" class="hover:text-fg">Invoices</a>
-        <a href="/recurring" class="hover:text-fg">Recurring</a>
         <a href="/estimates" class="hover:text-fg">Estimates</a>
         <a href="/expenses" class="hover:text-fg">Expenses</a>
         <a href="/contacts" class="hover:text-fg">Contacts</a>
