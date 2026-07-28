@@ -20,11 +20,14 @@
     data,
     form,
     cancelHref,
+    cancelLabel = 'Cancel',
     showClear = true,
   }: {
     data: OpeningBalanceData;
     form: OpeningBalanceForm;
     cancelHref: string;
+    // "Skip for now" in the wizard, where there's nothing to cancel back to.
+    cancelLabel?: string;
     // The wizard has no "undo it later" affordance — you're mid-setup.
     showClear?: boolean;
   } = $props();
@@ -209,7 +212,7 @@
 
     <div class="flex items-center gap-4">
       <button type="submit" class="btn">Save</button>
-      <a href={cancelHref} class="text-sm text-fg/60 hover:text-fg">Cancel</a>
+      <a href={cancelHref} class="text-sm text-fg/60 hover:text-fg">{cancelLabel}</a>
     </div>
   </form>
 {/if}
@@ -370,7 +373,7 @@
 
     <div class="mt-6 flex items-center gap-4">
       <button type="submit" class="btn" disabled={!balanced || !complete}>Save</button>
-      <a href={cancelHref} class="text-sm text-fg/60 hover:text-fg">Cancel</a>
+      <a href={cancelHref} class="text-sm text-fg/60 hover:text-fg">{cancelLabel}</a>
     </div>
   </form>
 {/if}
