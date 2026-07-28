@@ -19,9 +19,20 @@
 // "small business" is doing deliberate work in four of the five: it anchors
 // scale. Thalermark's C-corps are one-truck operations, not Boeing, and a bare
 // "a C-corporation" invites the model to write for a finance department.
-// Also the fallback, so it is named rather than looked up (the lookup would be
-// string | undefined under noUncheckedIndexedAccess and need a cast).
-const SOLE_PROP = 'a self-employed tradesperson';
+//
+// sole_prop names two reader types rather than a category, and that is the
+// point: a model writes differently for "a freelancer or tradesperson" than for
+// "a self-employed person", which is a tax status and steers nothing. It was
+// "a self-employed tradesperson" until TMC-171 — accurate for the power washers
+// and landscapers, wrong for the dog sitters, photographers, and VAs who are
+// equally the audience (PROJECT.md). It stays deliberately concrete: collapsing
+// it to "a small business" would erase the distinction from the other four.
+//
+// This is also the fallback for null and unrecognised codes, so it is the
+// most-served persona by a wide margin — every company that has not picked an
+// entity gets it. Named rather than looked up because the lookup would be
+// string | undefined under noUncheckedIndexedAccess and need a cast.
+const SOLE_PROP = 'a freelancer or tradesperson';
 
 const PERSONAS: Record<string, string> = {
   sole_prop: SOLE_PROP,

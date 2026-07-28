@@ -10,7 +10,7 @@ describe('businessPersona', () => {
   // shifts model output, so it should have to be a deliberate edit here rather
   // than something that rides along in an unrelated change.
   it('maps each business type to its persona', () => {
-    expect(businessPersona('sole_prop')).toBe('a self-employed tradesperson');
+    expect(businessPersona('sole_prop')).toBe('a freelancer or tradesperson');
     expect(businessPersona('llc_single_member')).toBe('a small business set up as an LLC');
     expect(businessPersona('partnership')).toBe('a small business set up as a partnership');
     expect(businessPersona('s_corp')).toBe('a small business set up as an S-corporation');
