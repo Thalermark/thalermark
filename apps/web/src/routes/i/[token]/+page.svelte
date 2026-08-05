@@ -74,7 +74,7 @@
     </div>
   {:else if inv.connectPending && inv.status === 'sent'}
     <div class="mt-6 rounded-sm border border-fg/15 bg-surface-2 px-4 py-3 text-sm text-fg/80">
-      {inv.companyName ?? 'This business'} is finishing setting up online payments. Online pay will appear here once that's complete — usually a few minutes. You can still reach out to them directly in the meantime.
+      {inv.companyName ?? 'This business'} hasn't finished setting up online payments. Online pay will appear here once that's done — in the meantime you can pay by any method listed below, or reach out to them directly.
     </div>
   {/if}
 

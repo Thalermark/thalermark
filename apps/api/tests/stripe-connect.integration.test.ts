@@ -112,7 +112,7 @@ function makeStubStripe(stubs: ConnectStubs = {}): StripeBundle {
   };
 }
 
-function buildApp(stripe: StripeBundle | null | undefined) {
+function buildApp(stripe: StripeBundle | null | undefined, requireConnectedAccount = false) {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL not set');
   const handle = createApiDatabase(appDatabaseUrl());
@@ -123,6 +123,7 @@ function buildApp(stripe: StripeBundle | null | undefined) {
     bootstrapDb: getTestDb(),
     publicAppUrl: testEnv.publicAppUrl,
     stripe,
+    requireConnectedAccount,
   });
   return { app, handle };
 }
@@ -615,6 +616,87 @@ describe('GET /api/public/invoices/:token — payable gate on Connect (slice 8.5
       const body = (await res.json()) as { payable: boolean; connectPending: boolean };
       expect(body.payable).toBe(true);
       expect(body.connectPending).toBe(false);
+    } finally {
+      await handle.close();
+    }
+  });
+});
+
+// TMC-175. The platform-account fallback is right for a single-operator install
+// and wrong for one serving businesses the operator doesn't own. These pin both
+// halves: the default stays byte-identical, the opt-in closes the misroute.
+describe('requireConnectedAccount — platform-account fallback gate (TMC-175)', () => {
+  beforeEach(resetDb);
+
+  it('leaves a company with no connected account payable when the flag is off', async () => {
+    const { app, handle } = buildApp(makeStubStripe());
+    try {
+      const { publicToken } = await seedPayableInvoice({ accountId: null, chargesEnabled: false });
+      const res = await app.request(`/api/public/invoices/${publicToken}`);
+      const body = (await res.json()) as { payable: boolean; connectPending: boolean };
+      // Self-host default: the platform account IS the operator's account.
+      expect(body.payable).toBe(true);
+      expect(body.connectPending).toBe(false);
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('reports payable=false and connectPending=true for a never-onboarded company when on', async () => {
+    const { app, handle } = buildApp(makeStubStripe(), true);
+    try {
+      const { publicToken } = await seedPayableInvoice({ accountId: null, chargesEnabled: false });
+      const res = await app.request(`/api/public/invoices/${publicToken}`);
+      const body = (await res.json()) as { payable: boolean; connectPending: boolean };
+      expect(body.payable).toBe(false);
+      // Pending too, not just unpayable — otherwise the recipient gets a missing
+      // Pay button with no explanation anywhere on the page.
+      expect(body.connectPending).toBe(true);
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('refuses to mint a payment intent on the platform account when on', async () => {
+    const createPaymentIntent = vi.fn(async () => ({
+      client_secret: 'pi_secret_never',
+      id: 'pi_never',
+    }));
+    const { app, handle } = buildApp(makeStubStripe({ createPaymentIntent }), true);
+    try {
+      const { publicToken } = await seedPayableInvoice({ accountId: null, chargesEnabled: false });
+      const res = await app.request(`/api/public/invoices/${publicToken}/payment-intent`, {
+        method: 'POST',
+      });
+      expect(res.status).toBe(503);
+      expect((await res.json()) as { error: string }).toEqual({ error: 'connect_required' });
+      // The point of the ticket: no charge reaches Stripe at all.
+      expect(createPaymentIntent).not.toHaveBeenCalled();
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('still mints for an onboarded company when on', async () => {
+    const createPaymentIntent = vi.fn(async () => ({
+      client_secret: 'pi_secret_ok',
+      id: 'pi_ok',
+    }));
+    const { app, handle } = buildApp(makeStubStripe({ createPaymentIntent }), true);
+    try {
+      const { publicToken } = await seedPayableInvoice({
+        accountId: 'acct_required_ok',
+        chargesEnabled: true,
+      });
+      const res = await app.request(`/api/public/invoices/${publicToken}/payment-intent`, {
+        method: 'POST',
+      });
+      expect(res.status).toBe(200);
+      const [, opts] = createPaymentIntent.mock.calls[0] as unknown as [
+        unknown,
+        { stripeAccount?: string },
+      ];
+      expect(opts.stripeAccount).toBe('acct_required_ok');
     } finally {
       await handle.close();
     }

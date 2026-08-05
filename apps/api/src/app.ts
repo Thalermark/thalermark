@@ -107,6 +107,17 @@ export type AppDeps = {
   // invoice view checks for null and hides the Pay button rather than
   // erroring; the webhook route returns 503 in that state.
   stripe?: StripeBundle | null;
+  // Refuse the platform-account fallback for a company that hasn't onboarded
+  // Connect (TMC-175). Default false = the historical behaviour: no connected
+  // account means the charge runs on the operator's own key, which is right for
+  // a single-operator self-host. True makes an un-onboarded company unpayable
+  // rather than routing its customers' money into someone else's balance.
+  //
+  // Boot wiring, not a runtime flag — a multi-tenant composition root passes
+  // `true` hardcoded, because there is no such deployment that wants the
+  // fallback and a settable value could only ever be set wrong. Self-hosters
+  // reach it via STRIPE_REQUIRE_CONNECTED_ACCOUNT.
+  requireConnectedAccount?: boolean;
   // Object-storage provider for receipt capture (slice 8.9g). Null when the
   // operator hasn't configured STORAGE_* env vars — the receipt endpoints
   // return 503 in that state, the rest of the app runs. Same opt-in model
