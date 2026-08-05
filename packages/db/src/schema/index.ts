@@ -9,6 +9,7 @@ export * from './contacts.js';
 export * from './email_templates.js';
 export * from './entity_transfers.js';
 export * from './estimates.js';
+export * from './expense_allocations.js';
 export * from './expenses.js';
 export * from './invitations.js';
 export * from './invoices.js';

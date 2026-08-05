@@ -437,4 +437,42 @@
   </div>
 {/if}
 
+<!--
+  What this job made (TMC-174). INTERNAL — this block is on the app page only;
+  the customer's copy is rendered by /i/[token] from a different payload that
+  never carries cost. Showing it here because this is the screen the user is
+  already on when he wonders whether the work was worth it.
+
+  Only appears once at least one cost is tagged: an empty margin block on every
+  invoice would be noise for users who never use the feature.
+-->
+{#if inv.jobCosting && inv.jobCosting.costCount > 0}
+  <div class="mt-8 rounded-sm border border-fg/10 bg-surface-2 p-5">
+    <h2 class="label">What this job made</h2>
+    <dl class="mt-3 max-w-xs space-y-2 text-sm">
+      <div class="flex justify-between gap-6">
+        <dt class="text-fg/60">Billed</dt>
+        <dd class="font-mono tabular-nums text-fg/80">{inv.jobCosting.billed}</dd>
+      </div>
+      <div class="flex justify-between gap-6">
+        <dt class="text-fg/60">
+          Costs
+          <span class="text-xs text-fg/40">
+            ({inv.jobCosting.costCount}
+            {inv.jobCosting.costCount === 1 ? 'receipt' : 'receipts'})
+          </span>
+        </dt>
+        <dd class="font-mono tabular-nums text-fg/80">−{inv.jobCosting.costs}</dd>
+      </div>
+      <div class="flex justify-between gap-6 border-t border-fg/10 pt-2">
+        <dt class="text-fg">Made</dt>
+        <dd class="font-mono text-base tabular-nums text-fg">{inv.jobCosting.made}</dd>
+      </div>
+    </dl>
+    <p class="mt-3 text-xs text-fg/50">
+      Billed is pre-tax. Only your customer sees the invoice — this is for you.
+    </p>
+  </div>
+{/if}
+
 <AuditHistory events={data.auditEvents} />

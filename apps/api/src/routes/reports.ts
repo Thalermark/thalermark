@@ -12,6 +12,7 @@ import {
   companies,
   contacts,
   estimates,
+  expenseAllocations,
   expenses,
   invoiceLineItems,
   invoices,
@@ -1547,6 +1548,156 @@ export function reportsRoutes(deps: AppDeps) {
 
         return c.json({ enoughHistory, overall, categories: categories.slice(0, 5) });
       })
+      // Job margin (TMC-174) — what each job made, plus the shared pool.
+      //
+      // The invoice IS the job: no jobs entity exists and none is wanted here.
+      // Rows are labelled with the customer's name so the list reads the way the
+      // user talks ("the Smith job") while being invoices underneath.
+      //
+      // Billed is the SUBTOTAL. Sales tax he collects is not his money, and
+      // counting it would inflate every taxed job.
+      //
+      // Three buckets, and the last two are why this report can be honest:
+      //   - per-job: costs the user attributed to that invoice
+      //   - shared: costs he deliberately declined to attribute (invoice_id
+      //     null). Shown as its own line, NEVER apportioned across jobs —
+      //     inventing a split he did not give is a lie that looks like a fact.
+      //   - unattributed: costs he never answered for at all. Distinct from
+      //     shared, and surfaced so the totals reconcile rather than quietly
+      //     disagreeing with the P&L.
+      //
+      // Window is on the INVOICE issue date, matching revenue recognition; a
+      // cost attributed to a job outside the window still counts toward it,
+      // because the job is the unit here, not the month.
+      .get(
+        '/api/companies/:id/job-margin',
+        validator('query', (v) => ({
+          from: typeof v.from === 'string' ? v.from : undefined,
+          to: typeof v.to === 'string' ? v.to : undefined,
+        })),
+        async (c) => {
+          const id = c.req.param('id');
+          if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+
+          const [company] = await tx
+            .select({ id: companies.id, timezone: companies.timezone })
+            .from(companies)
+            .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
+            .limit(1);
+          if (!company) return c.json({ error: 'company_not_found' }, 404);
+
+          const { from: fromRaw, to: toRaw } = c.req.valid('query');
+          const win = parseReportWindow(fromRaw, toRaw, company.timezone);
+          if ('error' in win) return c.json({ error: win.error }, 400);
+          const { from, to } = win;
+
+          // Issue date is a bare calendar date, so the window compares as dates
+          // — no timezone conversion needed, unlike the journal-driven reports
+          // which key off a timestamptz.
+          const jobs = await tx
+            .select({
+              invoiceId: invoices.id,
+              number: invoices.number,
+              issueDate: invoices.issueDate,
+              status: invoices.status,
+              subtotal: invoices.subtotal,
+              customerName: contacts.name,
+            })
+            .from(invoices)
+            .innerJoin(contacts, eq(contacts.id, invoices.contactId))
+            .where(
+              and(
+                eq(invoices.accountId, accountId),
+                eq(invoices.companyId, id),
+                ne(invoices.status, 'draft'),
+                ne(invoices.status, 'void'),
+                gte(invoices.issueDate, from),
+                lte(invoices.issueDate, to),
+              ),
+            )
+            .orderBy(asc(invoices.issueDate), asc(invoices.number));
+
+          const costRows = await tx
+            .select({
+              invoiceId: expenseAllocations.invoiceId,
+              amount: expenses.amount,
+              share: expenseAllocations.share,
+            })
+            .from(expenseAllocations)
+            .innerJoin(expenses, eq(expenses.id, expenseAllocations.expenseId))
+            .where(
+              and(
+                eq(expenseAllocations.accountId, accountId),
+                eq(expenseAllocations.companyId, id),
+                isNull(expenses.deletedAt),
+              ),
+            );
+
+          const costByInvoice = new Map<string, number>();
+          let sharedCents = 0;
+          for (const row of costRows) {
+            const cents = Math.round(Number(row.amount) * 100 * Number(row.share));
+            if (row.invoiceId === null) sharedCents += cents;
+            else costByInvoice.set(row.invoiceId, (costByInvoice.get(row.invoiceId) ?? 0) + cents);
+          }
+
+          const rows = jobs.map((job) => {
+            const costCents = costByInvoice.get(job.invoiceId) ?? 0;
+            const billedCents = Math.round(Number(job.subtotal) * 100);
+            return {
+              invoiceId: job.invoiceId,
+              number: job.number,
+              issueDate: job.issueDate,
+              status: job.status,
+              customerName: job.customerName,
+              billed: job.subtotal,
+              costs: (costCents / 100).toFixed(2),
+              made: ((billedCents - costCents) / 100).toFixed(2),
+            };
+          });
+
+          // Costs the user never answered for. Counted in the window by expense
+          // date rather than by job, since they belong to no job by definition.
+          const [unattributed] = await tx
+            .select({
+              total: sql<string>`coalesce(sum(${expenses.amount}), 0)::numeric(15,2)`,
+            })
+            .from(expenses)
+            .where(
+              and(
+                eq(expenses.accountId, accountId),
+                eq(expenses.companyId, id),
+                isNull(expenses.deletedAt),
+                gte(expenses.expenseDate, from),
+                lte(expenses.expenseDate, to),
+                sql`not exists (select 1 from ${expenseAllocations} where ${expenseAllocations.expenseId} = ${expenses.id})`,
+              ),
+            );
+
+          const billedTotalCents = rows.reduce((t, r) => t + Math.round(Number(r.billed) * 100), 0);
+          const jobCostTotalCents = rows.reduce((t, r) => t + Math.round(Number(r.costs) * 100), 0);
+
+          return c.json({
+            from,
+            to,
+            jobs: rows,
+            totals: {
+              billed: (billedTotalCents / 100).toFixed(2),
+              jobCosts: (jobCostTotalCents / 100).toFixed(2),
+              shared: (sharedCents / 100).toFixed(2),
+              unattributed: unattributed?.total ?? '0.00',
+              // Jobs minus their own costs minus the shared pool. Deliberately
+              // excludes unattributed — those are costs the user hasn't placed,
+              // and folding them in silently would make this disagree with the
+              // per-job rows above it.
+              made: ((billedTotalCents - jobCostTotalCents - sharedCents) / 100).toFixed(2),
+            },
+          });
+        },
+      )
   );
 }
 

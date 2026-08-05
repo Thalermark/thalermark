@@ -3,14 +3,22 @@ import {
   createExpenseCategorizer,
   createReceiptExtractor,
 } from '@thalermark/ai';
-import { chartOfAccounts, companies, contacts, expenses } from '@thalermark/db';
+import {
+  chartOfAccounts,
+  companies,
+  contacts,
+  expenseAllocations,
+  expenses,
+  invoices,
+} from '@thalermark/db';
 import { emit } from '@thalermark/telemetry';
 import {
+  expenseAllocationsSchema,
   expenseCategorizeSchema,
   expenseCreateSchema,
   expenseUpdateSchema,
 } from '@thalermark/validation';
-import { and, asc, eq, gte, ilike, isNull, lte } from 'drizzle-orm';
+import { and, asc, eq, gte, ilike, inArray, isNull, lte } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 import { v7 as uuidv7 } from 'uuid';
@@ -367,8 +375,102 @@ export function expensesRoutes(deps: AppDeps) {
           .where(and(eq(expenses.id, id), eq(expenses.accountId, accountId)))
           .limit(1);
         if (!expense || expense.deletedAt) return c.json({ error: 'expense_not_found' }, 404);
-        return c.json(expense);
+        // Allocations ride along on the detail read so the edit form can render
+        // the current answer to "what was this for?" without a second call.
+        const allocations = await tx
+          .select({
+            invoiceId: expenseAllocations.invoiceId,
+            share: expenseAllocations.share,
+          })
+          .from(expenseAllocations)
+          .where(
+            and(eq(expenseAllocations.expenseId, id), eq(expenseAllocations.accountId, accountId)),
+          );
+        return c.json({ ...expense, allocations });
       })
+      // Job costing (TMC-174) — "what was this for?". Replace-all rather than
+      // incremental: the set has to sum to 1, which is only checkable with the
+      // whole set in hand, and it makes re-answering the question idempotent.
+      //
+      // An empty list clears the answer back to never-answered. A single row
+      // with invoiceId null is the SHARED answer — deliberate, and distinct
+      // from never-answered, which is why both states exist.
+      //
+      // No ledger posting and no audit row: this is a tag, not a route. It
+      // changes nothing about what the expense IS, only what it is attributed
+      // to, and the books are identical either way.
+      .put(
+        '/api/expenses/:id/allocations',
+        requireCapability('expenses:write'),
+        validator('json', (value, c) => {
+          const parsed = expenseAllocationsSchema.safeParse(value);
+          if (!parsed.success) {
+            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+          }
+          return parsed.data;
+        }),
+        async (c) => {
+          const id = c.req.param('id');
+          if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+          const { allocations } = c.req.valid('json');
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+
+          const [expense] = await tx
+            .select({
+              id: expenses.id,
+              companyId: expenses.companyId,
+              deletedAt: expenses.deletedAt,
+            })
+            .from(expenses)
+            .where(and(eq(expenses.id, id), eq(expenses.accountId, accountId)))
+            .limit(1);
+          if (!expense || expense.deletedAt) return c.json({ error: 'expense_not_found' }, 404);
+
+          // Every named invoice must exist inside the same account AND the same
+          // company as the expense. RLS pins the account only, so the company
+          // check is ours to make — without it a cost could be attributed to a
+          // job belonging to a sibling company in the same account.
+          const invoiceIds = allocations
+            .map((a) => a.invoiceId)
+            .filter((v): v is string => v !== null);
+          if (invoiceIds.length > 0) {
+            const found = await tx
+              .select({ id: invoices.id, companyId: invoices.companyId })
+              .from(invoices)
+              .where(and(inArray(invoices.id, invoiceIds), eq(invoices.accountId, accountId)));
+            if (found.length !== invoiceIds.length) {
+              return c.json({ error: 'invoice_not_found' }, 404);
+            }
+            if (found.some((row) => row.companyId !== expense.companyId)) {
+              return c.json({ error: 'invoice_company_mismatch' }, 400);
+            }
+          }
+
+          await tx
+            .delete(expenseAllocations)
+            .where(
+              and(
+                eq(expenseAllocations.expenseId, id),
+                eq(expenseAllocations.accountId, accountId),
+              ),
+            );
+          if (allocations.length > 0) {
+            await tx.insert(expenseAllocations).values(
+              allocations.map((a) => ({
+                id: uuidv7(),
+                accountId,
+                companyId: expense.companyId,
+                expenseId: id,
+                invoiceId: a.invoiceId,
+                share: a.share,
+              })),
+            );
+          }
+
+          return c.json({ allocations });
+        },
+      )
       .patch(
         '/api/expenses/:id',
         requireCapability('expenses:write'),

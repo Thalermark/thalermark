@@ -1,5 +1,13 @@
 import { randomBytes } from 'node:crypto';
-import { type Transaction, companies, contacts, invoiceLineItems, invoices } from '@thalermark/db';
+import {
+  type Transaction,
+  companies,
+  contacts,
+  expenseAllocations,
+  expenses,
+  invoiceLineItems,
+  invoices,
+} from '@thalermark/db';
 import { emit } from '@thalermark/telemetry';
 import {
   invoiceCreateSchema,
@@ -7,7 +15,20 @@ import {
   invoiceSendSchema,
   invoiceUpdateSchema,
 } from '@thalermark/validation';
-import { and, asc, desc, eq, getTableColumns, gte, ilike, lt, lte, or, sql } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  getTableColumns,
+  gte,
+  ilike,
+  isNull,
+  lt,
+  lte,
+  or,
+  sql,
+} from 'drizzle-orm';
 import type { Context } from 'hono';
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
@@ -632,7 +653,39 @@ export function invoicesRoutes(deps: AppDeps) {
           .from(invoiceLineItems)
           .where(and(eq(invoiceLineItems.invoiceId, id), eq(invoiceLineItems.accountId, accountId)))
           .orderBy(asc(invoiceLineItems.position));
-        return c.json({ ...invoice, lineItems: lines });
+        // Job costing (TMC-174). INTERNAL ONLY — this must never reach the
+        // recipient. The public view lives in routes/public.ts and builds its
+        // own payload field by field, so nothing here leaks by default; that
+        // separation is the safeguard and it is covered by a test.
+        //
+        // Billed is the SUBTOTAL, not the total: sales tax he collects is not
+        // his money, and counting it would inflate every taxed job's margin.
+        //
+        // Computed fresh, never stored — edit the invoice or fix a receipt
+        // amount and the number moves with it.
+        const costRows = await tx
+          .select({ amount: expenses.amount, share: expenseAllocations.share })
+          .from(expenseAllocations)
+          .innerJoin(expenses, eq(expenses.id, expenseAllocations.expenseId))
+          .where(
+            and(
+              eq(expenseAllocations.invoiceId, id),
+              eq(expenseAllocations.accountId, accountId),
+              isNull(expenses.deletedAt),
+            ),
+          );
+        const costCents = costRows.reduce(
+          (total, row) => total + Math.round(Number(row.amount) * 100 * Number(row.share)),
+          0,
+        );
+        const billedCents = Math.round(Number(invoice.subtotal) * 100);
+        const jobCosting = {
+          billed: invoice.subtotal,
+          costs: (costCents / 100).toFixed(2),
+          made: ((billedCents - costCents) / 100).toFixed(2),
+          costCount: costRows.length,
+        };
+        return c.json({ ...invoice, lineItems: lines, jobCosting });
       })
       .patch(
         '/api/invoices/:id',

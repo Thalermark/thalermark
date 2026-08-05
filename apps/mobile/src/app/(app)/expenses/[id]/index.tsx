@@ -35,6 +35,11 @@ type Expense = {
   vendorReview: string | null;
 };
 type Receipt = { url: string; contentType: string };
+// Job costing (TMC-174). A job is an issued invoice, labelled by customer so the
+// option reads like the work the user remembers. `target` is the current answer:
+// an invoice id, 'shared', or null for never-answered — shared being a real
+// answer, not a skipped question.
+type Job = { id: string; number: string; issueDate: string; customerName: string | null };
 type Extraction = { merchant: string | null; total: string | null; expenseDate: string | null };
 type DetailState =
   | { state: 'loading' }
@@ -66,6 +71,9 @@ export default function ExpenseDetail() {
   const [acting, setActing] = useState(false);
   const [receiptError, setReceiptError] = useState<string | null>(null);
   const [extraction, setExtraction] = useState<Extraction | null>(null);
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [target, setTarget] = useState<string | null>(null);
+  const [splitCount, setSplitCount] = useState(0);
 
   const load = useCallback(async () => {
     const res = await api.api.expenses[':id'].$get({ param: { id } });
@@ -111,6 +119,35 @@ export default function ExpenseDetail() {
         vendorReview: e.vendorReview ?? null,
       },
     });
+    // Job costing (TMC-174) — the current answer plus the pick list. Both
+    // best-effort: a failure hides the question rather than breaking the screen,
+    // since this is a tag and nothing about the expense depends on it.
+    const allocations = e.allocations ?? [];
+    setSplitCount(allocations.length);
+    setTarget(
+      allocations.length === 0
+        ? null
+        : allocations.length === 1 && allocations[0]?.invoiceId === null
+          ? 'shared'
+          : (allocations[0]?.invoiceId ?? null),
+    );
+    try {
+      const jobsRes = await api.api.invoices.$get({
+        query: { companyId: e.companyId, limit: '50' },
+      });
+      if (jobsRes.ok) {
+        setJobs(
+          (await jobsRes.json()).invoices
+            .filter((i) => i.status !== 'draft' && i.status !== 'void')
+            .map((i) => ({
+              id: i.id,
+              number: i.number,
+              issueDate: i.issueDate,
+              customerName: i.customerName ?? null,
+            })),
+        );
+      }
+    } catch {}
     // Audit trail — best-effort; refetched on every load() (focus + after each
     // receipt upload/delete), so the history reflects the action just taken. A
     // failure here must not flip the whole screen to error, hence the swallow.
@@ -233,6 +270,33 @@ export default function ExpenseDetail() {
         },
       },
     ]);
+  }
+
+  // Job costing (TMC-174) — answer "what was this for?". Three answers: a job,
+  // 'shared' (a real answer meaning "several jobs, don't ask me to split it"),
+  // or null for not-sure-yet, which sends an empty set and clears it.
+  //
+  // Optimistic: the tap paints immediately and reloads behind it. This is a tag
+  // with no ledger consequence, so a failed write costs an attribution and
+  // nothing else — worth the responsiveness on a phone at a checkout counter.
+  async function setAllocation(next: string | null) {
+    const previous = target;
+    setTarget(next);
+    const allocations =
+      next === null ? [] : [{ invoiceId: next === 'shared' ? null : next, share: '1' }];
+    try {
+      const res = await api.api.expenses[':id'].allocations.$put({
+        param: { id },
+        json: { allocations },
+      });
+      if (!res.ok) {
+        setTarget(previous);
+        return;
+      }
+      await load();
+    } catch {
+      setTarget(previous);
+    }
   }
 
   // Dismiss the needs-review flag without linking a vendor (clears it; creates
@@ -439,11 +503,82 @@ export default function ExpenseDetail() {
               ) : null}
             </View>
 
+            {/*
+              The one new question (TMC-174). Tap-to-answer rather than a
+              picker-and-save: one tap ends it. "Shared across jobs" sits at the
+              top as a first-class answer — it means "several jobs, don't ask me
+              to split it" — and choosing it never opens a follow-up.
+            */}
+            <View className="mt-8">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                What was this for?
+              </Text>
+              {splitCount > 1 ? (
+                <Text className="mt-3 text-sm text-ink/70">
+                  Split across {splitCount} jobs. Editing that split isn't here yet.
+                </Text>
+              ) : canWrite ? (
+                <View className="mt-3 gap-2">
+                  <JobChoice
+                    label="Shared across jobs"
+                    selected={target === 'shared'}
+                    onPress={() => setAllocation('shared')}
+                  />
+                  {jobs.map((job) => (
+                    <JobChoice
+                      key={job.id}
+                      label={`${job.customerName ?? 'No name'} · ${job.number}`}
+                      selected={target === job.id}
+                      onPress={() => setAllocation(job.id)}
+                    />
+                  ))}
+                  <JobChoice
+                    label="Not sure yet"
+                    selected={target === null}
+                    onPress={() => setAllocation(null)}
+                  />
+                  <Text className="mt-1 text-xs text-ink/50">
+                    Tagging a job lets us tell you what that job made. It changes nothing about your
+                    books or your taxes.
+                  </Text>
+                </View>
+              ) : (
+                <Text className="mt-3 text-sm text-ink/50">
+                  {target === 'shared'
+                    ? 'Shared across jobs.'
+                    : target
+                      ? (jobs.find((j) => j.id === target)?.customerName ?? 'A job')
+                      : 'Not tagged to a job.'}
+                </Text>
+              )}
+            </View>
+
             <AuditHistory events={auditEvents} />
           </>
         )}
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+function JobChoice({
+  label,
+  selected,
+  onPress,
+}: {
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      className={`rounded border px-3 py-2 ${selected ? 'border-ink bg-ink/5' : 'border-ink/15'}`}
+    >
+      <Text className={`text-sm ${selected ? 'font-medium text-ink' : 'text-ink/70'}`}>
+        {label}
+      </Text>
+    </Pressable>
   );
 }
 

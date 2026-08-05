@@ -10,6 +10,21 @@
   // edit, duplicate, delete, and the receipt upload/extract/remove — is
   // `expenses:write` (held by owner/admin/member/accountant, not viewer).
   const canWrite = $derived(may(data.role, 'expenses:write'));
+
+  // Job costing (TMC-174). The current answer to "what was this for?", as the
+  // select's value: an invoice id, 'shared', or '' for never-answered. The API
+  // models these as a row, a null-invoice row, and no rows respectively —
+  // shared is a real answer, not a skipped question, which is why it is not the
+  // same as ''.
+  const currentTarget = $derived.by(() => {
+    const allocations = e.allocations ?? [];
+    if (allocations.length === 0) return '';
+    if (allocations.length === 1 && allocations[0]?.invoiceId === null) return 'shared';
+    return allocations[0]?.invoiceId ?? '';
+  });
+  // A split across several jobs can't be represented by the single-select, and
+  // must never be silently flattened into "the first one" on save.
+  const isSplit = $derived((e.allocations ?? []).length > 1);
 </script>
 
 <a href="/expenses" class="eyebrow text-fg/60 hover:text-fg">← Expenses</a>
@@ -178,6 +193,58 @@
     </form>
   {:else}
     <p class="mt-3 text-sm text-fg/50">No receipt attached.</p>
+  {/if}
+</section>
+
+<!--
+  The one new question (TMC-174). Deliberately a single select and a save, not a
+  wizard: one answer ends it. "Shared" is a first-class option, not a way of
+  skipping — it means "several jobs, don't ask me to split it", and picking it
+  never opens a follow-up.
+-->
+<section class="mt-10">
+  <h2 class="label">What was this for?</h2>
+  {#if isSplit}
+    <p class="mt-2 text-sm text-fg/70">
+      Split across {(e.allocations ?? []).length} jobs. Editing that split isn't here yet — the job
+      report shows where it landed.
+    </p>
+  {:else if canWrite}
+    <form method="post" action="?/setAllocation" class="mt-3 flex flex-wrap items-center gap-3">
+      <select name="target" class="field max-w-sm" value={currentTarget}>
+        <option value="">Not sure yet</option>
+        <option value="shared">Shared across jobs</option>
+        {#each data.jobs as job (job.id)}
+          <option value={job.id}>
+            {job.customerName ?? 'No name'} · {job.number} · {job.issueDate}
+          </option>
+        {/each}
+      </select>
+      <button
+        type="submit"
+        class="rounded-sm border border-fg/20 px-3 py-1.5 text-sm text-fg hover:border-accent hover:text-accent"
+      >
+        Save
+      </button>
+      {#if form?.allocationSaved}
+        <span class="text-sm text-fg/60">Saved.</span>
+      {/if}
+      {#if form?.allocationError}
+        <span class="text-sm text-danger">{form.allocationError}</span>
+      {/if}
+    </form>
+    <p class="mt-2 text-xs text-fg/50">
+      Tagging a job lets us tell you what that job made. It changes nothing about your books or
+      your taxes.
+    </p>
+  {:else if currentTarget === 'shared'}
+    <p class="mt-2 text-sm text-fg/70">Shared across jobs.</p>
+  {:else if currentTarget}
+    <p class="mt-2 text-sm text-fg/70">
+      {data.jobs.find((j) => j.id === currentTarget)?.customerName ?? 'A job'}
+    </p>
+  {:else}
+    <p class="mt-2 text-sm text-fg/50">Not tagged to a job.</p>
   {/if}
 </section>
 
