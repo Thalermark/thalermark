@@ -63,16 +63,63 @@ export const load: PageServerLoad = async (event) => {
     if (rres.ok) receipt = (await rres.json()) as { url: string; contentType: string };
   }
 
+  // Job costing (TMC-174) — the pick list for "what was this for?". Issued
+  // invoices for this company, newest first, labelled by customer so the option
+  // reads like the job the user remembers. Best-effort: a failed fetch renders
+  // the question with no jobs to pick rather than failing the page.
+  const jobsRes = await client.api.invoices.$get({
+    query: { companyId: expense.companyId, limit: '50' },
+  });
+  const jobs = jobsRes.ok
+    ? (await jobsRes.json()).invoices
+        .filter((i) => i.status !== 'draft' && i.status !== 'void')
+        .map((i) => ({
+          id: i.id,
+          number: i.number,
+          issueDate: i.issueDate,
+          customerName: i.customerName ?? null,
+        }))
+    : [];
+
   return {
     expense,
     categoryLabel: labelById.get(expense.categoryAccountId) ?? expense.categoryAccountId,
     paymentLabel: labelById.get(expense.paymentAccountId) ?? expense.paymentAccountId,
     receipt,
     auditEvents,
+    jobs,
   };
 };
 
 export const actions: Actions = {
+  // Job costing (TMC-174) — the answer to "what was this for?".
+  //
+  // Three answers, and the middle one is the point: a job, SHARED (a real
+  // answer, meaning "several jobs, don't ask me to split it"), or nothing.
+  // Choosing shared ends the interaction — the user is never prompted to
+  // allocate, because asking a tradesperson to type percentages on a phone is
+  // how this feature goes unused.
+  setAllocation: async (event) => {
+    const form = await event.request.formData();
+    const target = String(form.get('target') ?? '');
+    const allocations =
+      target === '' ? [] : [{ invoiceId: target === 'shared' ? null : target, share: '1' }];
+
+    const client = serverApiClient(event);
+    const res = await client.api.expenses[':id'].allocations.$put({
+      param: { id: event.params.id },
+      json: { allocations },
+    });
+    if (res.status === 404) throw error(404, 'expense not found');
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      return fail(res.status, {
+        allocationError: apiErrorMessage(body?.error, 'save_failed', body),
+      });
+    }
+    return { allocationSaved: true };
+  },
+
   // Soft delete (the API sets deleted_at + posts a reversal). Redirect to the
   // list, where the row no longer appears.
   delete: async (event) => {

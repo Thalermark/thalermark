@@ -370,3 +370,38 @@ export async function loadTaxWorksheet(event: Parameters<typeof serverApiClient>
   const report = (await res.json()) as TaxWorksheet;
   return { report, years };
 }
+
+export type JobMargin = {
+  from: string;
+  to: string;
+  jobs: {
+    invoiceId: string;
+    number: string;
+    issueDate: string;
+    status: string;
+    customerName: string | null;
+    billed: string;
+    costs: string;
+    made: string;
+  }[];
+  totals: {
+    billed: string;
+    jobCosts: string;
+    shared: string;
+    unattributed: string;
+    made: string;
+  };
+};
+
+// Job margin — what each job made. The invoice IS the job; rows carry the
+// customer's name so the list reads the way the user talks about the work.
+export async function loadJobMargin(event: Parameters<typeof serverApiClient>[0]) {
+  const { client, companyId, from, to, presets } = await reportContext(event);
+  const res = await client.api.companies[':id']['job-margin'].$get({
+    param: { id: companyId },
+    query: { from, to },
+  });
+  if (!res.ok) throw error(res.status, 'failed to load report');
+  const report = (await res.json()) as JobMargin;
+  return { report, presets, activeKey: activePresetKey(presets, report.from, report.to) };
+}

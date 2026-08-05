@@ -52,6 +52,11 @@
       blurb: 'Your best contacts by revenue over a period.',
     },
     {
+      href: '/reports/job-margin',
+      title: 'What each job made',
+      blurb: 'Billed minus the costs you tagged to that job.',
+    },
+    {
       href: '/reports/revenue-over-time',
       title: 'Revenue over time',
       blurb: 'Monthly sales trend across the period.',
