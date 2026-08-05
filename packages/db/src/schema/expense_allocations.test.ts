@@ -10,6 +10,7 @@ import { contacts } from './contacts.js';
 import { expenseAllocations } from './expense_allocations.js';
 import { expenses } from './expenses.js';
 import { invoices } from './invoices.js';
+import { jobs } from './jobs.js';
 
 async function seedTenant() {
   const db = getTestDb();
@@ -52,7 +53,24 @@ async function seedExpense(t: Awaited<ReturnType<typeof seedTenant>>, amount = '
   return id;
 }
 
-async function seedInvoice(t: Awaited<ReturnType<typeof seedTenant>>, number: string) {
+async function seedJob(t: Awaited<ReturnType<typeof seedTenant>>, name = 'The Smith job') {
+  const db = getTestDb();
+  const id = uuidv7();
+  await db.insert(jobs).values({
+    id,
+    accountId: t.accountId,
+    companyId: t.companyId,
+    contactId: t.contactId,
+    name,
+  });
+  return id;
+}
+
+async function seedInvoice(
+  t: Awaited<ReturnType<typeof seedTenant>>,
+  number: string,
+  jobId: string | null = null,
+) {
   const db = getTestDb();
   const id = uuidv7();
   await db.insert(invoices).values({
@@ -60,6 +78,7 @@ async function seedInvoice(t: Awaited<ReturnType<typeof seedTenant>>, number: st
     accountId: t.accountId,
     companyId: t.companyId,
     contactId: t.contactId,
+    jobId,
     number,
     status: 'sent',
     issueDate: '2026-06-01',
@@ -71,6 +90,19 @@ async function seedInvoice(t: Awaited<ReturnType<typeof seedTenant>>, number: st
     publicToken: `tok_${id}`,
   });
   return id;
+}
+
+// Drizzle wraps the driver error, so the message is only ever "Failed query:
+// insert into ..." and the constraint name lives on .cause. Asserting the NAME
+// rather than a bare toThrow() is what stops these tests passing on an unrelated
+// failure — a typo'd column would reject just as happily.
+async function violatedConstraint(op: PromiseLike<unknown>): Promise<string | undefined> {
+  try {
+    await op;
+    return undefined;
+  } catch (err) {
+    return (err as { cause?: { constraint?: string } }).cause?.constraint;
+  }
 }
 
 describe('expense_allocations', () => {
@@ -160,6 +192,131 @@ describe('expense_allocations', () => {
 
     await db.insert(expenseAllocations).values(row());
     await expect(db.insert(expenseAllocations).values(row())).rejects.toThrow();
+  });
+
+  // A row names an invoice OR a job, never both — otherwise the same cost would
+  // be counted once at each grain when job margin rolls the two together.
+  it('refuses a row that names both an invoice and a job', async () => {
+    const db = getTestDb();
+    const t = await seedTenant();
+    const expenseId = await seedExpense(t);
+    const invoiceId = await seedInvoice(t, 'INV-1');
+    const jobId = await seedJob(t);
+
+    const violated = await violatedConstraint(
+      db.insert(expenseAllocations).values({
+        id: uuidv7(),
+        accountId: t.accountId,
+        companyId: t.companyId,
+        expenseId,
+        invoiceId,
+        jobId,
+        share: '1',
+      }),
+    );
+    expect(violated).toBe('expense_allocations_single_grain_check');
+  });
+
+  it('accepts a job-grain row', async () => {
+    const db = getTestDb();
+    const t = await seedTenant();
+    const expenseId = await seedExpense(t);
+    const jobId = await seedJob(t);
+
+    await db.insert(expenseAllocations).values({
+      id: uuidv7(),
+      accountId: t.accountId,
+      companyId: t.companyId,
+      expenseId,
+      jobId,
+      share: '1',
+    });
+
+    const [row] = await db
+      .select()
+      .from(expenseAllocations)
+      .where(eq(expenseAllocations.expenseId, expenseId));
+    expect(row?.jobId).toBe(jobId);
+    expect(row?.invoiceId).toBeNull();
+  });
+
+  it('refuses two rows for the same expense and job', async () => {
+    const db = getTestDb();
+    const t = await seedTenant();
+    const expenseId = await seedExpense(t);
+    const jobId = await seedJob(t);
+    const row = () => ({
+      id: uuidv7(),
+      accountId: t.accountId,
+      companyId: t.companyId,
+      expenseId,
+      jobId,
+      share: '0.5',
+    });
+
+    await db.insert(expenseAllocations).values(row());
+    const violated = await violatedConstraint(db.insert(expenseAllocations).values(row()));
+    expect(violated).toBe('expense_allocations_expense_job_uq');
+  });
+
+  // Shared is now "neither pointer set". Without widening the partial unique to
+  // name job_id too, a job-tagged row would sit inside the shared-row guard and
+  // block a genuine shared answer on the same expense.
+  it('does not mistake a job-grain row for the shared row', async () => {
+    const db = getTestDb();
+    const t = await seedTenant();
+    const expenseId = await seedExpense(t);
+    const jobId = await seedJob(t);
+
+    await db.insert(expenseAllocations).values({
+      id: uuidv7(),
+      accountId: t.accountId,
+      companyId: t.companyId,
+      expenseId,
+      jobId,
+      share: '0.5',
+    });
+    await db.insert(expenseAllocations).values({
+      id: uuidv7(),
+      accountId: t.accountId,
+      companyId: t.companyId,
+      expenseId,
+      share: '0.5',
+    });
+
+    const rows = await db
+      .select()
+      .from(expenseAllocations)
+      .where(eq(expenseAllocations.expenseId, expenseId));
+    expect(rows).toHaveLength(2);
+  });
+
+  // The hazard flagged when job costing shipped, now unreachable: a job owning
+  // several invoices, where deleting one drops tags belonging to the JOB.
+  // Job-grain tags hang off job_id, so an invoice delete cannot touch them.
+  it('keeps job-grain tags when one of the job’s invoices is deleted', async () => {
+    const db = getTestDb();
+    const t = await seedTenant();
+    const expenseId = await seedExpense(t);
+    const jobId = await seedJob(t);
+    const invoiceId = await seedInvoice(t, 'INV-1', jobId);
+    await db.insert(expenseAllocations).values({
+      id: uuidv7(),
+      accountId: t.accountId,
+      companyId: t.companyId,
+      expenseId,
+      jobId,
+      share: '1',
+    });
+
+    await db.delete(invoices).where(eq(invoices.id, invoiceId));
+
+    const rows = await db
+      .select()
+      .from(expenseAllocations)
+      .where(eq(expenseAllocations.expenseId, expenseId));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.jobId).toBe(jobId);
   });
 
   it('refuses a share outside (0, 1]', async () => {
