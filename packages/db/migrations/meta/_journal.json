@@ -176,6 +176,13 @@
       "when": 1785237600000,
       "tag": "0024_irs_line_renumbering",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1785241200000,
+      "tag": "0025_expense_allocations",
+      "breakpoints": true
     }
   ]
 }
