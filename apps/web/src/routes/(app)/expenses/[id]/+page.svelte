@@ -133,6 +133,58 @@
   {/if}
 </dl>
 
+<!--
+  The one new question (TMC-174). Deliberately a single select and a save, not a
+  wizard: one answer ends it. "Shared" is a first-class option, not a way of
+  skipping — it means "several jobs, don't ask me to split it", and picking it
+  never opens a follow-up.
+-->
+<section class="mt-10">
+  <h2 class="label">What was this for?</h2>
+  {#if isSplit}
+    <p class="mt-2 text-sm text-fg/70">
+      Split across {(e.allocations ?? []).length} jobs. Editing that split isn't here yet — the job
+      report shows where it landed.
+    </p>
+  {:else if canWrite}
+    <form method="post" action="?/setAllocation" class="mt-3 flex flex-wrap items-center gap-3">
+      <select name="target" class="field max-w-sm" value={currentTarget}>
+        <option value="">Not sure yet</option>
+        <option value="shared">Shared across jobs</option>
+        {#each data.jobs as job (job.id)}
+          <option value={job.id}>
+            {job.customerName ?? 'No name'} · {job.number} · {job.issueDate}
+          </option>
+        {/each}
+      </select>
+      <button
+        type="submit"
+        class="rounded-sm border border-fg/20 px-3 py-1.5 text-sm text-fg hover:border-accent hover:text-accent"
+      >
+        Save
+      </button>
+      {#if form?.allocationSaved}
+        <span class="text-sm text-fg/60">Saved.</span>
+      {/if}
+      {#if form?.allocationError}
+        <span class="text-sm text-danger">{form.allocationError}</span>
+      {/if}
+    </form>
+    <p class="mt-2 text-xs text-fg/50">
+      Tagging a job lets us tell you what that job made. It changes nothing about your books or
+      your taxes.
+    </p>
+  {:else if currentTarget === 'shared'}
+    <p class="mt-2 text-sm text-fg/70">Shared across jobs.</p>
+  {:else if currentTarget}
+    <p class="mt-2 text-sm text-fg/70">
+      {data.jobs.find((j) => j.id === currentTarget)?.customerName ?? 'A job'}
+    </p>
+  {:else}
+    <p class="mt-2 text-sm text-fg/50">Not tagged to a job.</p>
+  {/if}
+</section>
+
 <section class="mt-10">
   <h2 class="label">Receipt</h2>
   {#if data.receipt}
@@ -196,56 +248,5 @@
   {/if}
 </section>
 
-<!--
-  The one new question (TMC-174). Deliberately a single select and a save, not a
-  wizard: one answer ends it. "Shared" is a first-class option, not a way of
-  skipping — it means "several jobs, don't ask me to split it", and picking it
-  never opens a follow-up.
--->
-<section class="mt-10">
-  <h2 class="label">What was this for?</h2>
-  {#if isSplit}
-    <p class="mt-2 text-sm text-fg/70">
-      Split across {(e.allocations ?? []).length} jobs. Editing that split isn't here yet — the job
-      report shows where it landed.
-    </p>
-  {:else if canWrite}
-    <form method="post" action="?/setAllocation" class="mt-3 flex flex-wrap items-center gap-3">
-      <select name="target" class="field max-w-sm" value={currentTarget}>
-        <option value="">Not sure yet</option>
-        <option value="shared">Shared across jobs</option>
-        {#each data.jobs as job (job.id)}
-          <option value={job.id}>
-            {job.customerName ?? 'No name'} · {job.number} · {job.issueDate}
-          </option>
-        {/each}
-      </select>
-      <button
-        type="submit"
-        class="rounded-sm border border-fg/20 px-3 py-1.5 text-sm text-fg hover:border-accent hover:text-accent"
-      >
-        Save
-      </button>
-      {#if form?.allocationSaved}
-        <span class="text-sm text-fg/60">Saved.</span>
-      {/if}
-      {#if form?.allocationError}
-        <span class="text-sm text-danger">{form.allocationError}</span>
-      {/if}
-    </form>
-    <p class="mt-2 text-xs text-fg/50">
-      Tagging a job lets us tell you what that job made. It changes nothing about your books or
-      your taxes.
-    </p>
-  {:else if currentTarget === 'shared'}
-    <p class="mt-2 text-sm text-fg/70">Shared across jobs.</p>
-  {:else if currentTarget}
-    <p class="mt-2 text-sm text-fg/70">
-      {data.jobs.find((j) => j.id === currentTarget)?.customerName ?? 'A job'}
-    </p>
-  {:else}
-    <p class="mt-2 text-sm text-fg/50">Not tagged to a job.</p>
-  {/if}
-</section>
 
 <AuditHistory events={data.auditEvents} />
