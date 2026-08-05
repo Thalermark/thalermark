@@ -70,3 +70,46 @@ export const expenseCategorizeSchema = z.object({
 });
 
 export type ExpenseCategorizeInput = z.infer<typeof expenseCategorizeSchema>;
+
+// Input schema for PUT /api/expenses/:id/allocations — job costing (TMC-174),
+// "what was this for?" on a receipt. Replace-all rather than incremental: the
+// set for one expense has to sum to 1, and validating that is only possible
+// with the whole set in hand.
+//
+// invoiceId null is the SHARED answer — a deliberate "won't attribute this",
+// which is different from an empty list, meaning the user never answered.
+// Keeping those distinct is the point of the feature: shared is a real answer
+// and nothing ever nags him to split it.
+//
+// share is a fraction of the expense, not money, so it survives an edit to the
+// expense total. Four decimal places is plenty for an even split across a
+// realistic number of jobs and keeps the sum check away from float noise.
+export const expenseAllocationSchema = z.object({
+  invoiceId: z.string().uuid().nullable(),
+  share: z
+    .string()
+    .regex(/^\d+(\.\d{1,6})?$/, 'share must be a decimal fraction')
+    .refine((s) => Number(s) > 0 && Number(s) <= 1, 'share must be in (0, 1]'),
+});
+
+export const expenseAllocationsSchema = z
+  .object({
+    allocations: z.array(expenseAllocationSchema).max(50),
+  })
+  // An empty list clears the answer entirely (back to "never answered"), so the
+  // sum only has to hold when there is something there. Tolerance absorbs an
+  // even split that can't divide cleanly — 1/3 three ways is 0.999999.
+  .refine(
+    (v) =>
+      v.allocations.length === 0 ||
+      Math.abs(v.allocations.reduce((t, a) => t + Number(a.share), 0) - 1) < 0.0001,
+    { message: 'shares_must_sum_to_one' },
+  )
+  // The DB has partial uniques for this; catching it here turns a 500 into a
+  // 400 with a usable message.
+  .refine(
+    (v) => new Set(v.allocations.map((a) => a.invoiceId ?? 'shared')).size === v.allocations.length,
+    { message: 'duplicate_allocation_target' },
+  );
+
+export type ExpenseAllocationsInput = z.infer<typeof expenseAllocationsSchema>;
