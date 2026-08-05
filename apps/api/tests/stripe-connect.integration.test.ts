@@ -108,7 +108,7 @@ function makeStubStripe(stubs: ConnectStubs = {}): StripeBundle {
   return {
     client,
     publishableKey: 'pk_test_stub',
-    webhookSecret: 'whsec_test_stub',
+    webhookSecrets: ['whsec_test_stub'],
   };
 }
 

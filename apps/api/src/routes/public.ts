@@ -18,7 +18,11 @@ import { v7 as uuidv7 } from 'uuid';
 import type { AppDeps } from '../app.js';
 import { postInvoiceTransition } from '../lib/ledger.js';
 import { UUID_RE } from '../lib/route-helpers.js';
-import { decimalDollarsToCents, paymentIntentFeeCents } from '../lib/stripe.js';
+import {
+  constructWebhookEvent,
+  decimalDollarsToCents,
+  paymentIntentFeeCents,
+} from '../lib/stripe.js';
 import { RATE_LIMITS, rateLimit } from '../middleware/rate-limit.js';
 import type { RlsVariables } from '../middleware/rls-context.js';
 
@@ -435,12 +439,20 @@ export function publicRoutes(deps: AppDeps) {
         const rawBody = await c.req.text();
         let event: import('stripe').Stripe.Event;
         try {
-          event = await deps.stripe.client.webhooks.constructEventAsync(
-            rawBody,
-            sig,
-            deps.stripe.webhookSecret,
+          event = await constructWebhookEvent(deps.stripe, rawBody, sig);
+        } catch (err) {
+          // Logged rather than swallowed: a delivery signed by an endpoint whose
+          // secret we don't hold is indistinguishable from no delivery at all,
+          // and that is precisely how a captured payment goes unrecorded — the
+          // customer is charged, the invoice sits at 'sent', and nothing in the
+          // logs says why (TMC-176).
+          log.error(
+            'stripe webhook signature verification failed against {count} configured secret(s): {msg}',
+            {
+              count: deps.stripe.webhookSecrets.length,
+              msg: err instanceof Error ? err.message : String(err),
+            },
           );
-        } catch {
           return c.json({ error: 'invalid_signature' }, 400);
         }
 
