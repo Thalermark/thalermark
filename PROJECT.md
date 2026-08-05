@@ -184,16 +184,16 @@ Precedent: Cal.com, Mattermost, Plane all run this exact model.
 - **AI tax readiness** — structured quarterly tracker with set-aside calculations, dates, IRS Schedule C alignment. Beyond a simple insight; a real product surface.
 - **Natural language queries** — "how much did I make last month?" Open-ended chat surface; deferred from MVP because it's the riskiest AI feature to ship well.
 - **Bank feed (Plaid / Teller)** — highest-priority post-launch add. Auto-imports transactions, dedupes against manual entries.
+- **Mileage tracking** — manual trip entry (date, miles, purpose, vehicle) producing the standard-mileage deduction. *(TMC-179. Promoted from v1.2+ on 2026-08-05 and rescoped: GPS / background-location auto-detection is explicitly **out**, and that was the entire reason this read as a "big native-mobile build." Without it the feature is small. The tax worksheet already flags Schedule C line 9 as user-supplied precisely because we don't track this — see `apps/api/src/lib/tax-worksheet.ts`.)*
+- **Jobs** — a named work container that exists before any invoice, owning hours and costs and emitting zero or more invoices. *(TMC-181. Job costing shipped with the invoice standing in for the job, and accepted the limits: deposit-plus-final reads as two jobs, recurring work floods the list. Time tracking is what breaks the stand-in, because the work exists before the invoice does. Flat — still no project hierarchy.)*
+- **Time tracking** — timer start/stop **plus a plain duration field**, logged against a job, converted to invoice line items. No project hierarchy, no team tracking. *(TMC-180. Promoted from v1.2+ on 2026-08-05; blocked on Jobs above.)*
 
 ### v1.2+ (deferred but planned)
-- **Mileage tracking** — native GPS, background location handling, IRS-compliant trip logs. Big native-mobile build; defer until v1.x is solid.
-- **Time tracking** — scoped tight if/when built: timer start/stop, log time against a job, convert to invoice line items. No project hierarchy, no team tracking.
 - **Client portal (full)** — multi-invoice customer login, payment history, statements. Significant product surface.
-- **Bills (vendor invoices)** — track money you owe to suppliers, with payment scheduling.
 - **Expense categories & rules** — user-defined rules for auto-categorization of recurring expenses.
 
 ### Possibly never / v2
-- **Auto-charge subscription billing** — true subscription model (card-on-file auto-charged on the recurrence schedule). Brand decision as much as engineering: makes Thalermark feel less like accounting and more like a subscription service. Revisit only after explicit demand.
+- **Auto-charge subscription billing** — true subscription model (card-on-file auto-charged on the recurrence schedule). Brand decision as much as engineering: makes Thalermark feel less like accounting and more like a subscription service. Revisit only after explicit demand. *Nothing is built toward this: no Stripe Customer, no saved payment method, no `setup_future_usage` anywhere in the codebase. Stripe supports it; we have never wired it. The v1.1 opt-in saved card is the prerequisite step, and is deliberately **not** auto-charge.*
 
 ### Long-term full feature set (per original brief)
 - Approval workflows

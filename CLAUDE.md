@@ -104,9 +104,9 @@ Business type (sole prop / LLC / partnership / S-corp / C-corp) is picked once a
 
 **Infrastructure:** telemetry module built first as a trust signal.
 
-**v1.1:** per-company permissions (granular *workspace* roles already shipped), customer opt-in saved card, AI tax readiness (structured), bank feed (Plaid/Teller), natural language queries.
+**v1.1:** per-company permissions (granular *workspace* roles already shipped), customer opt-in saved card, AI tax readiness (structured), bank feed (Plaid/Teller), natural language queries. *Promoted off Deferred 2026-08-05: mileage (TMC-179) and time tracking (TMC-180) — the latter gated on a jobs entity (TMC-181), because tracked time exists before the invoice does.*
 
-**Deferred:** mileage, time tracking, client portal, bills, auto-charge subscription billing.
+**Deferred:** client portal, auto-charge subscription billing. *(Bills shipped as accounts payable.)*
 
 Nothing else until MVP is excellent.
 
