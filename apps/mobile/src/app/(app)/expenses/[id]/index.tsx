@@ -74,6 +74,12 @@ export default function ExpenseDetail() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [target, setTarget] = useState<string | null>(null);
   const [splitCount, setSplitCount] = useState(0);
+  // TMC-178. Set when an extraction was just applied to an expense that still
+  // has no job answer — the one moment the receipt path buries the question,
+  // because attach → extract → apply all happen below it. Transient and
+  // in-place: it replaces the extraction card rather than adding a second
+  // chooser competing with the section above.
+  const [askJobAfterApply, setAskJobAfterApply] = useState(false);
 
   const load = useCallback(async () => {
     const res = await api.api.expenses[':id'].$get({ param: { id } });
@@ -241,7 +247,12 @@ export default function ExpenseDetail() {
       const res = await api.api.expenses[':id'].$patch({ param: { id }, json });
       if (res.ok) {
         setExtraction(null);
+        // Ask the job question here, in place, but only when it is still
+        // unanswered — re-applying an extraction on an already-tagged expense
+        // must not re-open a settled question.
+        const untagged = target === null && splitCount === 0;
         await load();
+        if (untagged) setAskJobAfterApply(true);
       } else {
         setReceiptError('Could not apply the extracted details.');
       }
@@ -282,6 +293,9 @@ export default function ExpenseDetail() {
   async function setAllocation(next: string | null) {
     const previous = target;
     setTarget(next);
+    // Any answer — including "not sure yet" — closes the post-apply prompt.
+    // It is asked once and never re-raised for that receipt.
+    setAskJobAfterApply(false);
     const allocations =
       next === null ? [] : [{ invoiceId: next === 'shared' ? null : next, share: '1' }];
     try {
@@ -393,6 +407,56 @@ export default function ExpenseDetail() {
               {e.memo ? <Row label="Memo" value={e.memo} /> : null}
             </View>
 
+            {/*
+              The one new question (TMC-174). Tap-to-answer rather than a
+              picker-and-save: one tap ends it. "Shared across jobs" sits at the
+              top as a first-class answer — it means "several jobs, don't ask me
+              to split it" — and choosing it never opens a follow-up.
+            */}
+            <View className="mt-8">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                What was this for?
+              </Text>
+              {splitCount > 1 ? (
+                <Text className="mt-3 text-sm text-ink/70">
+                  Split across {splitCount} jobs. Editing that split isn't here yet.
+                </Text>
+              ) : canWrite ? (
+                <View className="mt-3 gap-2">
+                  <JobChoice
+                    label="Shared across jobs"
+                    selected={target === 'shared'}
+                    onPress={() => setAllocation('shared')}
+                  />
+                  {jobs.map((job) => (
+                    <JobChoice
+                      key={job.id}
+                      label={`${job.customerName ?? 'No name'} · ${job.number}`}
+                      selected={target === job.id}
+                      onPress={() => setAllocation(job.id)}
+                    />
+                  ))}
+                  <JobChoice
+                    label="Not sure yet"
+                    selected={target === null}
+                    onPress={() => setAllocation(null)}
+                  />
+                  <Text className="mt-1 text-xs text-ink/50">
+                    Tagging a job lets us tell you what that job made. It changes nothing about your
+                    books or your taxes.
+                  </Text>
+                </View>
+              ) : (
+                <Text className="mt-3 text-sm text-ink/50">
+                  {target === 'shared'
+                    ? 'Shared across jobs.'
+                    : target
+                      ? (jobs.find((j) => j.id === target)?.customerName ?? 'A job')
+                      : 'Not tagged to a job.'}
+                </Text>
+              )}
+            </View>
+
             {/* Receipt section */}
             <View className="mt-10">
               <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
@@ -474,6 +538,45 @@ export default function ExpenseDetail() {
                       </View>
                     </View>
                   ) : null}
+
+                  {/*
+                    TMC-178 — the receipt path's one gap. Attach → extract →
+                    apply all happen below the job question, so by the time the
+                    details land the user is three interactions deep and the
+                    question is above him. Ask here instead, in the space the
+                    extraction card just vacated.
+
+                    Still not a nag: it appears once, only when the answer is
+                    genuinely missing, and every option — including "not sure
+                    yet" — closes it for good.
+                  */}
+                  {askJobAfterApply && canWrite ? (
+                    <View className="mt-3 rounded-sm border border-ink/15 bg-cream-warm p-4">
+                      <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                        Saved. What was this for?
+                      </Text>
+                      <View className="mt-3 gap-2">
+                        <JobChoice
+                          label="Shared across jobs"
+                          selected={false}
+                          onPress={() => setAllocation('shared')}
+                        />
+                        {jobs.slice(0, 5).map((job) => (
+                          <JobChoice
+                            key={job.id}
+                            label={`${job.customerName ?? 'No name'} · ${job.number}`}
+                            selected={false}
+                            onPress={() => setAllocation(job.id)}
+                          />
+                        ))}
+                        <Pressable onPress={() => setAskJobAfterApply(false)} className="pt-1">
+                          <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                            Not sure yet
+                          </Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  ) : null}
                 </View>
               ) : canWrite ? (
                 <View className="mt-3 flex-row gap-2">
@@ -501,56 +604,6 @@ export default function ExpenseDetail() {
                   <ActivityIndicator color="#0f1626" />
                 </View>
               ) : null}
-            </View>
-
-            {/*
-              The one new question (TMC-174). Tap-to-answer rather than a
-              picker-and-save: one tap ends it. "Shared across jobs" sits at the
-              top as a first-class answer — it means "several jobs, don't ask me
-              to split it" — and choosing it never opens a follow-up.
-            */}
-            <View className="mt-8">
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
-                What was this for?
-              </Text>
-              {splitCount > 1 ? (
-                <Text className="mt-3 text-sm text-ink/70">
-                  Split across {splitCount} jobs. Editing that split isn't here yet.
-                </Text>
-              ) : canWrite ? (
-                <View className="mt-3 gap-2">
-                  <JobChoice
-                    label="Shared across jobs"
-                    selected={target === 'shared'}
-                    onPress={() => setAllocation('shared')}
-                  />
-                  {jobs.map((job) => (
-                    <JobChoice
-                      key={job.id}
-                      label={`${job.customerName ?? 'No name'} · ${job.number}`}
-                      selected={target === job.id}
-                      onPress={() => setAllocation(job.id)}
-                    />
-                  ))}
-                  <JobChoice
-                    label="Not sure yet"
-                    selected={target === null}
-                    onPress={() => setAllocation(null)}
-                  />
-                  <Text className="mt-1 text-xs text-ink/50">
-                    Tagging a job lets us tell you what that job made. It changes nothing about your
-                    books or your taxes.
-                  </Text>
-                </View>
-              ) : (
-                <Text className="mt-3 text-sm text-ink/50">
-                  {target === 'shared'
-                    ? 'Shared across jobs.'
-                    : target
-                      ? (jobs.find((j) => j.id === target)?.customerName ?? 'A job')
-                      : 'Not tagged to a job.'}
-                </Text>
-              )}
             </View>
 
             <AuditHistory events={auditEvents} />
