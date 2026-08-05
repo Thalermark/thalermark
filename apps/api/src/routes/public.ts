@@ -18,7 +18,11 @@ import { v7 as uuidv7 } from 'uuid';
 import type { AppDeps } from '../app.js';
 import { postInvoiceTransition } from '../lib/ledger.js';
 import { UUID_RE } from '../lib/route-helpers.js';
-import { decimalDollarsToCents, paymentIntentFeeCents } from '../lib/stripe.js';
+import {
+  constructWebhookEvent,
+  decimalDollarsToCents,
+  paymentIntentFeeCents,
+} from '../lib/stripe.js';
 import { RATE_LIMITS, rateLimit } from '../middleware/rate-limit.js';
 import type { RlsVariables } from '../middleware/rls-context.js';
 
@@ -158,13 +162,21 @@ export function publicRoutes(deps: AppDeps) {
         // Connect routing: if the company has onboarded a connected account,
         // the pay button requires Stripe to have flipped charges_enabled on
         // their side. Self-host companies (no connectAccountId) pay through
-        // the platform's STRIPE_SECRET_KEY — 8.5c behavior preserved.
-        // connectPending surfaces the mid-onboarding state to the recipient
-        // so the page can render a friendly "setting up payments" banner
-        // rather than just hiding the Pay button without explanation.
+        // the platform's STRIPE_SECRET_KEY — 8.5c behavior preserved, unless
+        // requireConnectedAccount turns that fallback off (TMC-175), in which
+        // case charges_enabled is the bar for everyone and a company that never
+        // onboarded is simply not payable.
+        // connectPending surfaces the not-ready state to the recipient so the
+        // page can render a friendly "setting up payments" banner rather than
+        // just hiding the Pay button without explanation. Note it widens with
+        // the requirement: under it, never-onboarded is a pending state too, and
+        // without that the recipient would get a silently missing button.
         const hasConnect = !!company?.stripeConnectAccountId;
-        const connectReady = !hasConnect || company?.stripeConnectChargesEnabled === true;
-        const connectPending = hasConnect && !connectReady;
+        const chargesEnabled = company?.stripeConnectChargesEnabled === true;
+        const connectReady = deps.requireConnectedAccount
+          ? chargesEnabled
+          : !hasConnect || chargesEnabled;
+        const connectPending = (deps.requireConnectedAccount || hasConnect) && !connectReady;
 
         // Offline "pay me directly" instructions — only the enabled methods,
         // with their display values, so the public page renders nothing it
@@ -269,6 +281,18 @@ export function publicRoutes(deps: AppDeps) {
             .limit(1);
           if (company?.stripeConnectAccountId && !company.stripeConnectChargesEnabled) {
             return c.json({ error: 'connect_not_ready' }, 503);
+          }
+          // The platform-account fallback, refused (TMC-175). Without a connected
+          // account there is nowhere to route this charge that isn't the
+          // operator's own balance, so decline rather than take the money into
+          // the wrong account. Mirrors the `payable` gate on the GET above; the
+          // duplicate check is deliberate, since a stale or hand-crafted client
+          // can reach this route without having read that flag.
+          if (deps.requireConnectedAccount && !company?.stripeConnectAccountId) {
+            log.error('payment-intent refused: company {companyId} has no connected account', {
+              companyId: invoice.companyId,
+            });
+            return c.json({ error: 'connect_required' }, 503);
           }
           const requestOptions = company?.stripeConnectAccountId
             ? { stripeAccount: company.stripeConnectAccountId }
@@ -415,12 +439,20 @@ export function publicRoutes(deps: AppDeps) {
         const rawBody = await c.req.text();
         let event: import('stripe').Stripe.Event;
         try {
-          event = await deps.stripe.client.webhooks.constructEventAsync(
-            rawBody,
-            sig,
-            deps.stripe.webhookSecret,
+          event = await constructWebhookEvent(deps.stripe, rawBody, sig);
+        } catch (err) {
+          // Logged rather than swallowed: a delivery signed by an endpoint whose
+          // secret we don't hold is indistinguishable from no delivery at all,
+          // and that is precisely how a captured payment goes unrecorded — the
+          // customer is charged, the invoice sits at 'sent', and nothing in the
+          // logs says why (TMC-176).
+          log.error(
+            'stripe webhook signature verification failed against {count} configured secret(s): {msg}',
+            {
+              count: deps.stripe.webhookSecrets.length,
+              msg: err instanceof Error ? err.message : String(err),
+            },
           );
-        } catch {
           return c.json({ error: 'invalid_signature' }, 400);
         }
 

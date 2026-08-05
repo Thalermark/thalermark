@@ -5,20 +5,28 @@ import Stripe from 'stripe';
 // boots without Stripe wired in, the pay-now path on the public invoice
 // view stays hidden, and the rest of the app keeps working.
 //
-// The webhook secret is stored alongside the client because every webhook
+// The webhook secrets are stored alongside the client because every webhook
 // handler needs both — sdk.webhooks.constructEventAsync verifies the
-// signature using the secret. Treating them as a single bundle keeps the
-// pair in lockstep across env reloads.
+// signature using the secret. Treating them as a single bundle keeps them
+// in lockstep across env reloads.
 
 export interface StripeBundle {
   client: Stripe;
   publishableKey: string;
-  webhookSecret: string;
+  // Every signing secret this install accepts. Plural because a Stripe webhook
+  // endpoint covers ONE delivery scope — `POST /v1/webhook_endpoints` takes a
+  // boolean `connect` — and each endpoint carries its own secret. An install
+  // that takes platform-account charges AND runs Connect therefore has two
+  // endpoints and two secrets; verifying against only one drops the other's
+  // events on the floor (TMC-176). Never empty: the bundle is null instead.
+  webhookSecrets: string[];
 }
 
 export interface StripeEnv {
   secretKey?: string;
   publishableKey?: string;
+  // Comma-separated for the multi-endpoint case above. A single secret is the
+  // common shape and parses to a one-element list, so nothing changes for it.
   webhookSecret?: string;
 }
 
@@ -28,13 +36,40 @@ export interface StripeEnv {
 export function createStripeBundle(env: StripeEnv): StripeBundle | null {
   const secret = env.secretKey?.trim();
   const pub = env.publishableKey?.trim();
-  const hookSecret = env.webhookSecret?.trim();
-  if (!secret || !pub || !hookSecret) return null;
+  // Entries trimmed and empties dropped, so a trailing comma or a stray space
+  // around a secret is harmless — same shape as AI_ALLOWED_ENDPOINTS.
+  const hookSecrets = (env.webhookSecret ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  if (!secret || !pub || hookSecrets.length === 0) return null;
   return {
     client: new Stripe(secret),
     publishableKey: pub,
-    webhookSecret: hookSecret,
+    webhookSecrets: hookSecrets,
   };
+}
+
+// Verify a delivery against every configured signing secret and return the first
+// that checks out. Trying just one is how a mixed install silently loses events:
+// the operator must configure the Connect-scoped endpoint or onboarding never
+// completes, which leaves platform-account charges arriving under a secret we
+// never test (TMC-176). Throws when none verify — the same outcome the
+// single-secret path had, minus the false negatives.
+export async function constructWebhookEvent(
+  bundle: StripeBundle,
+  rawBody: string,
+  signature: string,
+): Promise<Stripe.Event> {
+  let lastError: unknown;
+  for (const secret of bundle.webhookSecrets) {
+    try {
+      return await bundle.client.webhooks.constructEventAsync(rawBody, signature, secret);
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError ?? new Error('no Stripe webhook signing secret configured');
 }
 
 // Processor fee withheld from a succeeded PaymentIntent, in minor units

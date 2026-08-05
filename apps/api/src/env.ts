@@ -83,6 +83,17 @@ export type Env = {
   stripeSecretKey: string | undefined;
   stripePublishableKey: string | undefined;
   stripeWebhookSecret: string | undefined;
+  // STRIPE_REQUIRE_CONNECTED_ACCOUNT — refuse to charge on the platform account
+  // when a company hasn't onboarded Connect. Default false, which is today's
+  // behaviour and correct for a single-operator self-host: the platform account
+  // IS the operator's account. Turn it on when one install serves businesses the
+  // operator doesn't own (a bookkeeper across several client entities) — holding
+  // someone else's customer receipts in your own Stripe balance is commingling.
+  // Money-routing safety, not a feature flag: it is read once at boot.
+  //
+  // Optional on the type for the same reason as jobsEnabled: the hand-built test
+  // Env literals shouldn't grow a field for it. loadEnv always resolves it.
+  stripeRequireConnectedAccount?: boolean;
   // Cron expression for the recurring-invoice sweep (pg-boss). Defaults to
   // 06:00 UTC daily. Override via RECURRING_SWEEP_CRON for a different cadence
   // (e.g. more frequent in dev to exercise the path).
@@ -189,6 +200,9 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     stripeSecretKey: source.STRIPE_SECRET_KEY || undefined,
     stripePublishableKey: source.STRIPE_PUBLISHABLE_KEY || undefined,
     stripeWebhookSecret: source.STRIPE_WEBHOOK_SECRET || undefined,
+    // parseBool treats unset / "" as false, so the default is off (today's
+    // platform-account fallback) with no tri-state trap to guard against.
+    stripeRequireConnectedAccount: parseBool(source.STRIPE_REQUIRE_CONNECTED_ACCOUNT),
     recurringSweepCron: source.RECURRING_SWEEP_CRON || '0 6 * * *',
     depreciationSweepCron: source.DEPRECIATION_SWEEP_CRON || DEFAULT_DEPRECIATION_SWEEP_CRON,
     // Empty string (a bare JOBS_ENABLED= in compose env_file) → unset → default

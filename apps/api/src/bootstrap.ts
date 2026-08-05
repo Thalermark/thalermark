@@ -274,6 +274,7 @@ export function createDefaultAppDeps(
     mailer,
     emailFrom: env.emailFrom,
     stripe,
+    requireConnectedAccount: env.stripeRequireConnectedAccount ?? false,
     storage,
     localFileServe,
     addressProvider,
