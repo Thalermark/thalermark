@@ -3,6 +3,7 @@ import { multiplyMoney } from './money.js';
 import {
   MINUTES_IN_A_DAY,
   hoursFromMinutes,
+  minutesFromDuration,
   timeEntryCreateSchema,
   timeEntryUpdateSchema,
 } from './time-entry.js';
@@ -31,6 +32,47 @@ describe('hoursFromMinutes', () => {
     expect(multiplyMoney(hoursFromMinutes(195), '22.0000')).toBe('71.50');
     expect(multiplyMoney(hoursFromMinutes(90), '40.0000')).toBe('60.00');
     expect(multiplyMoney(hoursFromMinutes(60), '37.5000')).toBe('37.50');
+  });
+});
+
+describe('minutesFromDuration', () => {
+  it('reads decimal hours', () => {
+    expect(minutesFromDuration('3.25')).toBe(195);
+    expect(minutesFromDuration('1')).toBe(60);
+    expect(minutesFromDuration('0.5')).toBe(30);
+  });
+
+  it('reads h:mm', () => {
+    expect(minutesFromDuration('3:15')).toBe(195);
+    expect(minutesFromDuration('0:45')).toBe(45);
+    expect(minutesFromDuration('12:00')).toBe(720);
+  });
+
+  // The two notations have to mean the same thing, or the same job reads
+  // differently depending on how the user happened to type it.
+  it('agrees between the two notations', () => {
+    expect(minutesFromDuration('3:15')).toBe(minutesFromDuration('3.25'));
+    expect(minutesFromDuration('1:30')).toBe(minutesFromDuration('1.5'));
+  });
+
+  it('tolerates surrounding whitespace', () => {
+    expect(minutesFromDuration('  2.5  ')).toBe(150);
+  });
+
+  // Null, not 0 — the caller turns it into a field error rather than logging an
+  // entry the user never meant.
+  it('rejects what it cannot read', () => {
+    for (const raw of ['', '   ', 'abc', '3h15', '-2', '3:75', '3:5', '0', '0:00']) {
+      expect(minutesFromDuration(raw)).toBeNull();
+    }
+  });
+
+  it('round-trips through hoursFromMinutes for exact quarters', () => {
+    for (const typed of ['0.25', '1.5', '3.25', '8']) {
+      const minutes = minutesFromDuration(typed);
+      expect(minutes).not.toBeNull();
+      expect(Number(hoursFromMinutes(minutes as number))).toBe(Number(typed));
+    }
   });
 });
 

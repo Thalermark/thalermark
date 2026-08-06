@@ -381,6 +381,7 @@ export function expensesRoutes(deps: AppDeps) {
         const allocations = await tx
           .select({
             invoiceId: expenseAllocations.invoiceId,
+            jobId: expenseAllocations.jobId,
             share: expenseAllocations.share,
           })
           .from(expenseAllocations)

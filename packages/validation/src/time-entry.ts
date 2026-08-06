@@ -61,6 +61,27 @@ export type TimeEntryUpdateInput = z.infer<typeof timeEntryUpdateSchema>;
 // The line AMOUNT is then multiplyMoney(hours, rate) — the same helper every
 // other line uses, so a billed hour and a hand-typed hour cannot round
 // differently.
+// The inverse, for entry: read what a person types into the integer minutes the
+// API stores. Nobody thinks in minutes, and the two ways people write three and
+// a quarter hours are "3.25" and "3:15" — so accept both rather than teaching a
+// format. Returns null when it cannot be read, which the caller turns into a
+// field error instead of guessing.
+//
+// Shared rather than per-client: web and mobile must agree, or the same typed
+// string becomes two different durations.
+export function minutesFromDuration(raw: string): number | null {
+  const s = raw.trim();
+  if (s === '') return null;
+  const colon = /^(\d+):([0-5]\d)$/.exec(s);
+  if (colon) {
+    const minutes = Number(colon[1]) * 60 + Number(colon[2]);
+    return minutes > 0 ? minutes : null;
+  }
+  if (!/^\d+(\.\d+)?$/.test(s)) return null;
+  const minutes = Math.round(Number(s) * 60);
+  return minutes > 0 ? minutes : null;
+}
+
 export function hoursFromMinutes(minutes: number): string {
   const tenThousandths = Math.round((minutes * 10_000) / 60);
   const whole = Math.floor(tenThousandths / 10_000);

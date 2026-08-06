@@ -200,6 +200,20 @@
       >
         Items
       </a>
+      <!--
+        Appended rather than slotted by perceived usage: this group's order is
+        deliberate (TMC-170) and reordering it is the owner's call, not a
+        side-effect of adding a surface. The top nav stays at five — the freed
+        slot there is white space on purpose.
+      -->
+      <a
+        href="/jobs"
+        role="menuitem"
+        onclick={close}
+        class="block px-4 py-2 text-sm text-fg/80 transition-colors hover:bg-surface-2 hover:text-fg"
+      >
+        Jobs
+      </a>
       {#if canAdjustLedger}
         <a
           href="/ledger"

@@ -289,84 +289,101 @@ export function jobsRoutes() {
 
         return c.body(null, 204);
       })
-      .post('/api/jobs/:id/time', requireCapability('sales:write'), async (c) => {
-        const jobId = c.req.param('id');
-        if (!UUID_RE.test(jobId)) return c.json({ error: 'invalid_id' }, 400);
-        const body = await c.req.json().catch(() => null);
-        // jobId comes from the path; the schema still requires it, so fill it in
-        // rather than making clients send it twice.
-        const parsed = timeEntryCreateSchema.safeParse({ ...(body ?? {}), jobId });
-        if (!parsed.success) {
-          return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
-        }
+      // The validator middleware is required so hc<JobsAppType>() sees `json` on
+      // the typed Input — the path-param POST-with-body footgun. jobId comes
+      // from the path, so it is omitted from the body schema rather than being
+      // sent twice and having to agree with itself.
+      .post(
+        '/api/jobs/:id/time',
+        requireCapability('sales:write'),
+        validator('json', (value, c) => {
+          const parsed = timeEntryCreateSchema.omit({ jobId: true }).safeParse(value);
+          if (!parsed.success) {
+            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+          }
+          return parsed.data;
+        }),
+        async (c) => {
+          const jobId = c.req.param('id');
+          if (!UUID_RE.test(jobId)) return c.json({ error: 'invalid_id' }, 400);
+          const body = c.req.valid('json');
 
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
 
-        const [job] = await tx
-          .select({ id: jobs.id, companyId: jobs.companyId })
-          .from(jobs)
-          .where(and(eq(jobs.id, jobId), eq(jobs.accountId, accountId)))
-          .limit(1);
-        if (!job) return c.json({ error: 'job_not_found' }, 404);
+          const [job] = await tx
+            .select({ id: jobs.id, companyId: jobs.companyId })
+            .from(jobs)
+            .where(and(eq(jobs.id, jobId), eq(jobs.accountId, accountId)))
+            .limit(1);
+          if (!job) return c.json({ error: 'job_not_found' }, 404);
 
-        const id = uuidv7();
-        const row = {
-          id,
-          accountId,
-          companyId: job.companyId,
-          jobId,
-          entryDate: parsed.data.entryDate,
-          minutes: parsed.data.minutes,
-          note: parsed.data.note ?? null,
-          rate: parsed.data.rate ?? null,
-          sourceItemId: parsed.data.sourceItemId ?? null,
-          membershipId: parsed.data.membershipId ?? null,
-        };
-        await tx.insert(timeEntries).values(row);
-        await c.var.audit({
-          entityType: 'time_entry',
-          entityId: id,
-          action: 'create',
-          after: row,
-          companyId: job.companyId,
-        });
+          const id = uuidv7();
+          const row = {
+            id,
+            accountId,
+            companyId: job.companyId,
+            jobId,
+            entryDate: body.entryDate,
+            minutes: body.minutes,
+            note: body.note ?? null,
+            rate: body.rate ?? null,
+            sourceItemId: body.sourceItemId ?? null,
+            membershipId: body.membershipId ?? null,
+          };
+          await tx.insert(timeEntries).values(row);
+          await c.var.audit({
+            entityType: 'time_entry',
+            entityId: id,
+            action: 'create',
+            after: row,
+            companyId: job.companyId,
+          });
 
-        return c.json(row, 201);
-      })
+          return c.json(row, 201);
+        },
+      )
       // Entries for a job, newest first. ?unbilled=true is what the invoice form
       // reads to offer "add unbilled time".
-      .get('/api/jobs/:id/time', async (c) => {
-        const jobId = c.req.param('id');
-        if (!UUID_RE.test(jobId)) return c.json({ error: 'invalid_id' }, 400);
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
+      // A query validator, not a bare c.req.query(), so hc<JobsAppType>() types
+      // ?unbilled — the invoice form reads this route through the typed client.
+      .get(
+        '/api/jobs/:id/time',
+        validator('query', (v) => ({
+          unbilled: v.unbilled === 'true' ? 'true' : undefined,
+        })),
+        async (c) => {
+          const jobId = c.req.param('id');
+          if (!UUID_RE.test(jobId)) return c.json({ error: 'invalid_id' }, 400);
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
 
-        const [job] = await tx
-          .select({ id: jobs.id })
-          .from(jobs)
-          .where(and(eq(jobs.id, jobId), eq(jobs.accountId, accountId)))
-          .limit(1);
-        if (!job) return c.json({ error: 'job_not_found' }, 404);
+          const [job] = await tx
+            .select({ id: jobs.id })
+            .from(jobs)
+            .where(and(eq(jobs.id, jobId), eq(jobs.accountId, accountId)))
+            .limit(1);
+          if (!job) return c.json({ error: 'job_not_found' }, 404);
 
-        const conditions = [eq(timeEntries.jobId, jobId), eq(timeEntries.accountId, accountId)];
-        if (c.req.query('unbilled') === 'true') {
-          conditions.push(isNull(timeEntries.billedInvoiceId));
-        }
+          const conditions = [eq(timeEntries.jobId, jobId), eq(timeEntries.accountId, accountId)];
+          if (c.req.valid('query').unbilled === 'true') {
+            conditions.push(isNull(timeEntries.billedInvoiceId));
+          }
 
-        const rows = await tx
-          .select()
-          .from(timeEntries)
-          .where(and(...conditions))
-          .orderBy(desc(timeEntries.entryDate), desc(timeEntries.id));
+          const rows = await tx
+            .select()
+            .from(timeEntries)
+            .where(and(...conditions))
+            .orderBy(desc(timeEntries.entryDate), desc(timeEntries.id));
 
-        const totalMinutes = rows.reduce((sum, r) => sum + r.minutes, 0);
-        return c.json({
-          timeEntries: rows,
-          totalMinutes,
-          totalHours: displayHours(totalMinutes),
-        });
-      })
+          const totalMinutes = rows.reduce((sum, r) => sum + r.minutes, 0);
+          return c.json({
+            timeEntries: rows,
+            totalMinutes,
+            totalHours: displayHours(totalMinutes),
+          });
+        },
+      )
       .patch(
         '/api/time-entries/:id',
         requireCapability('sales:write'),

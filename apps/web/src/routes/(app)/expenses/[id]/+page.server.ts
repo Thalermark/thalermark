@@ -84,6 +84,16 @@ export const load: PageServerLoad = async (event) => {
         }))
     : [];
 
+  // Named jobs (TMC-181), offered above the invoices. Open ones only — a closed
+  // job is filed away, and offering it here is how the list stops being usable.
+  // Best-effort like the invoices above.
+  const namedJobsRes = await client.api.jobs.$get({
+    query: { companyId: expense.companyId, status: 'open', limit: '50' },
+  });
+  const namedJobs = namedJobsRes.ok
+    ? (await namedJobsRes.json()).jobs.map((j) => ({ id: j.id, name: j.name }))
+    : [];
+
   return {
     expense,
     categoryLabel: labelById.get(expense.categoryAccountId) ?? expense.categoryAccountId,
@@ -91,6 +101,7 @@ export const load: PageServerLoad = async (event) => {
     receipt,
     auditEvents,
     jobs,
+    namedJobs,
   };
 };
 
@@ -105,14 +116,16 @@ export const actions: Actions = {
   setAllocation: async (event) => {
     const form = await event.request.formData();
     const target = String(form.get('target') ?? '');
-    // jobId is spelled out rather than omitted: a row names one grain or the
-    // other, and the payload type requires the choice to be explicit. This
-    // action still tags at invoice grain — the job picker lands with the rest of
-    // the jobs UI.
+    // A row names ONE grain. The option values carry which: "job:<id>" for a
+    // named job, "shared" for the deliberate won't-attribute answer, a bare id
+    // for an invoice standing in as its own job, and '' to clear the answer
+    // entirely (back to never-answered, which is not the same as shared).
     const allocations =
       target === ''
         ? []
-        : [{ invoiceId: target === 'shared' ? null : target, jobId: null, share: '1' }];
+        : target.startsWith('job:')
+          ? [{ invoiceId: null, jobId: target.slice(4), share: '1' }]
+          : [{ invoiceId: target === 'shared' ? null : target, jobId: null, share: '1' }];
 
     const client = serverApiClient(event);
     const res = await client.api.expenses[':id'].allocations.$put({
