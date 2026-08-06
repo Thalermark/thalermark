@@ -120,12 +120,24 @@ export const actions: Actions = {
     const data = await event.request.formData();
     const status = String(data.get('status') ?? '');
     if (status !== 'open' && status !== 'closed') return fail(400, { actionError: 'bad_status' });
+    // A deliberate close carries confirm=true; the first attempt does not, so
+    // the API can refuse and tell us how much is still waiting.
+    const confirmed = String(data.get('confirm') ?? '') === 'true';
     const res = await client.api.jobs[':id'].$patch({
       param: { id: event.params.id },
+      query: { confirm: confirmed ? 'true' : undefined },
       json: { status },
     });
     if (!res.ok) {
-      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      const body = (await res.json().catch(() => null)) as {
+        error?: string;
+        readyToBill?: string;
+      } | null;
+      if (body?.error === 'job_has_unbilled_time') {
+        // Not an error so much as a question. Closing would drop the job out of
+        // the default list and take its unbilled work with it.
+        return fail(409, { confirmClose: body.readyToBill ?? '0.00' });
+      }
       return fail(res.status, { actionError: body?.error ?? 'update_failed' });
     }
     redirect(303, `/jobs/${event.params.id}`);

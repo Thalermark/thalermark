@@ -8,13 +8,15 @@ import type { RequestHandler } from './$types';
 // page matches the current view.
 export const GET: RequestHandler = async (event) => {
   const cursor = event.url.searchParams.get('cursor') ?? undefined;
-  const showClosed = event.url.searchParams.get('closed') === '1';
+  const status = event.url.searchParams.get('status') ?? 'open';
+  const q = (event.url.searchParams.get('q') ?? '').trim();
   const client = serverApiClient(event);
   const query: Record<string, string> = { limit: String(PAGE_SIZE) };
   const companyId = cookieCompanyId(event.cookies);
   if (companyId) query.companyId = companyId;
   if (cursor) query.cursor = cursor;
-  if (!showClosed) query.status = 'open';
+  if (status === 'open' || status === 'closed') query.status = status;
+  if (q) query.q = q;
   const res = await client.api.jobs.$get({ query });
   if (!res.ok) return json({ rows: [], nextCursor: null }, { status: res.status });
   const { jobs, nextCursor } = await res.json();

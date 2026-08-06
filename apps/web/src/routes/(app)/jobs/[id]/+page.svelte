@@ -153,6 +153,25 @@
   {/if}
 </div>
 
+<!--
+  Closing would take this job out of the default list and its unbilled work with
+  it. Asked once, with the amount named, rather than blocked or done silently.
+-->
+{#if form?.confirmClose}
+  <div class="mt-6 rounded-sm border border-accent/40 bg-accent/5 px-4 py-3">
+    <p class="text-sm text-fg/80">
+      This job still has <span class="font-mono">{fmt(form.confirmClose)}</span> ready to bill.
+      Closing it hides the job from the default list, and that money with it.
+    </p>
+    <form method="post" action="?/setStatus" class="mt-3 flex items-center gap-3">
+      <input type="hidden" name="status" value="closed" />
+      <input type="hidden" name="confirm" value="true" />
+      <button type="submit" class="btn">Close anyway</button>
+      <a href="/invoices/new?jobId={job.id}" class="link text-sm">Bill it first</a>
+    </form>
+  </div>
+{/if}
+
 {#if form?.actionError}
   <div class="mt-6 rounded-sm border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
     {form.actionError}

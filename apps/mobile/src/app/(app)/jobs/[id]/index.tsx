@@ -88,6 +88,7 @@ export default function JobDetailScreen() {
   const [ratePrefilled, setRatePrefilled] = useState(false);
   const [timeError, setTimeError] = useState<string | null>(null);
   const [logging, setLogging] = useState(false);
+  const [confirmClose, setConfirmClose] = useState<string | null>(null);
 
   // Tracked hours not yet on an invoice — what billing would add right now.
   // Only rated entries: unrated hours bill nothing.
@@ -196,13 +197,29 @@ export default function JobDetailScreen() {
     await load();
   }
 
-  async function toggleStatus() {
+  // Closing takes the job out of the default list and its unbilled work with
+  // it, so the API refuses the first attempt and names the amount. Asked once,
+  // then honoured — not blocked, and never silent.
+  async function toggleStatus(confirmed = false) {
     if (!job) return;
+    const next = job.status === 'open' ? 'closed' : 'open';
     const res = await api.api.jobs[':id'].$patch({
       param: { id },
-      json: { status: job.status === 'open' ? 'closed' : 'open' },
+      query: { confirm: confirmed ? 'true' : undefined },
+      json: { status: next },
     });
-    if (res.ok) await load();
+    if (res.ok) {
+      setConfirmClose(null);
+      await load();
+      return;
+    }
+    const body = (await res.json().catch(() => null)) as {
+      error?: string;
+      readyToBill?: string;
+    } | null;
+    if (body?.error === 'job_has_unbilled_time') {
+      setConfirmClose(body.readyToBill ?? '0.00');
+    }
   }
 
   if (loading) {
@@ -341,13 +358,36 @@ export default function JobDetailScreen() {
                 </Pressable>
               )}
               <Pressable
-                onPress={toggleStatus}
+                onPress={() => toggleStatus()}
                 className="items-center rounded-sm border border-ink/20 px-4 py-3"
               >
                 <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
                   {job.status === 'open' ? 'Close' : 'Reopen'}
                 </Text>
               </Pressable>
+            </View>
+          ) : null}
+
+          {confirmClose ? (
+            <View className="mt-4 rounded-sm border border-gold-deep/40 bg-gold-deep/5 p-4">
+              <Text className="text-sm text-ink/80">
+                This job still has {fmt(confirmClose)} ready to bill. Closing it hides the job from
+                the default list, and that money with it.
+              </Text>
+              <View className="mt-3 flex-row gap-2">
+                <Pressable
+                  onPress={() => toggleStatus(true)}
+                  className="items-center rounded-sm bg-ink px-4 py-2.5 active:bg-gold-deep"
+                >
+                  <Text className="text-sm font-medium text-cream">Close anyway</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => setConfirmClose(null)}
+                  className="items-center rounded-sm border border-ink/20 px-4 py-2.5"
+                >
+                  <Text className="text-sm text-ink/70">Keep it open</Text>
+                </Pressable>
+              </View>
             </View>
           ) : null}
 

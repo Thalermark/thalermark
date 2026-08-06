@@ -181,6 +181,58 @@ export function jobsRoutes() {
           nextCursor: page.nextCursor,
         });
       })
+      // Declared BEFORE /api/jobs/:id — Hono is first-match, so the literal
+      // would otherwise be captured as an id. Same rule as /api/items/import.
+      .get('/api/jobs/summary', async (c) => {
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+        const companyId = c.req.query('companyId');
+
+        const scope = [eq(jobs.accountId, accountId)];
+        if (companyId) scope.push(eq(jobs.companyId, companyId));
+
+        const rows = await tx
+          .select({ id: jobs.id, companyId: jobs.companyId, status: jobs.status })
+          .from(jobs)
+          .where(and(...scope));
+
+        const open = rows.filter((r) => r.status === 'open').length;
+
+        // Money waiting across every job, and the hours that CANNOT be billed
+        // until someone prices them. The second is the actionable half: a job
+        // full of unrated work looks identical to a job with nothing to bill.
+        let readyCents = 0;
+        let readyOnClosedCents = 0;
+        let unratedMinutes = 0;
+        let jobsWithMoneyWaiting = 0;
+        const statusOf = new Map(rows.map((r) => [r.id, r.status]));
+        const byCompany = new Map<string, string[]>();
+        for (const r of rows) {
+          byCompany.set(r.companyId, [...(byCompany.get(r.companyId) ?? []), r.id]);
+        }
+        for (const [cid, ids] of byCompany) {
+          for (const [jobId, v] of await jobUnbilled(tx, accountId, cid, ids)) {
+            readyCents += v.cents;
+            unratedMinutes += v.unratedMinutes;
+            if (v.cents > 0) jobsWithMoneyWaiting += 1;
+            // Broken out because the default list shows OPEN jobs: without this
+            // the headline can read $191 while the visible list adds to $60, and
+            // the missing money is invisible rather than merely elsewhere.
+            if (statusOf.get(jobId) === 'closed') readyOnClosedCents += v.cents;
+          }
+        }
+
+        return c.json({
+          total: rows.length,
+          open,
+          closed: rows.length - open,
+          readyToBill: centsToMoney(readyCents),
+          readyToBillOnClosed: centsToMoney(readyOnClosedCents),
+          jobsWithMoneyWaiting,
+          unratedMinutes,
+          unratedHours: displayHours(unratedMinutes),
+        });
+      })
       // Job detail: the job, the invoices it emitted, and the margin block.
       //
       // INTERNAL ONLY. Cost, margin and hours must never reach the customer —
@@ -241,6 +293,9 @@ export function jobsRoutes() {
       .patch(
         '/api/jobs/:id',
         requireCapability('sales:write'),
+        // confirm rides as a query param so hc types it; the guard below reads
+        // it to let a deliberate close through.
+        validator('query', (v) => ({ confirm: v.confirm === 'true' ? 'true' : undefined })),
         validator('json', (value, c) => {
           const parsed = jobUpdateSchema.safeParse(value);
           if (!parsed.success) {
@@ -280,6 +335,20 @@ export function jobsRoutes() {
           const endedOn = patch.endedOn === undefined ? current.endedOn : patch.endedOn;
           if (startedOn && endedOn && startedOn > endedOn) {
             return c.json({ error: 'ended_before_started' }, 400);
+          }
+
+          // Closing a job with billable hours on it is how money goes missing:
+          // the job drops out of the default list and its unbilled work goes
+          // with it. Refused unless the caller says so explicitly — the amount
+          // comes back so the client can name it rather than nag vaguely.
+          if (patch.status === 'closed' && current.status !== 'closed') {
+            const waiting = (await jobUnbilled(tx, accountId, current.companyId, [id])).get(id);
+            if (waiting && waiting.cents > 0 && c.req.valid('query').confirm !== 'true') {
+              return c.json(
+                { error: 'job_has_unbilled_time', readyToBill: centsToMoney(waiting.cents) },
+                409,
+              );
+            }
           }
 
           const [updated] = await tx

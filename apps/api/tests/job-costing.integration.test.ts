@@ -1598,3 +1598,175 @@ describe('the running stopwatch', () => {
     }
   });
 });
+
+describe('GET /api/jobs/summary', () => {
+  beforeEach(resetDb);
+
+  // Declared before /api/jobs/:id — Hono is first-match, so a regression in
+  // route order would make this 404 as an invalid id rather than answering.
+  it('is not captured as an id by the detail route', async () => {
+    const ctx = await setup('jobs-summary-route@test.com');
+    try {
+      const res = await ctx.app.request(`/api/jobs/summary?companyId=${ctx.companyId}`, {
+        headers: ctx.headers,
+      });
+      expect(res.status).toBe(200);
+      expect((await res.json()) as { total: number }).toHaveProperty('total');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('counts open and closed, and totals what is waiting', async () => {
+    const ctx = await setup('jobs-summary@test.com');
+    try {
+      const contactId = await makeContact(ctx, 'Chen');
+      const withMoney = await makeJob(ctx, 'Deck rebuild', contactId);
+      const unpriced = await makeJob(ctx, 'Favour job');
+      const closed = await makeJob(ctx, 'Done and dusted');
+
+      await logTime(ctx, withMoney, 180, '25.0000'); // $75 waiting
+      await logTime(ctx, unpriced, 120); // 2 h that cannot be billed
+      await ctx.app.request(`/api/jobs/${closed}`, {
+        method: 'PATCH',
+        headers: ctx.headers,
+        body: JSON.stringify({ status: 'closed' }),
+      });
+
+      const res = await ctx.app.request(`/api/jobs/summary?companyId=${ctx.companyId}`, {
+        headers: ctx.headers,
+      });
+      const body = (await res.json()) as {
+        total: number;
+        open: number;
+        closed: number;
+        readyToBill: string;
+        jobsWithMoneyWaiting: number;
+        unratedMinutes: number;
+        unratedHours: string;
+      };
+
+      expect(body.total).toBe(3);
+      expect(body.open).toBe(2);
+      expect(body.closed).toBe(1);
+      expect(body.readyToBill).toBe('75.00');
+      // Only the job with priced hours counts as waiting.
+      expect(body.jobsWithMoneyWaiting).toBe(1);
+      // The blocked hours are surfaced separately — a job full of unpriced work
+      // looks identical to one with nothing to bill unless it is called out.
+      expect(body.unratedMinutes).toBe(120);
+      expect(body.unratedHours).toBe('2.00');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+});
+
+describe('closing a job with money still on it', () => {
+  beforeEach(resetDb);
+
+  // Closing drops a job out of the default list and takes its unbilled work with
+  // it. Refused once, with the amount named, rather than done silently — losing
+  // track of billable money is the failure worth an extra click.
+  it('refuses the first attempt and says how much is waiting', async () => {
+    const ctx = await setup('close-with-money@test.com');
+    try {
+      const jobId = await makeJob(ctx, 'Deck rebuild');
+      await logTime(ctx, jobId, 180, '25.0000');
+
+      const res = await ctx.app.request(`/api/jobs/${jobId}`, {
+        method: 'PATCH',
+        headers: ctx.headers,
+        body: JSON.stringify({ status: 'closed' }),
+      });
+      expect(res.status).toBe(409);
+      const body = (await res.json()) as { error: string; readyToBill: string };
+      expect(body.error).toBe('job_has_unbilled_time');
+      expect(body.readyToBill).toBe('75.00');
+
+      // Still open — the refusal changed nothing.
+      const detail = await ctx.app.request(`/api/jobs/${jobId}`, { headers: ctx.headers });
+      expect(((await detail.json()) as { status: string }).status).toBe('open');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('closes when the caller confirms', async () => {
+    const ctx = await setup('close-confirmed@test.com');
+    try {
+      const jobId = await makeJob(ctx, 'Deck rebuild');
+      await logTime(ctx, jobId, 180, '25.0000');
+
+      const res = await ctx.app.request(`/api/jobs/${jobId}?confirm=true`, {
+        method: 'PATCH',
+        headers: ctx.headers,
+        body: JSON.stringify({ status: 'closed' }),
+      });
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as { status: string }).status).toBe('closed');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  // Nothing waiting, nothing to warn about — the guard must not become a nag.
+  it('closes without ceremony when nothing is waiting', async () => {
+    const ctx = await setup('close-clean@test.com');
+    try {
+      const jobId = await makeJob(ctx, 'Nothing owed');
+      const res = await ctx.app.request(`/api/jobs/${jobId}`, {
+        method: 'PATCH',
+        headers: ctx.headers,
+        body: JSON.stringify({ status: 'closed' }),
+      });
+      expect(res.status).toBe(200);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  // Unrated hours cannot be billed, so they are not money waiting and must not
+  // trigger the warning — otherwise every favour job nags on close.
+  it('does not warn for hours that have no rate', async () => {
+    const ctx = await setup('close-unrated@test.com');
+    try {
+      const jobId = await makeJob(ctx, 'Favour job');
+      await logTime(ctx, jobId, 120);
+      const res = await ctx.app.request(`/api/jobs/${jobId}`, {
+        method: 'PATCH',
+        headers: ctx.headers,
+        body: JSON.stringify({ status: 'closed' }),
+      });
+      expect(res.status).toBe(200);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('breaks out money parked on closed jobs in the summary', async () => {
+    const ctx = await setup('summary-closed-money@test.com');
+    try {
+      const openJob = await makeJob(ctx, 'Still going');
+      const closedJob = await makeJob(ctx, 'Filed away');
+      await logTime(ctx, openJob, 60, '20.0000'); // $20 reachable
+      await logTime(ctx, closedJob, 60, '30.0000'); // $30 parked
+      await ctx.app.request(`/api/jobs/${closedJob}?confirm=true`, {
+        method: 'PATCH',
+        headers: ctx.headers,
+        body: JSON.stringify({ status: 'closed' }),
+      });
+
+      const res = await ctx.app.request(`/api/jobs/summary?companyId=${ctx.companyId}`, {
+        headers: ctx.headers,
+      });
+      const body = (await res.json()) as { readyToBill: string; readyToBillOnClosed: string };
+      expect(body.readyToBill).toBe('50.00');
+      // Without this split the headline reads $50 while the default list adds to
+      // $20, and the difference looks like a bug rather than money parked.
+      expect(body.readyToBillOnClosed).toBe('30.00');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+});
