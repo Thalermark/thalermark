@@ -78,8 +78,27 @@ export const load: PageServerLoad = async (event) => {
 
   const offered = previews.filter((p): p is Closable => p !== null);
 
+  // Vehicles missing the Part IV answers the return needs (TMC-179). Surfaced
+  // here as a LINK rather than a form: the answers aren't period-locked, so they
+  // can be given before or after a close, and a second copy of the form would be
+  // a second thing to keep right. Fail-soft — a hiccup hides the prompt rather
+  // than breaking the close page.
+  let vehiclesNeedingAnswers = 0;
+  try {
+    const vehiclesRes = await client.api.vehicles.$get({ query: { companyId: company.id } });
+    if (vehiclesRes.ok) {
+      const { vehicles } = await vehiclesRes.json();
+      vehiclesNeedingAnswers = vehicles.filter(
+        (v) => v.personalUse === null || v.placedInServiceOn === null,
+      ).length;
+    }
+  } catch {
+    vehiclesNeedingAnswers = 0;
+  }
+
   return {
     companyId: company.id,
+    vehiclesNeedingAnswers,
     // Only years with something on them get a card. A business that started last
     // year would otherwise meet a wall of identical "nothing here" cards with no
     // action on them; the empty years are named in one line instead, so it's

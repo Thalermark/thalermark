@@ -61,6 +61,27 @@ type Mileage = {
   overlapping: { code: string; name: string; amount: string }[];
 };
 
+// Schedule C Part IV. READ-ONLY on mobile, deliberately: these are annual
+// answers and year-end work happens on a laptop, so the phone reports what is
+// missing rather than carrying a second copy of the form.
+type VehicleInfo = {
+  destination: 'schedule_c_part_iv' | 'form_4562_part_v' | 'none';
+  unassignedMiles: string;
+  rows: {
+    vehicleId: string;
+    label: string;
+    businessMiles: string;
+    commutingMiles: string;
+    otherMiles: string | null;
+    totalMiles: string | null;
+    placedInServiceOn: string | null;
+    personalUseAvailable: boolean | null;
+    anotherVehicleAvailable: boolean | null;
+    missing: string[];
+    inconsistent: boolean;
+  }[];
+};
+
 // Chip row matching PeriodSelector's styling — the report screens' shared idiom
 // for a small set of mutually exclusive choices.
 function ChipRow<T extends string | number>({
@@ -168,6 +189,7 @@ export default function TaxWorksheetReport() {
           const itemised = deductions.find((r) => r.itemized);
           const isScheduleC = d.formCode === 'schedule_c';
           const mileage = d.mileage as Mileage;
+          const vehicleInfo = d.vehicleInfo as VehicleInfo;
           return (
             <>
               {overridden ? (
@@ -295,6 +317,50 @@ export default function TaxWorksheetReport() {
                       </Text>
                     ) : null}
                   </View>
+                </ReportCard>
+              ) : null}
+
+              {/* Part IV (TMC-179), read-only. The answers are annual and the
+                  form is on the web; the phone's job is to say what's missing
+                  so it isn't discovered in April. */}
+              {vehicleInfo && vehicleInfo.destination !== 'none' && vehicleInfo.rows.length > 0 ? (
+                <ReportCard>
+                  <SectionHeader
+                    label={
+                      vehicleInfo.destination === 'schedule_c_part_iv'
+                        ? 'Part IV — your vehicle'
+                        : 'Your vehicle'
+                    }
+                  />
+                  {vehicleInfo.rows.map((v) => (
+                    <AmountRow
+                      key={v.vehicleId}
+                      label={v.label}
+                      sub={
+                        v.missing.length > 0
+                          ? `${v.missing.length} ${v.missing.length === 1 ? 'answer' : 'answers'} missing — finish on the web`
+                          : v.inconsistent
+                            ? 'Total needs updating — finish on the web'
+                            : `${Number(v.businessMiles).toLocaleString('en-US', { maximumFractionDigits: 1 })} business miles`
+                      }
+                      amount={
+                        v.totalMiles === null
+                          ? '—'
+                          : `${Number(v.totalMiles).toLocaleString('en-US', { maximumFractionDigits: 1 })} mi`
+                      }
+                    />
+                  ))}
+                  {Number(vehicleInfo.unassignedMiles) > 0 ? (
+                    <View className="px-4 py-3">
+                      <Text className="text-sm text-ink/70">
+                        {Number(vehicleInfo.unassignedMiles).toLocaleString('en-US', {
+                          maximumFractionDigits: 1,
+                        })}{' '}
+                        miles are on trips that don't say which vehicle you drove, so they're in
+                        your deduction but not counted against any vehicle above.
+                      </Text>
+                    </View>
+                  ) : null}
                 </ReportCard>
               ) : null}
 
