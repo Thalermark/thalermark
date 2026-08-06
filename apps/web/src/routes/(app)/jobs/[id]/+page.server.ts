@@ -36,7 +36,15 @@ export const load: PageServerLoad = async (event) => {
   });
   const trips = milesRes.ok ? (await milesRes.json()).trips : [];
 
-  return { job, time, timer, trips };
+  // The vehicle picker for the Miles form. Without it every trip logged from a
+  // job screen would land with no vehicle — counted in the deduction but absent
+  // from Schedule C Part IV — which is exactly the gap the worksheet warns
+  // about. Logging from the job is the most natural path, so it must not be the
+  // one that creates the problem.
+  const vehiclesRes = await client.api.vehicles.$get({ query: { companyId: job.companyId } });
+  const vehicles = vehiclesRes.ok ? (await vehiclesRes.json()).vehicles : [];
+
+  return { job, time, timer, trips, vehicles };
 };
 
 export const actions: Actions = {
@@ -115,6 +123,7 @@ export const actions: Actions = {
     const miles = String(data.get('miles') ?? '').trim();
     const tripDate = String(data.get('tripDate') ?? '').trim();
     const purpose = String(data.get('purpose') ?? '').trim();
+    const vehicleId = String(data.get('vehicleId') ?? '').trim();
     if (!miles || !purpose) {
       return fail(400, { milesError: 'Enter the miles and what the trip was for.' });
     }
@@ -126,7 +135,14 @@ export const actions: Actions = {
     const { companyId } = await jobRes.json();
 
     const res = await client.api['mileage-trips'].$post({
-      json: { companyId, jobId: event.params.id, miles, tripDate, purpose },
+      json: {
+        companyId,
+        jobId: event.params.id,
+        miles,
+        tripDate,
+        purpose,
+        ...(vehicleId ? { vehicleId } : {}),
+      },
     });
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;

@@ -8,6 +8,13 @@
   const margin = $derived(data.job.margin);
   const time = $derived(data.time);
   const canWrite = $derived(may(data.role, 'sales:write'));
+  // Whatever was last driven to this job, else the only vehicle there is. A
+  // one-truck operator never touches the picker.
+  const defaultVehicleId = $derived(
+    data.trips.find((t) => t.vehicleId)?.vehicleId ??
+      (data.vehicles.length === 1 ? data.vehicles[0]?.id : '') ??
+      '',
+  );
 
   const fmt = (s: string) =>
     Number(s).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
@@ -432,7 +439,7 @@
 
 {#if canWrite}
   <form method="post" action="?/logMiles" class="mt-4 rounded-sm border border-fg/15 bg-surface-2 p-5">
-    <div class="grid gap-4 sm:grid-cols-[9rem_7rem_1fr_auto] sm:items-end">
+    <div class="grid gap-4 sm:grid-cols-[9rem_7rem_1fr_9rem_auto] sm:items-end">
       <label class="block">
         <span class="label">Date</span>
         <input
@@ -464,6 +471,21 @@
           class="field mt-1 w-full"
         />
       </label>
+      <!--
+        Which vehicle. Without this every trip logged here would land unassigned
+        — in the deduction but in no Part IV row — and the worksheet would then
+        tell the user to go and fix it. Defaults to the one last driven to this
+        job, else the only vehicle there is, so the common case is no work.
+      -->
+      <label class="block">
+        <span class="label">Vehicle</span>
+        <select name="vehicleId" class="field mt-1 w-full">
+          <option value="">—</option>
+          {#each data.vehicles as v (v.id)}
+            <option value={v.id} selected={defaultVehicleId === v.id}>{v.label}</option>
+          {/each}
+        </select>
+      </label>
       <button type="submit" class="btn">Log</button>
     </div>
     {#if form?.milesError}
@@ -476,7 +498,11 @@
   <ul class="mt-4 divide-y divide-fg/10 rounded-sm border border-fg/10 bg-surface-2">
     {#each data.trips as trip (trip.id)}
       <li class="flex items-center justify-between gap-4 px-5 py-3 text-sm">
-        <span class="text-fg/80">{trip.tripDate} · {trip.purpose}</span>
+        <span class="text-fg/80">
+          {trip.tripDate} · {trip.purpose}{data.vehicles.find((v) => v.id === trip.vehicleId)?.label
+            ? ` · ${data.vehicles.find((v) => v.id === trip.vehicleId)?.label}`
+            : ''}
+        </span>
         <span class="font-mono tabular-nums text-fg/70">
           {Number(trip.miles).toLocaleString('en-US', { maximumFractionDigits: 1 })} mi
         </span>
