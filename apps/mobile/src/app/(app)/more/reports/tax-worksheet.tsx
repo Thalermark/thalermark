@@ -39,9 +39,26 @@ type Row = {
   role: string;
   amount: string | null;
   accounts: { code: string; name: string; amount: string }[];
+  // Non-ledger figures summed into this line's amount — standard mileage, and
+  // only on Schedule C line 9 today.
+  computed?: { line: string; label: string; amount: string }[];
   itemized?: true;
   userSupplied?: true;
   subLine?: true;
+};
+
+// Standard mileage (TMC-179). Present for every form: on the three corporate
+// and partnership returns it isn't a deduction the business takes, but the
+// driver still needs to be told what they're owed under an accountable plan.
+type Mileage = {
+  method: 'standard' | 'actual';
+  companyMethod: string;
+  miles: string;
+  amount: string;
+  foregone: string;
+  unratedMiles: string;
+  tripCount: number;
+  overlapping: { code: string; name: string; amount: string }[];
 };
 
 // Chip row matching PeriodSelector's styling — the report screens' shared idiom
@@ -150,6 +167,7 @@ export default function TaxWorksheetReport() {
           const deductions = d.deductions as Row[];
           const itemised = deductions.find((r) => r.itemized);
           const isScheduleC = d.formCode === 'schedule_c';
+          const mileage = d.mileage as Mileage;
           return (
             <>
               {overridden ? (
@@ -229,6 +247,54 @@ export default function TaxWorksheetReport() {
                     label={`Total · line ${itemised.line}`}
                     amount={fmt(itemised.amount ?? '0.00')}
                   />
+                </ReportCard>
+              ) : null}
+
+              {/* Business driving (TMC-179). Shown for every form — on the three
+                  corporate/partnership returns it isn't a deduction the business
+                  takes, so the copy has to say what happens instead or the
+                  figure reads as one that went missing. */}
+              {mileage && mileage.tripCount > 0 ? (
+                <ReportCard>
+                  <SectionHeader label="Business driving" />
+                  <AmountRow
+                    label={`${Number(mileage.miles).toLocaleString('en-US', {
+                      maximumFractionDigits: 1,
+                    })} miles`}
+                    sub={`${mileage.tripCount} ${mileage.tripCount === 1 ? 'trip' : 'trips'}`}
+                    amount={fmt(mileage.method === 'standard' ? mileage.amount : mileage.foregone)}
+                  />
+                  <View className="px-4 py-3">
+                    {mileage.method === 'actual' ? (
+                      <Text className="text-sm text-ink/70">
+                        That's what a flat rate per mile would have been worth. It isn't on the
+                        worksheet because this business deducts its actual vehicle costs instead.
+                      </Text>
+                    ) : !isScheduleC ? (
+                      <Text className="text-sm text-ink/70">
+                        This isn't a deduction on the business's return — the business should
+                        reimburse you for it, and that payment lands on the return as an ordinary
+                        vehicle expense. Ask whoever prepares your return about an accountable plan.
+                      </Text>
+                    ) : null}
+                    {Number(mileage.unratedMiles) > 0 ? (
+                      <Text className="mt-2 text-sm text-ink/70">
+                        {Number(mileage.unratedMiles).toLocaleString('en-US', {
+                          maximumFractionDigits: 1,
+                        })}{' '}
+                        of those miles are on dates the IRS hasn't set a rate for, so they aren't in
+                        the figure above.
+                      </Text>
+                    ) : null}
+                    {mileage.overlapping.length > 0 ? (
+                      <Text className="mt-2 text-sm text-ink/70">
+                        The rate per mile already covers fuel, repairs, insurance and the vehicle's
+                        depreciation, and you've also recorded{' '}
+                        {mileage.overlapping.map((a) => a.name).join(', ')} separately this year —
+                        some of it may be counted twice. Parking and tolls are fine to claim on top.
+                      </Text>
+                    ) : null}
+                  </View>
                 </ReportCard>
               ) : null}
 

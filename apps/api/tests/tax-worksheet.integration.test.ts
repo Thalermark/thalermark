@@ -557,6 +557,16 @@ type Worksheet = {
   unmappedExpenses: { code: string; name: string; amount: string }[];
   totalDeductions: string;
   netIncome: string;
+  mileage: {
+    method: string;
+    companyMethod: string;
+    miles: string;
+    amount: string;
+    foregone: string;
+    unratedMiles: string;
+    tripCount: number;
+    overlapping: { code: string; name: string; amount: string }[];
+  };
 };
 
 type WorksheetRow = {
@@ -565,6 +575,7 @@ type WorksheetRow = {
   role: string;
   amount: string | null;
   accounts: { code: string; name: string; amount: string }[];
+  computed?: { line: string; label: string; amount: string }[];
   itemized?: true;
   userSupplied?: true;
   subLine?: true;
@@ -960,6 +971,173 @@ describe('GET /api/companies/:id/tax-worksheet', () => {
         headers: headers(ctx),
       });
       expect(missing.status).toBe(404);
+    } finally {
+      await close();
+    }
+  });
+});
+
+// Standard mileage on the return (TMC-179). The pure line arithmetic is covered
+// in src/lib/tax-worksheet.test.ts; this file covers the SQL that feeds it and
+// the entity-type split, which is where the real risk is.
+describe('tax worksheet — standard mileage', () => {
+  async function logTrip(
+    ctx: Ctx,
+    companyId: string,
+    opts: { miles: string; tripDate: string; purpose?: string },
+  ): Promise<void> {
+    const res = await ctx.app.request('/api/mileage-trips', {
+      method: 'POST',
+      headers: headers(ctx),
+      body: JSON.stringify({
+        companyId,
+        miles: opts.miles,
+        tripDate: opts.tripDate,
+        purpose: opts.purpose ?? 'Site visit',
+      }),
+    });
+    if (res.status !== 201) throw new Error(`trip create failed: ${res.status}`);
+  }
+
+  it('adds mileage to Schedule C line 9 beside the books half', async () => {
+    const { ctx, close } = await setup('ws-miles-sc@example.com');
+    try {
+      await expenseFor(ctx, ctx.companyId, {
+        categoryCode: '6100',
+        amount: '412.80',
+        expenseDate: '2026-03-02',
+      });
+      // Straddles the mid-year rate change on purpose: 100 x 0.7250 = 72.50 and
+      // 100 x 0.7600 = 76.00, so the total can only be right if each trip was
+      // valued against its own date.
+      await logTrip(ctx, ctx.companyId, { miles: '100', tripDate: '2026-06-30' });
+      await logTrip(ctx, ctx.companyId, { miles: '100', tripDate: '2026-07-01' });
+
+      const w = await getWorksheet(ctx, ctx.companyId, '?year=2026&basis=cash');
+      const nine = row(w, '9');
+      expect(w.mileage.miles).toBe('200.0000');
+      expect(w.mileage.amount).toBe('148.50');
+      expect(w.mileage.tripCount).toBe(2);
+      expect(nine.amount).toBe('561.30'); // 412.80 + 148.50
+      expect(nine.computed).toEqual([{ line: '9', label: 'Standard mileage', amount: '148.50' }]);
+      // The books' half stays visible and unchanged.
+      expect(nine.accounts).toEqual([
+        { code: '6100', name: 'Car & Truck Expenses', amount: '412.80' },
+      ]);
+      // Still user-supplied, and more so: the rate covers gas, so parking and
+      // tolls may now need taking back OUT of 6100.
+      expect(nine.userSupplied).toBe(true);
+    } finally {
+      await close();
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // The assertion that makes "the corp forms need no worksheet change" a
+  // PROPERTY rather than a hope. A corporation reimburses the driver under an
+  // accountable plan and deducts the reimbursement as ordinary 6100 spend; an
+  // addend on its return would double-count it.
+  // ─────────────────────────────────────────────────────────────────────────
+  it('leaves the three entity forms byte-identical when trips exist', async () => {
+    const { ctx, close } = await setup('ws-miles-corp@example.com');
+    try {
+      for (const [name, businessType] of [
+        ['Partners LLP', 'partnership'],
+        ['S Corp Inc', 's_corp'],
+        ['C Corp Inc', 'c_corp'],
+      ] as const) {
+        const companyId = await companyOfType(ctx, name, businessType);
+        await expenseFor(ctx, companyId, {
+          categoryCode: '6100',
+          amount: '412.80',
+          expenseDate: '2026-03-02',
+        });
+
+        const before = await getWorksheet(ctx, companyId, '?year=2026&basis=cash');
+        await logTrip(ctx, companyId, { miles: '500', tripDate: '2026-07-15' });
+        const after = await getWorksheet(ctx, companyId, '?year=2026&basis=cash');
+
+        // Everything that reaches the return is unchanged...
+        expect({ ...after, mileage: null }).toEqual({ ...before, mileage: null });
+        expect(after.deductions.every((r) => r.computed === undefined)).toBe(true);
+        // ...but the figure is still REPORTED, because the driver is owed it.
+        expect(after.mileage.miles).toBe('500.0000');
+        expect(Number(after.mileage.amount)).toBeGreaterThan(0);
+      }
+    } finally {
+      await close();
+    }
+  });
+
+  it('keeps mileage off the return under the actual-expense election', async () => {
+    const { ctx, close } = await setup('ws-miles-actual@example.com');
+    try {
+      await logTrip(ctx, ctx.companyId, { miles: '500', tripDate: '2026-07-15' });
+
+      const w = await getWorksheet(ctx, ctx.companyId, '?year=2026&basis=cash&method=actual');
+      expect(row(w, '9').amount).toBe('0.00');
+      expect(row(w, '9').computed).toBeUndefined();
+      expect(w.mileage.method).toBe('actual');
+      expect(w.mileage.amount).toBe('0.00');
+      // The foregone figure is still shown, so the choice can be seen rather
+      // than merely made.
+      expect(w.mileage.foregone).toBe('380.00');
+      expect(w.mileage.companyMethod).toBe('standard');
+      expect(w.mileage.overlapping).toEqual([]);
+    } finally {
+      await close();
+    }
+  });
+
+  it('names the accounts the rate already covers, without netting them out', async () => {
+    const { ctx, close } = await setup('ws-miles-overlap@example.com');
+    try {
+      await logTrip(ctx, ctx.companyId, { miles: '500', tripDate: '2026-07-15' });
+      await expenseFor(ctx, ctx.companyId, {
+        categoryCode: '6100',
+        amount: '412.80',
+        expenseDate: '2026-03-02',
+      });
+      // The expensive overlap nobody notices: depreciation on the truck is
+      // already inside the mileage rate, and it lands on a different LINE.
+      await expenseFor(ctx, ctx.companyId, {
+        categoryCode: '6900',
+        amount: '250.00',
+        expenseDate: '2026-04-02',
+      });
+
+      const w = await getWorksheet(ctx, ctx.companyId, '?year=2026&basis=cash');
+      expect(w.mileage.overlapping.map((a) => a.code)).toEqual(['6100', '6900']);
+      // Named, NOT netted — the line amounts are untouched.
+      expect(row(w, '21').amount).toBe('250.00');
+    } finally {
+      await close();
+    }
+  });
+
+  it('reports miles it cannot price instead of guessing a rate', async () => {
+    const { ctx, close } = await setup('ws-miles-unrated@example.com');
+    try {
+      await logTrip(ctx, ctx.companyId, { miles: '40', tripDate: '2030-03-01' });
+      const w = await getWorksheet(ctx, ctx.companyId, '?year=2030&basis=cash');
+      expect(w.mileage.miles).toBe('40.0000');
+      expect(w.mileage.amount).toBe('0.00');
+      expect(w.mileage.unratedMiles).toBe('40.0000');
+      expect(row(w, '9').computed).toBeUndefined();
+    } finally {
+      await close();
+    }
+  });
+
+  it('rejects an unknown method rather than silently defaulting', async () => {
+    const { ctx, close } = await setup('ws-miles-badmethod@example.com');
+    try {
+      const res = await ctx.app.request(
+        `/api/companies/${ctx.companyId}/tax-worksheet?method=whatever`,
+        { headers: headers(ctx) },
+      );
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: string }).error).toBe('invalid_method');
     } finally {
       await close();
     }

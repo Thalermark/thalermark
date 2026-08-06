@@ -312,6 +312,10 @@ export type TaxLineRow = {
   // 0.00, which would read as "you had none of this".
   amount: string | null;
   accounts: { code: string; name: string; amount: string }[];
+  // Non-ledger figures summed into this line's amount — standard mileage, and
+  // only on Schedule C line 9 today. Rendered beside the line so both halves of
+  // a part-mapped, part-computed figure stay visible.
+  computed?: { line: string; label: string; amount: string }[];
   // The catch-all "other deductions" line, whose accounts ARE the itemised
   // statement the return is filed with. Rendered expanded, not behind a
   // disclosure.
@@ -336,6 +340,19 @@ export type TaxWorksheet = {
   unmappedExpenses: { code: string; name: string; amount: string }[];
   totalDeductions: string;
   netIncome: string;
+  // Standard mileage (TMC-179). Present on every form — only the addend onto a
+  // line is Schedule-C-only, because a corporation reimburses the driver rather
+  // than deducting mileage on its own return.
+  mileage: {
+    method: 'standard' | 'actual';
+    companyMethod: string;
+    miles: string;
+    amount: string;
+    foregone: string;
+    unratedMiles: string;
+    tripCount: number;
+    overlapping: { code: string; name: string; amount: string }[];
+  };
 };
 
 // The tax years worth offering: the current one (an in-progress preview) plus
@@ -362,9 +379,15 @@ export async function loadTaxWorksheet(event: Parameters<typeof serverApiClient>
   const basisParam = sp.get('basis');
   const basis = basisParam === 'cash' || basisParam === 'accrual' ? basisParam : undefined;
 
+  // Same contract as basis: omitted means "use the company's stored vehicle
+  // election". The override exists so the two figures can be compared without
+  // flipping the saved setting (TMC-179).
+  const methodParam = sp.get('method');
+  const method = methodParam === 'standard' || methodParam === 'actual' ? methodParam : undefined;
+
   const res = await client.api.companies[':id']['tax-worksheet'].$get({
     param: { id: companyId },
-    query: { year, ...(basis ? { basis } : {}) },
+    query: { year, ...(basis ? { basis } : {}), ...(method ? { method } : {}) },
   });
   if (!res.ok) throw error(res.status, 'failed to load the tax worksheet');
   const report = (await res.json()) as TaxWorksheet;

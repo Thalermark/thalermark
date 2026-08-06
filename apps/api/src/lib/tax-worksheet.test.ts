@@ -2,10 +2,12 @@ import { chartForBusinessType } from '@thalermark/db';
 import { describe, expect, it } from 'vitest';
 import {
   type ExpenseAccountAmount,
+  STANDARD_MILEAGE_LINE,
   TAX_FORMS,
   type TaxFormCode,
   parseTaxMapping,
   rollUpDeductions,
+  standardMileageAddend,
   taxFormFor,
   taxYearWindow,
 } from './tax-worksheet.js';
@@ -332,5 +334,84 @@ describe('taxYearWindow', () => {
     const w = taxYearWindow(2028);
     expect(w.to).toBe('2028-12-31');
     expect(w.toExclusiveDate).toBe('2029-01-01');
+  });
+});
+
+// Standard mileage (TMC-179). The only non-ledger figure that reaches a form
+// line: no money moves when you drive, so nothing posts, and yet on a
+// landscaper's return it is routinely the biggest deduction on the page.
+describe('standard mileage addends', () => {
+  // The regression guard for the whole mechanism. If an empty addend list ever
+  // changes the output, every worksheet shipped before this feature moved.
+  it('changes nothing when there are no addends', () => {
+    const accounts = [
+      acct('6100', 'Car & Truck Expenses', 'Schedule C, Line 9', '412.80'),
+      acct('7500', 'Wages', 'Schedule C, Line 26', '1200.00'),
+    ];
+    const before = rollUpDeductions(accounts, SCHEDULE_C);
+    const after = rollUpDeductions(accounts, SCHEDULE_C, []);
+    expect(after).toEqual(before);
+    expect(after.rows.every((r) => r.computed === undefined)).toBe(true);
+  });
+
+  it('adds mileage to the books half of line 9 and shows both', () => {
+    const { rows, totalDeductions } = rollUpDeductions(
+      [acct('6100', 'Car & Truck Expenses', 'Schedule C, Line 9', '412.80')],
+      SCHEDULE_C,
+      standardMileageAddend(SCHEDULE_C, '5600.00'),
+    );
+    const row = rows.find((r) => r.line === '9');
+    expect(row?.amount).toBe('6012.80');
+    // The books' half stays visible and unchanged — `accounts` keeps meaning
+    // "chart rows that fed this line", which mileage is not.
+    expect(row?.accounts).toEqual([
+      { code: '6100', name: 'Car & Truck Expenses', amount: '412.80' },
+    ]);
+    expect(row?.computed).toEqual([{ line: '9', label: 'Standard mileage', amount: '5600.00' }]);
+    // Still user-supplied, and MORE so than before: the rate already covers gas,
+    // so the user may now need to take parking and tolls back OUT of 6100.
+    expect(row?.userSupplied).toBe(true);
+    expect(totalDeductions).toBe('6012.80');
+  });
+
+  it('carries mileage onto a line with no ledger postings at all', () => {
+    const { rows, totalDeductions } = rollUpDeductions(
+      [],
+      SCHEDULE_C,
+      standardMileageAddend(SCHEDULE_C, '5600.00'),
+    );
+    const row = rows.find((r) => r.line === '9');
+    expect(row?.amount).toBe('5600.00');
+    expect(row?.accounts).toEqual([]);
+    expect(totalDeductions).toBe('5600.00');
+  });
+
+  // A corporation does not take a standard mileage deduction on its own return —
+  // it reimburses the driver, and that reimbursement is ordinary 6100 spend
+  // already rolled onto "other deductions". An addend there would double-count.
+  it('produces no addend for the three entity forms that reimburse instead', () => {
+    for (const code of ['1065', '1120s', '1120'] as const) {
+      expect(standardMileageAddend(TAX_FORMS[code], '5600.00')).toEqual([]);
+    }
+  });
+
+  it('produces no addend for zero miles', () => {
+    expect(standardMileageAddend(SCHEDULE_C, '0.00')).toEqual([]);
+  });
+
+  // TMC-167 caught all four line tables being off by one. This is the same class
+  // of guard: whatever line the map names must actually exist on that form, be
+  // 'mapped' (only mapped lines take amounts), and not be the itemised catch-all
+  // — an addend on an itemised line would leave the attached statement short.
+  it('names a real, mapped, non-itemized line on every form', () => {
+    for (const [code, lineNumber] of Object.entries(STANDARD_MILEAGE_LINE)) {
+      if (lineNumber === null) continue;
+      const form = TAX_FORMS[code as TaxFormCode];
+      const line = form.deductions.find((l) => l.line === lineNumber);
+      expect(line, `${code} line ${lineNumber} must exist`).toBeDefined();
+      expect(line?.role).toBe('mapped');
+      expect(line?.itemized).toBeUndefined();
+      expect(line?.excludeFromTotal).toBeUndefined();
+    }
   });
 });

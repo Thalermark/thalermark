@@ -32,6 +32,7 @@ type Company = {
   replyToEmail: string | null;
   accountingMethod: string;
   depreciationConvention: string;
+  vehicleExpenseMethod: string;
   timezone: string;
   showAddressOnInvoice: boolean;
   showPhoneOnInvoice: boolean;
@@ -105,6 +106,11 @@ export default function BusinessSettings() {
   const [convention, setConvention] = useState<'half_year' | 'full_year'>('half_year');
   const [conventionSaving, setConventionSaving] = useState(false);
   const [conventionStatus, setConventionStatus] = useState<'idle' | 'saved' | 'error'>('idle');
+  const [vehicleMethod, setVehicleMethod] = useState<'standard' | 'actual'>('standard');
+  const [vehicleMethodSaving, setVehicleMethodSaving] = useState(false);
+  const [vehicleMethodStatus, setVehicleMethodStatus] = useState<'idle' | 'saved' | 'error'>(
+    'idle',
+  );
   const [timezone, setTimezone] = useState('UTC');
   const deviceTimezone = deviceZone();
   const [tzSaving, setTzSaving] = useState(false);
@@ -153,6 +159,7 @@ export default function BusinessSettings() {
         replyToEmail: company.replyToEmail,
         accountingMethod: company.accountingMethod,
         depreciationConvention: company.depreciationConvention,
+        vehicleExpenseMethod: company.vehicleExpenseMethod,
         timezone: company.timezone,
         showAddressOnInvoice: company.showAddressOnInvoice,
         showPhoneOnInvoice: company.showPhoneOnInvoice,
@@ -170,6 +177,7 @@ export default function BusinessSettings() {
     setMethod(company.accountingMethod === 'accrual' ? 'accrual' : 'cash');
     setBusinessType((company.businessType as BusinessType | null) ?? 'sole_prop');
     setConvention(company.depreciationConvention === 'full_year' ? 'full_year' : 'half_year');
+    setVehicleMethod(company.vehicleExpenseMethod === 'actual' ? 'actual' : 'standard');
     setTimezone(company.timezone ?? 'UTC');
     setShowAddrInv(company.showAddressOnInvoice);
     setShowPhoneInv(company.showPhoneOnInvoice);
@@ -289,6 +297,24 @@ export default function BusinessSettings() {
       setConventionStatus('error');
     } finally {
       setConventionSaving(false);
+    }
+  }
+
+  async function onSaveVehicleMethod(next: 'standard' | 'actual') {
+    if (!company) return;
+    setVehicleMethod(next);
+    setVehicleMethodSaving(true);
+    setVehicleMethodStatus('idle');
+    try {
+      const res = await api.api.companies[':id'].$patch({
+        param: { id: company.id },
+        json: { vehicleExpenseMethod: next },
+      });
+      setVehicleMethodStatus(res.ok ? 'saved' : 'error');
+    } catch {
+      setVehicleMethodStatus('error');
+    } finally {
+      setVehicleMethodSaving(false);
     }
   }
 
@@ -697,6 +723,58 @@ export default function BusinessSettings() {
               {conventionStatus === 'saved' ? (
                 <Text className="mt-4 text-sm text-ink/60">Saved.</Text>
               ) : conventionStatus === 'error' ? (
+                <Text className="mt-4 text-sm text-oxblood">Couldn't save.</Text>
+              ) : null}
+            </View>
+
+            {/* Vehicle costs (TMC-179). Next to the depreciation convention on
+                purpose: the two interact — the flat mileage rate already absorbs
+                the vehicle's depreciation, so claiming both is a double
+                deduction. */}
+            <View className="mt-8 rounded-sm border border-ink/15 bg-cream-warm p-6">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                Vehicle costs
+              </Text>
+              <Text className="mt-2 font-serif text-lg text-ink">{company.name}</Text>
+              <Text className="mt-3 text-sm text-ink/70">
+                The IRS lets you deduct driving one of two ways, and you have to pick one. Most
+                people in your line of work are better off with the flat rate per mile.
+              </Text>
+              <View className="mt-5 gap-3">
+                {(
+                  [
+                    [
+                      'standard',
+                      'A flat rate for every business mile',
+                      "Log your trips and we'll work out what they're worth. The rate already covers gas, repairs, insurance and the truck's depreciation.",
+                    ],
+                    [
+                      'actual',
+                      'What the vehicle actually cost me',
+                      "Your real costs, scaled to business use. We can't total that up for you, so your mileage log stays a record only.",
+                    ],
+                  ] as const
+                ).map(([value, label, hint]) => (
+                  <Pressable
+                    key={value}
+                    onPress={() => onSaveVehicleMethod(value)}
+                    disabled={vehicleMethodSaving}
+                    className={`rounded-sm border px-4 py-3 ${
+                      vehicleMethod === value ? 'border-gold-deep bg-gold-deep/10' : 'border-ink/15'
+                    }`}
+                  >
+                    <Text className="text-ink">{label}</Text>
+                    <Text className="mt-0.5 text-xs text-ink/60">{hint}</Text>
+                  </Pressable>
+                ))}
+              </View>
+              <Text className="mt-4 text-xs text-ink/50">
+                Once you've claimed actual costs on a vehicle you usually can't move it back to the
+                flat rate later. If you're unsure, ask whoever files your taxes.
+              </Text>
+              {vehicleMethodStatus === 'saved' ? (
+                <Text className="mt-4 text-sm text-ink/60">Saved.</Text>
+              ) : vehicleMethodStatus === 'error' ? (
                 <Text className="mt-4 text-sm text-oxblood">Couldn't save.</Text>
               ) : null}
             </View>

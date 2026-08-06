@@ -15,6 +15,7 @@ import type {
   ItemsAppType,
   JobsAppType,
   LedgerAppType,
+  MileageAppType,
   OwnerMoneyEventsAppType,
   PurchasesAppType,
   RecurringInvoicesAppType,
@@ -43,6 +44,7 @@ const mkPurchases = (...a: Parameters<typeof hc>) => hc<PurchasesAppType>(...a);
 const mkLedger = (...a: Parameters<typeof hc>) => hc<LedgerAppType>(...a);
 const mkItems = (...a: Parameters<typeof hc>) => hc<ItemsAppType>(...a);
 const mkJobs = (...a: Parameters<typeof hc>) => hc<JobsAppType>(...a);
+const mkMileage = (...a: Parameters<typeof hc>) => hc<MileageAppType>(...a);
 const mkTaxPolicies = (...a: Parameters<typeof hc>) => hc<TaxPoliciesAppType>(...a);
 const mkAuditEvents = (...a: Parameters<typeof hc>) => hc<AuditEventsAppType>(...a);
 const mkCompanies = (...a: Parameters<typeof hc>) => hc<CompaniesAppType>(...a);
@@ -62,6 +64,7 @@ type PurchasesApi = ReturnType<typeof mkPurchases>['api'];
 type LedgerApi = ReturnType<typeof mkLedger>['api'];
 type ItemsApi = ReturnType<typeof mkItems>['api'];
 type JobsApi = ReturnType<typeof mkJobs>['api'];
+type MileageApi = ReturnType<typeof mkMileage>['api'];
 type TaxPoliciesApi = ReturnType<typeof mkTaxPolicies>['api'];
 type AuditEventsApi = ReturnType<typeof mkAuditEvents>['api'];
 type CompaniesApi = ReturnType<typeof mkCompanies>['api'];
@@ -112,9 +115,13 @@ export type ServerApiClient = {
     // sub-app surfaces two keys here.
     'time-entries': JobsApi['time-entries'];
     timer: JobsApi['timer'];
+    'mileage-trips': MileageApi['mileage-trips'];
+    vehicles: MileageApi['vehicles'];
     'tax-policies': TaxPoliciesApi['tax-policies'];
     'audit-events': AuditEventsApi['audit-events'];
-    companies: CompaniesApi['companies'] & ReportsApi['companies'];
+    // Three sub-apps serve /api/companies/:id/* — companies itself, reports, and
+    // the mileage year summary — so the facade key is their intersection.
+    companies: CompaniesApi['companies'] & ReportsApi['companies'] & MileageApi['companies'];
     'entity-transfers': EntityTransferApi['entity-transfers'];
     contacts: ContactsApi['contacts'];
     invoices: InvoicesApi['invoices'];
@@ -151,6 +158,8 @@ export function serverApiClient(event: RequestEvent): ServerApiClient {
     // The running-stopwatch read hangs off its own top-level path, so the
     // facade needs a third key from the same sub-app.
     timer: hc<JobsAppType>(base, { headers }).api.timer,
+    'mileage-trips': hc<MileageAppType>(base, { headers }).api['mileage-trips'],
+    vehicles: hc<MileageAppType>(base, { headers }).api.vehicles,
     'tax-policies': hc<TaxPoliciesAppType>(base, { headers }).api['tax-policies'],
     'audit-events': hc<AuditEventsAppType>(base, { headers }).api['audit-events'],
     companies: hc<CompaniesAppType>(base, { headers }).api.companies,

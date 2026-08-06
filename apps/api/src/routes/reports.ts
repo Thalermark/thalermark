@@ -21,8 +21,9 @@ import {
   jobs as jobsTable,
   journalEntries,
   journalLines,
+  mileageTrips,
 } from '@thalermark/db';
-import { centsToMoney, sumMoney, toCents } from '@thalermark/validation';
+import { centsToMoney, sumMoney, summariseMileage, toCents } from '@thalermark/validation';
 import type { AnyColumn, SQL } from 'drizzle-orm';
 import { and, asc, eq, gte, inArray, isNull, lt, lte, ne, notInArray, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
@@ -43,6 +44,7 @@ import {
   type ExpenseAccountAmount,
   type TaxLineRow,
   rollUpDeductions,
+  standardMileageAddend,
   taxFormFor,
   taxYearWindow,
 } from '../lib/tax-worksheet.js';
@@ -192,10 +194,25 @@ function parseAsOf(
 
 // Query shape for both routes. Extracted so the alias can't drift from the
 // endpoint it aliases.
-function taxWorksheetQuery(v: Record<string, string | string[] | undefined>) {
+// The success branch's properties are declared OPTIONAL, not merely
+// `T | undefined`. Hono derives the typed client's `query` input from this
+// return type, so a required-but-undefinable property would force every caller
+// to pass every filter explicitly — and adding one would break them all.
+function taxWorksheetQuery(
+  v: Record<string, string | string[] | undefined>,
+):
+  | { error: 'invalid_basis' | 'invalid_method' | 'invalid_year' }
+  | { basis?: 'cash' | 'accrual'; year?: number; method?: 'standard' | 'actual' } {
   const basis = v.basis;
   if (basis !== undefined && basis !== 'cash' && basis !== 'accrual') {
     return { error: 'invalid_basis' as const };
+  }
+  // The vehicle election, overridable per request exactly like basis — so the
+  // two figures can be compared without flipping the saved election in Settings
+  // (TMC-179).
+  const method = v.method;
+  if (method !== undefined && method !== 'standard' && method !== 'actual') {
+    return { error: 'invalid_method' as const };
   }
   const yearRaw = v.year;
   let year: number | undefined;
@@ -207,7 +224,11 @@ function taxWorksheetQuery(v: Record<string, string | string[] | undefined>) {
       return { error: 'invalid_year' as const };
     }
   }
-  return { basis: basis as 'cash' | 'accrual' | undefined, year };
+  return {
+    ...(basis ? { basis } : {}),
+    ...(year !== undefined ? { year } : {}),
+    ...(method ? { method } : {}),
+  };
 }
 
 type TaxWorksheet = {
@@ -223,21 +244,56 @@ type TaxWorksheet = {
   unmappedExpenses: { code: string; name: string; amount: string }[];
   totalDeductions: string;
   netIncome: string;
+  // Standard mileage (TMC-179). Present for EVERY form, not just Schedule C —
+  // only the *addend onto a line* is Schedule-C-only. An S-corp owner who logged
+  // 8,000 miles still needs to be told what the business owes them under an
+  // accountable plan, and the worksheet is where the year's figures live.
+  mileage: {
+    method: 'standard' | 'actual';
+    // Mirrors companyAccountingMethod: lets the UI say "showing standard, your
+    // saved election is actual" rather than silently disagreeing with Settings.
+    companyMethod: string;
+    miles: string;
+    // What the rated miles are worth. Zero under the 'actual' election, where
+    // `foregone` carries the figure instead.
+    amount: string;
+    // What standard mileage WOULD have been worth. Always populated, so an
+    // 'actual' filer can see what they are giving up without flipping the
+    // saved election.
+    foregone: string;
+    unratedMiles: string;
+    tripCount: number;
+    // Accounts standard mileage already covers that carry a balance this year.
+    // NOT netted out — we cannot know which part of Repairs was the truck — but
+    // NAMED, because claiming both is a double deduction. Empty under 'actual'.
+    overlapping: { code: string; name: string; amount: string }[];
+  };
 };
+
+// The expense accounts the standard mileage rate already absorbs: gas, repairs,
+// insurance, depreciation and a lease. They land on FIVE different lines, which
+// is why a guard that only watched 6100 would miss the expensive one — a §179'd
+// truck on Schedule C line 13 plus standard mileage is a hard double deduction,
+// and postDepreciation puts it there with nobody making a decision.
+//
+// Warned about, never blocked: parking and tolls are legitimately deductible on
+// top of the standard rate, so a 6100 balance is not by itself an error.
+const MILEAGE_OVERLAP_CODES = ['6100', '6350', '6400', '6800', '6900'] as const;
 
 async function buildTaxWorksheet(
   tx: Transaction,
   accountId: string,
   id: string,
-  q: { basis?: 'cash' | 'accrual'; year?: number },
+  q: { basis?: 'cash' | 'accrual'; year?: number; method?: 'standard' | 'actual' },
 ): Promise<{ error: 'company_not_found'; status: 404 } | { worksheet: TaxWorksheet }> {
   // accounting_method rides along on the company lookup — it's the basis
-  // default, so we'd need the row either way.
+  // default, so we'd need the row either way. Same for the vehicle election.
   const [company] = await tx
     .select({
       id: companies.id,
       businessType: companies.businessType,
       accountingMethod: companies.accountingMethod,
+      vehicleExpenseMethod: companies.vehicleExpenseMethod,
       timezone: companies.timezone,
     })
     .from(companies)
@@ -335,7 +391,46 @@ async function buildTaxWorksheet(
     for (const row of paidBills) addExpense(row);
   }
 
-  const rollup = rollUpDeductions([...expenseByCode.values()], form);
+  // Standard mileage (TMC-179). Bare-date comparison against the date column —
+  // deliberately NOT dayStartInstant like the GL reads above. A trip date is a
+  // calendar date the driver asserts, not an instant, so there is no zone to
+  // resolve; job margin takes the same shortcut with invoices.issueDate.
+  const trips = await tx
+    .select({ miles: mileageTrips.miles, tripDate: mileageTrips.tripDate })
+    .from(mileageTrips)
+    .where(
+      and(
+        eq(mileageTrips.accountId, accountId),
+        eq(mileageTrips.companyId, id),
+        gte(mileageTrips.tripDate, from),
+        lte(mileageTrips.tripDate, to),
+      ),
+    );
+  const mileageSummary = summariseMileage(trips);
+  const vehicleMethod =
+    q.method ?? (company.vehicleExpenseMethod === 'actual' ? 'actual' : 'standard');
+  // Under 'actual' the trips are a record only — the deduction is the user's own
+  // to compute, because this schema holds no per-vehicle expense split and no
+  // business-use percentage. The figure still gets reported as `foregone` so the
+  // choice can be seen rather than merely made.
+  const mileageDeduction = vehicleMethod === 'standard' ? mileageSummary.amount : '0.00';
+
+  const rollup = rollUpDeductions(
+    [...expenseByCode.values()],
+    form,
+    standardMileageAddend(form, mileageDeduction),
+  );
+
+  // What the rate already covers, off the Map that was just built. Named, not
+  // netted: we cannot know which part of Repairs was the truck.
+  const overlapping =
+    vehicleMethod === 'standard' && toCents(mileageDeduction) > 0
+      ? MILEAGE_OVERLAP_CODES.flatMap((code) => {
+          const acct = expenseByCode.get(code);
+          if (!acct || toCents(acct.amount) === 0) return [];
+          return [{ code: acct.code, name: acct.name, amount: acct.amount }];
+        })
+      : [];
 
   // Gross receipts.
   let grossReceiptsCents: number;
@@ -470,6 +565,16 @@ async function buildTaxWorksheet(
       unmappedExpenses: rollup.unmapped,
       totalDeductions: rollup.totalDeductions,
       netIncome: centsToMoney(netIncomeCents),
+      mileage: {
+        method: vehicleMethod,
+        companyMethod: company.vehicleExpenseMethod,
+        miles: mileageSummary.miles,
+        amount: mileageDeduction,
+        foregone: mileageSummary.amount,
+        unratedMiles: mileageSummary.unratedMiles,
+        tripCount: mileageSummary.tripCount,
+        overlapping,
+      },
     },
   };
 }
@@ -504,7 +609,18 @@ function toLegacyScheduleC(w: TaxWorksheet) {
         line: r.line,
         label: r.label,
         amount: r.amount ?? '0.00',
-        accounts: r.accounts,
+        // Non-ledger addends are folded into `accounts` here, which the old
+        // shape already carried. Without this an older binary would show line 9
+        // at the mileage-inclusive total with only the 6100 row beneath it and
+        // no explanation of the difference. A pseudo-code rather than a real
+        // one, because that IS what it is — and the shape is unchanged, which
+        // is what "do not improve it" protects.
+        accounts: r.computed
+          ? [
+              ...r.accounts,
+              ...r.computed.map((c) => ({ code: 'mileage', name: c.label, amount: c.amount })),
+            ]
+          : r.accounts,
         ...(r.userSupplied ? { userSupplied: true as const } : {}),
       })),
     unmappedExpenses: w.unmappedExpenses,

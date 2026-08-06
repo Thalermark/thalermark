@@ -12,6 +12,7 @@ export * from './item.js';
 export * from './job.js';
 export * from './journal-entry.js';
 export * from './llm-connection.js';
+export * from './mileage.js';
 export * from './money.js';
 export * from './opening-balance.js';
 export * from './owner-money-event.js';

@@ -9,9 +9,11 @@ import {
   invoices,
   items,
   journalEntries,
+  mileageTrips,
   ownerMoneyEvents,
   periodCloses,
   recurringInvoices,
+  vehicles,
 } from '@thalermark/db';
 import { and, eq, inArray } from 'drizzle-orm';
 import { Hono } from 'hono';
@@ -54,6 +56,8 @@ export function auditEventsRoutes() {
       'period_close',
       'recurring_invoice',
       'item',
+      'mileage_trip',
+      'vehicle',
     ] as const;
     type EntityType = (typeof ALLOWED_TYPES)[number];
 
@@ -131,6 +135,8 @@ export function auditEventsRoutes() {
         period_close: [],
         recurring_invoice: [],
         item: [],
+        mileage_trip: [],
+        vehicle: [],
       };
       for (const r of rows) {
         if ((ALLOWED_TYPES as readonly string[]).includes(r.entityType)) {
@@ -208,6 +214,29 @@ export function auditEventsRoutes() {
             r.kind === 'contribution' ? 'Money in' : 'Money out',
           );
         }
+      }
+      // Trips have no number or name — label them by where the user went, which
+      // is the one field the schema insists on because it is what substantiates
+      // the deduction.
+      if (idsByType.mileage_trip.length > 0) {
+        const tripRows = await tx
+          .select({ id: mileageTrips.id, label: mileageTrips.purpose })
+          .from(mileageTrips)
+          .where(
+            and(
+              eq(mileageTrips.accountId, accountId),
+              inArray(mileageTrips.id, idsByType.mileage_trip),
+            ),
+          );
+        for (const r of tripRows) labelMap.set(`mileage_trip:${r.id}`, r.label);
+      }
+      // Vehicles label by what the user calls them.
+      if (idsByType.vehicle.length > 0) {
+        const vehicleRows = await tx
+          .select({ id: vehicles.id, label: vehicles.label })
+          .from(vehicles)
+          .where(and(eq(vehicles.accountId, accountId), inArray(vehicles.id, idsByType.vehicle)));
+        for (const r of vehicleRows) labelMap.set(`vehicle:${r.id}`, r.label);
       }
       // Opening balances have a single label regardless of the row — no lookup.
       for (const id of idsByType.opening_balance) {

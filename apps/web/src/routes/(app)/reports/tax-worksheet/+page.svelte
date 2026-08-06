@@ -20,10 +20,11 @@
 
   // Query-string links rather than a form — keeps the page bookmarkable and
   // shareable at an exact year/basis, and needs no client state.
-  const hrefFor = (opts: { year?: number; basis?: string }) => {
+  const hrefFor = (opts: { year?: number; basis?: string; method?: string }) => {
     const p = new URLSearchParams({
       year: String(opts.year ?? report.year),
       basis: opts.basis ?? report.basis,
+      method: opts.method ?? report.mileage.method,
     });
     return `?${p.toString()}`;
   };
@@ -31,6 +32,13 @@
   // True when the view was overridden away from the company's saved election —
   // the page has to say so, or Settings and this page silently disagree.
   const overridden = $derived(report.basis !== report.companyAccountingMethod);
+  const methodOverridden = $derived(report.mileage.method !== report.mileage.companyMethod);
+  const mileage = $derived(report.mileage);
+  // On the three corporate/partnership forms mileage never reaches a line — the
+  // business reimburses the driver instead, and that reimbursement posts as
+  // ordinary spend. The copy has to say so, or the figure reads as a deduction
+  // that silently went missing.
+  const hasNonScheduleCMileage = $derived(report.formCode !== 'schedule_c');
 
   const basisLabel = $derived(
     report.basis === 'cash' ? 'Cash — counted when paid' : 'Accrual — counted when invoiced',
@@ -62,15 +70,25 @@
     [],
     ['Section', 'Line', 'Description', 'Amount'],
     ...report.income.map((r) => ['Income', r.line, r.label, r.amount ?? ''] as CsvCell[]),
-    ...report.deductions.map(
-      (r) =>
-        [
-          'Deductions',
-          r.line,
-          r.userSupplied ? `${r.label} (you must supply)` : r.label,
-          r.amount ?? '',
-        ] as CsvCell[],
-    ),
+    ...report.deductions.flatMap((r) => {
+      const own: CsvCell[] = [
+        'Deductions',
+        r.line,
+        r.userSupplied ? `${r.label} (you must supply)` : r.label,
+        r.amount ?? '',
+      ];
+      // The working travels with the export: a line total that silently
+      // included a non-ledger figure would be unreconcilable against the books.
+      if (!r.computed) return [own];
+      const fromBooks = r.accounts.reduce((s, a) => s + Number(a.amount), 0);
+      return [
+        own,
+        ...(r.accounts.length > 0
+          ? ([['Deductions', '', '    from the books', fromBooks.toFixed(2)]] as CsvCell[][])
+          : []),
+        ...r.computed.map((c) => ['Deductions', '', `    ${c.label}`, c.amount] as CsvCell[]),
+      ];
+    }),
     ...report.unmappedExpenses.map(
       (a) => ['Deductions', '', `UNMAPPED — ${a.code} ${a.name}`, a.amount] as CsvCell[],
     ),
@@ -139,7 +157,40 @@
       </a>
     {/each}
   </div>
+  <!--
+    Vehicle election, overridable per view exactly like basis — so the two
+    figures can be compared without flipping the saved setting (TMC-179). Only
+    offered when there are trips; on a company that has never logged one it is
+    a control over nothing.
+  -->
+  {#if mileage.tripCount > 0}
+    <div class="flex items-center gap-2">
+      <span class="label">Vehicle</span>
+      {#each [['standard', 'Per mile'], ['actual', 'Actual costs']] as [value, label] (value)}
+        <a
+          href={hrefFor({ method: value })}
+          class="rounded-sm border px-3 py-1 text-sm transition-colors {value === mileage.method
+            ? 'border-accent bg-accent/10 text-accent'
+            : 'border-fg/15 text-fg/70 hover:border-accent/40 hover:text-accent'}"
+        >
+          {label}
+        </a>
+      {/each}
+    </div>
+  {/if}
 </div>
+
+{#if methodOverridden && mileage.tripCount > 0}
+  <p class="mt-4 callout print:hidden">
+    You're viewing this as if you deducted
+    <strong>{mileage.method === 'standard' ? 'a flat rate per mile' : 'actual vehicle costs'}</strong
+    >, but this business is set to
+    <strong
+      >{mileage.companyMethod === 'standard' ? 'a flat rate per mile' : 'actual vehicle costs'}</strong
+    >. Change the saved setting in
+    <a href="/settings/business" class="link">Settings → Business</a> if that's wrong.
+  </p>
+{/if}
 
 {#if overridden}
   <p class="mt-4 callout print:hidden">
@@ -212,6 +263,19 @@
                   {r.accounts.map((a) => `${a.name} ${fmt(a.amount)}`).join(' · ')}
                 </span>
               {/if}
+              <!-- Non-ledger half of the line (standard mileage). Shown even
+                   when it's the only contributor, because a figure with no
+                   account behind it is exactly the one a reader will query. -->
+              {#if r.computed}
+                <span class="mt-0.5 block text-xs text-fg/40">
+                  {#if r.accounts.length > 0}
+                    From the books {fmt(
+                      r.accounts.reduce((s, a) => s + Number(a.amount), 0).toFixed(2),
+                    )} ·
+                  {/if}
+                  {r.computed.map((c) => `${c.label} ${fmt(c.amount)}`).join(' · ')}
+                </span>
+              {/if}
             </td>
             <td
               class="w-36 py-2 text-right align-top font-mono tabular-nums {muted(r)
@@ -257,6 +321,80 @@
           </tr>
         </tfoot>
       </table>
+    </section>
+  {/if}
+
+  <!--
+    Standard mileage (TMC-179). Rendered for EVERY form, because the number
+    matters even where it doesn't land on a line: a corporation reimburses the
+    driver under an accountable plan rather than deducting mileage on its own
+    return, and the driver still needs to be told what they're owed.
+  -->
+  {#if mileage.tripCount > 0}
+    <section class="mt-8">
+      <h3 class="label">Business driving</h3>
+      <div class="mt-3 flex flex-wrap items-baseline justify-between gap-4 text-sm">
+        <span class="text-fg/80">
+          {Number(mileage.miles).toLocaleString('en-US', { maximumFractionDigits: 1 })} miles over
+          {mileage.tripCount}
+          {mileage.tripCount === 1 ? 'trip' : 'trips'}
+        </span>
+        <span class="font-mono tabular-nums text-fg">
+          {fmt(mileage.method === 'standard' ? mileage.amount : mileage.foregone)}
+        </span>
+      </div>
+
+      {#if mileage.method === 'actual'}
+        <p class="mt-2 text-sm text-fg/70">
+          That's what a flat rate per mile would have been worth. It isn't on the worksheet because
+          this business deducts its actual vehicle costs instead — those are your real gas, repairs
+          and insurance, scaled to business use, and only you can work out that share.
+        </p>
+      {:else if hasNonScheduleCMileage}
+        <!-- The entity split. A shareholder-employee cannot deduct unreimbursed
+             mileage personally, so the accountable-plan reimbursement is the
+             mechanism — and that reimbursement is ordinary spend that already
+             posts to 6100 on its own. -->
+        <p class="mt-2 text-sm text-fg/70">
+          This doesn't go on the business's return as a deduction — the business should
+          <strong>reimburse you</strong> for it. Record that payment as an ordinary vehicle expense and
+          it lands on the return the usual way. Ask whoever prepares your return about an accountable
+          plan if you haven't set one up.
+        </p>
+      {/if}
+
+      {#if Number(mileage.unratedMiles) > 0}
+        <p class="mt-2 text-sm text-fg/70">
+          {Number(mileage.unratedMiles).toLocaleString('en-US', { maximumFractionDigits: 1 })} of
+          those miles are on dates the IRS hasn't published a rate for, so they aren't in the figure
+          above.
+        </p>
+      {/if}
+
+      <!-- The double-dip warning. Named, never netted: we cannot know which part
+           of Repairs was the truck. Warned, never blocked: parking and tolls ARE
+           deductible on top of the standard rate. -->
+      {#if mileage.overlapping.length > 0}
+        <div class="callout mt-4">
+          <p>
+            The rate per mile already covers your fuel, repairs, insurance and the vehicle's
+            depreciation. You've also recorded these separately this year, so some of it may be
+            counted twice — worth checking with whoever prepares your return.
+          </p>
+          <ul class="mt-2 space-y-1">
+            {#each mileage.overlapping as a (a.code)}
+              <li class="flex justify-between gap-4">
+                <span>{a.name}</span>
+                <span class="font-mono tabular-nums">{fmt(a.amount)}</span>
+              </li>
+            {/each}
+          </ul>
+          <p class="mt-2">
+            Parking and tolls are fine to claim on top — it's the fuel and running costs that
+            overlap.
+          </p>
+        </div>
+      {/if}
     </section>
   {/if}
 

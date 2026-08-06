@@ -466,12 +466,53 @@ export function parseTaxMapping(
 // useless to the person filing.
 export type TaxAccount = { code: string; name: string; amount: string };
 
+// A figure that belongs on a form line but is NOT in the general ledger.
+// Standard mileage is the only one, and the reason it exists at all: no money
+// moves when you drive, so nothing posts — and yet on a landscaper's return it
+// is routinely the largest single deduction.
+//
+// Deliberately NOT a TaxAccount. These are not chart rows, and a reader has to
+// be able to see which half of a line came out of the books and which was
+// computed from a log.
+export type TaxAddend = { line: string; label: string; amount: string };
+
 export type TaxLineRow = TaxLine & {
   // Null on a userSupplied line — an explicit blank, never 0.00, because a zero
   // reads as "you had none of this".
   amount: string | null;
   accounts: TaxAccount[];
+  // Non-ledger figures summed into this line's `amount`. Absent on every line
+  // but Schedule C 9 today. Rendered beside the line so both halves of a
+  // part-mapped, part-computed figure stay visible.
+  computed?: TaxAddend[];
 };
+
+// Which line each form puts a standard-mileage deduction on.
+//
+// Null on three of the four, and that is an ANSWER, not an omission. A
+// partnership or a corporation does not take a standard mileage deduction on its
+// own return: it reimburses the driver under an accountable plan and deducts the
+// reimbursement, which is ordinary spend already posted to 6100 and already
+// rolled onto "other deductions" (1065 L21 / 1120-S L20 / 1120 L26). Adding an
+// addend there would double-count it.
+//
+// Keeping the line ids HERE rather than at the call site is the same rule the
+// rest of this file follows — form knowledge lives beside the form tables, so a
+// renumbering is caught in one place (TMC-167).
+export const STANDARD_MILEAGE_LINE: Readonly<Record<TaxFormCode, string | null>> = {
+  schedule_c: '9',
+  '1065': null,
+  '1120s': null,
+  '1120': null,
+};
+
+// Built from the form itself, so an addend can never name a line that isn't
+// 'mapped' on the form it is about to be rolled into.
+export function standardMileageAddend(form: TaxFormDef, amount: string): TaxAddend[] {
+  const line = STANDARD_MILEAGE_LINE[form.code];
+  if (!line || toCents(amount) === 0) return [];
+  return [{ line, label: 'Standard mileage', amount }];
+}
 
 export type ExpenseAccountAmount = {
   code: string;
@@ -507,14 +548,32 @@ export type DeductionRollup = {
 //
 // Accounts contributing 0.00 are dropped from a line's `accounts` breakdown
 // (they'd be noise) but the line itself still renders.
+//
+// `addends` carries non-ledger figures (standard mileage) onto their line. It
+// defaults to empty, so every existing call site and test is unaffected and the
+// whole mechanism is inert until something supplies one.
 export function rollUpDeductions(
   accounts: ExpenseAccountAmount[],
   form: TaxFormDef,
+  addends: readonly TaxAddend[] = [],
 ): DeductionRollup {
   const linesByNumber = new Map(form.deductions.map((l) => [l.line, l]));
   const byLine = new Map<string, TaxAccount[]>();
   const unmapped: TaxAccount[] = [];
   let totalCents = 0;
+
+  // Addends count toward the total unconditionally. By construction
+  // (standardMileageAddend reads the same `form`) an addend cannot name a line
+  // that isn't a 'mapped' deduction, so there is no excludeFromTotal case to
+  // consider — and a deduction total that disagreed with the lines above it
+  // would be the one failure this file exists to prevent.
+  const addendsByLine = new Map<string, TaxAddend[]>();
+  for (const addend of addends) {
+    totalCents += toCents(addend.amount);
+    const bucket = addendsByLine.get(addend.line);
+    if (bucket) bucket.push(addend);
+    else addendsByLine.set(addend.line, [addend]);
+  }
 
   for (const acct of accounts) {
     const cents = toCents(acct.amount);
@@ -549,10 +608,18 @@ export function rollUpDeductions(
       return { ...line, amount, accounts: [] };
     }
     const contributing = byLine.get(line.line) ?? [];
-    const lineCents = contributing.reduce((sum, a) => sum + toCents(a.amount), 0);
+    const computed = addendsByLine.get(line.line);
+    const lineCents =
+      contributing.reduce((sum, a) => sum + toCents(a.amount), 0) +
+      (computed?.reduce((sum, a) => sum + toCents(a.amount), 0) ?? 0);
     centsByLine.set(line.line, lineCents);
     if (line.excludeFromTotal) excludedTotals[line.line] = centsToMoney(lineCents);
-    return { ...line, amount: centsToMoney(lineCents), accounts: contributing };
+    return {
+      ...line,
+      amount: centsToMoney(lineCents),
+      accounts: contributing,
+      ...(computed ? { computed } : {}),
+    };
   });
 
   // Second pass — a lineNet line reads lines resolved above it. Sequential by

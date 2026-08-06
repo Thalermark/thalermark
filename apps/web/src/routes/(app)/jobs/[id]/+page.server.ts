@@ -28,7 +28,15 @@ export const load: PageServerLoad = async (event) => {
   const timerRes = await client.api.timer.$get();
   const { timer } = timerRes.ok ? await timerRes.json() : { timer: null };
 
-  return { job, time, timer };
+  // Trips tagged to this job (TMC-179). Read-only context — mileage is a tax
+  // figure, not a job cost, so it deliberately does NOT feed the margin block
+  // above it (margin reconciles against the P&L, and mileage isn't in the P&L).
+  const milesRes = await client.api['mileage-trips'].$get({
+    query: { jobId: event.params.id, limit: '50' },
+  });
+  const trips = milesRes.ok ? (await milesRes.json()).trips : [];
+
+  return { job, time, timer, trips };
 };
 
 export const actions: Actions = {
@@ -93,6 +101,41 @@ export const actions: Actions = {
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
       return fail(res.status, { timeError: body?.error ?? 'log_failed' });
+    }
+    redirect(303, `/jobs/${event.params.id}`);
+  },
+
+  // Miles driven to this job (TMC-179). Its own action with its own error flag,
+  // deliberately NOT folded into logTime: hours produce revenue and miles
+  // produce a deduction, and in a form they look identical. Mixing them is how
+  // someone bills a customer for a drive.
+  logMiles: async (event) => {
+    const client = serverApiClient(event);
+    const data = await event.request.formData();
+    const miles = String(data.get('miles') ?? '').trim();
+    const tripDate = String(data.get('tripDate') ?? '').trim();
+    const purpose = String(data.get('purpose') ?? '').trim();
+    if (!miles || !purpose) {
+      return fail(400, { milesError: 'Enter the miles and what the trip was for.' });
+    }
+
+    // companyId comes off the job, not the form — the trip has to land on the
+    // same company the job belongs to, and the API rejects a mismatch anyway.
+    const jobRes = await client.api.jobs[':id'].$get({ param: { id: event.params.id } });
+    if (!jobRes.ok) return fail(jobRes.status, { milesError: 'Could not find that job.' });
+    const { companyId } = await jobRes.json();
+
+    const res = await client.api['mileage-trips'].$post({
+      json: { companyId, jobId: event.params.id, miles, tripDate, purpose },
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      return fail(res.status, {
+        milesError:
+          body?.error === 'period_closed'
+            ? "That year's books are closed, so it can't take a new trip."
+            : "Couldn't save that trip.",
+      });
     }
     redirect(303, `/jobs/${event.params.id}`);
   },

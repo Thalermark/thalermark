@@ -12,6 +12,7 @@ import type {
   JobsAppType,
   LedgerAppType,
   LocationsAppType,
+  MileageAppType,
   OwnerMoneyEventsAppType,
   PurchasesAppType,
   RecurringInvoicesAppType,
@@ -61,6 +62,7 @@ function buildClients(baseUrl: string) {
     main: hc<AppType>(baseUrl, { headers: authHeaders }),
     items: hc<ItemsAppType>(baseUrl, { headers: authHeaders }),
     jobs: hc<JobsAppType>(baseUrl, { headers: authHeaders }),
+    mileage: hc<MileageAppType>(baseUrl, { headers: authHeaders }),
     taxPolicies: hc<TaxPoliciesAppType>(baseUrl, { headers: authHeaders }),
     socialProviders: hc<SocialProvidersAppType>(baseUrl, { headers: authHeaders }),
     locations: hc<LocationsAppType>(baseUrl, { headers: authHeaders }),
@@ -109,6 +111,7 @@ function facadeApi() {
     main,
     items,
     jobs,
+    mileage,
     taxPolicies,
     socialProviders,
     locations,
@@ -133,6 +136,8 @@ function facadeApi() {
     // the same sub-app surfaces two keys here.
     'time-entries': jobs.api['time-entries'],
     timer: jobs.api.timer,
+    'mileage-trips': mileage.api['mileage-trips'],
+    vehicles: mileage.api.vehicles,
     'tax-policies': taxPolicies.api['tax-policies'],
     'social-providers': socialProviders.api['social-providers'],
     locations: locations.api.locations,
@@ -165,6 +170,7 @@ function facadeApi() {
 type MainApi = ReturnType<typeof buildClients>['main']['api'];
 type ItemsApi = ReturnType<typeof buildClients>['items']['api'];
 type JobsApi = ReturnType<typeof buildClients>['jobs']['api'];
+type MileageApi = ReturnType<typeof buildClients>['mileage']['api'];
 type TaxPoliciesApi = ReturnType<typeof buildClients>['taxPolicies']['api'];
 type SocialProvidersApi = ReturnType<typeof buildClients>['socialProviders']['api'];
 type LocationsApi = ReturnType<typeof buildClients>['locations']['api'];
@@ -188,6 +194,8 @@ type ApiClient = {
     jobs: JobsApi['jobs'];
     'time-entries': JobsApi['time-entries'];
     timer: JobsApi['timer'];
+    'mileage-trips': MileageApi['mileage-trips'];
+    vehicles: MileageApi['vehicles'];
     'tax-policies': TaxPoliciesApi['tax-policies'];
     'social-providers': SocialProvidersApi['social-providers'];
     locations: LocationsApi['locations'];
@@ -208,7 +216,9 @@ type ApiClient = {
     // ReportsAppType — both under /api/companies/:id. Intersect both surfaces so
     // call sites reach either half; the `companies` override serves both at
     // runtime (hc is a URL builder). AppType no longer carries /api/companies.
-    companies: CompaniesApi['companies'] & ReportsApi['companies'];
+    // Three sub-apps serve /api/companies/:id/* — companies itself, reports, and
+    // the mileage year summary — so the facade key is their intersection.
+    companies: CompaniesApi['companies'] & ReportsApi['companies'] & MileageApi['companies'];
     contacts: ContactsApi['contacts'];
     invoices: InvoicesApi['invoices'];
     'recurring-invoices': RecurringApi['recurring-invoices'];
