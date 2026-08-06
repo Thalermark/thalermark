@@ -72,7 +72,10 @@ export const load: PageServerLoad = async (event) => {
   });
   const jobs = jobsRes.ok
     ? (await jobsRes.json()).invoices
-        .filter((i) => i.status !== 'draft' && i.status !== 'void')
+        // Allowlist, not exclusions. The old form excluded 'void' while the
+        // stored value is 'voided', so cancelled invoices were still offered as
+        // something to tag a cost to.
+        .filter((i) => i.status === 'sent' || i.status === 'paid')
         .map((i) => ({
           id: i.id,
           number: i.number,
