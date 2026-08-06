@@ -20,9 +20,18 @@
 
 <a href="/jobs" class="eyebrow text-fg/60 hover:text-fg">← Jobs</a>
 <div class="mt-3 flex flex-wrap items-baseline justify-between gap-4">
-  <h1 class="font-serif text-4xl font-light leading-none tracking-tight text-fg">
-    {job.name}<span class="text-accent">.</span>
-  </h1>
+  <div>
+    <h1 class="font-serif text-4xl font-light leading-none tracking-tight text-fg">
+      {job.name}<span class="text-accent">.</span>
+    </h1>
+    <!--
+      The customer is asked for at create, so it has to show back here — not
+      showing it reads as "that field did nothing".
+    -->
+    {#if job.contactName}
+      <p class="mt-2 text-sm text-fg/60">for {job.contactName}</p>
+    {/if}
+  </div>
   {#if canWrite}
     <div class="flex items-center gap-2">
       <!--

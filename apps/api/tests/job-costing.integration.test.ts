@@ -979,3 +979,54 @@ describe('job-margin re-grain', () => {
     }
   });
 });
+
+describe('a job remembers its customer', () => {
+  beforeEach(resetDb);
+
+  // The customer is asked for at job creation, so every read has to give it
+  // back. Without the name the job screen can't show it and the invoice form
+  // can't prefill it, which makes the create-time question look like it did
+  // nothing.
+  it('returns the contact name on the job detail and the list', async () => {
+    const ctx = await setup('job-contact-name@test.com');
+    try {
+      const contactId = await makeContact(ctx, 'Chen');
+      const jobId = await makeJob(ctx, 'Tuesdays at the Chens', contactId);
+
+      const detail = await ctx.app.request(`/api/jobs/${jobId}`, { headers: ctx.headers });
+      const job = (await detail.json()) as { contactId: string; contactName: string | null };
+      expect(job.contactId).toBe(contactId);
+      expect(job.contactName).toBe('Chen');
+
+      const list = await ctx.app.request(`/api/jobs?companyId=${ctx.companyId}`, {
+        headers: ctx.headers,
+      });
+      const body = (await list.json()) as { jobs: { id: string; contactName: string | null }[] };
+      expect(body.jobs.find((j) => j.id === jobId)?.contactName).toBe('Chen');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  // A job without a customer is still a perfectly good container, so the join
+  // has to be a LEFT one — an inner join would drop the job entirely.
+  it('still returns a job that has no customer', async () => {
+    const ctx = await setup('job-no-contact@test.com');
+    try {
+      const jobId = await makeJob(ctx, 'Unnamed customer');
+
+      const detail = await ctx.app.request(`/api/jobs/${jobId}`, { headers: ctx.headers });
+      expect(detail.status).toBe(200);
+      const job = (await detail.json()) as { contactName: string | null };
+      expect(job.contactName).toBeNull();
+
+      const list = await ctx.app.request(`/api/jobs?companyId=${ctx.companyId}`, {
+        headers: ctx.headers,
+      });
+      const body = (await list.json()) as { jobs: { id: string }[] };
+      expect(body.jobs.find((j) => j.id === jobId)).toBeDefined();
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+});

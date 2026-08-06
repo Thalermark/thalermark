@@ -27,6 +27,7 @@ type JobDetail = {
   id: string;
   name: string;
   status: string;
+  contactName: string | null;
   invoices: { id: string; number: string; issueDate: string; status: string; total: string }[];
   margin: {
     billed: string;
@@ -189,6 +190,13 @@ export default function JobDetailScreen() {
             <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">← Jobs</Text>
           </Pressable>
           <Text className="mt-3 font-serif text-3xl font-light text-ink">{job.name}</Text>
+          {/*
+            The customer is asked for at create, so it has to show back here —
+            not showing it reads as "that field did nothing".
+          */}
+          {job.contactName ? (
+            <Text className="mt-1 text-sm text-ink/60">for {job.contactName}</Text>
+          ) : null}
 
           <View className="mt-6 rounded-sm border border-ink/10 bg-cream-warm p-5">
             <View className="flex-row justify-between">

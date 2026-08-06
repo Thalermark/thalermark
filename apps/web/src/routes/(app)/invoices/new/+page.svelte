@@ -219,9 +219,14 @@
       <label for="contactName" class="label">
         Contact<span class="text-accent">*</span>
       </label>
+      <!--
+        Billing a job prefills its customer. The job asked for one at create, so
+        making the user pick it again here is asking the same question twice.
+        A failed submit's round-tripped value still wins over the job's.
+      -->
       <ContactPicker
-        initialContactId={values?.contactId ?? ''}
-        initialContactName={values?.contactName ?? ''}
+        initialContactId={values?.contactId ?? data.jobContact?.id ?? ''}
+        initialContactName={values?.contactName ?? data.jobContact?.name ?? ''}
         initialNewName={values?.newContactName ?? ''}
         initialNewEmail={values?.newContactEmail ?? ''}
         fieldError={err('contactId')}

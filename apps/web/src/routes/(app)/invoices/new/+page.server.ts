@@ -101,7 +101,12 @@ export const load: PageServerLoad = async (event) => {
     query: { companyId: company.id, status: 'open', limit: '100' },
   });
   const jobs = jobsRes.ok
-    ? (await jobsRes.json()).jobs.map((j) => ({ id: j.id, name: j.name, contactId: j.contactId }))
+    ? (await jobsRes.json()).jobs.map((j) => ({
+        id: j.id,
+        name: j.name,
+        contactId: j.contactId,
+        contactName: j.contactName,
+      }))
     : [];
 
   // Arriving from a job's "Bill this job" carries ?jobId, and that is the only
@@ -113,11 +118,20 @@ export const load: PageServerLoad = async (event) => {
   const unbilledTime =
     jobId && jobs.some((j) => j.id === jobId) ? await loadUnbilledTime(client, jobId) : [];
 
+  // The job's customer, for prefilling the contact picker when billing a job.
+  // Null when the job has none — a job doesn't need a customer to be useful.
+  const activeJob = jobs.find((j) => j.id === jobId);
+  const jobContact =
+    activeJob?.contactId && activeJob.contactName
+      ? { id: activeJob.contactId, name: activeJob.contactName }
+      : null;
+
   return {
     companyId: company.id,
     suggestedNumber,
     jobs,
     jobId: jobs.some((j) => j.id === jobId) ? jobId : '',
+    jobContact,
     unbilledTime,
     // Company-level "show on invoices" defaults — seed the from-block checkboxes
     // on a fresh invoice. The user can override per invoice; the API persists
