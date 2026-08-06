@@ -156,15 +156,19 @@
     @apply px-3 py-1.5;
   }
 
-  /* Boxed input — the app-form default (warm fill, gold focus border). */
+  /* Boxed input — the app-form default (warm fill, gold focus border).
+     Placeholders are dimmed explicitly: the browser default sits close enough to
+     the real text colour on this dark surface that a placeholder reads as a
+     filled value. Two fields side by side, one hinting and one holding a number,
+     looked identical. */
   .field {
     @apply w-full rounded-sm border border-fg/15 bg-surface-2 px-3 py-2 text-fg
-      outline-none focus:border-accent;
+      outline-none placeholder:text-fg/35 focus:border-accent;
   }
   /* Underline input — the auth/landing email-form aesthetic. */
   .field-line {
     @apply w-full border-b border-fg/30 bg-transparent py-2 text-fg
-      outline-none focus:border-fg;
+      outline-none placeholder:text-fg/35 focus:border-fg;
   }
 
   /* Mono eyebrow used for form labels and table headers alike. */

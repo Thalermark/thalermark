@@ -41,6 +41,7 @@ const LINE_FIELD_TYPE = 'li_type';
 // (not a checkbox) so every row always submits a value and the index-zip below
 // stays aligned. The rate is resolved server-side from the policy, never
 // trusted from the client — same authority model as the recomputed amount.
+const LINE_FIELD_TIME_ENTRY_ID = 'li_timeEntryId';
 const LINE_FIELD_TAXABLE = 'li_taxable';
 const LINE_FIELD_TAX_POLICY_ID = 'li_taxPolicyId';
 
@@ -62,13 +63,6 @@ async function loadUnbilledTime(client: ServerApiClient, jobId: string) {
     note: t.note,
     rate: t.rate,
   }));
-}
-
-// The job's name, for labelling an hour line the user left a blank note on.
-async function jobNameFor(client: ServerApiClient, jobId: string): Promise<string> {
-  const res = await client.api.jobs[':id'].$get({ param: { id: jobId } });
-  if (!res.ok) return '';
-  return (await res.json()).name;
 }
 
 export const load: PageServerLoad = async (event) => {
@@ -107,7 +101,12 @@ export const load: PageServerLoad = async (event) => {
     query: { companyId: company.id, status: 'open', limit: '100' },
   });
   const jobs = jobsRes.ok
-    ? (await jobsRes.json()).jobs.map((j) => ({ id: j.id, name: j.name, contactId: j.contactId }))
+    ? (await jobsRes.json()).jobs.map((j) => ({
+        id: j.id,
+        name: j.name,
+        contactId: j.contactId,
+        contactName: j.contactName,
+      }))
     : [];
 
   // Arriving from a job's "Bill this job" carries ?jobId, and that is the only
@@ -119,11 +118,20 @@ export const load: PageServerLoad = async (event) => {
   const unbilledTime =
     jobId && jobs.some((j) => j.id === jobId) ? await loadUnbilledTime(client, jobId) : [];
 
+  // The job's customer, for prefilling the contact picker when billing a job.
+  // Null when the job has none — a job doesn't need a customer to be useful.
+  const activeJob = jobs.find((j) => j.id === jobId);
+  const jobContact =
+    activeJob?.contactId && activeJob.contactName
+      ? { id: activeJob.contactId, name: activeJob.contactName }
+      : null;
+
   return {
     companyId: company.id,
     suggestedNumber,
     jobs,
     jobId: jobs.some((j) => j.id === jobId) ? jobId : '',
+    jobContact,
     unbilledTime,
     // Company-level "show on invoices" defaults — seed the from-block checkboxes
     // on a fresh invoice. The user can override per invoice; the API persists
@@ -161,7 +169,6 @@ type FormValues = {
   // The job this invoice belongs to, and which of its unbilled entries the user
   // ticked. Both empty on an ordinary invoice.
   jobId: string;
-  timeEntryIds: string[];
   lineItems: {
     description: string;
     quantity: string;
@@ -171,6 +178,7 @@ type FormValues = {
     type?: LineItemType;
     taxable: boolean;
     taxPolicyId?: string;
+    timeEntryId?: string;
   }[];
 };
 
@@ -181,6 +189,7 @@ function readForm(data: FormData): FormValues {
   const unitPrices = data.getAll(LINE_FIELD_UNIT_PRICE).map((v) => String(v));
   const sourceItemIds = data.getAll(LINE_FIELD_SOURCE_ITEM_ID).map((v) => String(v));
   const types = data.getAll(LINE_FIELD_TYPE).map((v) => String(v));
+  const timeEntryIds = data.getAll(LINE_FIELD_TIME_ENTRY_ID).map((v) => String(v));
   const taxables = data.getAll(LINE_FIELD_TAXABLE).map((v) => String(v));
   const taxPolicyIds = data.getAll(LINE_FIELD_TAX_POLICY_ID).map((v) => String(v));
   const rowCount = Math.max(descriptions.length, quantities.length, unitPrices.length);
@@ -198,6 +207,8 @@ function readForm(data: FormData): FormValues {
     type: types[i] === 'product' ? 'product' : types[i] === 'service' ? 'service' : undefined,
     taxable: (taxables[i] ?? '0') === '1',
     taxPolicyId: (taxPolicyIds[i] ?? '').trim() || undefined,
+    // Present only on a row seeded from tracked time. Empty for a typed row.
+    timeEntryId: (timeEntryIds[i] ?? '').trim() || undefined,
   }));
   return {
     contactId: String(data.get('contactId') ?? '').trim(),
@@ -214,7 +225,6 @@ function readForm(data: FormData): FormValues {
     showPhone: data.get('showPhone') === 'on',
     showEmail: data.get('showEmail') === 'on',
     jobId: String(data.get('jobId') ?? '').trim(),
-    timeEntryIds: data.getAll('timeEntryId').map((v) => String(v)),
     lineItems,
   };
 }
@@ -293,55 +303,39 @@ export const actions: Actions = {
     // compute). Schema validation runs against these computed values. The line
     // tax rate is resolved from the policy here (not trusted from the client),
     // and the invoice tax is the derived sum of line tax.
-    // Tracked hours become ordinary invoice lines HERE, in the same pass and
-    // with the same helpers as every typed row — not on the API, which would be
-    // a second totals path free to disagree with this one. Cost never becomes a
-    // line: this reads the hours and the rate the user recorded, and prices them
-    // exactly as a hand-typed line would.
+    // Tracked hours are ORDINARY ROWS by the time they get here — the form seeds
+    // them into the line-item table, so they flow through the same compute path
+    // as a typed row and nothing special happens on this side. All that is left
+    // is telling the API which entries the invoice consumed, derived from the
+    // rows so a deleted row takes its entry with it.
     //
-    // Re-read from the API rather than trusting hidden form fields: minutes and
-    // rate decide what the customer is charged, so they come from the row, not
-    // from the page.
-    const billedTime =
-      values.jobId && values.timeEntryIds.length > 0
-        ? (await loadUnbilledTime(client, values.jobId)).filter((t) =>
-            values.timeEntryIds.includes(t.id),
-          )
-        : [];
-    const jobName = values.jobId ? await jobNameFor(client, values.jobId) : '';
-    const timeRows: FormValues['lineItems'] = billedTime.map((t) => ({
-      description: t.note?.trim() || `${jobName} — hours`.trim(),
-      quantity: t.hours,
-      unitLabel: 'hour',
-      unitPrice: t.rate ?? '0',
-      // Labour is a service, which routes revenue to 4000 in the hidden ledger.
-      type: 'service' as LineItemType,
-      // Whether time is taxable varies by state and trade, and guessing would
-      // be worse than the user ticking the row.
-      taxable: false,
-    }));
+    // The earlier design built these lines server-side from a checklist. It meant
+    // the subtotal read 0.00 while hours were ticked, and an invoice made
+    // entirely of hours could not be submitted at all — the always-present blank
+    // row failed its required-field check before the hours were ever added.
+    const billedIds = values.lineItems
+      .map((row) => row.timeEntryId)
+      .filter((v): v is string => v !== undefined);
 
     const policies = await loadPolicyRates(event, companyId);
-    const computedLines: InvoiceLineItemInput[] = [...values.lineItems, ...timeRows].map(
-      (row, i) => {
-        const amount = multiplyMoney(row.quantity, row.unitPrice);
-        const rate = row.taxable ? policyRate(policies, row.taxPolicyId ?? '') : '0';
-        return {
-          position: i + 1,
-          description: row.description,
-          quantity: row.quantity,
-          unitLabel: row.unitLabel,
-          unitPrice: row.unitPrice,
-          amount,
-          type: row.type,
-          taxable: row.taxable,
-          taxRatePct: rate,
-          taxAmount: lineTax(row.taxable, rate, amount),
-          taxPolicyId: row.taxable ? row.taxPolicyId : undefined,
-          sourceItemId: row.sourceItemId,
-        };
-      },
-    );
+    const computedLines: InvoiceLineItemInput[] = values.lineItems.map((row, i) => {
+      const amount = multiplyMoney(row.quantity, row.unitPrice);
+      const rate = row.taxable ? policyRate(policies, row.taxPolicyId ?? '') : '0';
+      return {
+        position: i + 1,
+        description: row.description,
+        quantity: row.quantity,
+        unitLabel: row.unitLabel,
+        unitPrice: row.unitPrice,
+        amount,
+        type: row.type,
+        taxable: row.taxable,
+        taxRatePct: rate,
+        taxAmount: lineTax(row.taxable, rate, amount),
+        taxPolicyId: row.taxable ? row.taxPolicyId : undefined,
+        sourceItemId: row.sourceItemId,
+      };
+    });
     const subtotal = sumMoney(computedLines.map((li) => li.amount));
     const tax = sumMoney(computedLines.map((li) => li.taxAmount ?? '0'));
     const total = addMoney(subtotal, tax);
@@ -363,7 +357,7 @@ export const actions: Actions = {
       jobId: values.jobId || undefined,
       // Only the entries that actually became lines. The API re-checks each one
       // is on this job and still unbilled before stamping it.
-      billedTimeEntryIds: billedTime.length > 0 ? billedTime.map((t) => t.id) : undefined,
+      billedTimeEntryIds: billedIds.length > 0 ? billedIds : undefined,
     };
 
     const parsed = invoiceCreateSchema.safeParse(payload);

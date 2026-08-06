@@ -7,6 +7,7 @@ import {
   expenses,
   invoiceLineItems,
   invoices,
+  timeEntries,
 } from '@thalermark/db';
 import { emit } from '@thalermark/telemetry';
 import {
@@ -37,7 +38,11 @@ import type { AppDeps } from '../app.js';
 import { resolveEmailTemplate } from '../lib/email-templates.js';
 import { sendInvoiceEmail } from '../lib/invoice-email.js';
 import { suggestNextInvoiceNumber } from '../lib/invoice-number.js';
-import { applyBilledTimeEntries, assertJobInCompany } from '../lib/job-costing.js';
+import {
+  assertJobInCompany,
+  stampBilledTimeEntries,
+  validateBilledTimeEntries,
+} from '../lib/job-costing.js';
 import { postInvoiceTransition, repostInvoicePaymentDate } from '../lib/ledger.js';
 import { applyCursor, keysetOrderBy, parseLimit, slicePage } from '../lib/pagination.js';
 import {
@@ -198,6 +203,24 @@ async function applyInvoiceTransition(
     return { ok: false, error: 'invalid_transition', from: current.status, to: spec.to };
   }
 
+  // Voiding releases any tracked hours the invoice was carrying (TMC-180).
+  //
+  // Cancelling the invoice cancels the claim on that time, so the hours go back
+  // to unbilled and can be billed again. Without this they stay stamped to a
+  // voided invoice forever: never listed as unbilled, never billable to a new
+  // one — the work silently becomes unchargeable. There is no invoice DELETE
+  // endpoint, so void is the ONLY way out of a wrong invoice, which makes this
+  // the only recovery path rather than an edge case.
+  //
+  // Same reasoning as billed_invoice_id being ON DELETE SET NULL rather than
+  // cascade: cancel the document, keep the record that the work happened.
+  if (spec.to === 'voided') {
+    await tx
+      .update(timeEntries)
+      .set({ billedInvoiceId: null, updatedAt: now })
+      .where(and(eq(timeEntries.accountId, accountId), eq(timeEntries.billedInvoiceId, id)));
+  }
+
   await audit({
     entityType: 'invoice',
     entityId: id,
@@ -333,6 +356,22 @@ export function invoicesRoutes(deps: AppDeps) {
           const jobError = await assertJobInCompany(tx, accountId, companyId, header.jobId);
           if (jobError) return c.json({ error: jobError.error }, jobError.status);
 
+          // Validated BEFORE the insert. A failure discovered afterwards would
+          // still commit the invoice — the tenant tx only rolls back on a thrown
+          // error, not a returned one — leaving billable hours attached to
+          // nothing and free to be billed a second time.
+          if (billedTimeEntryIds !== undefined) {
+            const billError = await validateBilledTimeEntries(
+              tx,
+              accountId,
+              companyId,
+              header.jobId ?? null,
+              billedTimeEntryIds,
+              null,
+            );
+            if (billError) return c.json({ error: billError.error }, billError.status);
+          }
+
           // Seed the per-invoice from-block "show" flags from the company's
           // defaults when the client didn't send them (e.g. an API client that
           // doesn't render the toggles). The web/mobile forms send explicit
@@ -380,15 +419,7 @@ export function invoicesRoutes(deps: AppDeps) {
           await tx.insert(invoiceLineItems).values(lineRows);
 
           if (billedTimeEntryIds !== undefined) {
-            const billError = await applyBilledTimeEntries(
-              tx,
-              accountId,
-              companyId,
-              invoiceId,
-              header.jobId ?? null,
-              billedTimeEntryIds,
-            );
-            if (billError) return c.json({ error: billError.error }, billError.status);
+            await stampBilledTimeEntries(tx, accountId, invoiceId, billedTimeEntryIds);
           }
 
           await c.var.audit({
@@ -778,6 +809,21 @@ export function invoicesRoutes(deps: AppDeps) {
           const jobError = await assertJobInCompany(tx, accountId, current.companyId, header.jobId);
           if (jobError) return c.json({ error: jobError.error }, jobError.status);
 
+          // Same ordering rule as create: every check that can fail runs before
+          // the first write, because a returned error still commits.
+          const nextJobId = header.jobId === undefined ? current.jobId : header.jobId;
+          if (billedTimeEntryIds !== undefined) {
+            const billError = await validateBilledTimeEntries(
+              tx,
+              accountId,
+              current.companyId,
+              nextJobId,
+              billedTimeEntryIds,
+              id,
+            );
+            if (billError) return c.json({ error: billError.error }, billError.status);
+          }
+
           // Read the existing lines so the audit row diff carries the prior
           // state. Done before delete so we don't lose the data on rollback.
           const beforeLines = await tx
@@ -823,7 +869,7 @@ export function invoicesRoutes(deps: AppDeps) {
               showPhone: header.showPhone ?? current.showPhone,
               showEmail: header.showEmail ?? current.showEmail,
               // Undefined leaves the job alone; explicit null detaches.
-              jobId: header.jobId === undefined ? current.jobId : header.jobId,
+              jobId: nextJobId,
               updatedAt: new Date(),
             })
             .where(and(eq(invoices.id, id), eq(invoices.accountId, accountId)))
@@ -831,15 +877,7 @@ export function invoicesRoutes(deps: AppDeps) {
           if (!updated) return c.json({ error: 'invoice_not_found' }, 404);
 
           if (billedTimeEntryIds !== undefined) {
-            const billError = await applyBilledTimeEntries(
-              tx,
-              accountId,
-              current.companyId,
-              id,
-              updated.jobId,
-              billedTimeEntryIds,
-            );
-            if (billError) return c.json({ error: billError.error }, billError.status);
+            await stampBilledTimeEntries(tx, accountId, id, billedTimeEntryIds);
           }
 
           await c.var.audit({

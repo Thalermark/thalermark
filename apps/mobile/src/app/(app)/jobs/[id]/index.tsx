@@ -1,4 +1,10 @@
-import { minutesFromDuration } from '@thalermark/validation';
+import {
+  formatUnitPrice,
+  hoursFromMinutes,
+  minutesFromDuration,
+  multiplyMoney,
+  sumMoney,
+} from '@thalermark/validation';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
@@ -27,6 +33,7 @@ type JobDetail = {
   id: string;
   name: string;
   status: string;
+  contactName: string | null;
   invoices: { id: string; number: string; issueDate: string; status: string; total: string }[];
   margin: {
     billed: string;
@@ -43,13 +50,21 @@ type TimeEntry = {
   entryDate: string;
   minutes: number;
   note: string | null;
+  rate: string | null;
   billedInvoiceId: string | null;
 };
 
 const fmt = (s: string) =>
   Number(s).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 
+// DISPLAY only, 2dp. Never use for money: billing converts at 4dp via
+// hoursFromMinutes, and 50 minutes is 0.83 here against 0.8333 there — a nickel
+// apart at $15/h. Anything that must agree with an invoice uses entryValue.
 const hours = (minutes: number) => (Math.round((minutes / 60) * 100) / 100).toFixed(2);
+
+// What an entry will actually bill, priced the way the invoice form prices it.
+const entryValue = (minutes: number, rate: string) =>
+  multiplyMoney(hoursFromMinutes(minutes), rate);
 
 function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
@@ -68,8 +83,27 @@ export default function JobDetailScreen() {
   const [duration, setDuration] = useState('');
   const [note, setNote] = useState('');
   const [rate, setRate] = useState('');
+  // Prefilled from the last rate used on this job — most work is billed at one
+  // rate, and retyping it every entry is the friction that stops people logging.
+  const [ratePrefilled, setRatePrefilled] = useState(false);
   const [timeError, setTimeError] = useState<string | null>(null);
   const [logging, setLogging] = useState(false);
+
+  // Tracked hours not yet on an invoice — what billing would add right now.
+  // Only rated entries: unrated hours bill nothing.
+  const readyToBill = sumMoney(
+    entries
+      .filter((e) => !e.billedInvoiceId && e.rate !== null)
+      .map((e) => entryValue(e.minutes, e.rate ?? '0')),
+  );
+  // Unbilled hours with no rate, so "ready to bill" is never mistaken for
+  // everything uncharged.
+  const unratedMinutes = entries
+    .filter((e) => !e.billedInvoiceId && !e.rate)
+    .reduce((total, e) => total + e.minutes, 0);
+  // An unsent draft already on this job — billing again would start a second one
+  // and burn another invoice number on a blank.
+  const openDraft = job?.invoices.find((i) => i.status === 'draft');
 
   const load = useCallback(async () => {
     const [jobRes, timeRes] = await Promise.all([
@@ -82,7 +116,19 @@ export default function JobDetailScreen() {
       return;
     }
     setJob((await jobRes.json()) as JobDetail);
-    if (timeRes.ok) setEntries(((await timeRes.json()).timeEntries ?? []) as TimeEntry[]);
+    if (timeRes.ok) {
+      const rows = ((await timeRes.json()).timeEntries ?? []) as TimeEntry[];
+      setEntries(rows);
+      // Newest-first, so the first row carrying a rate is the last one used.
+      // Only seeds once, so it never overwrites what the user is typing.
+      const last = rows.find((r) => r.rate)?.rate;
+      if (last) {
+        setRatePrefilled((already) => {
+          if (!already) setRate(formatUnitPrice(last));
+          return true;
+        });
+      }
+    }
     setLoading(false);
   }, [id]);
 
@@ -189,9 +235,43 @@ export default function JobDetailScreen() {
             <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">← Jobs</Text>
           </Pressable>
           <Text className="mt-3 font-serif text-3xl font-light text-ink">{job.name}</Text>
+          {/*
+            The customer is asked for at create, so it has to show back here —
+            not showing it reads as "that field did nothing".
+          */}
+          {job.contactName ? (
+            <Text className="mt-1 text-sm text-ink/60">for {job.contactName}</Text>
+          ) : null}
 
           <View className="mt-6 rounded-sm border border-ink/10 bg-cream-warm p-5">
-            <View className="flex-row justify-between">
+            {/*
+              Ready to bill leads on a phone too, and gets the big type: it is the
+              only number here you act on — the rest are history.
+            */}
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+              Ready to bill
+            </Text>
+            <Text
+              className={`mt-1 font-serif text-3xl font-light ${
+                Number(readyToBill) > 0 ? 'text-gold-deep' : 'text-ink'
+              }`}
+            >
+              {fmt(readyToBill)}
+            </Text>
+            {/*
+              The caveat lives WITH the number. Only rated hours can be billed, so
+              a job with a day of unrated work shows $0.00 and would read as
+              "nothing to invoice" when there is plenty — just nothing priced yet.
+            */}
+            <Text className="mt-1 text-xs text-ink/50">
+              {unratedMinutes > 0
+                ? `${hours(unratedMinutes)} h needs a rate`
+                : Number(readyToBill) > 0
+                  ? 'not on an invoice yet'
+                  : 'nothing waiting'}
+            </Text>
+
+            <View className="mt-5 flex-row justify-between border-t border-ink/10 pt-4">
               <View>
                 <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
                   Billed
@@ -210,33 +290,56 @@ export default function JobDetailScreen() {
                 </Text>
                 <Text className="mt-1 font-mono text-lg text-ink">{fmt(job.margin.made)}</Text>
               </View>
+              <View>
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                  Per hour
+                </Text>
+                {/*
+                  A dash, never $0.00. Zero would read as "this job paid you
+                  nothing an hour"; the truth until it bills is "no answer yet".
+                */}
+                <Text className="mt-1 font-mono text-lg text-ink">
+                  {job.margin.effectiveHourly ? fmt(job.margin.effectiveHourly) : '—'}
+                </Text>
+              </View>
             </View>
-            <View className="mt-5 border-t border-ink/10 pt-4">
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
-                Per hour
-              </Text>
-              {/*
-                A dash, not $0.00, when nothing is logged. Zero would read as
-                "this job paid you nothing an hour" rather than "you haven't told
-                me the hours".
-              */}
-              <Text className="mt-1 font-serif text-3xl font-light text-ink">
-                {job.margin.effectiveHourly ? fmt(job.margin.effectiveHourly) : '—'}
-              </Text>
-              <Text className="mt-1 text-xs text-ink/50">
-                {job.margin.minutes > 0 ? `over ${job.margin.hours} h` : 'no hours logged'}
-              </Text>
-            </View>
+            <Text className="mt-3 text-xs text-ink/50">
+              {job.margin.minutes > 0 ? `${job.margin.hours} h logged` : 'no hours logged'}
+            </Text>
           </View>
 
           {canWrite ? (
             <View className="mt-4 flex-row gap-2">
-              <Pressable
-                onPress={() => router.push(`/invoices/new?jobId=${job.id}`)}
-                className="flex-1 items-center rounded-sm bg-ink px-4 py-3 active:bg-gold-deep"
-              >
-                <Text className="text-sm font-medium text-cream">Bill this job</Text>
-              </Pressable>
+              {/*
+                Three states, one button position:
+                - an unsent draft exists -> continue THAT, never start a second
+                  one and burn another invoice number on a blank
+                - hours waiting          -> bill them
+                - nothing waiting        -> disabled. Pushing to a form with no
+                  hours to prefill produces an empty invoice and wastes the trip.
+                The flat-fee path still exists from the invoices tab, which has a
+                job picker.
+              */}
+              {openDraft ? (
+                <Pressable
+                  onPress={() => router.push(`/invoices/${openDraft.id}/edit`)}
+                  className="flex-1 items-center rounded-sm bg-ink px-4 py-3 active:bg-gold-deep"
+                >
+                  <Text className="text-sm font-medium text-cream">
+                    Continue {openDraft.number}
+                  </Text>
+                </Pressable>
+              ) : (
+                <Pressable
+                  onPress={() => router.push(`/invoices/new?jobId=${job.id}`)}
+                  disabled={Number(readyToBill) <= 0}
+                  className={`flex-1 items-center rounded-sm bg-ink px-4 py-3 active:bg-gold-deep ${
+                    Number(readyToBill) <= 0 ? 'opacity-40' : ''
+                  }`}
+                >
+                  <Text className="text-sm font-medium text-cream">Bill this job</Text>
+                </Pressable>
+              )}
               <Pressable
                 onPress={toggleStatus}
                 className="items-center rounded-sm border border-ink/20 px-4 py-3"
@@ -338,6 +441,15 @@ export default function JobDetailScreen() {
                   <Text className="flex-1 pr-2 text-sm text-ink/70" numberOfLines={1}>
                     {entry.note ?? ''}
                   </Text>
+                  {/*
+                    Silent when no rate was set — those hours still count toward
+                    the job's time, and "$0.00/h" would look like a mistake.
+                  */}
+                  {entry.rate ? (
+                    <Text className="pr-2 font-mono text-xs text-ink/60">
+                      ${formatUnitPrice(entry.rate)}/h
+                    </Text>
+                  ) : null}
                   {entry.billedInvoiceId ? (
                     <Text className="font-mono text-[0.6rem] uppercase tracking-widest text-ink/40">
                       Billed

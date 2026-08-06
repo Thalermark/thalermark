@@ -178,6 +178,17 @@ export default function NewInvoice() {
         // Priced with the same multiplyMoney every typed row uses, so a billed
         // hour and a hand-typed hour cannot round differently.
         if (jobId) {
+          // Prefill the job's customer. The job asked for one at create, so
+          // making the user pick it again here is the same question twice.
+          const jobRes = await api.api.jobs[':id'].$get({ param: { id: jobId } });
+          if (active && jobRes.ok) {
+            const j = await jobRes.json();
+            if (j.contactId && j.contactName) {
+              setContactId(j.contactId);
+              setContactName(j.contactName);
+            }
+          }
+
           const timeRes = await api.api.jobs[':id'].time.$get({
             param: { id: jobId },
             query: { unbilled: 'true' },

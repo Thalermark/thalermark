@@ -6,7 +6,7 @@ import {
   timeEntryCreateSchema,
   timeEntryUpdateSchema,
 } from '@thalermark/validation';
-import { and, asc, desc, eq, ilike, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, getTableColumns, ilike, isNull } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 import { v7 as uuidv7 } from 'uuid';
@@ -103,10 +103,16 @@ export function jobsRoutes() {
         if (status) conditions.push(eq(jobs.status, status));
         if (q) conditions.push(ilike(jobs.name, `%${escapeLike(q)}%`));
 
+        // contactName rides along on every job read. The customer is asked for at
+        // create, so not showing it back is a small betrayal — and the invoice
+        // form needs it to prefill the picker when billing a job.
+        const withContact = { ...getTableColumns(jobs), contactName: contacts.name };
+
         if (q) {
           const rows = await tx
-            .select()
+            .select(withContact)
             .from(jobs)
+            .leftJoin(contacts, eq(contacts.id, jobs.contactId))
             .where(and(...conditions))
             .orderBy(asc(jobs.name))
             .limit(20);
@@ -120,8 +126,9 @@ export function jobsRoutes() {
         if (keyset === 'invalid') return c.json({ error: 'invalid_cursor' }, 400);
         if (keyset) conditions.push(keyset);
         const rows = await tx
-          .select()
+          .select(withContact)
           .from(jobs)
+          .leftJoin(contacts, eq(contacts.id, jobs.contactId))
           .where(and(...conditions))
           .orderBy(keysetOrderBy(keys, 'asc'))
           .limit(limit + 1);
@@ -140,8 +147,9 @@ export function jobsRoutes() {
         const accountId = c.get('accountId');
 
         const [job] = await tx
-          .select()
+          .select({ ...getTableColumns(jobs), contactName: contacts.name })
           .from(jobs)
+          .leftJoin(contacts, eq(contacts.id, jobs.contactId))
           .where(and(eq(jobs.id, id), eq(jobs.accountId, accountId)))
           .limit(1);
         if (!job) return c.json({ error: 'job_not_found' }, 404);
@@ -180,7 +188,7 @@ export function jobsRoutes() {
             hours: displayHours(trackedMinutes),
             // The number the whole feature exists to produce. Null with no hours
             // tracked — 0 would read as "this job paid nothing an hour".
-            effectiveHourly: effectiveHourly(madeCents, trackedMinutes),
+            effectiveHourly: effectiveHourly(madeCents, trackedMinutes, billedCents),
           },
         });
       })

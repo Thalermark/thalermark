@@ -1747,7 +1747,7 @@ export function reportsRoutes(deps: AppDeps) {
               // What an hour on this job actually paid. The number time tracking
               // exists to produce, and null rather than 0 when no hours are
               // tracked — 0 would read as "this job paid nothing an hour".
-              effectiveHourly: effectiveHourly(madeCents, minutes),
+              effectiveHourly: effectiveHourly(madeCents, minutes, billedCents),
             };
           });
 
