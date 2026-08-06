@@ -72,6 +72,7 @@ export default function ExpenseDetail() {
   const [receiptError, setReceiptError] = useState<string | null>(null);
   const [extraction, setExtraction] = useState<Extraction | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [namedJobs, setNamedJobs] = useState<{ id: string; name: string }[]>([]);
   const [target, setTarget] = useState<string | null>(null);
   const [splitCount, setSplitCount] = useState(0);
   // TMC-178. Set when an extraction was just applied to an expense that still
@@ -130,12 +131,17 @@ export default function ExpenseDetail() {
     // since this is a tag and nothing about the expense depends on it.
     const allocations = e.allocations ?? [];
     setSplitCount(allocations.length);
+    // Since TMC-181 a row may instead name a job, carried as "job:<id>" so the
+    // two grains share one picker without their ids ever colliding.
+    const first = allocations[0];
     setTarget(
-      allocations.length === 0
+      allocations.length === 0 || !first
         ? null
-        : allocations.length === 1 && allocations[0]?.invoiceId === null
-          ? 'shared'
-          : (allocations[0]?.invoiceId ?? null),
+        : first.jobId
+          ? `job:${first.jobId}`
+          : allocations.length === 1 && first.invoiceId === null
+            ? 'shared'
+            : (first.invoiceId ?? null),
     );
     try {
       const jobsRes = await api.api.invoices.$get({
@@ -155,6 +161,15 @@ export default function ExpenseDetail() {
               customerName: i.customerName ?? null,
             })),
         );
+      }
+      // Named jobs (TMC-181), offered above the invoices. Open ones only — a
+      // closed job is filed away, and offering it is how the list stops being
+      // usable on a phone.
+      const namedRes = await api.api.jobs.$get({
+        query: { companyId: e.companyId, status: 'open', limit: '50' },
+      });
+      if (namedRes.ok) {
+        setNamedJobs((await namedRes.json()).jobs.map((j) => ({ id: j.id, name: j.name })));
       }
     } catch {}
     // Audit trail — best-effort; refetched on every load() (focus + after each
@@ -303,10 +318,15 @@ export default function ExpenseDetail() {
     // other, and the payload type requires the choice to be explicit. This
     // screen still tags at invoice grain — the job picker lands with the rest of
     // the mobile jobs UI.
+    // A row names ONE grain. "job:<id>" is a named job; a bare id is an invoice
+    // standing in as its own job; 'shared' is the deliberate won't-attribute
+    // answer; null clears it back to never-answered, which is not the same.
     const allocations =
       next === null
         ? []
-        : [{ invoiceId: next === 'shared' ? null : next, jobId: null, share: '1' }];
+        : next.startsWith('job:')
+          ? [{ invoiceId: null, jobId: next.slice(4), share: '1' }]
+          : [{ invoiceId: next === 'shared' ? null : next, jobId: null, share: '1' }];
     try {
       const res = await api.api.expenses[':id'].allocations.$put({
         param: { id },
@@ -437,6 +457,19 @@ export default function ExpenseDetail() {
                     selected={target === 'shared'}
                     onPress={() => setAllocation('shared')}
                   />
+                  {/*
+                    Named jobs first: if the user bothered to name one, that is
+                    the answer they are looking for. Invoices stay below as the
+                    fallback for work that never got a job.
+                  */}
+                  {namedJobs.map((job) => (
+                    <JobChoice
+                      key={job.id}
+                      label={job.name}
+                      selected={target === `job:${job.id}`}
+                      onPress={() => setAllocation(`job:${job.id}`)}
+                    />
+                  ))}
                   {jobs.map((job) => (
                     <JobChoice
                       key={job.id}
@@ -459,9 +492,11 @@ export default function ExpenseDetail() {
                 <Text className="mt-3 text-sm text-ink/50">
                   {target === 'shared'
                     ? 'Shared across jobs.'
-                    : target
-                      ? (jobs.find((j) => j.id === target)?.customerName ?? 'A job')
-                      : 'Not tagged to a job.'}
+                    : target?.startsWith('job:')
+                      ? (namedJobs.find((j) => `job:${j.id}` === target)?.name ?? 'A job')
+                      : target
+                        ? (jobs.find((j) => j.id === target)?.customerName ?? 'A job')
+                        : 'Not tagged to a job.'}
                 </Text>
               )}
             </View>
