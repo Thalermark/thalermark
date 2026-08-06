@@ -48,6 +48,11 @@
 
   // Unbilled hours with no rate. Called out separately so "ready to bill" is
   // never mistaken for "all the work I haven't charged for".
+  // An unsent draft already on this job. Billing again would start a SECOND
+  // draft rather than continuing the one sitting there — each burning an invoice
+  // number — so the button points at the existing one instead.
+  const openDraft = $derived(job.invoices.find((i) => i.status === 'draft'));
+
   const unratedMinutes = $derived(
     time.timeEntries
       .filter((e) => !e.billedInvoiceId && !e.rate)
@@ -76,7 +81,35 @@
         the job, not while staring at an empty invoice — so this is what carries
         the job and its unbilled hours into the form.
       -->
-      <a href="/invoices/new?jobId={job.id}" class="btn">Bill this job</a>
+      <!--
+        Three states, one button position:
+        - an unsent draft exists -> continue THAT, never start a second one
+        - hours waiting          -> bill them
+        - nothing waiting        -> DISABLED. Clicking through to a form with no
+          job, no hours and no prefill produces an empty invoice and wastes the
+          trip. A real <button disabled> rather than a dimmed link, so it is
+          actually unclickable and announces itself as disabled; .btn already
+          carries the disabled styling.
+
+        The flat-fee path is not lost — /invoices/new still has a job picker for
+        an invoice that isn't built from tracked hours.
+      -->
+      {#if openDraft}
+        <a href="/invoices/{openDraft.id}/edit" class="btn">Continue {openDraft.number}</a>
+      {:else if Number(readyToBill) > 0}
+        <a href="/invoices/new?jobId={job.id}" class="btn">Bill this job</a>
+      {:else}
+        <button
+          type="button"
+          disabled
+          class="btn"
+          title={unratedMinutes > 0
+            ? 'These hours need a rate before they can be billed'
+            : 'Nothing to bill — log some hours first'}
+        >
+          Bill this job
+        </button>
+      {/if}
       <form method="post" action="?/setStatus">
         <input type="hidden" name="status" value={job.status === 'open' ? 'closed' : 'open'} />
         <button

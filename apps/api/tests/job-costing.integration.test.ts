@@ -1163,3 +1163,75 @@ describe('a rejected billing leaves nothing behind', () => {
     }
   });
 });
+
+describe('voiding an invoice releases its hours', () => {
+  beforeEach(resetDb);
+
+  // There is no invoice DELETE endpoint, so void is the ONLY way out of a wrong
+  // invoice. Without releasing, the hours stay stamped to a voided invoice
+  // forever: never listed as unbilled, never billable to a new one. The work
+  // silently becomes unchargeable, and the only recovery path is the one that
+  // strands it.
+  it('returns the hours to unbilled so they can be billed again', async () => {
+    const ctx = await setup('void-releases-hours@test.com');
+    try {
+      const contactId = await makeContact(ctx, 'Chen');
+      const jobId = await makeJob(ctx, 'Tuesdays at the Chens', contactId);
+      const entryId = await logTime(ctx, jobId, 195, '22.0000');
+
+      const created = await ctx.app.request('/api/invoices', {
+        method: 'POST',
+        headers: ctx.headers,
+        body: JSON.stringify({
+          companyId: ctx.companyId,
+          contactId,
+          jobId,
+          number: 'INV-VOID',
+          issueDate: '2026-06-12',
+          dueDate: '2026-07-12',
+          subtotal: '71.50',
+          total: '71.50',
+          billedTimeEntryIds: [entryId],
+          lineItems: [
+            {
+              position: 1,
+              description: 'Sitting',
+              quantity: '3.2500',
+              unitPrice: '22.0000',
+              amount: '71.50',
+              type: 'service',
+            },
+          ],
+        }),
+      });
+      expect(created.status).toBe(201);
+      const invoiceId = ((await created.json()) as { id: string }).id;
+
+      const unbilledBefore = await ctx.app.request(`/api/jobs/${jobId}/time?unbilled=true`, {
+        headers: ctx.headers,
+      });
+      expect(
+        ((await unbilledBefore.json()) as { timeEntries: unknown[] }).timeEntries,
+      ).toHaveLength(0);
+
+      const voided = await ctx.app.request(`/api/invoices/${invoiceId}/void`, {
+        method: 'POST',
+        headers: ctx.headers,
+      });
+      expect(voided.status).toBe(200);
+
+      const unbilledAfter = await ctx.app.request(`/api/jobs/${jobId}/time?unbilled=true`, {
+        headers: ctx.headers,
+      });
+      const body = (await unbilledAfter.json()) as {
+        timeEntries: { id: string; minutes: number }[];
+      };
+      expect(body.timeEntries).toHaveLength(1);
+      expect(body.timeEntries[0]?.id).toBe(entryId);
+      // The work itself is untouched — only the claim on it was cancelled.
+      expect(body.timeEntries[0]?.minutes).toBe(195);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+});

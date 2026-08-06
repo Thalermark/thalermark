@@ -321,6 +321,16 @@
         Optional. A job can carry as many invoices as it needs — a deposit and a final, or one
         every fortnight.
       </p>
+      <!--
+        Arriving from "Bill this job" with nothing to bring in used to open a
+        form indistinguishable from a blank new invoice, which reads as the
+        button having done nothing.
+      -->
+      {#if data.jobId && data.unbilledTime.length === 0}
+        <p class="mt-2 text-xs text-fg/60">
+          No unbilled hours on this job — add what you're charging for below.
+        </p>
+      {/if}
     </div>
   {/if}
 

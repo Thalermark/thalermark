@@ -7,6 +7,7 @@ import {
   expenses,
   invoiceLineItems,
   invoices,
+  timeEntries,
 } from '@thalermark/db';
 import { emit } from '@thalermark/telemetry';
 import {
@@ -200,6 +201,24 @@ async function applyInvoiceTransition(
     .returning();
   if (!updated) {
     return { ok: false, error: 'invalid_transition', from: current.status, to: spec.to };
+  }
+
+  // Voiding releases any tracked hours the invoice was carrying (TMC-180).
+  //
+  // Cancelling the invoice cancels the claim on that time, so the hours go back
+  // to unbilled and can be billed again. Without this they stay stamped to a
+  // voided invoice forever: never listed as unbilled, never billable to a new
+  // one — the work silently becomes unchargeable. There is no invoice DELETE
+  // endpoint, so void is the ONLY way out of a wrong invoice, which makes this
+  // the only recovery path rather than an edge case.
+  //
+  // Same reasoning as billed_invoice_id being ON DELETE SET NULL rather than
+  // cascade: cancel the document, keep the record that the work happened.
+  if (spec.to === 'voided') {
+    await tx
+      .update(timeEntries)
+      .set({ billedInvoiceId: null, updatedAt: now })
+      .where(and(eq(timeEntries.accountId, accountId), eq(timeEntries.billedInvoiceId, id)));
   }
 
   await audit({
