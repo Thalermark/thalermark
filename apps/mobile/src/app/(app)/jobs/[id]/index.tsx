@@ -1,4 +1,4 @@
-import { minutesFromDuration } from '@thalermark/validation';
+import { formatUnitPrice, minutesFromDuration } from '@thalermark/validation';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
@@ -44,6 +44,7 @@ type TimeEntry = {
   entryDate: string;
   minutes: number;
   note: string | null;
+  rate: string | null;
   billedInvoiceId: string | null;
 };
 
@@ -69,6 +70,9 @@ export default function JobDetailScreen() {
   const [duration, setDuration] = useState('');
   const [note, setNote] = useState('');
   const [rate, setRate] = useState('');
+  // Prefilled from the last rate used on this job — most work is billed at one
+  // rate, and retyping it every entry is the friction that stops people logging.
+  const [ratePrefilled, setRatePrefilled] = useState(false);
   const [timeError, setTimeError] = useState<string | null>(null);
   const [logging, setLogging] = useState(false);
 
@@ -83,7 +87,19 @@ export default function JobDetailScreen() {
       return;
     }
     setJob((await jobRes.json()) as JobDetail);
-    if (timeRes.ok) setEntries(((await timeRes.json()).timeEntries ?? []) as TimeEntry[]);
+    if (timeRes.ok) {
+      const rows = ((await timeRes.json()).timeEntries ?? []) as TimeEntry[];
+      setEntries(rows);
+      // Newest-first, so the first row carrying a rate is the last one used.
+      // Only seeds once, so it never overwrites what the user is typing.
+      const last = rows.find((r) => r.rate)?.rate;
+      if (last) {
+        setRatePrefilled((already) => {
+          if (!already) setRate(formatUnitPrice(last));
+          return true;
+        });
+      }
+    }
     setLoading(false);
   }, [id]);
 
@@ -346,6 +362,15 @@ export default function JobDetailScreen() {
                   <Text className="flex-1 pr-2 text-sm text-ink/70" numberOfLines={1}>
                     {entry.note ?? ''}
                   </Text>
+                  {/*
+                    Silent when no rate was set — those hours still count toward
+                    the job's time, and "$0.00/h" would look like a mistake.
+                  */}
+                  {entry.rate ? (
+                    <Text className="pr-2 font-mono text-xs text-ink/60">
+                      ${formatUnitPrice(entry.rate)}/h
+                    </Text>
+                  ) : null}
                   {entry.billedInvoiceId ? (
                     <Text className="font-mono text-[0.6rem] uppercase tracking-widest text-ink/40">
                       Billed

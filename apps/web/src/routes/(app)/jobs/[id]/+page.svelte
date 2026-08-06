@@ -1,5 +1,6 @@
 <script lang="ts">
   import { may } from '$lib/perms';
+  import { formatUnitPrice, hoursFromMinutes, multiplyMoney, sumMoney } from '@thalermark/validation';
   import type { PageProps } from './$types';
 
   let { data, form }: PageProps = $props();
@@ -13,9 +14,45 @@
 
   const today = new Date().toISOString().slice(0, 10);
 
+  // The most recent rate used on this job, to prefill the next entry. Entries
+  // come back newest-first, so the first one carrying a rate is the last one
+  // used. Empty when nothing has been rated yet.
+  const lastRate = $derived(
+    formatUnitPrice(time.timeEntries.find((e) => e.rate)?.rate ?? '') || '',
+  );
+
+  // DISPLAY only, 2dp. Never use this for money: billing converts with
+  // hoursFromMinutes at 4dp, and 50 minutes is 0.83 here against 0.8333 there —
+  // a nickel apart at $15/h. Anything that must agree with the invoice goes
+  // through entryValue below.
   function hours(minutes: number): string {
     return (Math.round((minutes / 60) * 100) / 100).toFixed(2);
   }
+
+  // What an entry will actually bill, priced exactly the way the invoice form
+  // prices it — same 4dp quantity, same multiplyMoney.
+  function entryValue(minutes: number, rate: string): string {
+    return multiplyMoney(hoursFromMinutes(minutes), rate);
+  }
+
+  // Tracked hours not yet on an invoice — what "Bill this job" would add right
+  // now. Only entries carrying a rate: unrated hours bill nothing, and folding
+  // them in at zero would understate nothing but confuse everything.
+  const readyToBill = $derived(
+    sumMoney(
+      time.timeEntries
+        .filter((e) => !e.billedInvoiceId && e.rate)
+        .map((e) => entryValue(e.minutes, e.rate as string)),
+    ),
+  );
+
+  // Unbilled hours with no rate. Called out separately so "ready to bill" is
+  // never mistaken for "all the work I haven't charged for".
+  const unratedMinutes = $derived(
+    time.timeEntries
+      .filter((e) => !e.billedInvoiceId && !e.rate)
+      .reduce((total, e) => total + e.minutes, 0),
+  );
 </script>
 
 <a href="/jobs" class="eyebrow text-fg/60 hover:text-fg">← Jobs</a>
@@ -69,6 +106,14 @@
   <div class="bg-surface-2 px-5 py-4">
     <span class="label">Billed</span>
     <p class="mt-1 font-mono text-xl tabular-nums text-fg/80">{fmt(margin.billed)}</p>
+    <!--
+      Money waiting, sat next to money collected — the contrast is the point, and
+      this is where the eye already goes looking for it. Silent at zero rather
+      than showing "$0.00 ready", which would be noise on most jobs.
+    -->
+    {#if Number(readyToBill) > 0}
+      <p class="mt-1 text-xs text-accent">{fmt(readyToBill)} ready to bill</p>
+    {/if}
   </div>
   <div class="bg-surface-2 px-5 py-4">
     <span class="label">What it cost</span>
@@ -125,13 +170,22 @@
     after the fact has to be as easy as running a stopwatch live, because the
     start of a job is the moment nobody is thinking about software.
   -->
-  <form method="post" action="?/logTime" class="mt-4 grid gap-4 sm:grid-cols-[10rem_8rem_1fr_auto]">
+  <!--
+    One row, left to right: when, how long, how much, what, go. Rate used to sit
+    on its own row BELOW the Log button, which put a field after the submit and
+    read as an afterthought.
+  -->
+  <form
+    method="post"
+    action="?/logTime"
+    class="mt-4 grid gap-3 sm:grid-cols-[9.5rem_6rem_8rem_1fr_auto]"
+  >
     <div>
-      <label for="entryDate" class="label">Date</label>
+      <label for="entryDate" class="label block">Date</label>
       <input id="entryDate" name="entryDate" type="date" value={today} required class="field mt-1" />
     </div>
     <div>
-      <label for="duration" class="label">Hours</label>
+      <label for="duration" class="label block">Hours</label>
       <input
         id="duration"
         name="duration"
@@ -143,24 +197,34 @@
       />
     </div>
     <div>
-      <label for="note" class="label">What you did</label>
-      <input id="note" name="note" type="text" maxlength="1000" class="field mt-1" />
-    </div>
-    <div class="flex items-end">
-      <button type="submit" class="btn">Log</button>
-    </div>
-    <div class="sm:col-span-4">
-      <label for="rate" class="label">Rate per hour</label>
+      <label for="rate" class="label block">Rate</label>
+      <!--
+        Prefilled from the last rate used on this job. Most work is billed at one
+        rate, so retyping it every entry is the kind of friction that stops
+        people logging at all. Still editable, and still allowed to be empty.
+      -->
       <input
         id="rate"
         name="rate"
         type="text"
         inputmode="decimal"
-        placeholder="Optional — leave blank if these hours aren't billable"
-        class="field mt-1 max-w-sm"
+        placeholder="—"
+        value={lastRate}
+        class="field mt-1"
       />
     </div>
+    <div>
+      <label for="note" class="label block">What you did</label>
+      <input id="note" name="note" type="text" maxlength="1000" class="field mt-1" />
+    </div>
+    <div class="flex items-end">
+      <button type="submit" class="btn">Log</button>
+    </div>
   </form>
+  <p class="mt-2 text-xs text-fg/50">
+    Leave the rate blank for hours you're not charging for — they still count toward what the job
+    cost you in time.
+  </p>
   {#if form?.timeError}
     <p class="mt-2 text-xs text-danger">{form.timeError}</p>
   {/if}
@@ -175,6 +239,19 @@
         <span class="w-28 shrink-0 text-fg/60">{entry.entryDate}</span>
         <span class="w-16 shrink-0 font-mono tabular-nums text-fg/80">{hours(entry.minutes)} h</span>
         <span class="min-w-0 flex-1 truncate text-fg/70">{entry.note ?? ''}</span>
+        <!--
+          What these hours are worth, and what they'll bill at. Silent when no
+          rate was set — those hours count toward the job's time without being
+          charged, and a "$0.00/h" there would look like a mistake.
+        -->
+        {#if entry.rate}
+          <span class="shrink-0 text-right font-mono tabular-nums text-fg/60">
+            ${formatUnitPrice(entry.rate)}/h
+            <span class="ml-2 text-fg/80">
+              {fmt(entryValue(entry.minutes, entry.rate))}
+            </span>
+          </span>
+        {/if}
         {#if entry.billedInvoiceId}
           <span class="label text-fg/40">Billed</span>
         {:else if canWrite}
@@ -186,7 +263,12 @@
       </li>
     {/each}
   </ul>
-  <p class="mt-3 text-sm text-fg/60">{time.totalHours} hours in total.</p>
+  <p class="mt-3 text-sm text-fg/60">
+    {time.totalHours} hours in total.
+    {#if unratedMinutes > 0}
+      {hours(unratedMinutes)} h of that has no rate, so it won't be charged.
+    {/if}
+  </p>
 {/if}
 
 {#if canWrite && job.invoices.length === 0 && time.timeEntries.length === 0}

@@ -188,7 +188,7 @@ export function jobsRoutes() {
             hours: displayHours(trackedMinutes),
             // The number the whole feature exists to produce. Null with no hours
             // tracked — 0 would read as "this job paid nothing an hour".
-            effectiveHourly: effectiveHourly(madeCents, trackedMinutes),
+            effectiveHourly: effectiveHourly(madeCents, trackedMinutes, billedCents),
           },
         });
       })

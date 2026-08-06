@@ -1030,3 +1030,136 @@ describe('a job remembers its customer', () => {
     }
   });
 });
+
+describe('per-hour is null until there is something to divide', () => {
+  beforeEach(resetDb);
+
+  // Hours logged, nothing invoiced. "$0.00 per hour" would read as a verdict on
+  // the work; the truth is the job simply hasn't been billed.
+  it('is null when hours are logged but nothing is billed', async () => {
+    const ctx = await setup('job-hourly-unbilled@test.com');
+    try {
+      const jobId = await makeJob(ctx, 'Not billed yet');
+      await logTime(ctx, jobId, 60);
+
+      const res = await ctx.app.request(`/api/jobs/${jobId}`, { headers: ctx.headers });
+      const body = (await res.json()) as {
+        margin: { billed: string; minutes: number; effectiveHourly: string | null };
+      };
+      expect(body.margin.minutes).toBe(60);
+      expect(body.margin.billed).toBe('0.00');
+      expect(body.margin.effectiveHourly).toBeNull();
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  // Once billed, the number always shows — including a genuine zero. A job that
+  // billed $100 and cost $100 really did pay $0/hr, and that is worth knowing.
+  it('shows a real zero once the job has billed', async () => {
+    const ctx = await setup('job-hourly-zero@test.com');
+    try {
+      const contactId = await makeContact(ctx, 'Smith');
+      const jobId = await makeJob(ctx, 'Broke even', contactId);
+      await makeInvoice(ctx, contactId, 'INV-1', '100.00', '2026-06-10', jobId);
+      const cost = await makeExpense(ctx, '100.00');
+      await allocate(ctx, cost, [{ jobId, share: '1' }]);
+      await logTime(ctx, jobId, 120);
+
+      const res = await ctx.app.request(`/api/jobs/${jobId}`, { headers: ctx.headers });
+      const body = (await res.json()) as {
+        margin: { made: string; effectiveHourly: string | null };
+      };
+      expect(body.margin.made).toBe('0.00');
+      expect(body.margin.effectiveHourly).toBe('0.00');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+});
+
+describe('a rejected billing leaves nothing behind', () => {
+  beforeEach(resetDb);
+
+  // The tenant transaction only rolls back on a THROWN error — a handler that
+  // returns c.json({error}, 409) completes normally and COMMITS. So every check
+  // that can fail has to run before the first write, or a rejected invoice ends
+  // up on the books with hour lines while its entries stay unbilled, free to be
+  // billed a second time.
+  it('does not create the invoice when an entry is already billed', async () => {
+    const ctx = await setup('bill-time-atomic@test.com');
+    try {
+      const contactId = await makeContact(ctx, 'Chen');
+      const jobId = await makeJob(ctx, 'Tuesdays at the Chens', contactId);
+      const entryId = await logTime(ctx, jobId, 195, '22.0000');
+
+      const first = await ctx.app.request('/api/invoices', {
+        method: 'POST',
+        headers: ctx.headers,
+        body: JSON.stringify({
+          companyId: ctx.companyId,
+          contactId,
+          jobId,
+          number: 'INV-A',
+          issueDate: '2026-06-12',
+          dueDate: '2026-07-12',
+          subtotal: '71.50',
+          total: '71.50',
+          billedTimeEntryIds: [entryId],
+          lineItems: [
+            {
+              position: 1,
+              description: 'Sitting',
+              quantity: '3.2500',
+              unitPrice: '22.0000',
+              amount: '71.50',
+              type: 'service',
+            },
+          ],
+        }),
+      });
+      expect(first.status).toBe(201);
+
+      // Second invoice tries to bill the same entry — must be refused AND must
+      // not leave INV-B behind.
+      const second = await ctx.app.request('/api/invoices', {
+        method: 'POST',
+        headers: ctx.headers,
+        body: JSON.stringify({
+          companyId: ctx.companyId,
+          contactId,
+          jobId,
+          number: 'INV-B',
+          issueDate: '2026-06-13',
+          dueDate: '2026-07-13',
+          subtotal: '71.50',
+          total: '71.50',
+          billedTimeEntryIds: [entryId],
+          lineItems: [
+            {
+              position: 1,
+              description: 'Sitting again',
+              quantity: '3.2500',
+              unitPrice: '22.0000',
+              amount: '71.50',
+              type: 'service',
+            },
+          ],
+        }),
+      });
+      expect(second.status).toBe(409);
+      expect(((await second.json()) as { error: string }).error).toBe('time_entry_already_billed');
+
+      // INV-B must not exist. Before the read/write split it did — committed,
+      // numbered, with its hour line, and the entry still attached to INV-A.
+      const list = await ctx.app.request(`/api/invoices?companyId=${ctx.companyId}`, {
+        headers: ctx.headers,
+      });
+      const body = (await list.json()) as { invoices: { number: string }[] };
+      expect(body.invoices.map((i) => i.number)).not.toContain('INV-B');
+      expect(body.invoices.filter((i) => i.number === 'INV-A')).toHaveLength(1);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+});

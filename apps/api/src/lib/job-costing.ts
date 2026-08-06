@@ -171,10 +171,26 @@ export async function jobMinutes(
 // divide it instead, which answers "was this job worth my time" without
 // pretending the time was an expense.
 //
-// Null when no hours are tracked: a job with no time entries has no meaningful
-// hourly rate, and 0 would read as "this job paid nothing an hour".
-export function effectiveHourly(madeCents: number, minutes: number): string | null {
-  if (minutes <= 0) return null;
+// Null in two cases, and both mean "there is no answer yet" rather than "the
+// answer is zero":
+//
+//   - no hours tracked — nothing to divide by
+//   - nothing billed yet — the job hasn't earned anything to divide
+//
+// The second matters more than it looks. A job with an hour logged and no
+// invoice would otherwise render "$0.00 per hour", which reads as a verdict on
+// the work when it is really just a job that hasn't been billed. A dash says
+// "you haven't told me"; a number says "here is the answer".
+//
+// Once something IS billed the number always shows, including zero and negative
+// — a job that billed $100 and cost $100 really did pay $0/hr, and one that lost
+// money should say so.
+export function effectiveHourly(
+  madeCents: number,
+  minutes: number,
+  billedCents: number,
+): string | null {
+  if (minutes <= 0 || billedCents <= 0) return null;
   return centsToMoney(Math.round((madeCents * 60) / minutes));
 }
 
@@ -203,38 +219,32 @@ export async function assertJobInCompany(
   return null;
 }
 
-// Attach a set of time entries to an invoice, and release any the invoice used
-// to carry that are no longer in the set.
+// Billing tracked time is split into a READ half and a WRITE half, and callers
+// must run the read half before they write anything.
 //
-// The client has ALREADY built the hour lines and computed the totals — money
-// math is client-side and stored as-sent, so appending lines here would be a
-// second totals path free to disagree with the first. All this does is record
-// which entries that invoice consumed, in the same transaction, so they can't be
-// billed twice.
+// Why: the tenant transaction only rolls back on a THROWN error (see
+// middleware/rls-context.ts — `if (c.error) throw c.error`). A handler that
+// *returns* c.json({error}, 409) completes normally and the transaction
+// COMMITS. So a validation failure discovered after the invoice insert would
+// leave a real, numbered invoice on the books with its hour lines, while the
+// time entries stayed unbilled — free to be billed again onto a second invoice.
+// The customer gets charged twice and the books show it.
 //
-// Replace semantics, matching how line items behave on PATCH. Callers pass
-// undefined to mean "don't touch"; an explicit array (including an empty one)
-// replaces the set.
-export async function applyBilledTimeEntries(
+// Validating first makes that unreachable rather than merely unlikely.
+
+// Read half. No writes, safe to call before anything is inserted.
+//
+// currentInvoiceId is the invoice being edited, so entries already billed to
+// THIS invoice pass; it is null on create, where nothing can legitimately be
+// billed to an invoice that does not exist yet.
+export async function validateBilledTimeEntries(
   tx: Transaction,
   accountId: string,
   companyId: string,
-  invoiceId: string,
   invoiceJobId: string | null,
   ids: string[],
+  currentInvoiceId: string | null,
 ): Promise<BillTimeError | null> {
-  // Release first, so moving an entry off an invoice and onto another in the
-  // same edit doesn't trip the already-billed guard below.
-  const releaseWhere = [
-    eq(timeEntries.accountId, accountId),
-    eq(timeEntries.billedInvoiceId, invoiceId),
-    ...(ids.length > 0 ? [notInArray(timeEntries.id, ids)] : []),
-  ];
-  await tx
-    .update(timeEntries)
-    .set({ billedInvoiceId: null, updatedAt: new Date() })
-    .where(and(...releaseWhere));
-
   if (ids.length === 0) return null;
 
   // Hours belong to a job, so an invoice billing them has to be on that job.
@@ -260,15 +270,47 @@ export async function applyBilledTimeEntries(
   if (rows.some((r) => r.jobId !== invoiceJobId)) {
     return { error: 'time_entry_job_mismatch', status: 400 };
   }
-  if (rows.some((r) => r.billedInvoiceId !== null && r.billedInvoiceId !== invoiceId)) {
+  if (rows.some((r) => r.billedInvoiceId !== null && r.billedInvoiceId !== currentInvoiceId)) {
     return { error: 'time_entry_already_billed', status: 409 };
   }
+  return null;
+}
+
+// Write half. Records which entries an invoice consumed and releases any it used
+// to carry that are no longer in the set, so nothing is billed twice.
+//
+// The client has ALREADY built the hour lines and computed the totals — money
+// math is client-side and stored as-sent, so appending lines here would be a
+// second totals path free to disagree with the first.
+//
+// Replace semantics, matching how line items behave on PATCH. Callers pass
+// undefined to mean "don't touch"; an explicit array (including an empty one)
+// replaces the set.
+export async function stampBilledTimeEntries(
+  tx: Transaction,
+  accountId: string,
+  invoiceId: string,
+  ids: string[],
+): Promise<void> {
+  // Release first, so moving an entry off one invoice and onto another in the
+  // same edit doesn't collide with itself.
+  await tx
+    .update(timeEntries)
+    .set({ billedInvoiceId: null, updatedAt: new Date() })
+    .where(
+      and(
+        eq(timeEntries.accountId, accountId),
+        eq(timeEntries.billedInvoiceId, invoiceId),
+        ...(ids.length > 0 ? [notInArray(timeEntries.id, ids)] : []),
+      ),
+    );
+
+  if (ids.length === 0) return;
 
   await tx
     .update(timeEntries)
     .set({ billedInvoiceId: invoiceId, updatedAt: new Date() })
     .where(and(eq(timeEntries.accountId, accountId), inArray(timeEntries.id, ids)));
-  return null;
 }
 
 // Minutes rendered as a 2dp hours string for display ("195" -> "3.25"). Distinct
