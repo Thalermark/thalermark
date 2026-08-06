@@ -18,6 +18,7 @@ import { items } from './items.js';
 import { jobs } from './jobs.js';
 import { recurringInvoices } from './recurring-invoices.js';
 import { taxPolicies } from './tax_policies.js';
+import { timeEntries } from './time_entries.js';
 
 // Invoice header. Money columns are numeric(15,2) — exact-precision arithmetic
 // in Postgres, returned as string in TS to dodge JS float precision. Status is
@@ -184,6 +185,29 @@ export const invoiceLineItems = pgTable(
     // than delete, so in practice this survives. Displayed values always come
     // from the snapshot columns above, never re-read from items.
     sourceItemId: uuid('source_item_id'),
+    // The tracked time entry this line bills (TMC-180), null for every other
+    // line. THE line is the single source of truth for what an invoice bills:
+    // delete the line and the link goes with it, so the entry returns to
+    // unbilled automatically.
+    //
+    // Before this column the link ran one way only (time_entries.billed_invoice_id)
+    // and a saved hour line had no way back to its entry — so removing the line
+    // stranded the entry as billed forever, and the edit form had to ship the
+    // already-billed ids as hidden fields to avoid releasing them by accident.
+    // Both problems are the same missing edge.
+    //
+    // SET NULL, not cascade: deleting a time entry must never delete an invoice
+    // line the customer was already billed for. (Deleting a BILLED entry is
+    // refused anyway; this covers the void-then-delete path.)
+    // Lazy .references(), NOT a table-level foreignKey: time_entries.ts already
+    // imports this module for billed_invoice_id, so the two are a cycle. A
+    // table-level FK evaluates `timeEntries.id` eagerly while this table is
+    // being defined, which under that cycle is undefined. The arrow defers the
+    // read until both modules have initialised — the same shape time_entries.ts
+    // uses pointing back this way.
+    timeEntryId: uuid('time_entry_id').references(() => timeEntries.id, {
+      onDelete: 'set null',
+    }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -198,6 +222,8 @@ export const invoiceLineItems = pgTable(
       columns: [table.sourceItemId],
       foreignColumns: [items.id],
     }).onDelete('set null'),
+    // Backs the release sweep: "which entries does this invoice still bill for".
+    timeEntryIdIdx: index('invoice_line_items_time_entry_id_idx').on(table.timeEntryId),
     taxPolicyFk: foreignKey({
       name: 'invoice_line_items_tax_policy_fk',
       columns: [table.taxPolicyId],

@@ -65,9 +65,9 @@ export const load: PageServerLoad = async (event) => {
   // one screen that cannot bill the hours the job screen is advertising as
   // ready — which is exactly the dead end the draft guard routes people into.
   //
-  // Entries ALREADY billed to this invoice come back too. billedTimeEntryIds has
-  // replace semantics on the API, so submitting only the newly-added ids would
-  // release the ones this invoice already carries.
+  // Entries already billed to THIS invoice no longer need carrying separately:
+  // since 0027 each line stores its own timeEntryId, so the rows rebuild the set
+  // on their own and deleting a line releases its entry.
   let unbilledTime: {
     id: string;
     entryDate: string;
@@ -76,7 +76,6 @@ export const load: PageServerLoad = async (event) => {
     note: string | null;
     rate: string | null;
   }[] = [];
-  let alreadyBilledIds: string[] = [];
   if (invoice.jobId) {
     const timeRes = await client.api.jobs[':id'].time.$get({
       param: { id: invoice.jobId },
@@ -94,9 +93,6 @@ export const load: PageServerLoad = async (event) => {
           note: t.note,
           rate: t.rate,
         }));
-      alreadyBilledIds = timeEntries
-        .filter((t) => t.billedInvoiceId === invoice.id)
-        .map((t) => t.id);
     }
   }
 
@@ -104,7 +100,6 @@ export const load: PageServerLoad = async (event) => {
     invoice,
     initialContact,
     unbilledTime,
-    alreadyBilledIds,
     taxPolicies: taxPolicies.map((p) => ({
       id: p.id,
       name: p.name,
@@ -126,9 +121,6 @@ type FormValues = {
   showAddress: boolean;
   showPhone: boolean;
   showEmail: boolean;
-  // Entries this invoice carries: the ones it already had, plus any hour rows
-  // added in this edit. Sent as a whole set because the API replaces.
-  billedTimeEntryIds: string[];
   lineItems: {
     description: string;
     quantity: string;
@@ -177,14 +169,6 @@ function readForm(data: FormData): FormValues {
     showAddress: data.get('showAddress') === 'on',
     showPhone: data.get('showPhone') === 'on',
     showEmail: data.get('showEmail') === 'on',
-    // The full set this invoice should carry: what it already had (hidden
-    // field, since a pre-existing hour LINE has no back-link to its entry) plus
-    // any hour rows added in this edit. The API replaces, so a partial list
-    // would release entries the invoice still bills for.
-    billedTimeEntryIds: [
-      ...data.getAll('alreadyBilledTimeEntryId').map((v) => String(v)),
-      ...lineItems.map((li) => li.timeEntryId).filter((v): v is string => v !== undefined),
-    ],
     lineItems,
   };
 }
@@ -254,8 +238,6 @@ export const actions: Actions = {
       showPhone: values.showPhone,
       showEmail: values.showEmail,
       lineItems: computedLines,
-      billedTimeEntryIds:
-        values.billedTimeEntryIds.length > 0 ? [...new Set(values.billedTimeEntryIds)] : undefined,
     };
 
     const parsed = invoiceUpdateSchema.safeParse(payload);

@@ -305,18 +305,8 @@ export const actions: Actions = {
     // and the invoice tax is the derived sum of line tax.
     // Tracked hours are ORDINARY ROWS by the time they get here — the form seeds
     // them into the line-item table, so they flow through the same compute path
-    // as a typed row and nothing special happens on this side. All that is left
-    // is telling the API which entries the invoice consumed, derived from the
-    // rows so a deleted row takes its entry with it.
-    //
-    // The earlier design built these lines server-side from a checklist. It meant
-    // the subtotal read 0.00 while hours were ticked, and an invoice made
-    // entirely of hours could not be submitted at all — the always-present blank
-    // row failed its required-field check before the hours were ever added.
-    const billedIds = values.lineItems
-      .map((row) => row.timeEntryId)
-      .filter((v): v is string => v !== undefined);
-
+    // as a typed row and nothing special happens on this side. Each hour row
+    // carries its timeEntryId, and the API reads the link off the lines.
     const policies = await loadPolicyRates(event, companyId);
     const computedLines: InvoiceLineItemInput[] = values.lineItems.map((row, i) => {
       const amount = multiplyMoney(row.quantity, row.unitPrice);
@@ -355,9 +345,6 @@ export const actions: Actions = {
       showEmail: values.showEmail,
       lineItems: computedLines,
       jobId: values.jobId || undefined,
-      // Only the entries that actually became lines. The API re-checks each one
-      // is on this job and still unbilled before stamping it.
-      billedTimeEntryIds: billedIds.length > 0 ? billedIds : undefined,
     };
 
     const parsed = invoiceCreateSchema.safeParse(payload);

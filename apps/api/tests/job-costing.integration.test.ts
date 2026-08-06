@@ -692,11 +692,11 @@ describe('billing tracked time onto an invoice', () => {
         dueDate: '2026-07-12',
         subtotal: '71.50',
         total: '71.50',
-        billedTimeEntryIds: entryIds,
         lineItems: [
           {
             position: 1,
             description: 'Sitting',
+            timeEntryId: entryIds[0],
             quantity: '3.2500',
             unitPrice: '22.0000',
             amount: '71.50',
@@ -748,11 +748,11 @@ describe('billing tracked time onto an invoice', () => {
           dueDate: '2026-07-13',
           subtotal: '71.50',
           total: '71.50',
-          billedTimeEntryIds: [entryId],
           lineItems: [
             {
               position: 1,
               description: 'Sitting',
+              timeEntryId: entryId,
               quantity: '3.2500',
               unitPrice: '22.0000',
               amount: '71.50',
@@ -786,11 +786,11 @@ describe('billing tracked time onto an invoice', () => {
           dueDate: '2026-07-12',
           subtotal: '22.00',
           total: '22.00',
-          billedTimeEntryIds: [entryId],
           lineItems: [
             {
               position: 1,
               description: 'Sitting',
+              timeEntryId: entryId,
               quantity: '1',
               unitPrice: '22.00',
               amount: '22.00',
@@ -830,7 +830,6 @@ describe('billing tracked time onto an invoice', () => {
           dueDate: '2026-07-12',
           subtotal: '10.00',
           total: '10.00',
-          billedTimeEntryIds: [],
           lineItems: [
             {
               position: 1,
@@ -1105,11 +1104,11 @@ describe('a rejected billing leaves nothing behind', () => {
           dueDate: '2026-07-12',
           subtotal: '71.50',
           total: '71.50',
-          billedTimeEntryIds: [entryId],
           lineItems: [
             {
               position: 1,
               description: 'Sitting',
+              timeEntryId: entryId,
               quantity: '3.2500',
               unitPrice: '22.0000',
               amount: '71.50',
@@ -1134,11 +1133,11 @@ describe('a rejected billing leaves nothing behind', () => {
           dueDate: '2026-07-13',
           subtotal: '71.50',
           total: '71.50',
-          billedTimeEntryIds: [entryId],
           lineItems: [
             {
               position: 1,
               description: 'Sitting again',
+              timeEntryId: entryId,
               quantity: '3.2500',
               unitPrice: '22.0000',
               amount: '71.50',
@@ -1191,11 +1190,11 @@ describe('voiding an invoice releases its hours', () => {
           dueDate: '2026-07-12',
           subtotal: '71.50',
           total: '71.50',
-          billedTimeEntryIds: [entryId],
           lineItems: [
             {
               position: 1,
               description: 'Sitting',
+              timeEntryId: entryId,
               quantity: '3.2500',
               unitPrice: '22.0000',
               amount: '71.50',
@@ -1239,43 +1238,42 @@ describe('voiding an invoice releases its hours', () => {
 describe('a draft can absorb hours logged after it was started', () => {
   beforeEach(resetDb);
 
-  // billedTimeEntryIds REPLACES on PATCH. Submitting only the newly-added id
-  // would release the entry the draft already bills for, silently unbilling work
-  // that is sitting on the invoice. The edit form therefore sends the whole set:
-  // what it already carried plus what was added.
-  it('keeps the entries it already had when a new one is added', async () => {
+  async function draftWithOneHour(ctx: Ctx, jobId: string, contactId: string, entryId: string) {
+    const res = await ctx.app.request('/api/invoices', {
+      method: 'POST',
+      headers: ctx.headers,
+      body: JSON.stringify({
+        companyId: ctx.companyId,
+        contactId,
+        jobId,
+        number: 'INV-DRAFT',
+        issueDate: '2026-06-12',
+        dueDate: '2026-07-12',
+        subtotal: '15.00',
+        total: '15.00',
+        lineItems: [
+          {
+            position: 1,
+            description: 'Sitting',
+            timeEntryId: entryId,
+            quantity: '1.0000',
+            unitPrice: '15.0000',
+            amount: '15.00',
+            type: 'service',
+          },
+        ],
+      }),
+    });
+    return ((await res.json()) as { id: string }).id;
+  }
+
+  it('adds hours logged after the draft existed, keeping the ones it had', async () => {
     const ctx = await setup('draft-absorbs-hours@test.com');
     try {
       const contactId = await makeContact(ctx, 'Chen');
       const jobId = await makeJob(ctx, 'Tuesdays at the Chens', contactId);
       const first = await logTime(ctx, jobId, 60, '15.0000');
-
-      const created = await ctx.app.request('/api/invoices', {
-        method: 'POST',
-        headers: ctx.headers,
-        body: JSON.stringify({
-          companyId: ctx.companyId,
-          contactId,
-          jobId,
-          number: 'INV-DRAFT',
-          issueDate: '2026-06-12',
-          dueDate: '2026-07-12',
-          subtotal: '15.00',
-          total: '15.00',
-          billedTimeEntryIds: [first],
-          lineItems: [
-            {
-              position: 1,
-              description: 'Sitting',
-              quantity: '1.0000',
-              unitPrice: '15.0000',
-              amount: '15.00',
-              type: 'service',
-            },
-          ],
-        }),
-      });
-      const invoiceId = ((await created.json()) as { id: string }).id;
+      const invoiceId = await draftWithOneHour(ctx, jobId, contactId, first);
 
       // More work happens after the draft exists.
       const second = await logTime(ctx, jobId, 180, '15.0000');
@@ -1291,11 +1289,11 @@ describe('a draft can absorb hours logged after it was started', () => {
           dueDate: '2026-07-12',
           subtotal: '60.00',
           total: '60.00',
-          billedTimeEntryIds: [first, second],
           lineItems: [
             {
               position: 1,
               description: 'Sitting',
+              timeEntryId: first,
               quantity: '1.0000',
               unitPrice: '15.0000',
               amount: '15.00',
@@ -1304,6 +1302,7 @@ describe('a draft can absorb hours logged after it was started', () => {
             {
               position: 2,
               description: 'More sitting',
+              timeEntryId: second,
               quantity: '3.0000',
               unitPrice: '15.0000',
               amount: '45.00',
@@ -1314,7 +1313,6 @@ describe('a draft can absorb hours logged after it was started', () => {
       });
       expect(patched.status).toBe(200);
 
-      // Both are billed, and nothing is left waiting.
       const unbilled = await ctx.app.request(`/api/jobs/${jobId}/time?unbilled=true`, {
         headers: ctx.headers,
       });
@@ -1324,75 +1322,58 @@ describe('a draft can absorb hours logged after it was started', () => {
     }
   });
 
-  // The failure mode the hidden already-billed fields exist to prevent.
-  it('releases the original if only the new id is submitted', async () => {
-    const ctx = await setup('draft-partial-set@test.com');
+  // The bug the line-level link exists to fix. Before invoice_line_items
+  // .time_entry_id there was no way back from a saved hour line to its entry, so
+  // removing the line stranded the entry as billed forever: never listed as
+  // unbilled, never billable again, the work silently unchargeable.
+  it('returns the hours to unbilled when their line is removed', async () => {
+    const ctx = await setup('draft-remove-line@test.com');
     try {
       const contactId = await makeContact(ctx, 'Chen');
       const jobId = await makeJob(ctx, 'Tuesdays at the Chens', contactId);
-      const first = await logTime(ctx, jobId, 60, '15.0000');
+      const entryId = await logTime(ctx, jobId, 60, '15.0000');
+      const invoiceId = await draftWithOneHour(ctx, jobId, contactId, entryId);
 
-      const created = await ctx.app.request('/api/invoices', {
-        method: 'POST',
+      const before = await ctx.app.request(`/api/jobs/${jobId}/time?unbilled=true`, {
         headers: ctx.headers,
-        body: JSON.stringify({
-          companyId: ctx.companyId,
-          contactId,
-          jobId,
-          number: 'INV-PARTIAL',
-          issueDate: '2026-06-12',
-          dueDate: '2026-07-12',
-          subtotal: '15.00',
-          total: '15.00',
-          billedTimeEntryIds: [first],
-          lineItems: [
-            {
-              position: 1,
-              description: 'Sitting',
-              quantity: '1.0000',
-              unitPrice: '15.0000',
-              amount: '15.00',
-              type: 'service',
-            },
-          ],
-        }),
       });
-      const invoiceId = ((await created.json()) as { id: string }).id;
-      const second = await logTime(ctx, jobId, 180, '15.0000');
+      expect(((await before.json()) as { timeEntries: unknown[] }).timeEntries).toHaveLength(0);
 
-      await ctx.app.request(`/api/invoices/${invoiceId}`, {
+      // Replace the hour line with an ordinary one — the hours are no longer
+      // being charged for, so they must become billable again.
+      const patched = await ctx.app.request(`/api/invoices/${invoiceId}`, {
         method: 'PATCH',
         headers: ctx.headers,
         body: JSON.stringify({
           contactId,
           jobId,
-          number: 'INV-PARTIAL',
+          number: 'INV-DRAFT',
           issueDate: '2026-06-12',
           dueDate: '2026-07-12',
-          subtotal: '45.00',
-          total: '45.00',
-          // Only the new one — the mistake the form must not make.
-          billedTimeEntryIds: [second],
+          subtotal: '20.00',
+          total: '20.00',
           lineItems: [
             {
               position: 1,
-              description: 'More sitting',
-              quantity: '3.0000',
-              unitPrice: '15.0000',
-              amount: '45.00',
+              description: 'Callout fee',
+              quantity: '1',
+              unitPrice: '20.00',
+              amount: '20.00',
               type: 'service',
             },
           ],
         }),
       });
+      expect(patched.status).toBe(200);
 
-      const unbilled = await ctx.app.request(`/api/jobs/${jobId}/time?unbilled=true`, {
+      const after = await ctx.app.request(`/api/jobs/${jobId}/time?unbilled=true`, {
         headers: ctx.headers,
       });
-      const body = (await unbilled.json()) as { timeEntries: { id: string }[] };
-      // The original came back as unbilled — replace semantics, working as
-      // designed. This is why the edit form submits the whole set.
-      expect(body.timeEntries.map((t) => t.id)).toEqual([first]);
+      const body = (await after.json()) as { timeEntries: { id: string; minutes: number }[] };
+      expect(body.timeEntries).toHaveLength(1);
+      expect(body.timeEntries[0]?.id).toBe(entryId);
+      // The work itself is untouched — only the claim on it was dropped.
+      expect(body.timeEntries[0]?.minutes).toBe(60);
     } finally {
       await ctx.handle.close();
     }

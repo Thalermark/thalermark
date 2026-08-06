@@ -317,10 +317,14 @@ export function invoicesRoutes(deps: AppDeps) {
 
           const tx = c.get('tx');
           const accountId = c.get('accountId');
-          // billedTimeEntryIds is not a column — it names the tracked time this
-          // invoice consumed, stamped after the insert. jobId stays in header
-          // (it is a column) but is validated against the company below.
-          const { companyId, contactId, lineItems, billedTimeEntryIds, ...header } = parsed.data;
+          const { companyId, contactId, lineItems, ...header } = parsed.data;
+          // Which hours this invoice bills is DERIVED from the lines, not sent
+          // alongside them. One source of truth: a line carries its entry, so a
+          // line the client dropped takes its entry with it and the two can
+          // never disagree.
+          const billedTimeEntryIds = lineItems
+            .map((li) => li.timeEntryId)
+            .filter((v): v is string => v !== undefined);
 
           // Customer must belong to this account AND match the requested companyId.
           // The schema does not enforce the customer↔company link at the DB level
@@ -360,17 +364,15 @@ export function invoicesRoutes(deps: AppDeps) {
           // still commit the invoice — the tenant tx only rolls back on a thrown
           // error, not a returned one — leaving billable hours attached to
           // nothing and free to be billed a second time.
-          if (billedTimeEntryIds !== undefined) {
-            const billError = await validateBilledTimeEntries(
-              tx,
-              accountId,
-              companyId,
-              header.jobId ?? null,
-              billedTimeEntryIds,
-              null,
-            );
-            if (billError) return c.json({ error: billError.error }, billError.status);
-          }
+          const billError = await validateBilledTimeEntries(
+            tx,
+            accountId,
+            companyId,
+            header.jobId ?? null,
+            billedTimeEntryIds,
+            null,
+          );
+          if (billError) return c.json({ error: billError.error }, billError.status);
 
           // Seed the per-invoice from-block "show" flags from the company's
           // defaults when the client didn't send them (e.g. an API client that
@@ -418,9 +420,7 @@ export function invoicesRoutes(deps: AppDeps) {
           }));
           await tx.insert(invoiceLineItems).values(lineRows);
 
-          if (billedTimeEntryIds !== undefined) {
-            await stampBilledTimeEntries(tx, accountId, invoiceId, billedTimeEntryIds);
-          }
+          await stampBilledTimeEntries(tx, accountId, invoiceId, billedTimeEntryIds);
 
           await c.var.audit({
             entityType: 'invoice',
@@ -754,7 +754,12 @@ export function invoicesRoutes(deps: AppDeps) {
 
           const tx = c.get('tx');
           const accountId = c.get('accountId');
-          const { contactId, lineItems, billedTimeEntryIds, ...header } = data;
+          const { contactId, lineItems, ...header } = data;
+          // Derived from the submitted lines, so removing an hour line releases
+          // its entry — the whole reason the line carries the link.
+          const billedTimeEntryIds = lineItems
+            .map((li) => li.timeEntryId)
+            .filter((v): v is string => v !== undefined);
 
           const [current] = await tx
             .select()
@@ -812,17 +817,15 @@ export function invoicesRoutes(deps: AppDeps) {
           // Same ordering rule as create: every check that can fail runs before
           // the first write, because a returned error still commits.
           const nextJobId = header.jobId === undefined ? current.jobId : header.jobId;
-          if (billedTimeEntryIds !== undefined) {
-            const billError = await validateBilledTimeEntries(
-              tx,
-              accountId,
-              current.companyId,
-              nextJobId,
-              billedTimeEntryIds,
-              id,
-            );
-            if (billError) return c.json({ error: billError.error }, billError.status);
-          }
+          const billError = await validateBilledTimeEntries(
+            tx,
+            accountId,
+            current.companyId,
+            nextJobId,
+            billedTimeEntryIds,
+            id,
+          );
+          if (billError) return c.json({ error: billError.error }, billError.status);
 
           // Read the existing lines so the audit row diff carries the prior
           // state. Done before delete so we don't lose the data on rollback.
@@ -876,9 +879,7 @@ export function invoicesRoutes(deps: AppDeps) {
             .returning();
           if (!updated) return c.json({ error: 'invoice_not_found' }, 404);
 
-          if (billedTimeEntryIds !== undefined) {
-            await stampBilledTimeEntries(tx, accountId, id, billedTimeEntryIds);
-          }
+          await stampBilledTimeEntries(tx, accountId, id, billedTimeEntryIds);
 
           await c.var.audit({
             entityType: 'invoice',

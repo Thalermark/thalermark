@@ -64,7 +64,9 @@
         amount: multiplyMoney(li.quantity, li.unitPrice),
         sourceItemId: li.sourceItemId ?? null,
         type: li.type === 'product' ? 'product' : 'service',
-        timeEntryId: null,
+        // Since 0027 the saved line carries its own link, so an hour line
+        // rebuilds itself on load — and deleting it releases the entry.
+        timeEntryId: li.timeEntryId ?? null,
         taxable: li.taxable ?? false,
         taxPolicyId: li.taxPolicyId ?? '',
       }));
@@ -242,14 +244,6 @@
 
   <fieldset class="space-y-3">
     <legend class="label">Line items</legend>
-    <!--
-      Entries this invoice ALREADY bills for. A pre-existing hour line has no
-      back-link to its entry, so the ids ride along as hidden fields: the API
-      replaces the set, and submitting only newly-added ids would release these.
-    -->
-    {#each data.alreadyBilledIds as billedId (billedId)}
-      <input type="hidden" name="alreadyBilledTimeEntryId" value={billedId} />
-    {/each}
     <!--
       Hours logged AFTER this draft was started. Not seeded automatically the way
       /invoices/new seeds them: there, nothing exists to disturb. Here the lines
