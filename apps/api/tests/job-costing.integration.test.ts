@@ -1235,3 +1235,166 @@ describe('voiding an invoice releases its hours', () => {
     }
   });
 });
+
+describe('a draft can absorb hours logged after it was started', () => {
+  beforeEach(resetDb);
+
+  // billedTimeEntryIds REPLACES on PATCH. Submitting only the newly-added id
+  // would release the entry the draft already bills for, silently unbilling work
+  // that is sitting on the invoice. The edit form therefore sends the whole set:
+  // what it already carried plus what was added.
+  it('keeps the entries it already had when a new one is added', async () => {
+    const ctx = await setup('draft-absorbs-hours@test.com');
+    try {
+      const contactId = await makeContact(ctx, 'Chen');
+      const jobId = await makeJob(ctx, 'Tuesdays at the Chens', contactId);
+      const first = await logTime(ctx, jobId, 60, '15.0000');
+
+      const created = await ctx.app.request('/api/invoices', {
+        method: 'POST',
+        headers: ctx.headers,
+        body: JSON.stringify({
+          companyId: ctx.companyId,
+          contactId,
+          jobId,
+          number: 'INV-DRAFT',
+          issueDate: '2026-06-12',
+          dueDate: '2026-07-12',
+          subtotal: '15.00',
+          total: '15.00',
+          billedTimeEntryIds: [first],
+          lineItems: [
+            {
+              position: 1,
+              description: 'Sitting',
+              quantity: '1.0000',
+              unitPrice: '15.0000',
+              amount: '15.00',
+              type: 'service',
+            },
+          ],
+        }),
+      });
+      const invoiceId = ((await created.json()) as { id: string }).id;
+
+      // More work happens after the draft exists.
+      const second = await logTime(ctx, jobId, 180, '15.0000');
+
+      const patched = await ctx.app.request(`/api/invoices/${invoiceId}`, {
+        method: 'PATCH',
+        headers: ctx.headers,
+        body: JSON.stringify({
+          contactId,
+          jobId,
+          number: 'INV-DRAFT',
+          issueDate: '2026-06-12',
+          dueDate: '2026-07-12',
+          subtotal: '60.00',
+          total: '60.00',
+          billedTimeEntryIds: [first, second],
+          lineItems: [
+            {
+              position: 1,
+              description: 'Sitting',
+              quantity: '1.0000',
+              unitPrice: '15.0000',
+              amount: '15.00',
+              type: 'service',
+            },
+            {
+              position: 2,
+              description: 'More sitting',
+              quantity: '3.0000',
+              unitPrice: '15.0000',
+              amount: '45.00',
+              type: 'service',
+            },
+          ],
+        }),
+      });
+      expect(patched.status).toBe(200);
+
+      // Both are billed, and nothing is left waiting.
+      const unbilled = await ctx.app.request(`/api/jobs/${jobId}/time?unbilled=true`, {
+        headers: ctx.headers,
+      });
+      expect(((await unbilled.json()) as { timeEntries: unknown[] }).timeEntries).toHaveLength(0);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  // The failure mode the hidden already-billed fields exist to prevent.
+  it('releases the original if only the new id is submitted', async () => {
+    const ctx = await setup('draft-partial-set@test.com');
+    try {
+      const contactId = await makeContact(ctx, 'Chen');
+      const jobId = await makeJob(ctx, 'Tuesdays at the Chens', contactId);
+      const first = await logTime(ctx, jobId, 60, '15.0000');
+
+      const created = await ctx.app.request('/api/invoices', {
+        method: 'POST',
+        headers: ctx.headers,
+        body: JSON.stringify({
+          companyId: ctx.companyId,
+          contactId,
+          jobId,
+          number: 'INV-PARTIAL',
+          issueDate: '2026-06-12',
+          dueDate: '2026-07-12',
+          subtotal: '15.00',
+          total: '15.00',
+          billedTimeEntryIds: [first],
+          lineItems: [
+            {
+              position: 1,
+              description: 'Sitting',
+              quantity: '1.0000',
+              unitPrice: '15.0000',
+              amount: '15.00',
+              type: 'service',
+            },
+          ],
+        }),
+      });
+      const invoiceId = ((await created.json()) as { id: string }).id;
+      const second = await logTime(ctx, jobId, 180, '15.0000');
+
+      await ctx.app.request(`/api/invoices/${invoiceId}`, {
+        method: 'PATCH',
+        headers: ctx.headers,
+        body: JSON.stringify({
+          contactId,
+          jobId,
+          number: 'INV-PARTIAL',
+          issueDate: '2026-06-12',
+          dueDate: '2026-07-12',
+          subtotal: '45.00',
+          total: '45.00',
+          // Only the new one — the mistake the form must not make.
+          billedTimeEntryIds: [second],
+          lineItems: [
+            {
+              position: 1,
+              description: 'More sitting',
+              quantity: '3.0000',
+              unitPrice: '15.0000',
+              amount: '45.00',
+              type: 'service',
+            },
+          ],
+        }),
+      });
+
+      const unbilled = await ctx.app.request(`/api/jobs/${jobId}/time?unbilled=true`, {
+        headers: ctx.headers,
+      });
+      const body = (await unbilled.json()) as { timeEntries: { id: string }[] };
+      // The original came back as unbilled — replace semantics, working as
+      // designed. This is why the edit form submits the whole set.
+      expect(body.timeEntries.map((t) => t.id)).toEqual([first]);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+});

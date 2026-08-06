@@ -7,6 +7,7 @@ import {
   type InvoiceUpdateInput,
   type LineItemType,
   addMoney,
+  hoursFromMinutes,
   invoiceUpdateSchema,
   multiplyMoney,
   sumMoney,
@@ -22,6 +23,7 @@ const LINE_FIELD_UNIT_PRICE = 'li_unitPrice';
 const LINE_FIELD_SOURCE_ITEM_ID = 'li_sourceItemId';
 // Product/service <select> — one value per row, always submitted.
 const LINE_FIELD_TYPE = 'li_type';
+const LINE_FIELD_TIME_ENTRY_ID = 'li_timeEntryId';
 const LINE_FIELD_TAXABLE = 'li_taxable';
 const LINE_FIELD_TAX_POLICY_ID = 'li_taxPolicyId';
 
@@ -58,9 +60,51 @@ export const load: PageServerLoad = async (event) => {
   });
   const taxPolicies = polRes.ok ? (await polRes.json()).taxPolicies : [];
 
+  // Unbilled hours on this invoice's job (TMC-180), so a draft can absorb time
+  // logged AFTER it was started. Without this, "Continue INV-0005" leads to the
+  // one screen that cannot bill the hours the job screen is advertising as
+  // ready — which is exactly the dead end the draft guard routes people into.
+  //
+  // Entries ALREADY billed to this invoice come back too. billedTimeEntryIds has
+  // replace semantics on the API, so submitting only the newly-added ids would
+  // release the ones this invoice already carries.
+  let unbilledTime: {
+    id: string;
+    entryDate: string;
+    minutes: number;
+    hours: string;
+    note: string | null;
+    rate: string | null;
+  }[] = [];
+  let alreadyBilledIds: string[] = [];
+  if (invoice.jobId) {
+    const timeRes = await client.api.jobs[':id'].time.$get({
+      param: { id: invoice.jobId },
+      query: { unbilled: undefined },
+    });
+    if (timeRes.ok) {
+      const { timeEntries } = await timeRes.json();
+      unbilledTime = timeEntries
+        .filter((t) => t.billedInvoiceId === null)
+        .map((t) => ({
+          id: t.id,
+          entryDate: t.entryDate,
+          minutes: t.minutes,
+          hours: hoursFromMinutes(t.minutes),
+          note: t.note,
+          rate: t.rate,
+        }));
+      alreadyBilledIds = timeEntries
+        .filter((t) => t.billedInvoiceId === invoice.id)
+        .map((t) => t.id);
+    }
+  }
+
   return {
     invoice,
     initialContact,
+    unbilledTime,
+    alreadyBilledIds,
     taxPolicies: taxPolicies.map((p) => ({
       id: p.id,
       name: p.name,
@@ -82,6 +126,9 @@ type FormValues = {
   showAddress: boolean;
   showPhone: boolean;
   showEmail: boolean;
+  // Entries this invoice carries: the ones it already had, plus any hour rows
+  // added in this edit. Sent as a whole set because the API replaces.
+  billedTimeEntryIds: string[];
   lineItems: {
     description: string;
     quantity: string;
@@ -91,6 +138,7 @@ type FormValues = {
     type?: LineItemType;
     taxable: boolean;
     taxPolicyId?: string;
+    timeEntryId?: string;
   }[];
 };
 
@@ -101,6 +149,7 @@ function readForm(data: FormData): FormValues {
   const unitPrices = data.getAll(LINE_FIELD_UNIT_PRICE).map((v) => String(v));
   const sourceItemIds = data.getAll(LINE_FIELD_SOURCE_ITEM_ID).map((v) => String(v));
   const types = data.getAll(LINE_FIELD_TYPE).map((v) => String(v));
+  const timeEntryIds = data.getAll(LINE_FIELD_TIME_ENTRY_ID).map((v) => String(v));
   const taxables = data.getAll(LINE_FIELD_TAXABLE).map((v) => String(v));
   const taxPolicyIds = data.getAll(LINE_FIELD_TAX_POLICY_ID).map((v) => String(v));
   const rowCount = Math.max(descriptions.length, quantities.length, unitPrices.length);
@@ -114,6 +163,7 @@ function readForm(data: FormData): FormValues {
     type: types[i] === 'product' ? 'product' : types[i] === 'service' ? 'service' : undefined,
     taxable: (taxables[i] ?? '0') === '1',
     taxPolicyId: (taxPolicyIds[i] ?? '').trim() || undefined,
+    timeEntryId: (timeEntryIds[i] ?? '').trim() || undefined,
   }));
   return {
     contactId: String(data.get('contactId') ?? '').trim(),
@@ -127,6 +177,14 @@ function readForm(data: FormData): FormValues {
     showAddress: data.get('showAddress') === 'on',
     showPhone: data.get('showPhone') === 'on',
     showEmail: data.get('showEmail') === 'on',
+    // The full set this invoice should carry: what it already had (hidden
+    // field, since a pre-existing hour LINE has no back-link to its entry) plus
+    // any hour rows added in this edit. The API replaces, so a partial list
+    // would release entries the invoice still bills for.
+    billedTimeEntryIds: [
+      ...data.getAll('alreadyBilledTimeEntryId').map((v) => String(v)),
+      ...lineItems.map((li) => li.timeEntryId).filter((v): v is string => v !== undefined),
+    ],
     lineItems,
   };
 }
@@ -196,6 +254,8 @@ export const actions: Actions = {
       showPhone: values.showPhone,
       showEmail: values.showEmail,
       lineItems: computedLines,
+      billedTimeEntryIds:
+        values.billedTimeEntryIds.length > 0 ? [...new Set(values.billedTimeEntryIds)] : undefined,
     };
 
     const parsed = invoiceUpdateSchema.safeParse(payload);

@@ -25,6 +25,10 @@
     type: LineItemType;
     taxable: boolean;
     taxPolicyId: string;
+    // Set on a row added from tracked time in THIS edit. Pre-existing hour lines
+    // have no back-link to their entry — those ids ride the hidden
+    // alreadyBilledTimeEntryId fields instead.
+    timeEntryId: string | null;
   };
 
   // Seed strategy mirrors /invoices/new but the "no prior submit" source is
@@ -49,6 +53,7 @@
           type: li.type === 'product' ? 'product' : 'service',
           taxable: li.taxable ?? false,
           taxPolicyId: li.taxPolicyId ?? '',
+          timeEntryId: li.timeEntryId ?? null,
         }));
       }
       return data.invoice.lineItems.map((li) => ({
@@ -59,11 +64,43 @@
         amount: multiplyMoney(li.quantity, li.unitPrice),
         sourceItemId: li.sourceItemId ?? null,
         type: li.type === 'product' ? 'product' : 'service',
+        timeEntryId: null,
         taxable: li.taxable ?? false,
         taxPolicyId: li.taxPolicyId ?? '',
       }));
     }),
   );
+
+  // Hours on this job that no invoice has claimed. Local state because pressing
+  // Add moves them into the line table — they should leave this list at the same
+  // moment, or the user cannot tell whether the press worked.
+  let pendingTime = $state(untrack(() => data.unbilledTime));
+
+  function addTrackedTime() {
+    const added: Row[] = pendingTime.map((t) => {
+      const unitPrice = t.rate ?? '0';
+      return {
+        description: t.note?.trim() || 'Hours',
+        quantity: t.hours,
+        unitLabel: 'hour',
+        unitPrice: formatUnitPrice(unitPrice),
+        // Priced through the same multiplyMoney every typed row uses, so a
+        // billed hour and a hand-typed hour cannot round differently.
+        amount: multiplyMoney(t.hours, unitPrice),
+        sourceItemId: null,
+        // Labour is a service — routes revenue to 4000 in the hidden ledger.
+        type: 'service' as LineItemType,
+        // Taxability of labour varies by state and trade; a tick beats a guess.
+        taxable: false,
+        taxPolicyId: '',
+        timeEntryId: t.id,
+      };
+    });
+    // Drop a trailing blank row rather than stranding it between real lines.
+    const keep = rows.filter((r) => r.description || r.quantity || r.unitPrice);
+    rows = [...keep, ...added];
+    pendingTime = [];
+  }
 
   const computedRows = $derived(
     rows.map((r) => {
@@ -121,7 +158,7 @@
   }
 
   function blankRow(): Row {
-    return { description: '', quantity: '', unitLabel: '', unitPrice: '', amount: '', sourceItemId: null, type: 'service', taxable: false, taxPolicyId: '' };
+    return { description: '', quantity: '', unitLabel: '', unitPrice: '', amount: '', sourceItemId: null, type: 'service', taxable: false, taxPolicyId: '', timeEntryId: null };
   }
 </script>
 
@@ -205,6 +242,41 @@
 
   <fieldset class="space-y-3">
     <legend class="label">Line items</legend>
+    <!--
+      Entries this invoice ALREADY bills for. A pre-existing hour line has no
+      back-link to its entry, so the ids ride along as hidden fields: the API
+      replaces the set, and submitting only newly-added ids would release these.
+    -->
+    {#each data.alreadyBilledIds as billedId (billedId)}
+      <input type="hidden" name="alreadyBilledTimeEntryId" value={billedId} />
+    {/each}
+    <!--
+      Hours logged AFTER this draft was started. Not seeded automatically the way
+      /invoices/new seeds them: there, nothing exists to disturb. Here the lines
+      are already curated, so adding is an explicit press.
+    -->
+    {#if pendingTime.length > 0}
+      <div class="rounded-sm border border-accent/30 bg-accent/5 p-4">
+        <p class="label">Unbilled hours on this job</p>
+        <ul class="mt-2 divide-y divide-fg/10">
+          {#each pendingTime as t (t.id)}
+            <li class="flex items-center gap-3 py-1.5 text-sm">
+              <span class="w-24 shrink-0 text-fg/60">{t.entryDate}</span>
+              <span class="w-16 shrink-0 font-mono tabular-nums text-fg/80">
+                {formatUnitPrice(t.hours)} h
+              </span>
+              <span class="min-w-0 flex-1 truncate text-fg/70">{t.note ?? ''}</span>
+              <span class="shrink-0 font-mono tabular-nums text-fg/60">
+                {t.rate ? `$${formatUnitPrice(t.rate)}/h` : 'no rate'}
+              </span>
+            </li>
+          {/each}
+        </ul>
+        <button type="button" class="btn mt-3" onclick={addTrackedTime}>
+          Add to this invoice
+        </button>
+      </div>
+    {/if}
     {#if err('lineItems')}
       <p class="text-xs text-danger">{err('lineItems')}</p>
     {/if}
@@ -308,6 +380,7 @@
                   {/if}
                 {/if}
                 <input type="hidden" name="li_taxable" value={row.taxable ? '1' : '0'} />
+                <input type="hidden" name="li_timeEntryId" value={row.timeEntryId ?? ''} />
                 <input
                   type="hidden"
                   name="li_taxPolicyId"
