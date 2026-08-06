@@ -102,8 +102,14 @@ export const actions: Actions = {
   setAllocation: async (event) => {
     const form = await event.request.formData();
     const target = String(form.get('target') ?? '');
+    // jobId is spelled out rather than omitted: a row names one grain or the
+    // other, and the payload type requires the choice to be explicit. This
+    // action still tags at invoice grain — the job picker lands with the rest of
+    // the jobs UI.
     const allocations =
-      target === '' ? [] : [{ invoiceId: target === 'shared' ? null : target, share: '1' }];
+      target === ''
+        ? []
+        : [{ invoiceId: target === 'shared' ? null : target, jobId: null, share: '1' }];
 
     const client = serverApiClient(event);
     const res = await client.api.expenses[':id'].allocations.$put({

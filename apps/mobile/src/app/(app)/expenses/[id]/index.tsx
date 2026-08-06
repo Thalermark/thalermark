@@ -296,8 +296,14 @@ export default function ExpenseDetail() {
     // Any answer — including "not sure yet" — closes the post-apply prompt.
     // It is asked once and never re-raised for that receipt.
     setAskJobAfterApply(false);
+    // jobId is spelled out rather than omitted: a row names one grain or the
+    // other, and the payload type requires the choice to be explicit. This
+    // screen still tags at invoice grain — the job picker lands with the rest of
+    // the mobile jobs UI.
     const allocations =
-      next === null ? [] : [{ invoiceId: next === 'shared' ? null : next, share: '1' }];
+      next === null
+        ? []
+        : [{ invoiceId: next === 'shared' ? null : next, jobId: null, share: '1' }];
     try {
       const res = await api.api.expenses[':id'].allocations.$put({
         param: { id },
