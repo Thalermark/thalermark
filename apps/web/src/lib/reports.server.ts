@@ -374,7 +374,24 @@ export async function loadTaxWorksheet(event: Parameters<typeof serverApiClient>
 export type JobMargin = {
   from: string;
   to: string;
+  // Named jobs (TMC-181) — a job may own several invoices, so `billed` covers
+  // all of them and there is no single invoice number to show.
   jobs: {
+    jobId: string;
+    name: string;
+    status: string;
+    customerName: string | null;
+    billed: string;
+    costs: string;
+    made: string;
+    minutes: number;
+    hours: string;
+    // Null when no time is tracked; 0 would read as "this job paid nothing".
+    effectiveHourly: string | null;
+  }[];
+  // Invoices that never joined a job, each standing in as its own job — the
+  // rows this report returned before jobs existed, unchanged.
+  unjobbedInvoices: {
     invoiceId: string;
     number: string;
     issueDate: string;
@@ -390,6 +407,8 @@ export type JobMargin = {
     shared: string;
     unattributed: string;
     made: string;
+    minutes: number;
+    hours: string;
   };
 };
 

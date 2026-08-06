@@ -37,6 +37,7 @@ import type { AppDeps } from '../app.js';
 import { resolveEmailTemplate } from '../lib/email-templates.js';
 import { sendInvoiceEmail } from '../lib/invoice-email.js';
 import { suggestNextInvoiceNumber } from '../lib/invoice-number.js';
+import { applyBilledTimeEntries, assertJobInCompany } from '../lib/job-costing.js';
 import { postInvoiceTransition, repostInvoicePaymentDate } from '../lib/ledger.js';
 import { applyCursor, keysetOrderBy, parseLimit, slicePage } from '../lib/pagination.js';
 import {
@@ -293,7 +294,10 @@ export function invoicesRoutes(deps: AppDeps) {
 
           const tx = c.get('tx');
           const accountId = c.get('accountId');
-          const { companyId, contactId, lineItems, ...header } = parsed.data;
+          // billedTimeEntryIds is not a column — it names the tracked time this
+          // invoice consumed, stamped after the insert. jobId stays in header
+          // (it is a column) but is validated against the company below.
+          const { companyId, contactId, lineItems, billedTimeEntryIds, ...header } = parsed.data;
 
           // Customer must belong to this account AND match the requested companyId.
           // The schema does not enforce the customer↔company link at the DB level
@@ -325,6 +329,9 @@ export function invoicesRoutes(deps: AppDeps) {
             )
             .limit(1);
           if (taken) return c.json({ error: 'invoice_number_taken' }, 409);
+
+          const jobError = await assertJobInCompany(tx, accountId, companyId, header.jobId);
+          if (jobError) return c.json({ error: jobError.error }, jobError.status);
 
           // Seed the per-invoice from-block "show" flags from the company's
           // defaults when the client didn't send them (e.g. an API client that
@@ -371,6 +378,18 @@ export function invoicesRoutes(deps: AppDeps) {
             ...li,
           }));
           await tx.insert(invoiceLineItems).values(lineRows);
+
+          if (billedTimeEntryIds !== undefined) {
+            const billError = await applyBilledTimeEntries(
+              tx,
+              accountId,
+              companyId,
+              invoiceId,
+              header.jobId ?? null,
+              billedTimeEntryIds,
+            );
+            if (billError) return c.json({ error: billError.error }, billError.status);
+          }
 
           await c.var.audit({
             entityType: 'invoice',
@@ -704,7 +723,7 @@ export function invoicesRoutes(deps: AppDeps) {
 
           const tx = c.get('tx');
           const accountId = c.get('accountId');
-          const { contactId, lineItems, ...header } = data;
+          const { contactId, lineItems, billedTimeEntryIds, ...header } = data;
 
           const [current] = await tx
             .select()
@@ -756,6 +775,9 @@ export function invoicesRoutes(deps: AppDeps) {
             if (taken) return c.json({ error: 'invoice_number_taken' }, 409);
           }
 
+          const jobError = await assertJobInCompany(tx, accountId, current.companyId, header.jobId);
+          if (jobError) return c.json({ error: jobError.error }, jobError.status);
+
           // Read the existing lines so the audit row diff carries the prior
           // state. Done before delete so we don't lose the data on rollback.
           const beforeLines = await tx
@@ -800,11 +822,25 @@ export function invoicesRoutes(deps: AppDeps) {
               showAddress: header.showAddress ?? current.showAddress,
               showPhone: header.showPhone ?? current.showPhone,
               showEmail: header.showEmail ?? current.showEmail,
+              // Undefined leaves the job alone; explicit null detaches.
+              jobId: header.jobId === undefined ? current.jobId : header.jobId,
               updatedAt: new Date(),
             })
             .where(and(eq(invoices.id, id), eq(invoices.accountId, accountId)))
             .returning();
           if (!updated) return c.json({ error: 'invoice_not_found' }, 404);
+
+          if (billedTimeEntryIds !== undefined) {
+            const billError = await applyBilledTimeEntries(
+              tx,
+              accountId,
+              current.companyId,
+              id,
+              updated.jobId,
+              billedTimeEntryIds,
+            );
+            if (billError) return c.json({ error: billError.error }, billError.status);
+          }
 
           await c.var.audit({
             entityType: 'invoice',

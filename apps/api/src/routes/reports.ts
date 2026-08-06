@@ -17,6 +17,8 @@ import {
   invoiceLineItems,
   invoices,
   items,
+  // Aliased: the job-margin handler has a local `jobs` in its response shape.
+  jobs as jobsTable,
   journalEntries,
   journalLines,
 } from '@thalermark/db';
@@ -26,6 +28,7 @@ import { and, asc, eq, gte, inArray, isNull, lt, lte, ne, notInArray, sql } from
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 import type { AppDeps } from '../app.js';
+import { displayHours, effectiveHourly, jobBilledCents, jobMinutes } from '../lib/job-costing.js';
 import { apBalance, arBalance, cashFlowNet, cashOnHand } from '../lib/ledger.js';
 import { recordLlmCallHealth } from '../lib/llm-connection.js';
 import { resolveAccountCredential } from '../lib/llm-credentials.js';
@@ -1597,9 +1600,10 @@ export function reportsRoutes(deps: AppDeps) {
           // Issue date is a bare calendar date, so the window compares as dates
           // — no timezone conversion needed, unlike the journal-driven reports
           // which key off a timestamptz.
-          const jobs = await tx
+          const windowInvoices = await tx
             .select({
               invoiceId: invoices.id,
+              jobId: invoices.jobId,
               number: invoices.number,
               issueDate: invoices.issueDate,
               status: invoices.status,
@@ -1625,9 +1629,19 @@ export function reportsRoutes(deps: AppDeps) {
             )
             .orderBy(asc(invoices.issueDate), asc(invoices.number));
 
+          // Which invoices belong to a named job. Every invoice in the company,
+          // not just the windowed ones: a cost can be tagged to an invoice that
+          // sits outside the window and still belongs to a job inside it.
+          const invoiceJobRows = await tx
+            .select({ id: invoices.id, jobId: invoices.jobId })
+            .from(invoices)
+            .where(and(eq(invoices.accountId, accountId), eq(invoices.companyId, id)));
+          const jobOfInvoice = new Map(invoiceJobRows.map((r) => [r.id, r.jobId]));
+
           const costRows = await tx
             .select({
               invoiceId: expenseAllocations.invoiceId,
+              jobId: expenseAllocations.jobId,
               amount: expenses.amount,
               share: expenseAllocations.share,
             })
@@ -1641,26 +1655,99 @@ export function reportsRoutes(deps: AppDeps) {
               ),
             );
 
+          // Three buckets, and every allocation row lands in exactly one of
+          // them, so the totals below still reconcile against the P&L.
           const costByInvoice = new Map<string, number>();
+          const costByJob = new Map<string, number>();
           let sharedCents = 0;
+          const addTo = (map: Map<string, number>, key: string, cents: number) =>
+            map.set(key, (map.get(key) ?? 0) + cents);
           for (const row of costRows) {
             const cents = Math.round(Number(row.amount) * 100 * Number(row.share));
-            if (row.invoiceId === null) sharedCents += cents;
-            else costByInvoice.set(row.invoiceId, (costByInvoice.get(row.invoiceId) ?? 0) + cents);
+            if (row.jobId) {
+              addTo(costByJob, row.jobId, cents);
+              continue;
+            }
+            if (row.invoiceId) {
+              // A cost tagged at invoice grain rolls up to that invoice's job if
+              // it has one. This is what keeps a job honest for costs tagged
+              // before the job existed, and for the invoice-grain tagging the
+              // expense screens still do.
+              const ownerJob = jobOfInvoice.get(row.invoiceId) ?? null;
+              if (ownerJob) addTo(costByJob, ownerJob, cents);
+              else addTo(costByInvoice, row.invoiceId, cents);
+              continue;
+            }
+            sharedCents += cents;
           }
 
-          const rows = jobs.map((job) => {
-            const costCents = costByInvoice.get(job.invoiceId) ?? 0;
-            const billedCents = Math.round(Number(job.subtotal) * 100);
+          // Invoices that never joined a job keep behaving exactly as they did
+          // before jobs existed: the invoice IS the job. For a company with no
+          // jobs at all, this list and the totals are unchanged.
+          const unjobbedInvoices = windowInvoices
+            .filter((inv) => !inv.jobId)
+            .map((inv) => {
+              const costCents = costByInvoice.get(inv.invoiceId) ?? 0;
+              const billedCents = Math.round(Number(inv.subtotal) * 100);
+              return {
+                invoiceId: inv.invoiceId,
+                number: inv.number,
+                issueDate: inv.issueDate,
+                status: inv.status,
+                customerName: inv.customerName,
+                billed: inv.subtotal,
+                costs: centsToMoney(costCents),
+                made: centsToMoney(billedCents - costCents),
+              };
+            });
+
+          // A job qualifies for the window when at least one of its invoices was
+          // issued inside it. Its billed figure then covers ALL its invoices, not
+          // just the windowed ones — the job is the unit here, not the month, and
+          // its costs were never window-scoped either. Halving a deposit-plus-
+          // final job at the window edge would show a loss that isn't real.
+          const windowJobIds = [
+            ...new Set(windowInvoices.map((inv) => inv.jobId).filter((v): v is string => !!v)),
+          ];
+          const [jobRows, billedByJob, minutesByJob] = await Promise.all([
+            windowJobIds.length > 0
+              ? tx
+                  .select({
+                    id: jobsTable.id,
+                    name: jobsTable.name,
+                    status: jobsTable.status,
+                    customerName: contacts.name,
+                  })
+                  .from(jobsTable)
+                  .leftJoin(contacts, eq(contacts.id, jobsTable.contactId))
+                  .where(
+                    and(eq(jobsTable.accountId, accountId), inArray(jobsTable.id, windowJobIds)),
+                  )
+                  .orderBy(asc(jobsTable.name))
+              : Promise.resolve([]),
+            jobBilledCents(tx, accountId, id, windowJobIds),
+            jobMinutes(tx, accountId, id, windowJobIds),
+          ]);
+
+          const namedJobs = jobRows.map((job) => {
+            const billedCents = billedByJob.get(job.id) ?? 0;
+            const costCents = costByJob.get(job.id) ?? 0;
+            const madeCents = billedCents - costCents;
+            const minutes = minutesByJob.get(job.id) ?? 0;
             return {
-              invoiceId: job.invoiceId,
-              number: job.number,
-              issueDate: job.issueDate,
+              jobId: job.id,
+              name: job.name,
               status: job.status,
               customerName: job.customerName,
-              billed: job.subtotal,
-              costs: (costCents / 100).toFixed(2),
-              made: ((billedCents - costCents) / 100).toFixed(2),
+              billed: centsToMoney(billedCents),
+              costs: centsToMoney(costCents),
+              made: centsToMoney(madeCents),
+              minutes,
+              hours: displayHours(minutes),
+              // What an hour on this job actually paid. The number time tracking
+              // exists to produce, and null rather than 0 when no hours are
+              // tracked — 0 would read as "this job paid nothing an hour".
+              effectiveHourly: effectiveHourly(madeCents, minutes),
             };
           });
 
@@ -1682,23 +1769,32 @@ export function reportsRoutes(deps: AppDeps) {
               ),
             );
 
-          const billedTotalCents = rows.reduce((t, r) => t + Math.round(Number(r.billed) * 100), 0);
-          const jobCostTotalCents = rows.reduce((t, r) => t + Math.round(Number(r.costs) * 100), 0);
+          // Totals span both lists — a named job and a bare invoice are both
+          // "a job" as far as the bottom line is concerned.
+          const allRows = [...namedJobs, ...unjobbedInvoices];
+          const billedTotalCents = allRows.reduce((t, r) => t + toCents(r.billed), 0);
+          const jobCostTotalCents = allRows.reduce((t, r) => t + toCents(r.costs), 0);
+          const trackedMinutes = namedJobs.reduce((t, r) => t + r.minutes, 0);
 
           return c.json({
             from,
             to,
-            jobs: rows,
+            jobs: namedJobs,
+            // Invoices with no job, each standing in as its own job — the exact
+            // rows and numbers this report returned before jobs existed.
+            unjobbedInvoices,
             totals: {
-              billed: (billedTotalCents / 100).toFixed(2),
-              jobCosts: (jobCostTotalCents / 100).toFixed(2),
-              shared: (sharedCents / 100).toFixed(2),
+              billed: centsToMoney(billedTotalCents),
+              jobCosts: centsToMoney(jobCostTotalCents),
+              shared: centsToMoney(sharedCents),
               unattributed: unattributed?.total ?? '0.00',
               // Jobs minus their own costs minus the shared pool. Deliberately
               // excludes unattributed — those are costs the user hasn't placed,
               // and folding them in silently would make this disagree with the
               // per-job rows above it.
-              made: ((billedTotalCents - jobCostTotalCents - sharedCents) / 100).toFixed(2),
+              made: centsToMoney(billedTotalCents - jobCostTotalCents - sharedCents),
+              minutes: trackedMinutes,
+              hours: displayHours(trackedMinutes),
             },
           });
         },
