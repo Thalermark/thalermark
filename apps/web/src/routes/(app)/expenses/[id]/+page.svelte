@@ -16,11 +16,16 @@
   // models these as a row, a null-invoice row, and no rows respectively —
   // shared is a real answer, not a skipped question, which is why it is not the
   // same as ''.
+  // Since TMC-181 a row may instead name a job, carried as "job:<id>" so the
+  // two grains can share one select without their ids ever colliding.
   const currentTarget = $derived.by(() => {
     const allocations = e.allocations ?? [];
     if (allocations.length === 0) return '';
-    if (allocations.length === 1 && allocations[0]?.invoiceId === null) return 'shared';
-    return allocations[0]?.invoiceId ?? '';
+    const first = allocations[0];
+    if (!first) return '';
+    if (first.jobId) return `job:${first.jobId}`;
+    if (allocations.length === 1 && first.invoiceId === null) return 'shared';
+    return first.invoiceId ?? '';
   });
   // A split across several jobs can't be represented by the single-select, and
   // must never be silently flattened into "the first one" on save.
@@ -151,11 +156,25 @@
       <select name="target" class="field max-w-sm" value={currentTarget}>
         <option value="">Not sure yet</option>
         <option value="shared">Shared across jobs</option>
-        {#each data.jobs as job (job.id)}
-          <option value={job.id}>
-            {job.customerName ?? 'No name'} · {job.number} · {job.issueDate}
-          </option>
-        {/each}
+        <!--
+          Named jobs first: if the user has bothered to name one, that is the
+          answer they are looking for. Invoices stay below as the fallback for
+          work that never got a job.
+        -->
+        {#if data.namedJobs.length > 0}
+          <optgroup label="Jobs">
+            {#each data.namedJobs as job (job.id)}
+              <option value="job:{job.id}">{job.name}</option>
+            {/each}
+          </optgroup>
+        {/if}
+        <optgroup label="Invoices">
+          {#each data.jobs as job (job.id)}
+            <option value={job.id}>
+              {job.customerName ?? 'No name'} · {job.number} · {job.issueDate}
+            </option>
+          {/each}
+        </optgroup>
       </select>
       <button
         type="submit"
@@ -176,6 +195,10 @@
     </p>
   {:else if currentTarget === 'shared'}
     <p class="mt-2 text-sm text-fg/70">Shared across jobs.</p>
+  {:else if currentTarget.startsWith('job:')}
+    <p class="mt-2 text-sm text-fg/70">
+      {data.namedJobs.find((j) => `job:${j.id}` === currentTarget)?.name ?? 'A job'}
+    </p>
   {:else if currentTarget}
     <p class="mt-2 text-sm text-fg/70">
       {data.jobs.find((j) => j.id === currentTarget)?.customerName ?? 'A job'}

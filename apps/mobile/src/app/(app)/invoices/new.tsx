@@ -4,12 +4,13 @@ import {
   addMoney,
   contactCreateSchema,
   formatUnitPrice,
+  hoursFromMinutes,
   invoiceCreateSchema,
   multiplyMoney,
   sumMoney,
   unitPriceFromTotal,
 } from '@thalermark/validation';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -51,8 +52,14 @@ type Row = {
   type: LineItemType;
   taxable: boolean;
   taxPolicyId: string;
+  // Set when this row was seeded from a tracked time entry (TMC-180). Carried on
+  // the ROW, not in a separate list, so deleting the row also drops the entry
+  // from billedTimeEntryIds — otherwise an entry could be stamped billed with
+  // no line on the invoice to show for it.
+  timeEntryId: string | null;
 };
 const blankRow = (): Row => ({
+  timeEntryId: null,
   description: '',
   quantity: '',
   unitLabel: '',
@@ -81,6 +88,9 @@ const FRIENDLY: Record<string, string> = {
 
 export default function NewInvoice() {
   const router = useRouter();
+  // Set when the user came from a job's "Bill this job" — attaches the invoice
+  // to that job and seeds its unbilled hours as line rows.
+  const { jobId } = useLocalSearchParams<{ jobId?: string }>();
 
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [bootstrapped, setBootstrapped] = useState(false);
@@ -158,6 +168,46 @@ export default function NewInvoice() {
             }
           }
         }
+
+        // Arriving from a job's "Bill this job" (TMC-180). The job's unbilled
+        // hours are SEEDED AS LINE ROWS rather than offered in a separate
+        // checklist: on a phone, a row you can see and edit beats a list you
+        // have to reconcile against one. Deleting a row drops its entry too,
+        // because billedTimeEntryIds is derived from the rows.
+        //
+        // Priced with the same multiplyMoney every typed row uses, so a billed
+        // hour and a hand-typed hour cannot round differently.
+        if (jobId) {
+          const timeRes = await api.api.jobs[':id'].time.$get({
+            param: { id: jobId },
+            query: { unbilled: 'true' },
+          });
+          if (active && timeRes.ok) {
+            const { timeEntries } = await timeRes.json();
+            const seeded = timeEntries.map((t): Row => {
+              const quantity = hoursFromMinutes(t.minutes);
+              const unitPrice = t.rate ?? '0';
+              return {
+                timeEntryId: t.id,
+                description: t.note?.trim() || 'Hours',
+                quantity,
+                unitLabel: 'hour',
+                unitPrice,
+                amount: multiplyMoney(quantity, unitPrice),
+                sourceItemId: null,
+                // Labour is a service — routes revenue to 4000 in the hidden
+                // ledger.
+                type: 'service',
+                // Whether labour is taxable varies by state and trade; guessing
+                // is worse than the user ticking the row.
+                taxable: false,
+                taxPolicyId: '',
+              };
+            });
+            if (seeded.length > 0) setRows([...seeded, blankRow()]);
+          }
+        }
+
         if (active) setBootstrapped(true);
       })().catch(() => {
         if (active) setBootstrapped(true);
@@ -165,7 +215,7 @@ export default function NewInvoice() {
       return () => {
         active = false;
       };
-    }, []),
+    }, [jobId]),
   );
 
   const inlineMode = contactId === NEW_CONTACT;
@@ -337,6 +387,7 @@ export default function NewInvoice() {
         sourceItemId: r.sourceItemId ?? undefined,
       };
     });
+    const billedIds = rows.map((r) => r.timeEntryId).filter((v): v is string => v !== null);
     const sub = sumMoney(lineItems.map((li) => li.amount));
     const taxVal = sumMoney(lineItems.map((li) => li.taxAmount ?? '0'));
     const payload = {
@@ -353,6 +404,9 @@ export default function NewInvoice() {
       showPhone,
       showEmail,
       lineItems,
+      jobId: jobId || undefined,
+      // Derived from the rows, so a deleted hour row takes its entry with it.
+      billedTimeEntryIds: billedIds.length > 0 ? billedIds : undefined,
     };
 
     const parsed = invoiceCreateSchema.safeParse(payload);

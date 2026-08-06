@@ -68,6 +68,22 @@ export const invoiceCreateSchema = z.object({
   showPhone: z.boolean().optional(),
   showEmail: z.boolean().optional(),
   lineItems: z.array(invoiceLineItemInputSchema).min(1).max(200),
+  // Optional membership in a job (TMC-181). Null detaches.
+  jobId: z.string().uuid().nullable().optional(),
+  // Time entries this invoice bills (TMC-180).
+  //
+  // This is deliberately NOT a server endpoint that appends hour lines and
+  // recomputes the totals. Money math is client-side and stored as-sent (see
+  // the note above invoiceCreateSchema); a server-side line appender would be a
+  // second totals path, free to disagree with the first. So the client builds
+  // the hour lines with the same helpers every other line uses and sends them
+  // as ordinary lineItems — these ids only tell the server which entries to
+  // stamp as billed, in the same transaction.
+  //
+  // The server still validates each id: same account, same company, same job,
+  // and currently unbilled. Nothing here is trusted beyond "the client says it
+  // put these on the invoice".
+  billedTimeEntryIds: z.array(z.string().uuid()).max(200).optional(),
 });
 
 export type InvoiceCreateInput = z.infer<typeof invoiceCreateSchema>;

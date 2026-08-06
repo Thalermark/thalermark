@@ -15,6 +15,7 @@ import { accounts } from './accounts.js';
 import { companies } from './companies.js';
 import { contacts } from './contacts.js';
 import { items } from './items.js';
+import { jobs } from './jobs.js';
 import { recurringInvoices } from './recurring-invoices.js';
 import { taxPolicies } from './tax_policies.js';
 
@@ -48,6 +49,14 @@ export const invoices = pgTable(
     contactId: uuid('contact_id')
       .notNull()
       .references(() => contacts.id, { onDelete: 'restrict' }),
+    // Optional membership in a job (TMC-181). A job owning several invoices is
+    // the entire point — a deposit plus a final, or an ongoing arrangement
+    // billed biweekly — so this is SET NULL, never cascade: deleting a job must
+    // orphan its invoices, never destroy them.
+    //
+    // Nullable and unbackfilled. Every invoice that predates jobs, and every one
+    // whose owner never wanted a job, reads exactly as it did before.
+    jobId: uuid('job_id').references(() => jobs.id, { onDelete: 'set null' }),
     number: text('number').notNull(),
     status: text('status').notNull().default('draft'),
     issueDate: date('issue_date', { mode: 'string' }).notNull(),

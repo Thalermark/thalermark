@@ -84,13 +84,30 @@ export type ExpenseCategorizeInput = z.infer<typeof expenseCategorizeSchema>;
 // share is a fraction of the expense, not money, so it survives an edit to the
 // expense total. Four decimal places is plenty for an even split across a
 // realistic number of jobs and keeps the sum check away from float noise.
-export const expenseAllocationSchema = z.object({
-  invoiceId: z.string().uuid().nullable(),
-  share: z
-    .string()
-    .regex(/^\d+(\.\d{1,6})?$/, 'share must be a decimal fraction')
-    .refine((s) => Number(s) > 0 && Number(s) <= 1, 'share must be in (0, 1]'),
-});
+// Since TMC-181 a row may instead name a JOB. Both null is the shared answer;
+// naming both at once is rejected, because job margin rolls invoice-grain and
+// job-grain costs together and a row carrying both would be counted twice.
+// Defaulted rather than required so a job-only payload validates without the
+// client sending an explicit invoiceId: null.
+export const expenseAllocationSchema = z
+  .object({
+    invoiceId: z.string().uuid().nullable().default(null),
+    jobId: z.string().uuid().nullable().default(null),
+    share: z
+      .string()
+      .regex(/^\d+(\.\d{1,6})?$/, 'share must be a decimal fraction')
+      .refine((s) => Number(s) > 0 && Number(s) <= 1, 'share must be in (0, 1]'),
+  })
+  .refine((a) => !(a.invoiceId && a.jobId), { message: 'allocation_names_both_grains' });
+
+// Which bucket a row targets, for the duplicate check below. Namespaced so an
+// invoice id and a job id can never collide, and 'shared' stays the single
+// identity for the both-null row the DB's partial unique also guards.
+function allocationTarget(a: { invoiceId: string | null; jobId: string | null }): string {
+  if (a.jobId) return `job:${a.jobId}`;
+  if (a.invoiceId) return `invoice:${a.invoiceId}`;
+  return 'shared';
+}
 
 export const expenseAllocationsSchema = z
   .object({
@@ -107,9 +124,8 @@ export const expenseAllocationsSchema = z
   )
   // The DB has partial uniques for this; catching it here turns a 500 into a
   // 400 with a usable message.
-  .refine(
-    (v) => new Set(v.allocations.map((a) => a.invoiceId ?? 'shared')).size === v.allocations.length,
-    { message: 'duplicate_allocation_target' },
-  );
+  .refine((v) => new Set(v.allocations.map(allocationTarget)).size === v.allocations.length, {
+    message: 'duplicate_allocation_target',
+  });
 
 export type ExpenseAllocationsInput = z.infer<typeof expenseAllocationsSchema>;

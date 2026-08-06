@@ -10,6 +10,7 @@ import {
   expenseAllocations,
   expenses,
   invoices,
+  jobs,
 } from '@thalermark/db';
 import { emit } from '@thalermark/telemetry';
 import {
@@ -380,6 +381,7 @@ export function expensesRoutes(deps: AppDeps) {
         const allocations = await tx
           .select({
             invoiceId: expenseAllocations.invoiceId,
+            jobId: expenseAllocations.jobId,
             share: expenseAllocations.share,
           })
           .from(expenseAllocations)
@@ -447,6 +449,23 @@ export function expensesRoutes(deps: AppDeps) {
             }
           }
 
+          // Same check at job grain (TMC-181). A row names an invoice or a job,
+          // never both — the schema and a DB CHECK both enforce that — so these
+          // two guards are independent rather than exclusive.
+          const jobIds = allocations.map((a) => a.jobId).filter((v): v is string => v !== null);
+          if (jobIds.length > 0) {
+            const found = await tx
+              .select({ id: jobs.id, companyId: jobs.companyId })
+              .from(jobs)
+              .where(and(inArray(jobs.id, jobIds), eq(jobs.accountId, accountId)));
+            if (found.length !== new Set(jobIds).size) {
+              return c.json({ error: 'job_not_found' }, 404);
+            }
+            if (found.some((row) => row.companyId !== expense.companyId)) {
+              return c.json({ error: 'job_company_mismatch' }, 400);
+            }
+          }
+
           await tx
             .delete(expenseAllocations)
             .where(
@@ -463,6 +482,7 @@ export function expensesRoutes(deps: AppDeps) {
                 companyId: expense.companyId,
                 expenseId: id,
                 invoiceId: a.invoiceId,
+                jobId: a.jobId,
                 share: a.share,
               })),
             );

@@ -25,6 +25,7 @@ export type {
   ExpensesAppType,
   InvoicesAppType,
   ItemsAppType,
+  JobsAppType,
   LedgerAppType,
   LocationsAppType,
   OwnerMoneyEventsAppType,

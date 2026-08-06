@@ -1,6 +1,6 @@
 import { pickActiveCompany } from '$lib/active-company';
 import { apiErrorMessage } from '$lib/api-errors';
-import { serverApiClient } from '$lib/api.server';
+import { type ServerApiClient, serverApiClient } from '$lib/api.server';
 import { NEW_CONTACT_SENTINEL, findEmailDupe } from '$lib/contact-dupes';
 import { lineTax, policyRate } from '$lib/line-tax';
 import { error, fail, redirect } from '@sveltejs/kit';
@@ -10,6 +10,7 @@ import {
   type LineItemType,
   addMoney,
   contactCreateSchema,
+  hoursFromMinutes,
   invoiceCreateSchema,
   multiplyMoney,
   sumMoney,
@@ -43,6 +44,33 @@ const LINE_FIELD_TYPE = 'li_type';
 const LINE_FIELD_TAXABLE = 'li_taxable';
 const LINE_FIELD_TAX_POLICY_ID = 'li_taxPolicyId';
 
+// Unbilled hours for one job, shaped for the checkbox list and for turning into
+// invoice lines. Best-effort: a failed fetch renders the form without the time
+// block rather than failing the page.
+async function loadUnbilledTime(client: ServerApiClient, jobId: string) {
+  const res = await client.api.jobs[':id'].time.$get({
+    param: { id: jobId },
+    query: { unbilled: 'true' },
+  });
+  if (!res.ok) return [];
+  const { timeEntries } = await res.json();
+  return timeEntries.map((t) => ({
+    id: t.id,
+    entryDate: t.entryDate,
+    minutes: t.minutes,
+    hours: hoursFromMinutes(t.minutes),
+    note: t.note,
+    rate: t.rate,
+  }));
+}
+
+// The job's name, for labelling an hour line the user left a blank note on.
+async function jobNameFor(client: ServerApiClient, jobId: string): Promise<string> {
+  const res = await client.api.jobs[':id'].$get({ param: { id: jobId } });
+  if (!res.ok) return '';
+  return (await res.json()).name;
+}
+
 export const load: PageServerLoad = async (event) => {
   const client = serverApiClient(event);
   // The contact selector is a type-ahead (ContactPicker) that searches
@@ -73,9 +101,30 @@ export const load: PageServerLoad = async (event) => {
     suggestedNumber = body.suggestion;
   }
 
+  // Jobs (TMC-181). Open jobs for the attach picker — closed ones are filed
+  // away and offering them is how the list stops being usable.
+  const jobsRes = await client.api.jobs.$get({
+    query: { companyId: company.id, status: 'open', limit: '100' },
+  });
+  const jobs = jobsRes.ok
+    ? (await jobsRes.json()).jobs.map((j) => ({ id: j.id, name: j.name, contactId: j.contactId }))
+    : [];
+
+  // Arriving from a job's "Bill this job" carries ?jobId, and that is the only
+  // path that loads unbilled hours. One job's worth is a cheap read; every open
+  // job's would be N calls for a list the user probably won't use. It is also
+  // the honest entry point — you decide to bill a job while looking at the job,
+  // not while staring at an empty invoice.
+  const jobId = event.url.searchParams.get('jobId') ?? '';
+  const unbilledTime =
+    jobId && jobs.some((j) => j.id === jobId) ? await loadUnbilledTime(client, jobId) : [];
+
   return {
     companyId: company.id,
     suggestedNumber,
+    jobs,
+    jobId: jobs.some((j) => j.id === jobId) ? jobId : '',
+    unbilledTime,
     // Company-level "show on invoices" defaults — seed the from-block checkboxes
     // on a fresh invoice. The user can override per invoice; the API persists
     // whatever the form submits.
@@ -109,6 +158,10 @@ type FormValues = {
   showAddress: boolean;
   showPhone: boolean;
   showEmail: boolean;
+  // The job this invoice belongs to, and which of its unbilled entries the user
+  // ticked. Both empty on an ordinary invoice.
+  jobId: string;
+  timeEntryIds: string[];
   lineItems: {
     description: string;
     quantity: string;
@@ -160,6 +213,8 @@ function readForm(data: FormData): FormValues {
     showAddress: data.get('showAddress') === 'on',
     showPhone: data.get('showPhone') === 'on',
     showEmail: data.get('showEmail') === 'on',
+    jobId: String(data.get('jobId') ?? '').trim(),
+    timeEntryIds: data.getAll('timeEntryId').map((v) => String(v)),
     lineItems,
   };
 }
@@ -238,25 +293,55 @@ export const actions: Actions = {
     // compute). Schema validation runs against these computed values. The line
     // tax rate is resolved from the policy here (not trusted from the client),
     // and the invoice tax is the derived sum of line tax.
+    // Tracked hours become ordinary invoice lines HERE, in the same pass and
+    // with the same helpers as every typed row — not on the API, which would be
+    // a second totals path free to disagree with this one. Cost never becomes a
+    // line: this reads the hours and the rate the user recorded, and prices them
+    // exactly as a hand-typed line would.
+    //
+    // Re-read from the API rather than trusting hidden form fields: minutes and
+    // rate decide what the customer is charged, so they come from the row, not
+    // from the page.
+    const billedTime =
+      values.jobId && values.timeEntryIds.length > 0
+        ? (await loadUnbilledTime(client, values.jobId)).filter((t) =>
+            values.timeEntryIds.includes(t.id),
+          )
+        : [];
+    const jobName = values.jobId ? await jobNameFor(client, values.jobId) : '';
+    const timeRows: FormValues['lineItems'] = billedTime.map((t) => ({
+      description: t.note?.trim() || `${jobName} — hours`.trim(),
+      quantity: t.hours,
+      unitLabel: 'hour',
+      unitPrice: t.rate ?? '0',
+      // Labour is a service, which routes revenue to 4000 in the hidden ledger.
+      type: 'service' as LineItemType,
+      // Whether time is taxable varies by state and trade, and guessing would
+      // be worse than the user ticking the row.
+      taxable: false,
+    }));
+
     const policies = await loadPolicyRates(event, companyId);
-    const computedLines: InvoiceLineItemInput[] = values.lineItems.map((row, i) => {
-      const amount = multiplyMoney(row.quantity, row.unitPrice);
-      const rate = row.taxable ? policyRate(policies, row.taxPolicyId ?? '') : '0';
-      return {
-        position: i + 1,
-        description: row.description,
-        quantity: row.quantity,
-        unitLabel: row.unitLabel,
-        unitPrice: row.unitPrice,
-        amount,
-        type: row.type,
-        taxable: row.taxable,
-        taxRatePct: rate,
-        taxAmount: lineTax(row.taxable, rate, amount),
-        taxPolicyId: row.taxable ? row.taxPolicyId : undefined,
-        sourceItemId: row.sourceItemId,
-      };
-    });
+    const computedLines: InvoiceLineItemInput[] = [...values.lineItems, ...timeRows].map(
+      (row, i) => {
+        const amount = multiplyMoney(row.quantity, row.unitPrice);
+        const rate = row.taxable ? policyRate(policies, row.taxPolicyId ?? '') : '0';
+        return {
+          position: i + 1,
+          description: row.description,
+          quantity: row.quantity,
+          unitLabel: row.unitLabel,
+          unitPrice: row.unitPrice,
+          amount,
+          type: row.type,
+          taxable: row.taxable,
+          taxRatePct: rate,
+          taxAmount: lineTax(row.taxable, rate, amount),
+          taxPolicyId: row.taxable ? row.taxPolicyId : undefined,
+          sourceItemId: row.sourceItemId,
+        };
+      },
+    );
     const subtotal = sumMoney(computedLines.map((li) => li.amount));
     const tax = sumMoney(computedLines.map((li) => li.taxAmount ?? '0'));
     const total = addMoney(subtotal, tax);
@@ -275,6 +360,10 @@ export const actions: Actions = {
       showPhone: values.showPhone,
       showEmail: values.showEmail,
       lineItems: computedLines,
+      jobId: values.jobId || undefined,
+      // Only the entries that actually became lines. The API re-checks each one
+      // is on this job and still unbilled before stamping it.
+      billedTimeEntryIds: billedTime.length > 0 ? billedTime.map((t) => t.id) : undefined,
     };
 
     const parsed = invoiceCreateSchema.safeParse(payload);

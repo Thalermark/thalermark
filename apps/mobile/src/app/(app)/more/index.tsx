@@ -19,6 +19,7 @@ type Entry = {
     | '/more/profile'
     | '/estimates'
     | '/invoices/recurring'
+    | '/jobs'
     | '/bills'
     | '/owner-money'
     | '/ledger'
@@ -62,6 +63,15 @@ const SALES_ENTRIES: Entry[] = [
     subtitle: 'Schedules that generate and email invoices on their own.',
   },
 ];
+
+// Jobs (TMC-181) — the named unit of work that hours and costs hang off.
+// Sits under Sales rather than Purchases: it exists to be billed.
+const JOBS_ENTRY: Entry = {
+  href: '/jobs',
+  icon: 'hammer-outline',
+  title: 'Jobs',
+  subtitle: 'Log hours against a job, then turn them into an invoice.',
+};
 
 // Bills (accounts payable) — money you owe vendors. Ungated like web's nav link
 // (the list itself is viewable by all; the API gates writes on expenses:write).
@@ -223,7 +233,11 @@ export default function MoreHub() {
         <Text className="mt-2 font-serif text-3xl font-light text-ink">{accountName ?? ' '}</Text>
 
         <Section label="Account" entries={[PROFILE_ENTRY]} onOpen={(href) => router.push(href)} />
-        <Section label="Sales" entries={SALES_ENTRIES} onOpen={(href) => router.push(href)} />
+        <Section
+          label="Sales"
+          entries={[...SALES_ENTRIES, JOBS_ENTRY]}
+          onOpen={(href) => router.push(href)}
+        />
         <Section
           label="Purchases"
           entries={[BILLS_ENTRY, OWNER_MONEY_ENTRY]}

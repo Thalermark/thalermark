@@ -122,6 +122,7 @@ async function makeInvoice(
   number: string,
   subtotal: string,
   issueDate = '2026-06-10',
+  jobId?: string,
 ): Promise<string> {
   const res = await ctx.app.request('/api/invoices', {
     method: 'POST',
@@ -129,6 +130,7 @@ async function makeInvoice(
     body: JSON.stringify({
       companyId: ctx.companyId,
       contactId,
+      jobId,
       number,
       issueDate,
       dueDate: '2026-07-10',
@@ -414,7 +416,7 @@ describe('GET /api/companies/:id/job-margin', () => {
       );
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
-        jobs: {
+        unjobbedInvoices: {
           invoiceId: string;
           customerName: string;
           billed: string;
@@ -430,9 +432,9 @@ describe('GET /api/companies/:id/job-margin', () => {
         };
       };
 
-      expect(body.jobs).toHaveLength(2);
-      const jobA = body.jobs.find((j) => j.invoiceId === a);
-      const jobB = body.jobs.find((j) => j.invoiceId === b);
+      expect(body.unjobbedInvoices).toHaveLength(2);
+      const jobA = body.unjobbedInvoices.find((j) => j.invoiceId === a);
+      const jobB = body.unjobbedInvoices.find((j) => j.invoiceId === b);
       expect(jobA?.customerName).toBe('Smith');
       expect(jobA?.costs).toBe('40.00');
       expect(jobA?.made).toBe('560.00');
@@ -482,8 +484,496 @@ describe('GET /api/companies/:id/job-margin', () => {
         `/api/companies/${ctx.companyId}/job-margin?from=2026-06-01&to=2026-06-30`,
         { headers: ctx.headers },
       );
-      const body = (await res.json()) as { jobs: unknown[] };
+      const body = (await res.json()) as { unjobbedInvoices: unknown[] };
+      expect(body.unjobbedInvoices).toHaveLength(0);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  // Regression: the filter excluded the literal 'void', but the transition
+  // stores 'voided' (INVOICE_TRANSITIONS, routes/invoices.ts), so a voided
+  // invoice kept its full subtotal in billed and overstated the job's margin —
+  // and its total. Cancelled work is not revenue.
+  it('excludes voided invoices — cancelled work is not revenue', async () => {
+    const ctx = await setup('margin-voided@test.com');
+    try {
+      const contactId = await makeContact(ctx, 'Smith');
+      const live = await makeInvoice(ctx, contactId, 'INV-1', '600.00');
+      const cancelled = await makeInvoice(ctx, contactId, 'INV-2', '500.00');
+
+      const voided = await ctx.app.request(`/api/invoices/${cancelled}/void`, {
+        method: 'POST',
+        headers: ctx.headers,
+      });
+      expect(voided.status).toBe(200);
+
+      const res = await ctx.app.request(
+        `/api/companies/${ctx.companyId}/job-margin?from=2026-06-01&to=2026-06-30`,
+        { headers: ctx.headers },
+      );
+      const body = (await res.json()) as {
+        unjobbedInvoices: { invoiceId: string }[];
+        totals: { billed: string; made: string };
+      };
+
+      expect(body.unjobbedInvoices).toHaveLength(1);
+      expect(body.unjobbedInvoices[0]?.invoiceId).toBe(live);
+      expect(body.totals.billed).toBe('600.00');
+      expect(body.totals.made).toBe('600.00');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+});
+
+// --- Jobs and time tracking (TMC-181, TMC-180) -------------------------------
+
+async function makeJob(ctx: Ctx, name: string, contactId?: string): Promise<string> {
+  const res = await ctx.app.request('/api/jobs', {
+    method: 'POST',
+    headers: ctx.headers,
+    body: JSON.stringify({ companyId: ctx.companyId, name, contactId }),
+  });
+  if (res.status !== 201) throw new Error(`job create failed: ${res.status}`);
+  return ((await res.json()) as { id: string }).id;
+}
+
+async function logTime(ctx: Ctx, jobId: string, minutes: number, rate?: string): Promise<string> {
+  const res = await ctx.app.request(`/api/jobs/${jobId}/time`, {
+    method: 'POST',
+    headers: ctx.headers,
+    body: JSON.stringify({ entryDate: '2026-06-11', minutes, rate }),
+  });
+  if (res.status !== 201) throw new Error(`time entry create failed: ${res.status}`);
+  return ((await res.json()) as { id: string }).id;
+}
+
+describe('jobs', () => {
+  beforeEach(resetDb);
+
+  it('refuses a contact from a sibling company in the same account', async () => {
+    const ctx = await setup('job-contact-mismatch@test.com');
+    try {
+      const other = await ctx.app.request('/api/companies', {
+        method: 'POST',
+        headers: ctx.headers,
+        body: JSON.stringify({ name: 'Second Co', businessType: 'sole_prop' }),
+      });
+      expect(other.status).toBe(201);
+      const otherCompanyId = ((await other.json()) as { id: string }).id;
+
+      const foreign = await ctx.app.request('/api/contacts', {
+        method: 'POST',
+        headers: ctx.headers,
+        body: JSON.stringify({ companyId: otherCompanyId, name: 'Elsewhere' }),
+      });
+      const foreignContactId = ((await foreign.json()) as { id: string }).id;
+
+      const res = await ctx.app.request('/api/jobs', {
+        method: 'POST',
+        headers: ctx.headers,
+        body: JSON.stringify({
+          companyId: ctx.companyId,
+          name: 'Cross-company',
+          contactId: foreignContactId,
+        }),
+      });
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: string }).error).toBe('contact_company_mismatch');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  // Deleting a used job would cascade its time entries away — the same loss the
+  // billed_invoice_id SET NULL exists to prevent. Close it instead.
+  it('refuses to delete a job that has tracked time', async () => {
+    const ctx = await setup('job-delete-guard@test.com');
+    try {
+      const jobId = await makeJob(ctx, 'The Smith job');
+      await logTime(ctx, jobId, 60);
+
+      const res = await ctx.app.request(`/api/jobs/${jobId}`, {
+        method: 'DELETE',
+        headers: ctx.headers,
+      });
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { error: string }).error).toBe('job_has_time_entries');
+
+      const still = await ctx.app.request(`/api/jobs/${jobId}`, { headers: ctx.headers });
+      expect(still.status).toBe(200);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('deletes an unused job', async () => {
+    const ctx = await setup('job-delete-ok@test.com');
+    try {
+      const jobId = await makeJob(ctx, 'Typo job');
+      const res = await ctx.app.request(`/api/jobs/${jobId}`, {
+        method: 'DELETE',
+        headers: ctx.headers,
+      });
+      expect(res.status).toBe(204);
+      const gone = await ctx.app.request(`/api/jobs/${jobId}`, { headers: ctx.headers });
+      expect(gone.status).toBe(404);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  // The effective-hourly number is what time tracking exists to produce.
+  it('reports effective hourly on the job detail', async () => {
+    const ctx = await setup('job-effective-hourly@test.com');
+    try {
+      const contactId = await makeContact(ctx, 'Chen');
+      const jobId = await makeJob(ctx, 'Tuesdays at the Chens', contactId);
+      await makeInvoice(ctx, contactId, 'INV-1', '900.00', '2026-06-10', jobId);
+
+      const materials = await makeExpense(ctx, '140.00');
+      await allocate(ctx, materials, [{ jobId, share: '1' }]);
+      // 12 hours across two days.
+      await logTime(ctx, jobId, 480);
+      await logTime(ctx, jobId, 240);
+
+      const res = await ctx.app.request(`/api/jobs/${jobId}`, { headers: ctx.headers });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        margin: {
+          billed: string;
+          costs: string;
+          made: string;
+          minutes: number;
+          hours: string;
+          effectiveHourly: string | null;
+        };
+      };
+      expect(body.margin.billed).toBe('900.00');
+      expect(body.margin.costs).toBe('140.00');
+      expect(body.margin.made).toBe('760.00');
+      expect(body.margin.minutes).toBe(720);
+      expect(body.margin.hours).toBe('12.00');
+      // 760 over 12 hours. The whole point: $760 is not the answer, $63.33 is.
+      expect(body.margin.effectiveHourly).toBe('63.33');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  // Null, not 0 — 0 would read as "this job paid nothing an hour".
+  it('reports null effective hourly when no time is tracked', async () => {
+    const ctx = await setup('job-no-hours@test.com');
+    try {
+      const jobId = await makeJob(ctx, 'Untracked');
+      const res = await ctx.app.request(`/api/jobs/${jobId}`, { headers: ctx.headers });
+      const body = (await res.json()) as { margin: { effectiveHourly: string | null } };
+      expect(body.margin.effectiveHourly).toBeNull();
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+});
+
+describe('billing tracked time onto an invoice', () => {
+  beforeEach(resetDb);
+
+  async function invoiceWithTime(ctx: Ctx, jobId: string, contactId: string, entryIds: string[]) {
+    return ctx.app.request('/api/invoices', {
+      method: 'POST',
+      headers: ctx.headers,
+      body: JSON.stringify({
+        companyId: ctx.companyId,
+        contactId,
+        jobId,
+        number: 'INV-TIME',
+        issueDate: '2026-06-12',
+        dueDate: '2026-07-12',
+        subtotal: '71.50',
+        total: '71.50',
+        billedTimeEntryIds: entryIds,
+        lineItems: [
+          {
+            position: 1,
+            description: 'Sitting',
+            quantity: '3.2500',
+            unitPrice: '22.0000',
+            amount: '71.50',
+            unitLabel: 'hour',
+            type: 'service',
+          },
+        ],
+      }),
+    });
+  }
+
+  it('stamps the entries as billed', async () => {
+    const ctx = await setup('bill-time@test.com');
+    try {
+      const contactId = await makeContact(ctx, 'Chen');
+      const jobId = await makeJob(ctx, 'Tuesdays at the Chens', contactId);
+      const entryId = await logTime(ctx, jobId, 195, '22.0000');
+
+      const res = await invoiceWithTime(ctx, jobId, contactId, [entryId]);
+      expect(res.status).toBe(201);
+
+      const unbilled = await ctx.app.request(`/api/jobs/${jobId}/time?unbilled=true`, {
+        headers: ctx.headers,
+      });
+      const body = (await unbilled.json()) as { timeEntries: unknown[] };
+      expect(body.timeEntries).toHaveLength(0);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('refuses to bill the same entry onto a second invoice', async () => {
+    const ctx = await setup('bill-time-twice@test.com');
+    try {
+      const contactId = await makeContact(ctx, 'Chen');
+      const jobId = await makeJob(ctx, 'Tuesdays at the Chens', contactId);
+      const entryId = await logTime(ctx, jobId, 195, '22.0000');
+      expect((await invoiceWithTime(ctx, jobId, contactId, [entryId])).status).toBe(201);
+
+      const second = await ctx.app.request('/api/invoices', {
+        method: 'POST',
+        headers: ctx.headers,
+        body: JSON.stringify({
+          companyId: ctx.companyId,
+          contactId,
+          jobId,
+          number: 'INV-TIME-2',
+          issueDate: '2026-06-13',
+          dueDate: '2026-07-13',
+          subtotal: '71.50',
+          total: '71.50',
+          billedTimeEntryIds: [entryId],
+          lineItems: [
+            {
+              position: 1,
+              description: 'Sitting',
+              quantity: '3.2500',
+              unitPrice: '22.0000',
+              amount: '71.50',
+              type: 'service',
+            },
+          ],
+        }),
+      });
+      expect(second.status).toBe(409);
+      expect(((await second.json()) as { error: string }).error).toBe('time_entry_already_billed');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('refuses to bill time onto an invoice with no job', async () => {
+    const ctx = await setup('bill-time-nojob@test.com');
+    try {
+      const contactId = await makeContact(ctx, 'Chen');
+      const jobId = await makeJob(ctx, 'Tuesdays at the Chens', contactId);
+      const entryId = await logTime(ctx, jobId, 60, '22.0000');
+
+      const res = await ctx.app.request('/api/invoices', {
+        method: 'POST',
+        headers: ctx.headers,
+        body: JSON.stringify({
+          companyId: ctx.companyId,
+          contactId,
+          number: 'INV-NOJOB',
+          issueDate: '2026-06-12',
+          dueDate: '2026-07-12',
+          subtotal: '22.00',
+          total: '22.00',
+          billedTimeEntryIds: [entryId],
+          lineItems: [
+            {
+              position: 1,
+              description: 'Sitting',
+              quantity: '1',
+              unitPrice: '22.00',
+              amount: '22.00',
+              type: 'service',
+            },
+          ],
+        }),
+      });
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: string }).error).toBe('invoice_has_no_job');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  // Replace semantics: taking the hour line back off a draft returns the hours
+  // to unbilled so they can be billed again, rather than stranding them.
+  // (The invoice-deleted path is the SET NULL cascade, covered at the schema
+  // level in packages/db — there is no DELETE /api/invoices endpoint.)
+  it('releases entries dropped from a re-submitted invoice', async () => {
+    const ctx = await setup('bill-time-release@test.com');
+    try {
+      const contactId = await makeContact(ctx, 'Chen');
+      const jobId = await makeJob(ctx, 'Tuesdays at the Chens', contactId);
+      const entryId = await logTime(ctx, jobId, 195, '22.0000');
+      const created = await invoiceWithTime(ctx, jobId, contactId, [entryId]);
+      const invoiceId = ((await created.json()) as { id: string }).id;
+
+      const patched = await ctx.app.request(`/api/invoices/${invoiceId}`, {
+        method: 'PATCH',
+        headers: ctx.headers,
+        body: JSON.stringify({
+          contactId,
+          jobId,
+          number: 'INV-TIME',
+          issueDate: '2026-06-12',
+          dueDate: '2026-07-12',
+          subtotal: '10.00',
+          total: '10.00',
+          billedTimeEntryIds: [],
+          lineItems: [
+            {
+              position: 1,
+              description: 'Callout',
+              quantity: '1',
+              unitPrice: '10.00',
+              amount: '10.00',
+              type: 'service',
+            },
+          ],
+        }),
+      });
+      expect(patched.status).toBe(200);
+
+      const unbilled = await ctx.app.request(`/api/jobs/${jobId}/time?unbilled=true`, {
+        headers: ctx.headers,
+      });
+      const body = (await unbilled.json()) as { timeEntries: { id: string; minutes: number }[] };
+      expect(body.timeEntries).toHaveLength(1);
+      expect(body.timeEntries[0]?.id).toBe(entryId);
+      expect(body.timeEntries[0]?.minutes).toBe(195);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('refuses to edit an entry that is already billed', async () => {
+    const ctx = await setup('bill-time-edit@test.com');
+    try {
+      const contactId = await makeContact(ctx, 'Chen');
+      const jobId = await makeJob(ctx, 'Tuesdays at the Chens', contactId);
+      const entryId = await logTime(ctx, jobId, 195, '22.0000');
+      await invoiceWithTime(ctx, jobId, contactId, [entryId]);
+
+      const res = await ctx.app.request(`/api/time-entries/${entryId}`, {
+        method: 'PATCH',
+        headers: ctx.headers,
+        body: JSON.stringify({ minutes: 60 }),
+      });
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { error: string }).error).toBe('time_entry_billed');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+});
+
+describe('job-margin re-grain', () => {
+  beforeEach(resetDb);
+
+  // The acceptance test for the additive model: a company that never made a job
+  // gets the same rows and the same totals it got before jobs existed.
+  it('is unchanged for a company with no jobs', async () => {
+    const ctx = await setup('margin-no-jobs@test.com');
+    try {
+      const contactId = await makeContact(ctx, 'Smith');
+      const a = await makeInvoice(ctx, contactId, 'INV-1', '600.00');
+      await makeInvoice(ctx, contactId, 'INV-2', '500.00');
+      const direct = await makeExpense(ctx, '40.00');
+      await allocate(ctx, direct, [{ invoiceId: a, share: '1' }]);
+
+      const res = await ctx.app.request(
+        `/api/companies/${ctx.companyId}/job-margin?from=2026-06-01&to=2026-06-30`,
+        { headers: ctx.headers },
+      );
+      const body = (await res.json()) as {
+        jobs: unknown[];
+        unjobbedInvoices: { invoiceId: string; costs: string; made: string }[];
+        totals: { billed: string; jobCosts: string; made: string };
+      };
+
       expect(body.jobs).toHaveLength(0);
+      expect(body.unjobbedInvoices).toHaveLength(2);
+      expect(body.unjobbedInvoices.find((r) => r.invoiceId === a)?.made).toBe('560.00');
+      expect(body.totals.billed).toBe('1100.00');
+      expect(body.totals.jobCosts).toBe('40.00');
+      expect(body.totals.made).toBe('1060.00');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  // A job owning two invoices is the case invoice-as-job could not express.
+  // Costs tagged at EITHER grain have to land on the job, or margin lies.
+  it('rolls a job’s invoices and both cost grains into one row', async () => {
+    const ctx = await setup('margin-named-job@test.com');
+    try {
+      const contactId = await makeContact(ctx, 'Chen');
+      const jobId = await makeJob(ctx, 'Deck rebuild', contactId);
+      const deposit = await makeInvoice(ctx, contactId, 'INV-1', '400.00', '2026-06-05', jobId);
+      await makeInvoice(ctx, contactId, 'INV-2', '600.00', '2026-06-20', jobId);
+      const loose = await makeInvoice(ctx, contactId, 'INV-3', '250.00');
+
+      // One cost tagged straight to the job, one tagged to an invoice that
+      // belongs to it — both must reach the job.
+      const lumber = await makeExpense(ctx, '300.00');
+      await allocate(ctx, lumber, [{ jobId, share: '1' }]);
+      const nails = await makeExpense(ctx, '20.00');
+      await allocate(ctx, nails, [{ invoiceId: deposit, share: '1' }]);
+      const other = await makeExpense(ctx, '15.00');
+      await allocate(ctx, other, [{ invoiceId: loose, share: '1' }]);
+
+      await logTime(ctx, jobId, 600);
+
+      const res = await ctx.app.request(
+        `/api/companies/${ctx.companyId}/job-margin?from=2026-06-01&to=2026-06-30`,
+        { headers: ctx.headers },
+      );
+      const body = (await res.json()) as {
+        jobs: {
+          jobId: string;
+          name: string;
+          billed: string;
+          costs: string;
+          made: string;
+          hours: string;
+          effectiveHourly: string | null;
+        }[];
+        unjobbedInvoices: { invoiceId: string }[];
+        totals: { billed: string; jobCosts: string; made: string; hours: string };
+      };
+
+      expect(body.jobs).toHaveLength(1);
+      const job = body.jobs[0];
+      expect(job?.jobId).toBe(jobId);
+      expect(job?.name).toBe('Deck rebuild');
+      // Both invoices, one row.
+      expect(job?.billed).toBe('1000.00');
+      // 300 job-grain + 20 invoice-grain.
+      expect(job?.costs).toBe('320.00');
+      expect(job?.made).toBe('680.00');
+      expect(job?.hours).toBe('10.00');
+      expect(job?.effectiveHourly).toBe('68.00');
+
+      // The un-jobbed invoice keeps behaving exactly as it always did.
+      expect(body.unjobbedInvoices).toHaveLength(1);
+      expect(body.unjobbedInvoices[0]?.invoiceId).toBe(loose);
+
+      // Totals span both lists and still reconcile.
+      expect(body.totals.billed).toBe('1250.00');
+      expect(body.totals.jobCosts).toBe('335.00');
+      expect(body.totals.made).toBe('915.00');
+      expect(body.totals.hours).toBe('10.00');
     } finally {
       await ctx.handle.close();
     }

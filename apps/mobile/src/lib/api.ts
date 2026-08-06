@@ -9,6 +9,7 @@ import type {
   ExpensesAppType,
   InvoicesAppType,
   ItemsAppType,
+  JobsAppType,
   LedgerAppType,
   LocationsAppType,
   OwnerMoneyEventsAppType,
@@ -59,6 +60,7 @@ function buildClients(baseUrl: string) {
   return {
     main: hc<AppType>(baseUrl, { headers: authHeaders }),
     items: hc<ItemsAppType>(baseUrl, { headers: authHeaders }),
+    jobs: hc<JobsAppType>(baseUrl, { headers: authHeaders }),
     taxPolicies: hc<TaxPoliciesAppType>(baseUrl, { headers: authHeaders }),
     socialProviders: hc<SocialProvidersAppType>(baseUrl, { headers: authHeaders }),
     locations: hc<LocationsAppType>(baseUrl, { headers: authHeaders }),
@@ -106,6 +108,7 @@ function facadeApi() {
   const {
     main,
     items,
+    jobs,
     taxPolicies,
     socialProviders,
     locations,
@@ -125,6 +128,10 @@ function facadeApi() {
   } = liveClients();
   const overrides: Record<string, unknown> = {
     items: items.api.items,
+    jobs: jobs.api.jobs,
+    // Time entries hang off /api/time-entries rather than under /api/jobs, so
+    // the same sub-app surfaces two keys here.
+    'time-entries': jobs.api['time-entries'],
     'tax-policies': taxPolicies.api['tax-policies'],
     'social-providers': socialProviders.api['social-providers'],
     locations: locations.api.locations,
@@ -156,6 +163,7 @@ function facadeApi() {
 
 type MainApi = ReturnType<typeof buildClients>['main']['api'];
 type ItemsApi = ReturnType<typeof buildClients>['items']['api'];
+type JobsApi = ReturnType<typeof buildClients>['jobs']['api'];
 type TaxPoliciesApi = ReturnType<typeof buildClients>['taxPolicies']['api'];
 type SocialProvidersApi = ReturnType<typeof buildClients>['socialProviders']['api'];
 type LocationsApi = ReturnType<typeof buildClients>['locations']['api'];
@@ -176,6 +184,8 @@ type ReportsApi = ReturnType<typeof buildClients>['reports']['api'];
 type ApiClient = {
   api: MainApi & {
     items: ItemsApi['items'];
+    jobs: JobsApi['jobs'];
+    'time-entries': JobsApi['time-entries'];
     'tax-policies': TaxPoliciesApi['tax-policies'];
     'social-providers': SocialProvidersApi['social-providers'];
     locations: LocationsApi['locations'];

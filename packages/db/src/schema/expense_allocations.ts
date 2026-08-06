@@ -4,6 +4,7 @@ import { accounts } from './accounts.js';
 import { companies } from './companies.js';
 import { expenses } from './expenses.js';
 import { invoices } from './invoices.js';
+import { jobs } from './jobs.js';
 
 // Job costing (TMC-174) — which job a cost was for, so the user can be told
 // whether that job made money. One question on a receipt, one number per job.
@@ -21,11 +22,12 @@ import { invoices } from './invoices.js';
 // limits, accepted: a deposit-plus-final pair shows as two jobs, and recurring
 // work makes a long list. A real jobs entity is the fix if those ever bite.
 //
-// invoice_id NULL is the SHARED pool — the deliberate answer for a cost the user
-// won't attribute (the seed), as opposed to no rows at all, which means he never
-// answered. Keeping those distinct is the point: shared is a real answer and the
-// UI must never nag him to split it. Nothing is ever auto-apportioned; inventing
-// a 1/3 split he did not give is a lie that looks like a fact.
+// A row points at an invoice OR a job (TMC-181) OR neither. NEITHER is the
+// SHARED pool — the deliberate answer for a cost the user won't attribute (the
+// seed), as opposed to no rows at all, which means he never answered. Keeping
+// those distinct is the point: shared is a real answer and the UI must never nag
+// him to split it. Nothing is ever auto-apportioned; inventing a 1/3 split he
+// did not give is a lie that looks like a fact.
 //
 // share is a FRACTION of the expense, not a money amount, so it survives an edit
 // to the expense total without going stale. Nothing here is ever summed into a
@@ -51,10 +53,20 @@ export const expenseAllocations = pgTable(
     expenseId: uuid('expense_id')
       .notNull()
       .references(() => expenses.id, { onDelete: 'cascade' }),
-    // NULL = shared. Cascade rather than restrict: deleting an invoice should
-    // not be blocked by a costing tag, and losing the tag costs nothing but the
-    // attribution (the expense itself is untouched).
+    // Cascade rather than restrict: deleting an invoice should not be blocked
+    // by a costing tag, and losing the tag costs nothing but the attribution
+    // (the expense itself is untouched).
     invoiceId: uuid('invoice_id').references(() => invoices.id, { onDelete: 'cascade' }),
+    // Job-grain attribution (TMC-181), added alongside invoice_id rather than
+    // replacing it. At most one of the two is set — see the CHECK in the
+    // migration — and both NULL still means SHARED.
+    //
+    // This ADDITION is also what defuses the hazard flagged when this table
+    // shipped: invoice_id's cascade would start dropping tags that belong to
+    // the JOB once a job owned several invoices. It never does, because
+    // job-grain tags live here instead and invoice_id keeps its original,
+    // narrower meaning.
+    jobId: uuid('job_id').references(() => jobs.id, { onDelete: 'cascade' }),
     // (0, 1]. Rows for one expense sum to 1 — enforced on write in the API,
     // which replaces the whole set atomically, not by a trigger here.
     share: numeric('share', { precision: 9, scale: 6 }).notNull().default('1'),
@@ -77,9 +89,19 @@ export const expenseAllocations = pgTable(
     expenseInvoiceUq: uniqueIndex('expense_allocations_expense_invoice_uq')
       .on(table.expenseId, table.invoiceId)
       .where(sql`${table.invoiceId} is not null`),
+    expenseJobUq: uniqueIndex('expense_allocations_expense_job_uq')
+      .on(table.expenseId, table.jobId)
+      .where(sql`${table.jobId} is not null`),
+    // Shared is now "neither pointer set", so this guard has to name both
+    // columns or a job-tagged row would be mistaken for the shared one.
     expenseSharedUq: uniqueIndex('expense_allocations_expense_shared_uq')
       .on(table.expenseId)
-      .where(sql`${table.invoiceId} is null`),
+      .where(sql`${table.invoiceId} is null and ${table.jobId} is null`),
+    jobIdIdx: index('expense_allocations_job_id_idx').on(
+      table.accountId,
+      table.companyId,
+      table.jobId,
+    ),
   }),
 );
 

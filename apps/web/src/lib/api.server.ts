@@ -13,6 +13,7 @@ import type {
   ExpensesAppType,
   InvoicesAppType,
   ItemsAppType,
+  JobsAppType,
   LedgerAppType,
   OwnerMoneyEventsAppType,
   PurchasesAppType,
@@ -41,6 +42,7 @@ const mkOwnerMoney = (...a: Parameters<typeof hc>) => hc<OwnerMoneyEventsAppType
 const mkPurchases = (...a: Parameters<typeof hc>) => hc<PurchasesAppType>(...a);
 const mkLedger = (...a: Parameters<typeof hc>) => hc<LedgerAppType>(...a);
 const mkItems = (...a: Parameters<typeof hc>) => hc<ItemsAppType>(...a);
+const mkJobs = (...a: Parameters<typeof hc>) => hc<JobsAppType>(...a);
 const mkTaxPolicies = (...a: Parameters<typeof hc>) => hc<TaxPoliciesAppType>(...a);
 const mkAuditEvents = (...a: Parameters<typeof hc>) => hc<AuditEventsAppType>(...a);
 const mkCompanies = (...a: Parameters<typeof hc>) => hc<CompaniesAppType>(...a);
@@ -59,6 +61,7 @@ type OwnerMoneyApi = ReturnType<typeof mkOwnerMoney>['api'];
 type PurchasesApi = ReturnType<typeof mkPurchases>['api'];
 type LedgerApi = ReturnType<typeof mkLedger>['api'];
 type ItemsApi = ReturnType<typeof mkItems>['api'];
+type JobsApi = ReturnType<typeof mkJobs>['api'];
 type TaxPoliciesApi = ReturnType<typeof mkTaxPolicies>['api'];
 type AuditEventsApi = ReturnType<typeof mkAuditEvents>['api'];
 type CompaniesApi = ReturnType<typeof mkCompanies>['api'];
@@ -104,6 +107,10 @@ export type ServerApiClient = {
     purchases: PurchasesApi['purchases'];
     ledger: LedgerApi['ledger'];
     items: ItemsApi['items'];
+    jobs: JobsApi['jobs'];
+    // Time entries live under /api/time-entries, not /api/jobs, so the same
+    // sub-app surfaces two keys here.
+    'time-entries': JobsApi['time-entries'];
     'tax-policies': TaxPoliciesApi['tax-policies'];
     'audit-events': AuditEventsApi['audit-events'];
     companies: CompaniesApi['companies'] & ReportsApi['companies'];
@@ -136,6 +143,10 @@ export function serverApiClient(event: RequestEvent): ServerApiClient {
     purchases: hc<PurchasesAppType>(base, { headers }).api.purchases,
     ledger: hc<LedgerAppType>(base, { headers }).api.ledger,
     items: hc<ItemsAppType>(base, { headers }).api.items,
+    jobs: hc<JobsAppType>(base, { headers }).api.jobs,
+    // Time entries hang off /api/time-entries rather than under /api/jobs, so
+    // the facade needs both keys from the same sub-app.
+    'time-entries': hc<JobsAppType>(base, { headers }).api['time-entries'],
     'tax-policies': hc<TaxPoliciesAppType>(base, { headers }).api['tax-policies'],
     'audit-events': hc<AuditEventsAppType>(base, { headers }).api['audit-events'],
     companies: hc<CompaniesAppType>(base, { headers }).api.companies,
