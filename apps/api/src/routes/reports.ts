@@ -1612,8 +1612,13 @@ export function reportsRoutes(deps: AppDeps) {
               and(
                 eq(invoices.accountId, accountId),
                 eq(invoices.companyId, id),
-                ne(invoices.status, 'draft'),
-                ne(invoices.status, 'void'),
+                // Allowlist, not a pair of ne()s. The previous form excluded
+                // 'void', but the stored value is 'voided' (INVOICE_TRANSITIONS
+                // in routes/invoices.ts), so voided invoices counted their full
+                // subtotal as billed and overstated that job's margin. An
+                // allowlist also can't be silently widened by a new status, and
+                // it matches every other report here.
+                inArray(invoices.status, ['sent', 'paid']),
                 gte(invoices.issueDate, from),
                 lte(invoices.issueDate, to),
               ),

@@ -488,4 +488,39 @@ describe('GET /api/companies/:id/job-margin', () => {
       await ctx.handle.close();
     }
   });
+
+  // Regression: the filter excluded the literal 'void', but the transition
+  // stores 'voided' (INVOICE_TRANSITIONS, routes/invoices.ts), so a voided
+  // invoice kept its full subtotal in billed and overstated the job's margin —
+  // and its total. Cancelled work is not revenue.
+  it('excludes voided invoices — cancelled work is not revenue', async () => {
+    const ctx = await setup('margin-voided@test.com');
+    try {
+      const contactId = await makeContact(ctx, 'Smith');
+      const live = await makeInvoice(ctx, contactId, 'INV-1', '600.00');
+      const cancelled = await makeInvoice(ctx, contactId, 'INV-2', '500.00');
+
+      const voided = await ctx.app.request(`/api/invoices/${cancelled}/void`, {
+        method: 'POST',
+        headers: ctx.headers,
+      });
+      expect(voided.status).toBe(200);
+
+      const res = await ctx.app.request(
+        `/api/companies/${ctx.companyId}/job-margin?from=2026-06-01&to=2026-06-30`,
+        { headers: ctx.headers },
+      );
+      const body = (await res.json()) as {
+        jobs: { invoiceId: string }[];
+        totals: { billed: string; made: string };
+      };
+
+      expect(body.jobs).toHaveLength(1);
+      expect(body.jobs[0]?.invoiceId).toBe(live);
+      expect(body.totals.billed).toBe('600.00');
+      expect(body.totals.made).toBe('600.00');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
 });
