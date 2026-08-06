@@ -24,15 +24,23 @@
     {job.name}<span class="text-accent">.</span>
   </h1>
   {#if canWrite}
-    <form method="post" action="?/setStatus">
-      <input type="hidden" name="status" value={job.status === 'open' ? 'closed' : 'open'} />
-      <button
-        type="submit"
-        class="rounded-sm border border-fg/15 px-3 py-1.5 font-mono text-xs uppercase tracking-widest text-fg/60 transition-colors hover:border-accent hover:text-accent"
-      >
-        {job.status === 'open' ? 'Close job' : 'Reopen'}
-      </button>
-    </form>
+    <div class="flex items-center gap-2">
+      <!--
+        The entry point for billing. You decide to bill a job while looking at
+        the job, not while staring at an empty invoice — so this is what carries
+        the job and its unbilled hours into the form.
+      -->
+      <a href="/invoices/new?jobId={job.id}" class="btn">Bill this job</a>
+      <form method="post" action="?/setStatus">
+        <input type="hidden" name="status" value={job.status === 'open' ? 'closed' : 'open'} />
+        <button
+          type="submit"
+          class="rounded-sm border border-fg/15 px-3 py-1.5 font-mono text-xs uppercase tracking-widest text-fg/60 transition-colors hover:border-accent hover:text-accent"
+        >
+          {job.status === 'open' ? 'Close job' : 'Reopen'}
+        </button>
+      </form>
+    </div>
   {/if}
 </div>
 

@@ -21,6 +21,14 @@
   // reachable steps.
   const flow = trackFlowAbandonment('invoice_flow_abandoned', ['details', 'line_items']);
 
+  // The job comes from ?jobId (arriving via "Bill this job") or from a failed
+  // submit's round-tripped values.
+  const selectedJobId = $derived(
+    typeof form?.values?.jobId === 'string' && form.values.jobId !== ''
+      ? form.values.jobId
+      : data.jobId,
+  );
+
   type Row = {
     description: string;
     quantity: string;
@@ -232,6 +240,73 @@
       {/if}
     </div>
   </div>
+
+  {#if data.jobs.length > 0}
+    <div>
+      <label for="jobId" class="label">Job</label>
+      <!--
+        Changing the job reloads the page so its unbilled hours can be offered.
+        Without JS the select still attaches the job on submit — you just don't
+        get the hours block, which is why "Bill this job" from the job page is
+        the primary route in.
+      -->
+      <select
+        id="jobId"
+        name="jobId"
+        class="field mt-1 max-w-sm"
+        value={selectedJobId}
+        onchange={(e) => {
+          const next = (e.currentTarget as HTMLSelectElement).value;
+          window.location.search = next ? `?jobId=${next}` : '';
+        }}
+      >
+        <option value="">— none —</option>
+        {#each data.jobs as job (job.id)}
+          <option value={job.id}>{job.name}</option>
+        {/each}
+      </select>
+      <p class="mt-1 text-xs text-fg/50">
+        Optional. A job can carry as many invoices as it needs — a deposit and a final, or one
+        every fortnight.
+      </p>
+    </div>
+  {/if}
+
+  {#if data.unbilledTime.length > 0}
+    <!--
+      Hours become ordinary invoice lines. Ticked by default: you arrived here
+      from "Bill this job", so billing the outstanding hours is the thing you
+      came to do — unticking is the exception.
+    -->
+    <fieldset class="rounded-sm border border-fg/10 bg-surface-2 p-5">
+      <legend class="label px-2">Unbilled hours</legend>
+      <ul class="divide-y divide-fg/10">
+        {#each data.unbilledTime as entry (entry.id)}
+          <li class="flex items-center gap-3 py-2 text-sm">
+            <input
+              type="checkbox"
+              name="timeEntryId"
+              value={entry.id}
+              checked
+              id="time-{entry.id}"
+            />
+            <label for="time-{entry.id}" class="flex flex-1 items-center gap-3">
+              <span class="w-28 shrink-0 text-fg/60">{entry.entryDate}</span>
+              <span class="w-16 shrink-0 font-mono tabular-nums text-fg/80">{entry.hours} h</span>
+              <span class="min-w-0 flex-1 truncate text-fg/70">{entry.note ?? ''}</span>
+              <span class="font-mono tabular-nums text-fg/60">
+                {entry.rate ? `@ ${entry.rate}` : 'no rate'}
+              </span>
+            </label>
+          </li>
+        {/each}
+      </ul>
+      <p class="mt-3 text-xs text-fg/50">
+        These are added as line items when you save, at the rate you logged. Hours with no rate go
+        on at zero — set a rate on the job first if they should be charged.
+      </p>
+    </fieldset>
+  {/if}
 
   <fieldset class="space-y-3" onfocusin={() => flow.reach('line_items')}>
     <legend class="label">Line items</legend>
