@@ -39,10 +39,14 @@
     type: LineItemType;
     taxable: boolean;
     taxPolicyId: string;
+    // Set when this row came from a tracked time entry (TMC-180). Carried on the
+    // ROW so deleting the row also drops the entry from billedTimeEntryIds —
+    // otherwise hours get marked billed with no line to show for it.
+    timeEntryId: string | null;
   };
 
   function blankRow(): Row {
-    return { description: '', quantity: '', unitLabel: '', unitPrice: '', amount: '', sourceItemId: null, type: 'service', taxable: false, taxPolicyId: '' };
+    return { description: '', quantity: '', unitLabel: '', unitPrice: '', amount: '', sourceItemId: null, type: 'service', taxable: false, taxPolicyId: '', timeEntryId: null };
   }
 
   // Keep unit price and line total in step. Editing quantity or unit price
@@ -51,6 +55,37 @@
   // 7 → $92.8571 → $650.00) is representable. The form submits quantity + unit
   // price and the server recomputes the amount, so `amount` here is preview sugar
   // that steers the stored 4dp price (the amount input is intentionally unnamed).
+  // Tracked hours arrive as ORDINARY LINE ROWS, not a separate checklist. The
+  // user sees them in the table, can edit a rate or delete one, and the totals
+  // are live — a checklist that only became lines on save meant the subtotal read
+  // 0.00 while seven hours were ticked, and an invoice made entirely of hours
+  // could not be submitted at all, because the always-present blank row failed
+  // its required-field check.
+  //
+  // Priced with the same multiplyMoney every typed row uses, so a billed hour and
+  // a hand-typed hour cannot round differently.
+  function timeRows(): Row[] {
+    const jobName = data.jobs.find((j) => j.id === data.jobId)?.name ?? '';
+    return data.unbilledTime.map((t) => {
+      const unitPrice = t.rate ?? '0';
+      return {
+        description: t.note?.trim() || `${jobName} — hours`.trim(),
+        quantity: t.hours,
+        unitLabel: 'hour',
+        unitPrice: formatUnitPrice(unitPrice),
+        amount: multiplyMoney(t.hours, unitPrice),
+        sourceItemId: null,
+        // Labour is a service — routes revenue to 4000 in the hidden ledger.
+        type: 'service' as LineItemType,
+        // Whether labour is taxable varies by state and trade; guessing is worse
+        // than the user ticking the row.
+        taxable: false,
+        taxPolicyId: '',
+        timeEntryId: t.id,
+      };
+    });
+  }
+
   function recalcAmount(row: Row) {
     row.amount = multiplyMoney(row.quantity, row.unitPrice);
   }
@@ -118,8 +153,15 @@
             type: li.type ?? 'service',
             taxable: li.taxable ?? false,
             taxPolicyId: li.taxPolicyId ?? '',
+            timeEntryId: li.timeEntryId ?? null,
           }))
-        : [blankRow()];
+        : // No trailing blank row when hours seeded the table. The blank row's
+          // description is `required`, so appending one would block submit on an
+          // invoice that is entirely tracked hours — the exact bug this replaced.
+          // "+ Add row" is right there if more lines are wanted.
+          timeRows().length > 0
+          ? timeRows()
+          : [blankRow()];
     }),
   );
 
@@ -243,7 +285,12 @@
 
   {#if data.jobs.length > 0}
     <div>
-      <label for="jobId" class="label">Job</label>
+      <!--
+        `block` because .field is w-full but a <select> is inline-block, so
+        capping it with max-w-sm leaves room for the inline label to sit beside
+        it — every other field on this form stacks its label above.
+      -->
+      <label for="jobId" class="label block">Job</label>
       <!--
         Changing the job reloads the page so its unbilled hours can be offered.
         Without JS the select still attaches the job on submit — you just don't
@@ -270,42 +317,6 @@
         every fortnight.
       </p>
     </div>
-  {/if}
-
-  {#if data.unbilledTime.length > 0}
-    <!--
-      Hours become ordinary invoice lines. Ticked by default: you arrived here
-      from "Bill this job", so billing the outstanding hours is the thing you
-      came to do — unticking is the exception.
-    -->
-    <fieldset class="rounded-sm border border-fg/10 bg-surface-2 p-5">
-      <legend class="label px-2">Unbilled hours</legend>
-      <ul class="divide-y divide-fg/10">
-        {#each data.unbilledTime as entry (entry.id)}
-          <li class="flex items-center gap-3 py-2 text-sm">
-            <input
-              type="checkbox"
-              name="timeEntryId"
-              value={entry.id}
-              checked
-              id="time-{entry.id}"
-            />
-            <label for="time-{entry.id}" class="flex flex-1 items-center gap-3">
-              <span class="w-28 shrink-0 text-fg/60">{entry.entryDate}</span>
-              <span class="w-16 shrink-0 font-mono tabular-nums text-fg/80">{entry.hours} h</span>
-              <span class="min-w-0 flex-1 truncate text-fg/70">{entry.note ?? ''}</span>
-              <span class="font-mono tabular-nums text-fg/60">
-                {entry.rate ? `@ ${entry.rate}` : 'no rate'}
-              </span>
-            </label>
-          </li>
-        {/each}
-      </ul>
-      <p class="mt-3 text-xs text-fg/50">
-        These are added as line items when you save, at the rate you logged. Hours with no rate go
-        on at zero — set a rate on the job first if they should be charged.
-      </p>
-    </fieldset>
   {/if}
 
   <fieldset class="space-y-3" onfocusin={() => flow.reach('line_items')}>
@@ -414,6 +425,7 @@
                 {/if}
                 <!-- Always-present hidden inputs keep the server's index-zip aligned. -->
                 <input type="hidden" name="li_taxable" value={row.taxable ? '1' : '0'} />
+                <input type="hidden" name="li_timeEntryId" value={row.timeEntryId ?? ''} />
                 <input
                   type="hidden"
                   name="li_taxPolicyId"
