@@ -353,6 +353,28 @@ export type TaxWorksheet = {
     tripCount: number;
     overlapping: { code: string; name: string; amount: string }[];
   };
+  // Schedule C Part IV (TMC-179). A sibling of `mileage`, not deduction rows —
+  // it is a date and two yes/nos, not money. `destination` is 'none' on the
+  // three corporate/partnership forms, which is an answer: they reimburse the
+  // driver rather than disclosing a vehicle of their own.
+  vehicleInfo: {
+    destination: 'schedule_c_part_iv' | 'form_4562_part_v' | 'none';
+    unassignedMiles: string;
+    rows: {
+      vehicleId: string;
+      label: string;
+      placedInServiceOn: string | null;
+      businessMiles: string;
+      commutingMiles: string;
+      otherMiles: string | null;
+      totalMiles: string | null;
+      personalUseAvailable: boolean | null;
+      anotherVehicleAvailable: boolean | null;
+      writtenEvidence: true;
+      missing: ('placed_in_service' | 'personal_use' | 'another_vehicle' | 'total_miles')[];
+      inconsistent: boolean;
+    }[];
+  };
 };
 
 // The tax years worth offering: the current one (an in-progress preview) plus

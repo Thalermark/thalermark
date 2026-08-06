@@ -11,7 +11,7 @@
   //
   // One page, four forms (TMC-162). The API dispatches on business type and
   // returns that form's own line table, so nothing here branches on entity type.
-  let { data }: PageProps = $props();
+  let { data, form }: PageProps = $props();
 
   const { report, years } = $derived(data);
 
@@ -39,6 +39,12 @@
   // ordinary spend. The copy has to say so, or the figure reads as a deduction
   // that silently went missing.
   const hasNonScheduleCMileage = $derived(report.formCode !== 'schedule_c');
+  const vehicleInfo = $derived(report.vehicleInfo);
+  const milesFmt = (s: string) =>
+    Number(s).toLocaleString('en-US', { maximumFractionDigits: 1 });
+  // An unanswered yes/no prints as an em dash, never as "No" — a guessed answer
+  // on a signed return is worse than a visible gap.
+  const yesNo = (v: boolean | null) => (v === null ? '—' : v ? 'Yes' : 'No');
 
   const basisLabel = $derived(
     report.basis === 'cash' ? 'Cash — counted when paid' : 'Accrual — counted when invoiced',
@@ -92,6 +98,40 @@
     ...report.unmappedExpenses.map(
       (a) => ['Deductions', '', `UNMAPPED — ${a.code} ${a.name}`, a.amount] as CsvCell[],
     ),
+    // Part IV travels with the export too, and this matters more than the
+    // on-screen version: the preparer works off the CSV, and the disclosure is
+    // the half they cannot reconstruct from the numbers.
+    ...(vehicleInfo.destination !== 'none' && vehicleInfo.rows.length > 0
+      ? ([
+          [],
+          [
+            vehicleInfo.destination === 'schedule_c_part_iv'
+              ? 'Part IV — Information on your vehicle'
+              : 'Vehicle information (likely Form 4562 Part V)',
+          ],
+          ['Vehicle', 'Line', 'Question', 'Answer'],
+          ...vehicleInfo.rows.flatMap((v) => [
+            [v.label, '43', 'Placed in service', v.placedInServiceOn ?? ''],
+            [v.label, '44a', 'Business miles', v.businessMiles],
+            [v.label, '44b', 'Commuting miles', v.commutingMiles],
+            [v.label, '44c', 'Other (personal) miles', v.otherMiles ?? ''],
+            [v.label, '45', 'Available for personal use', yesNo(v.personalUseAvailable)],
+            [v.label, '46', 'Another vehicle available', yesNo(v.anotherVehicleAvailable)],
+            [v.label, '47a', 'Evidence to support the deduction', 'Yes'],
+            [v.label, '47b', 'Evidence is written', 'Yes'],
+          ]),
+          ...(Number(vehicleInfo.unassignedMiles) > 0
+            ? ([
+                [
+                  'UNASSIGNED',
+                  '',
+                  'Miles on trips naming no vehicle — in the deduction, not in the rows above',
+                  vehicleInfo.unassignedMiles,
+                ],
+              ] as CsvCell[][])
+            : []),
+        ] as CsvCell[][])
+      : []),
     // The itemised statement travels with the export — it's the part a preparer
     // actually files, and a CSV that stopped at the line total would be useless.
     ...(itemised && itemised.accounts.length > 0
@@ -394,6 +434,181 @@
             overlap.
           </p>
         </div>
+      {/if}
+    </section>
+  {/if}
+
+  <!--
+    Schedule C Part IV, "Information on Your Vehicle" (TMC-179). Answered HERE
+    rather than only in Settings, because this is the only tax-time surface with
+    no capability gate — and because the question belongs next to the empty box
+    it fills. Inputs are print:hidden; answered values print, since the printed
+    sheet is what goes to the preparer.
+  -->
+  {#if vehicleInfo.destination !== 'none' && vehicleInfo.rows.length > 0}
+    <section class="mt-8">
+      <h3 class="label">
+        {vehicleInfo.destination === 'schedule_c_part_iv'
+          ? 'Part IV — Information on your vehicle'
+          : 'Your vehicle'}
+      </h3>
+      {#if vehicleInfo.destination === 'form_4562_part_v'}
+        <p class="mt-2 text-sm text-fg/70">
+          Because you're claiming depreciation this year, these details likely go on Form 4562
+          rather than Schedule C Part IV. Same answers, different box — whoever prepares your
+          return will know which.
+        </p>
+      {/if}
+
+      {#each vehicleInfo.rows as v (v.vehicleId)}
+        <div class="mt-4 rounded-sm border border-fg/10 bg-surface p-5 print:border-0 print:p-0">
+          <p class="font-serif text-lg text-fg">{v.label}</p>
+
+          <dl class="mt-3 grid gap-x-8 gap-y-2 text-sm sm:grid-cols-2">
+            <div class="flex justify-between gap-4">
+              <dt class="text-fg/60">First used for work (43)</dt>
+              <dd class="text-fg">{v.placedInServiceOn ?? '—'}</dd>
+            </div>
+            <div class="flex justify-between gap-4">
+              <dt class="text-fg/60">Business miles (44a)</dt>
+              <dd class="font-mono tabular-nums text-fg">{milesFmt(v.businessMiles)}</dd>
+            </div>
+            <div class="flex justify-between gap-4">
+              <dt class="text-fg/60">Commuting miles (44b)</dt>
+              <dd class="font-mono tabular-nums text-fg">{milesFmt(v.commutingMiles)}</dd>
+            </div>
+            <div class="flex justify-between gap-4">
+              <dt class="text-fg/60">Other, personal miles (44c)</dt>
+              <dd class="font-mono tabular-nums text-fg">
+                {v.otherMiles === null ? '—' : milesFmt(v.otherMiles)}
+              </dd>
+            </div>
+            <div class="flex justify-between gap-4">
+              <dt class="text-fg/60">Available for personal use? (45)</dt>
+              <dd class="text-fg">{yesNo(v.personalUseAvailable)}</dd>
+            </div>
+            <div class="flex justify-between gap-4">
+              <dt class="text-fg/60">Another vehicle for personal use? (46)</dt>
+              <dd class="text-fg">{yesNo(v.anotherVehicleAvailable)}</dd>
+            </div>
+            <!--
+              47a and 47b are free — they logged the trips here, so the evidence
+              exists and it is written. Worth saying rather than burying.
+            -->
+            <div class="flex justify-between gap-4">
+              <dt class="text-fg/60">Evidence, and is it written? (47a/b)</dt>
+              <dd class="text-fg">Yes — your trip log</dd>
+            </div>
+          </dl>
+
+          {#if v.inconsistent}
+            <p class="callout mt-4">
+              The total you gave no longer covers the {milesFmt(v.businessMiles)} business miles logged
+              against this vehicle — you've probably added trips since. Update the total below.
+            </p>
+          {/if}
+
+          {#if v.missing.length > 0 || v.inconsistent}
+            <div class="mt-4 print:hidden">
+              {#if v.missing.some((m) => m !== 'total_miles')}
+                <form method="POST" action="?/saveVehicleFacts" class="grid gap-3 sm:grid-cols-3">
+                  <input type="hidden" name="vehicleId" value={v.vehicleId} />
+                  <label class="block">
+                    <span class="label">First used for work</span>
+                    <input
+                      type="date"
+                      name="placedInServiceOn"
+                      value={v.placedInServiceOn ?? ''}
+                      class="field mt-1 w-full"
+                    />
+                  </label>
+                  <label class="block">
+                    <span class="label">Also driven personally?</span>
+                    <select name="personalUse" class="field mt-1 w-full">
+                      <option value="" selected={v.personalUseAvailable === null}>—</option>
+                      <option value="none" selected={v.personalUseAvailable === false}>
+                        No, work only
+                      </option>
+                      <option value="some" selected={v.personalUseAvailable === true}>
+                        Yes, sometimes
+                      </option>
+                    </select>
+                  </label>
+                  <label class="block">
+                    <span class="label">Another car for personal use?</span>
+                    <select name="anotherVehicleAvailable" class="field mt-1 w-full">
+                      <option value="" selected={v.anotherVehicleAvailable === null}>—</option>
+                      <option value="yes" selected={v.anotherVehicleAvailable === true}>Yes</option>
+                      <option value="no" selected={v.anotherVehicleAvailable === false}>No</option>
+                    </select>
+                  </label>
+                  <div class="sm:col-span-3">
+                    <button type="submit" class="btn">Save</button>
+                  </div>
+                </form>
+              {/if}
+
+              <!--
+                The year figure, asked as a TOTAL and shown back as the personal
+                remainder. People know their annual mileage from an oil change or
+                an insurance quote; "personal miles" is a residual nobody tracks.
+              -->
+              {#if v.missing.includes('total_miles') || v.inconsistent}
+                <form method="POST" action="?/saveVehicleYear" class="mt-4 flex flex-wrap items-end gap-3">
+                  <input type="hidden" name="vehicleId" value={v.vehicleId} />
+                  <input type="hidden" name="year" value={report.year} />
+                  <label class="block">
+                    <span class="label">Total miles in {report.year}, for everything</span>
+                    <input
+                      type="text"
+                      inputmode="decimal"
+                      name="totalMiles"
+                      placeholder="12000"
+                      value={v.totalMiles ?? ''}
+                      class="field mt-1 w-40"
+                    />
+                  </label>
+                  <label class="block">
+                    <span class="label">Of which commuting</span>
+                    <input
+                      type="text"
+                      inputmode="decimal"
+                      name="commutingMiles"
+                      value={v.commutingMiles}
+                      class="field mt-1 w-32"
+                    />
+                  </label>
+                  <button type="submit" class="btn">Save</button>
+                  <p class="w-full text-xs text-fg/50">
+                    We already know your {milesFmt(v.businessMiles)} business miles from your trip log
+                    — the rest is what you drove personally.
+                  </p>
+                </form>
+              {/if}
+            </div>
+          {/if}
+        </div>
+      {/each}
+
+      {#if Number(vehicleInfo.unassignedMiles) > 0}
+        <!--
+          The one new way to file a WRONG return: these miles fed line 9 but
+          belong to no vehicle above, so the rows understate what was claimed.
+        -->
+        <div class="callout mt-4">
+          <p>
+            {milesFmt(vehicleInfo.unassignedMiles)} miles this year are on trips that don't say which
+            vehicle you drove, so they aren't counted in any vehicle above — even though they are in
+            your deduction. Assign them on the
+            <a href="/mileage" class="link">Mileage page</a> so the two agree.
+          </p>
+        </div>
+      {/if}
+
+      {#if form?.vehicleError}
+        <p class="mt-3 text-sm text-danger print:hidden">{form.vehicleError}</p>
+      {:else if form?.vehicleYearSaved || form?.vehicleFactsSaved}
+        <p class="mt-3 text-sm text-fg/60 print:hidden">Saved.</p>
       {/if}
     </section>
   {/if}
