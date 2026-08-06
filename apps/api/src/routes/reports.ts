@@ -22,8 +22,17 @@ import {
   journalEntries,
   journalLines,
   mileageTrips,
+  vehicleYears,
+  vehicles,
 } from '@thalermark/db';
-import { centsToMoney, sumMoney, summariseMileage, toCents } from '@thalermark/validation';
+import {
+  type PartIVGap,
+  centsToMoney,
+  partIVForVehicle,
+  sumMoney,
+  summariseMileage,
+  toCents,
+} from '@thalermark/validation';
 import type { AnyColumn, SQL } from 'drizzle-orm';
 import { and, asc, eq, gte, inArray, isNull, lt, lte, ne, notInArray, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
@@ -43,10 +52,12 @@ import { UUID_RE } from '../lib/route-helpers.js';
 import {
   type ExpenseAccountAmount,
   type TaxLineRow,
+  type VehicleInfoDestination,
   rollUpDeductions,
   standardMileageAddend,
   taxFormFor,
   taxYearWindow,
+  vehicleInfoDestination,
 } from '../lib/tax-worksheet.js';
 import { requireEntitlement } from '../middleware/entitlement.js';
 import { RATE_LIMITS, rateLimit } from '../middleware/rate-limit.js';
@@ -268,6 +279,36 @@ type TaxWorksheet = {
     // NAMED, because claiming both is a double deduction. Empty under 'actual'.
     overlapping: { code: string; name: string; amount: string }[];
   };
+  // Schedule C Part IV, "Information on Your Vehicle" (TMC-179). A sibling of
+  // `mileage`, deliberately NOT rows in `deductions`: a TaxLineRow is
+  // money-shaped and feeds totalDeductions, and these are a date and two
+  // yes/nos. Present on every form — `destination` says whether it goes
+  // anywhere.
+  vehicleInfo: {
+    destination: VehicleInfoDestination;
+    // Miles this year on trips naming no vehicle. THE one new way to file a
+    // wrong return: those miles fed line 9, but belong to no Part IV row, so
+    // the sum of the rows below would understate what was claimed. Surfaced and
+    // explained, never silently absorbed — the same treatment unratedMiles got.
+    unassignedMiles: string;
+    rows: {
+      vehicleId: string;
+      label: string;
+      placedInServiceOn: string | null;
+      businessMiles: string;
+      commutingMiles: string;
+      otherMiles: string | null;
+      totalMiles: string | null;
+      personalUseAvailable: boolean | null;
+      anotherVehicleAvailable: boolean | null;
+      // 47a and 47b, and they are FREE: they logged their trips here, so the
+      // evidence exists and it is written. Two of Part IV's six questions
+      // answered by the product's own existence.
+      writtenEvidence: true;
+      missing: PartIVGap[];
+      inconsistent: boolean;
+    }[];
+  };
 };
 
 // The expense accounts the standard mileage rate already absorbs: gas, repairs,
@@ -396,7 +437,11 @@ async function buildTaxWorksheet(
   // calendar date the driver asserts, not an instant, so there is no zone to
   // resolve; job margin takes the same shortcut with invoices.issueDate.
   const trips = await tx
-    .select({ miles: mileageTrips.miles, tripDate: mileageTrips.tripDate })
+    .select({
+      miles: mileageTrips.miles,
+      tripDate: mileageTrips.tripDate,
+      vehicleId: mileageTrips.vehicleId,
+    })
     .from(mileageTrips)
     .where(
       and(
@@ -420,6 +465,74 @@ async function buildTaxWorksheet(
     form,
     standardMileageAddend(form, mileageDeduction),
   );
+
+  // Part IV: one row per vehicle that either drove this year or has an answer
+  // recorded for it. Deliberately NOT filtered on retiredAt — a truck sold in
+  // June still belongs on that year's return.
+  const vehicleRows = await tx
+    .select({
+      id: vehicles.id,
+      label: vehicles.label,
+      placedInServiceOn: vehicles.placedInServiceOn,
+      personalUse: vehicles.personalUse,
+      anotherVehicleAvailable: vehicles.anotherVehicleAvailable,
+      totalMiles: vehicleYears.totalMiles,
+      commutingMiles: vehicleYears.commutingMiles,
+    })
+    .from(vehicles)
+    .leftJoin(
+      vehicleYears,
+      and(eq(vehicleYears.vehicleId, vehicles.id), eq(vehicleYears.taxYear, year)),
+    )
+    .where(and(eq(vehicles.accountId, accountId), eq(vehicles.companyId, id)))
+    .orderBy(asc(vehicles.label));
+
+  // Business miles per vehicle, from the log. Trips naming no vehicle fall out
+  // of this map and are reported separately as unassigned.
+  const milesByVehicle = new Map<string, { miles: string; tripDate: string }[]>();
+  const unassigned: { miles: string; tripDate: string }[] = [];
+  for (const t of trips) {
+    if (!t.vehicleId) unassigned.push(t);
+    else milesByVehicle.set(t.vehicleId, [...(milesByVehicle.get(t.vehicleId) ?? []), t]);
+  }
+
+  const vehicleInfo = {
+    // 6350 is Schedule C line 13 — the exact line Part IV's header tells you to
+    // check to find out whether Form 4562 is required. Already in scope.
+    destination: vehicleInfoDestination(
+      form,
+      toCents(expenseByCode.get('6350')?.amount ?? '0.00') !== 0,
+    ),
+    unassignedMiles: summariseMileage(unassigned).miles,
+    rows: vehicleRows.map((v) => {
+      const businessMiles = summariseMileage(milesByVehicle.get(v.id) ?? []).miles;
+      const commutingMiles = v.commutingMiles ?? '0.0000';
+      const partIV = partIVForVehicle({
+        businessMiles,
+        personalUse: v.personalUse,
+        placedInServiceOn: v.placedInServiceOn,
+        anotherVehicleAvailable: v.anotherVehicleAvailable,
+        totalMiles: v.totalMiles,
+        commutingMiles,
+      });
+      return {
+        vehicleId: v.id,
+        label: v.label,
+        placedInServiceOn: v.placedInServiceOn,
+        businessMiles,
+        commutingMiles,
+        otherMiles: partIV.otherMiles,
+        // A work-only vehicle's total is its business miles — known without
+        // asking, which is why it needs no year row.
+        totalMiles: v.personalUse === 'none' ? businessMiles : v.totalMiles,
+        personalUseAvailable: v.personalUse === null ? null : v.personalUse === 'some',
+        anotherVehicleAvailable: v.anotherVehicleAvailable,
+        writtenEvidence: true as const,
+        missing: partIV.missing,
+        inconsistent: partIV.inconsistent,
+      };
+    }),
+  };
 
   // What the rate already covers, off the Map that was just built. Named, not
   // netted: we cannot know which part of Repairs was the truck.
@@ -575,6 +688,7 @@ async function buildTaxWorksheet(
         tripCount: mileageSummary.tripCount,
         overlapping,
       },
+      vehicleInfo,
     },
   };
 }

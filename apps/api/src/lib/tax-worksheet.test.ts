@@ -2,6 +2,7 @@ import { chartForBusinessType } from '@thalermark/db';
 import { describe, expect, it } from 'vitest';
 import {
   type ExpenseAccountAmount,
+  PART_IV_LINES,
   STANDARD_MILEAGE_LINE,
   TAX_FORMS,
   type TaxFormCode,
@@ -10,6 +11,7 @@ import {
   standardMileageAddend,
   taxFormFor,
   taxYearWindow,
+  vehicleInfoDestination,
 } from './tax-worksheet.js';
 
 // Pure-policy coverage for the four form mappings. The SQL that feeds them — and
@@ -412,6 +414,59 @@ describe('standard mileage addends', () => {
       expect(line?.role).toBe('mapped');
       expect(line?.itemized).toBeUndefined();
       expect(line?.excludeFromTotal).toBeUndefined();
+    }
+  });
+});
+
+// Schedule C Part IV — the per-vehicle disclosure beside the deduction.
+describe('Part IV vehicle information', () => {
+  it('sends a Schedule C filer with no depreciation to Part IV', () => {
+    expect(vehicleInfoDestination(SCHEDULE_C, false)).toBe('schedule_c_part_iv');
+  });
+
+  // Part IV's own header says to check line 13 — depreciation and section 179 —
+  // to find out whether Form 4562 is required. Line 13 is account 6350.
+  it('sends a Schedule C filer WITH depreciation to Form 4562 Part V', () => {
+    expect(vehicleInfoDestination(SCHEDULE_C, true)).toBe('form_4562_part_v');
+  });
+
+  // 'none' is an ANSWER, not an omission: a corporation reimburses the driver
+  // under an accountable plan and deducts ordinary spend. The vehicle is the
+  // driver's, so the business has no listed property to disclose.
+  it('discloses nothing on the three entity forms, depreciation or not', () => {
+    for (const code of ['1065', '1120s', '1120'] as const) {
+      expect(vehicleInfoDestination(TAX_FORMS[code], false)).toBe('none');
+      expect(vehicleInfoDestination(TAX_FORMS[code], true)).toBe('none');
+    }
+  });
+
+  // TMC-167 found all four deduction tables off by one line while every test
+  // passed, because a table asserted against itself is self-consistent by
+  // construction. This asserts the shape only — the line NUMBERS can be wrong
+  // and this will still pass. Only a diff against the real PDF catches that,
+  // which is why the module carries a VERIFIED AGAINST / RE-CHECK banner.
+  it('names every Part IV line, in the form order a reader will follow', () => {
+    expect(Object.values(PART_IV_LINES).map((l) => l.line)).toEqual([
+      '43',
+      '44a',
+      '44b',
+      '44c',
+      '45',
+      '46',
+      '47a',
+      '47b',
+    ]);
+    for (const entry of Object.values(PART_IV_LINES)) {
+      expect(entry.label.length).toBeGreaterThan(0);
+    }
+  });
+
+  // Part IV is a disclosure, not a deduction — none of its lines may collide
+  // with a line that carries money into totalDeductions.
+  it('names no line that also exists as a Schedule C deduction', () => {
+    const deductionLines = new Set(SCHEDULE_C.deductions.map((l) => l.line));
+    for (const entry of Object.values(PART_IV_LINES)) {
+      expect(deductionLines.has(entry.line)).toBe(false);
     }
   });
 });

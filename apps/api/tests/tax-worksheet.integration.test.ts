@@ -567,6 +567,24 @@ type Worksheet = {
     tripCount: number;
     overlapping: { code: string; name: string; amount: string }[];
   };
+  vehicleInfo: {
+    destination: string;
+    unassignedMiles: string;
+    rows: {
+      vehicleId: string;
+      label: string;
+      placedInServiceOn: string | null;
+      businessMiles: string;
+      commutingMiles: string;
+      otherMiles: string | null;
+      totalMiles: string | null;
+      personalUseAvailable: boolean | null;
+      anotherVehicleAvailable: boolean | null;
+      writtenEvidence: true;
+      missing: string[];
+      inconsistent: boolean;
+    }[];
+  };
 };
 
 type WorksheetRow = {
@@ -1058,7 +1076,11 @@ describe('tax worksheet — standard mileage', () => {
         const after = await getWorksheet(ctx, companyId, '?year=2026&basis=cash');
 
         // Everything that reaches the return is unchanged...
-        expect({ ...after, mileage: null }).toEqual({ ...before, mileage: null });
+        expect({ ...after, mileage: null, vehicleInfo: null }).toEqual({
+          ...before,
+          mileage: null,
+          vehicleInfo: null,
+        });
         expect(after.deductions.every((r) => r.computed === undefined)).toBe(true);
         // ...but the figure is still REPORTED, because the driver is owed it.
         expect(after.mileage.miles).toBe('500.0000');
@@ -1138,6 +1160,204 @@ describe('tax worksheet — standard mileage', () => {
       );
       expect(res.status).toBe(400);
       expect(((await res.json()) as { error: string }).error).toBe('invalid_method');
+    } finally {
+      await close();
+    }
+  });
+});
+
+// Schedule C Part IV — the per-vehicle disclosure. Verified against the 2025
+// form: 43 placed in service, 44a/b/c the mileage split, 45/46 personal
+// availability, 47a/b evidence.
+describe('tax worksheet — Part IV vehicle information', () => {
+  async function makeVehicle(
+    ctx: Ctx,
+    companyId: string,
+    label: string,
+    extra: Record<string, unknown> = {},
+  ): Promise<string> {
+    const res = await ctx.app.request('/api/vehicles', {
+      method: 'POST',
+      headers: headers(ctx),
+      body: JSON.stringify({ companyId, label, ...extra }),
+    });
+    if (res.status !== 201) throw new Error(`vehicle create failed: ${res.status}`);
+    return ((await res.json()) as { id: string }).id;
+  }
+
+  async function trip(
+    ctx: Ctx,
+    companyId: string,
+    opts: { miles: string; tripDate: string; vehicleId?: string },
+  ): Promise<void> {
+    const res = await ctx.app.request('/api/mileage-trips', {
+      method: 'POST',
+      headers: headers(ctx),
+      body: JSON.stringify({
+        companyId,
+        miles: opts.miles,
+        tripDate: opts.tripDate,
+        purpose: 'Site visit',
+        ...(opts.vehicleId ? { vehicleId: opts.vehicleId } : {}),
+      }),
+    });
+    if (res.status !== 201) throw new Error(`trip create failed: ${res.status}`);
+  }
+
+  // THE case the whole design turns on: a purpose-built work vehicle is
+  // complete with no year row at all, because its total miles ARE its business
+  // miles.
+  it('completes a work-only vehicle without asking for anything at year end', async () => {
+    const { ctx, close } = await setup('piv-workonly@example.com');
+    try {
+      const v = await makeVehicle(ctx, ctx.companyId, 'Plow truck', {
+        placedInServiceOn: '2024-11-01',
+        personalUse: 'none',
+        anotherVehicleAvailable: true,
+      });
+      await trip(ctx, ctx.companyId, { miles: '500', tripDate: '2026-07-15', vehicleId: v });
+
+      const w = await getWorksheet(ctx, ctx.companyId, '?year=2026&basis=cash');
+      expect(w.vehicleInfo.destination).toBe('schedule_c_part_iv');
+      const row = w.vehicleInfo.rows[0];
+      expect(row?.missing).toEqual([]);
+      expect(row?.businessMiles).toBe('500.0000');
+      expect(row?.totalMiles).toBe('500.0000');
+      expect(row?.otherMiles).toBe('0.0000');
+      // 45 = No, 46 = Yes — the strongest pairing for the deduction.
+      expect(row?.personalUseAvailable).toBe(false);
+      expect(row?.anotherVehicleAvailable).toBe(true);
+      // 47a/47b are free: they logged the trips here.
+      expect(row?.writtenEvidence).toBe(true);
+    } finally {
+      await close();
+    }
+  });
+
+  it('asks a mixed-use vehicle for its total, then derives the personal share', async () => {
+    const { ctx, close } = await setup('piv-mixed@example.com');
+    try {
+      const v = await makeVehicle(ctx, ctx.companyId, 'F-150', {
+        placedInServiceOn: '2024-11-01',
+        personalUse: 'some',
+        anotherVehicleAvailable: false,
+      });
+      // Several trips rather than one: a single trip is capped at
+      // MAX_MILES_PER_TRIP as a typo guard, and 8,240 miles in a day is a typo.
+      for (let i = 0; i < 6; i++) {
+        await trip(ctx, ctx.companyId, {
+          miles: '1373.3333',
+          tripDate: '2026-07-15',
+          vehicleId: v,
+        });
+      }
+
+      const before = await getWorksheet(ctx, ctx.companyId, '?year=2026&basis=cash');
+      expect(before.vehicleInfo.rows[0]?.missing).toEqual(['total_miles']);
+      expect(before.vehicleInfo.rows[0]?.otherMiles).toBeNull();
+
+      const put = await ctx.app.request(`/api/vehicles/${v}/years/2026`, {
+        method: 'PUT',
+        headers: headers(ctx),
+        body: JSON.stringify({ totalMiles: '12000' }),
+      });
+      expect(put.status).toBe(201);
+
+      const after = await getWorksheet(ctx, ctx.companyId, '?year=2026&basis=cash');
+      const row = after.vehicleInfo.rows[0];
+      expect(row?.missing).toEqual([]);
+      expect(row?.totalMiles).toBe('12000.0000');
+      expect(row?.businessMiles).toBe('8239.9998'); // 6 x 1373.3333
+      expect(row?.otherMiles).toBe('3760.0002'); // 12000 − 8239.9998 − 0
+    } finally {
+      await close();
+    }
+  });
+
+  // The one new way to file a wrong return: those miles fed line 9 but belong
+  // to no Part IV row, so the rows would understate what was claimed.
+  it('reports miles on trips that name no vehicle, without moving the deduction', async () => {
+    const { ctx, close } = await setup('piv-unassigned@example.com');
+    try {
+      const v = await makeVehicle(ctx, ctx.companyId, 'F-150', { personalUse: 'none' });
+      await trip(ctx, ctx.companyId, { miles: '300', tripDate: '2026-07-15', vehicleId: v });
+      await trip(ctx, ctx.companyId, { miles: '200', tripDate: '2026-07-16' });
+
+      const w = await getWorksheet(ctx, ctx.companyId, '?year=2026&basis=cash');
+      expect(w.vehicleInfo.unassignedMiles).toBe('200.0000');
+      expect(w.vehicleInfo.rows[0]?.businessMiles).toBe('300.0000');
+      // The deduction still counts every mile — 500 x 0.76.
+      expect(w.mileage.miles).toBe('500.0000');
+      expect(w.mileage.amount).toBe('380.00');
+    } finally {
+      await close();
+    }
+  });
+
+  it('moves the disclosure to Form 4562 when depreciation is claimed', async () => {
+    const { ctx, close } = await setup('piv-4562@example.com');
+    try {
+      await makeVehicle(ctx, ctx.companyId, 'F-150', { personalUse: 'none' });
+      await expenseFor(ctx, ctx.companyId, {
+        categoryCode: '6350',
+        amount: '4000.00',
+        expenseDate: '2026-03-02',
+      });
+
+      const w = await getWorksheet(ctx, ctx.companyId, '?year=2026&basis=cash');
+      expect(w.vehicleInfo.destination).toBe('form_4562_part_v');
+    } finally {
+      await close();
+    }
+  });
+
+  // Mirrors the corp guard on the deduction side. A corporation reimburses the
+  // driver; it has no vehicle of its own to disclose.
+  it('leaves the three entity forms byte-identical when vehicles exist', async () => {
+    const { ctx, close } = await setup('piv-corp@example.com');
+    try {
+      for (const [name, businessType] of [
+        ['Partners LLP', 'partnership'],
+        ['S Corp Inc', 's_corp'],
+        ['C Corp Inc', 'c_corp'],
+      ] as const) {
+        const companyId = await companyOfType(ctx, name, businessType);
+        await expenseFor(ctx, companyId, {
+          categoryCode: '6100',
+          amount: '412.80',
+          expenseDate: '2026-03-02',
+        });
+        const before = await getWorksheet(ctx, companyId, '?year=2026&basis=cash');
+
+        const v = await makeVehicle(ctx, companyId, 'F-150', { personalUse: 'some' });
+        await trip(ctx, companyId, { miles: '500', tripDate: '2026-07-15', vehicleId: v });
+
+        const after = await getWorksheet(ctx, companyId, '?year=2026&basis=cash');
+        expect({ ...after, mileage: null, vehicleInfo: null }).toEqual({
+          ...before,
+          mileage: null,
+          vehicleInfo: null,
+        });
+        expect(after.vehicleInfo.destination).toBe('none');
+      }
+    } finally {
+      await close();
+    }
+  });
+
+  it('keeps a vehicle sold mid-year on that year’s return', async () => {
+    const { ctx, close } = await setup('piv-retired@example.com');
+    try {
+      const v = await makeVehicle(ctx, ctx.companyId, 'Old truck', { personalUse: 'none' });
+      await trip(ctx, ctx.companyId, { miles: '400', tripDate: '2026-03-15', vehicleId: v });
+      await ctx.app.request(`/api/vehicles/${v}/retire`, {
+        method: 'POST',
+        headers: headers(ctx),
+      });
+
+      const w = await getWorksheet(ctx, ctx.companyId, '?year=2026&basis=cash');
+      expect(w.vehicleInfo.rows).toHaveLength(1);
+      expect(w.vehicleInfo.rows[0]?.businessMiles).toBe('400.0000');
     } finally {
       await close();
     }

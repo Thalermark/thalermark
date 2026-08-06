@@ -514,6 +514,62 @@ export function standardMileageAddend(form: TaxFormDef, amount: string): TaxAdde
   return [{ line, label: 'Standard mileage', amount }];
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Schedule C Part IV, "Information on Your Vehicle" — the per-vehicle disclosure
+// that sits beside the deduction (TMC-179).
+//
+// VERIFIED AGAINST the 2025 Schedule C on 2026-08-06, line numbers and wording
+// both. RE-CHECK EVERY JANUARY, same standing burden as the deduction tables
+// above — and note that TMC-167 found all four of those off by one line while
+// every test still passed, because a table asserted against itself is
+// self-consistent by construction. Only the PDF catches a renumbering.
+//
+// Part IV's own header: "Complete this part only if you are claiming car or
+// truck expenses on line 9 and are not required to file Form 4562 for this
+// business. See the instructions for line 13 to find out if you must file Form
+// 4562." Note it keys off CLAIMING LINE 9, not off which method was elected —
+// an actual-expense filer whose costs post to 6100 lands on line 9 too, so Part
+// IV applies to them as well.
+// ─────────────────────────────────────────────────────────────────────────────
+export const PART_IV_LINES = {
+  placedInService: { line: '43', label: 'When did you place your vehicle in service?' },
+  business: { line: '44a', label: 'Business miles' },
+  commuting: { line: '44b', label: 'Commuting miles' },
+  other: { line: '44c', label: 'Other (personal) miles' },
+  personalUse: { line: '45', label: 'Available for personal use during off-duty hours?' },
+  anotherVehicle: { line: '46', label: 'Another vehicle available for personal use?' },
+  evidence: { line: '47a', label: 'Do you have evidence to support your deduction?' },
+  evidenceWritten: { line: '47b', label: 'Is the evidence written?' },
+} as const;
+
+// Where a vehicle disclosure goes, per form.
+//
+// 'none' on the three corporate/partnership returns, and it is an ANSWER rather
+// than an omission — exactly like STANDARD_MILEAGE_LINE's three nulls, and for
+// the same reason. Under the accountable-plan doctrine this codebase already
+// committed to, the vehicle is the DRIVER's, not the corporation's; the business
+// reimburses and deducts the reimbursement as ordinary spend. It has no listed
+// property to disclose. (A corporation that genuinely owns the truck would file
+// 4562 Part V, but we cannot know that without asking, and asking is a bigger
+// feature than this one.)
+//
+// The Schedule C branch is decided by whether Form 4562 is required, which the
+// form's own header tells us to check via LINE 13 — depreciation and section
+// 179. Line 13 is account 6350, so a balance there this year means they are
+// filing 4562 and Part IV moves to its Part V. That is the form's own pointer,
+// not a heuristic we invented — though it is still a proxy at the edges
+// (amortization also triggers 4562), which is why the copy says "likely goes on"
+// rather than "must".
+export type VehicleInfoDestination = 'schedule_c_part_iv' | 'form_4562_part_v' | 'none';
+
+export function vehicleInfoDestination(
+  form: TaxFormDef,
+  hasDepreciationThisYear: boolean,
+): VehicleInfoDestination {
+  if (form.code !== 'schedule_c') return 'none';
+  return hasDepreciationThisYear ? 'form_4562_part_v' : 'schedule_c_part_iv';
+}
+
 export type ExpenseAccountAmount = {
   code: string;
   name: string;
