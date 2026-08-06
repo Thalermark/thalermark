@@ -6,7 +6,7 @@ import {
   jobs,
   timeEntries,
 } from '@thalermark/db';
-import { centsToMoney } from '@thalermark/validation';
+import { centsToMoney, hoursFromMinutes, multiplyMoney, toCents } from '@thalermark/validation';
 import { and, eq, inArray, isNotNull, isNull, notInArray, sql } from 'drizzle-orm';
 
 // Shared job-costing math (TMC-181). routes/jobs.ts, routes/invoices.ts and the
@@ -192,6 +192,53 @@ export function effectiveHourly(
 ): string | null {
   if (minutes <= 0 || billedCents <= 0) return null;
   return centsToMoney(Math.round((madeCents * 60) / minutes));
+}
+
+// What each job could invoice right now: tracked hours no invoice has claimed.
+//
+// Only entries carrying a RATE. Unrated hours bill nothing, so folding them in
+// at zero would say "nothing waiting" about work that simply has not been
+// priced — which is why unratedMinutes comes back alongside and the surfaces
+// render it as its own caveat.
+//
+// Priced through hoursFromMinutes + multiplyMoney, the same 4dp path the invoice
+// form uses. A "ready to bill" that disagrees with the invoice it produces is
+// worse than not showing one.
+export async function jobUnbilled(
+  tx: Transaction,
+  accountId: string,
+  companyId: string,
+  jobIds?: string[],
+): Promise<Map<string, { cents: number; unratedMinutes: number }>> {
+  const byJob = new Map<string, { cents: number; unratedMinutes: number }>();
+  if (jobIds && jobIds.length === 0) return byJob;
+
+  const rows = await tx
+    .select({
+      jobId: timeEntries.jobId,
+      minutes: timeEntries.minutes,
+      rate: timeEntries.rate,
+    })
+    .from(timeEntries)
+    .where(
+      and(
+        eq(timeEntries.accountId, accountId),
+        eq(timeEntries.companyId, companyId),
+        isNull(timeEntries.billedInvoiceId),
+        ...(jobIds ? [inArray(timeEntries.jobId, jobIds)] : []),
+      ),
+    );
+
+  for (const row of rows) {
+    const at = byJob.get(row.jobId) ?? { cents: 0, unratedMinutes: 0 };
+    if (row.rate === null) {
+      at.unratedMinutes += row.minutes;
+    } else {
+      at.cents += toCents(multiplyMoney(hoursFromMinutes(row.minutes), row.rate));
+    }
+    byJob.set(row.jobId, at);
+  }
+  return byJob;
 }
 
 // --- Billing tracked time onto an invoice -----------------------------------

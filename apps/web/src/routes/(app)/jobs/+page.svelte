@@ -43,6 +43,9 @@
     }
   }
 
+  const fmt = (s: string) =>
+    Number(s).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+
   function dateRange(startedOn: string | null, endedOn: string | null): string {
     if (startedOn && endedOn) return `${startedOn} → ${endedOn}`;
     if (startedOn) return `Started ${startedOn}`;
@@ -96,7 +99,23 @@
               </span>
             {/if}
           </span>
-          <span class="label">{dateRange(job.startedOn, job.endedOn)}</span>
+          <!--
+            What this job could invoice right now. Gold only when there is
+            something, so the column reads as a prompt rather than a data dump.
+            The unrated case gets its own words: $0.00 beside a day of unpriced
+            work would read as "nothing to bill" when there is plenty.
+          -->
+          <span class="shrink-0 text-right">
+            {#if Number(job.readyToBill) > 0}
+              <span class="font-mono tabular-nums text-accent">
+                {fmt(job.readyToBill)} ready
+              </span>
+            {:else if job.unratedMinutes > 0}
+              <span class="label">needs a rate</span>
+            {:else}
+              <span class="label">{dateRange(job.startedOn, job.endedOn)}</span>
+            {/if}
+          </span>
         </a>
       </li>
     {/each}

@@ -28,7 +28,13 @@ import { and, asc, eq, gte, inArray, isNull, lt, lte, ne, notInArray, sql } from
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 import type { AppDeps } from '../app.js';
-import { displayHours, effectiveHourly, jobBilledCents, jobMinutes } from '../lib/job-costing.js';
+import {
+  displayHours,
+  effectiveHourly,
+  jobBilledCents,
+  jobMinutes,
+  jobUnbilled,
+} from '../lib/job-costing.js';
 import { apBalance, arBalance, cashFlowNet, cashOnHand } from '../lib/ledger.js';
 import { recordLlmCallHealth } from '../lib/llm-connection.js';
 import { resolveAccountCredential } from '../lib/llm-credentials.js';
@@ -1709,7 +1715,7 @@ export function reportsRoutes(deps: AppDeps) {
           const windowJobIds = [
             ...new Set(windowInvoices.map((inv) => inv.jobId).filter((v): v is string => !!v)),
           ];
-          const [jobRows, billedByJob, minutesByJob] = await Promise.all([
+          const [jobRows, billedByJob, minutesByJob, unbilledByJob] = await Promise.all([
             windowJobIds.length > 0
               ? tx
                   .select({
@@ -1727,6 +1733,7 @@ export function reportsRoutes(deps: AppDeps) {
               : Promise.resolve([]),
             jobBilledCents(tx, accountId, id, windowJobIds),
             jobMinutes(tx, accountId, id, windowJobIds),
+            jobUnbilled(tx, accountId, id, windowJobIds),
           ]);
 
           const namedJobs = jobRows.map((job) => {
@@ -1744,6 +1751,11 @@ export function reportsRoutes(deps: AppDeps) {
               made: centsToMoney(madeCents),
               minutes,
               hours: displayHours(minutes),
+              // Tracked hours no invoice has claimed. Not part of billed or
+              // made — this is work done and not yet charged for, which is a
+              // different question from what the job has earned.
+              readyToBill: centsToMoney(unbilledByJob.get(job.id)?.cents ?? 0),
+              unratedMinutes: unbilledByJob.get(job.id)?.unratedMinutes ?? 0,
               // What an hour on this job actually paid. The number time tracking
               // exists to produce, and null rather than 0 when no hours are
               // tracked — 0 would read as "this job paid nothing an hour".
@@ -1775,6 +1787,7 @@ export function reportsRoutes(deps: AppDeps) {
           const billedTotalCents = allRows.reduce((t, r) => t + toCents(r.billed), 0);
           const jobCostTotalCents = allRows.reduce((t, r) => t + toCents(r.costs), 0);
           const trackedMinutes = namedJobs.reduce((t, r) => t + r.minutes, 0);
+          const readyTotalCents = namedJobs.reduce((t, r) => t + toCents(r.readyToBill), 0);
 
           return c.json({
             from,
@@ -1795,6 +1808,10 @@ export function reportsRoutes(deps: AppDeps) {
               made: centsToMoney(billedTotalCents - jobCostTotalCents - sharedCents),
               minutes: trackedMinutes,
               hours: displayHours(trackedMinutes),
+              // Deliberately outside `made`: this is work not yet charged for,
+              // not profit. Folding it in would inflate the bottom line with
+              // money nobody has been invoiced for.
+              readyToBill: centsToMoney(readyTotalCents),
             },
           });
         },

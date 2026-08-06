@@ -1,4 +1,4 @@
-import { companies, contacts, invoices, jobs, timeEntries } from '@thalermark/db';
+import { type Transaction, companies, contacts, invoices, jobs, timeEntries } from '@thalermark/db';
 import {
   centsToMoney,
   jobCreateSchema,
@@ -16,6 +16,7 @@ import {
   jobBilledCents,
   jobCostCents,
   jobMinutes,
+  jobUnbilled,
 } from '../lib/job-costing.js';
 import { applyCursor, keysetOrderBy, parseLimit, slicePage } from '../lib/pagination.js';
 import { UUID_RE, escapeLike } from '../lib/route-helpers.js';
@@ -37,6 +38,40 @@ import type { RlsVariables } from '../middleware/rls-context.js';
 // Gated on sales:write throughout, matching invoices and the items catalog: this
 // is billing-side work. That gives `member` access (they bill) and withholds it
 // from `accountant`, who reconciles books rather than logging shop hours.
+// Attach "what could this job invoice right now" to a page of job rows.
+//
+// One grouped query for the whole page rather than per row. Rows can span
+// companies in a multi-company workspace, so it groups by company — jobUnbilled
+// is company-scoped because time entries are.
+//
+// unratedMinutes rides along because a list has no room to explain itself: a job
+// with a day of unpriced work would otherwise show $0.00 and read as "nothing to
+// bill" when there is plenty, just nothing priced.
+async function withUnbilled<T extends { id: string; companyId: string }>(
+  tx: Transaction,
+  accountId: string,
+  rows: T[],
+): Promise<(T & { readyToBill: string; unratedMinutes: number })[]> {
+  const byCompany = new Map<string, string[]>();
+  for (const row of rows) {
+    byCompany.set(row.companyId, [...(byCompany.get(row.companyId) ?? []), row.id]);
+  }
+  const unbilled = new Map<string, { cents: number; unratedMinutes: number }>();
+  for (const [companyId, ids] of byCompany) {
+    for (const [jobId, v] of await jobUnbilled(tx, accountId, companyId, ids)) {
+      unbilled.set(jobId, v);
+    }
+  }
+  return rows.map((row) => {
+    const v = unbilled.get(row.id);
+    return {
+      ...row,
+      readyToBill: centsToMoney(v?.cents ?? 0),
+      unratedMinutes: v?.unratedMinutes ?? 0,
+    };
+  });
+}
+
 export function jobsRoutes() {
   return (
     new Hono<{ Variables: RlsVariables }>()
@@ -116,7 +151,7 @@ export function jobsRoutes() {
             .where(and(...conditions))
             .orderBy(asc(jobs.name))
             .limit(20);
-          return c.json({ jobs: rows, nextCursor: null });
+          return c.json({ jobs: await withUnbilled(tx, accountId, rows), nextCursor: null });
         }
 
         const limit = parseLimit(c.req.query('limit'));
@@ -133,7 +168,10 @@ export function jobsRoutes() {
           .orderBy(keysetOrderBy(keys, 'asc'))
           .limit(limit + 1);
         const page = slicePage(rows, limit, (r) => [r.name, r.id]);
-        return c.json({ jobs: page.rows, nextCursor: page.nextCursor });
+        return c.json({
+          jobs: await withUnbilled(tx, accountId, page.rows),
+          nextCursor: page.nextCursor,
+        });
       })
       // Job detail: the job, the invoices it emitted, and the margin block.
       //

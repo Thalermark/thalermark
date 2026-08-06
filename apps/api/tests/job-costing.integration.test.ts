@@ -1379,3 +1379,95 @@ describe('a draft can absorb hours logged after it was started', () => {
     }
   });
 });
+
+describe('ready to bill on the list and the report', () => {
+  beforeEach(resetDb);
+
+  it('reports what each job could invoice, and keeps it out of made', async () => {
+    const ctx = await setup('ready-list-report@test.com');
+    try {
+      const contactId = await makeContact(ctx, 'Chen');
+      const jobId = await makeJob(ctx, 'Deck rebuild', contactId);
+      await makeInvoice(ctx, contactId, 'INV-1', '400.00', '2026-06-05', jobId);
+
+      // 3h at $25 = $75 waiting, plus 2h with no rate that bills nothing.
+      await logTime(ctx, jobId, 180, '25.0000');
+      await logTime(ctx, jobId, 120);
+
+      const list = await ctx.app.request(`/api/jobs?companyId=${ctx.companyId}`, {
+        headers: ctx.headers,
+      });
+      const listBody = (await list.json()) as {
+        jobs: { id: string; readyToBill: string; unratedMinutes: number }[];
+      };
+      const row = listBody.jobs.find((j) => j.id === jobId);
+      expect(row?.readyToBill).toBe('75.00');
+      // Surfaced separately so $0.00 never reads as "nothing to bill" when the
+      // truth is "nothing priced".
+      expect(row?.unratedMinutes).toBe(120);
+
+      const res = await ctx.app.request(
+        `/api/companies/${ctx.companyId}/job-margin?from=2026-06-01&to=2026-06-30`,
+        { headers: ctx.headers },
+      );
+      const body = (await res.json()) as {
+        jobs: { jobId: string; readyToBill: string; made: string; unratedMinutes: number }[];
+        totals: { made: string; readyToBill: string };
+      };
+      const job = body.jobs.find((j) => j.jobId === jobId);
+      expect(job?.readyToBill).toBe('75.00');
+      expect(job?.unratedMinutes).toBe(120);
+      // Ready to bill is NOT profit. Made stays what the job has actually
+      // earned; folding unbilled work in would inflate the bottom line with
+      // money nobody has been invoiced for.
+      expect(job?.made).toBe('400.00');
+      expect(body.totals.made).toBe('400.00');
+      expect(body.totals.readyToBill).toBe('75.00');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('drops to zero once the hours are billed', async () => {
+    const ctx = await setup('ready-after-billing@test.com');
+    try {
+      const contactId = await makeContact(ctx, 'Chen');
+      const jobId = await makeJob(ctx, 'Deck rebuild', contactId);
+      const entryId = await logTime(ctx, jobId, 180, '25.0000');
+
+      await ctx.app.request('/api/invoices', {
+        method: 'POST',
+        headers: ctx.headers,
+        body: JSON.stringify({
+          companyId: ctx.companyId,
+          contactId,
+          jobId,
+          number: 'INV-READY',
+          issueDate: '2026-06-12',
+          dueDate: '2026-07-12',
+          subtotal: '75.00',
+          total: '75.00',
+          lineItems: [
+            {
+              position: 1,
+              description: 'Work',
+              timeEntryId: entryId,
+              quantity: '3.0000',
+              unitPrice: '25.0000',
+              amount: '75.00',
+              type: 'service',
+            },
+          ],
+        }),
+      });
+
+      const list = await ctx.app.request(`/api/jobs?companyId=${ctx.companyId}`, {
+        headers: ctx.headers,
+      });
+      const body = (await list.json()) as { jobs: { id: string; readyToBill: string }[] };
+      expect(body.jobs.find((j) => j.id === jobId)?.readyToBill).toBe('0.00');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+});

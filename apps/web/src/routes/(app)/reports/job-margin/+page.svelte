@@ -28,6 +28,7 @@
     made: string;
     hours: string | null;
     perHour: string | null;
+    ready: string | null;
   };
 
   const rows = $derived<Row[]>([
@@ -42,6 +43,7 @@
       made: j.made,
       hours: j.minutes > 0 ? j.hours : null,
       perHour: j.effectiveHourly,
+      ready: Number(j.readyToBill) > 0 ? j.readyToBill : null,
     })),
     ...report.unjobbedInvoices.map((inv) => ({
       key: `invoice:${inv.invoiceId}`,
@@ -54,11 +56,14 @@
       made: inv.made,
       hours: null,
       perHour: null,
+      // An invoice standing in as its own job has no tracked hours by
+      // definition, so nothing can be waiting on it.
+      ready: null,
     })),
   ]);
 
   const csvRows = $derived<CsvCell[][]>([
-    ['Job', 'Customer or number', 'Date', 'Hours', 'Billed', 'Costs', 'Made', 'Per hour'],
+    ['Job', 'Customer or number', 'Date', 'Hours', 'Billed', 'Costs', 'Made', 'Per hour', 'Ready to bill'],
     ...rows.map(
       (r) =>
         [
@@ -70,10 +75,21 @@
           r.costs,
           r.made,
           r.perHour ?? '',
+          r.ready ?? '',
         ] as CsvCell[],
     ),
-    ['Shared costs', '', '', '', '', report.totals.shared, '', ''],
-    ['Total', '', '', report.totals.hours, report.totals.billed, report.totals.jobCosts, report.totals.made, ''],
+    ['Shared costs', '', '', '', '', report.totals.shared, '', '', ''],
+    [
+      'Total',
+      '',
+      '',
+      report.totals.hours,
+      report.totals.billed,
+      report.totals.jobCosts,
+      report.totals.made,
+      '',
+      report.totals.readyToBill,
+    ],
   ]);
 </script>
 
@@ -113,6 +129,7 @@
           <th class="w-32 px-5 py-3 text-right">Costs</th>
           <th class="w-32 px-5 py-3 text-right">Made</th>
           <th class="w-32 px-5 py-3 text-right">Per hour</th>
+          <th class="w-32 px-5 py-3 text-right">Ready</th>
         </tr>
       </thead>
       <tbody class="divide-y divide-fg/10">
@@ -140,6 +157,14 @@
             <td class="px-5 py-3 text-right font-mono tabular-nums text-fg/70">
               {r.perHour ? `${fmt(r.perHour)}/hr` : '—'}
             </td>
+            <!--
+              Work done and not yet charged for. Deliberately NOT folded into
+              made — that would inflate the bottom line with money nobody has
+              been invoiced for.
+            -->
+            <td class="px-5 py-3 text-right font-mono tabular-nums text-accent">
+              {r.ready ? fmt(r.ready) : '—'}
+            </td>
           </tr>
         {/each}
       </tbody>
@@ -158,6 +183,7 @@
             <td class="px-5 py-3 text-right font-mono tabular-nums">−{fmt(report.totals.shared)}</td>
             <td></td>
             <td></td>
+            <td></td>
           </tr>
         {/if}
         <tr class="font-mono text-xs uppercase tracking-widest">
@@ -173,6 +199,14 @@
             {fmt(report.totals.made)}
           </td>
           <td></td>
+          <!--
+            Sits outside the made total on purpose: this is work done and not yet
+            charged for, so adding it in would inflate the bottom line with money
+            nobody has been invoiced for.
+          -->
+          <td class="px-5 py-3 text-right tabular-nums text-accent">
+            {Number(report.totals.readyToBill) > 0 ? fmt(report.totals.readyToBill) : '—'}
+          </td>
         </tr>
       </tfoot>
     </table>
