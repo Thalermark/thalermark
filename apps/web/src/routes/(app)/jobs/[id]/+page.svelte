@@ -102,18 +102,41 @@
   deductible expense. They divide it instead — which is the number that answers
   "was this job worth my time".
 -->
-<div class="mt-8 grid gap-px overflow-hidden rounded-sm border border-fg/10 bg-fg/10 sm:grid-cols-4">
+<div
+  class="mt-8 grid gap-px overflow-hidden rounded-sm border border-fg/10 bg-fg/10 sm:grid-cols-2 lg:grid-cols-5"
+>
+  <!--
+    Leads the bar: "what can I invoice right now" is the only number here you
+    act on — the rest are history. Accent-coloured for the same reason, and only
+    when there is actually something waiting.
+  -->
+  <div class="bg-surface-2 px-5 py-4">
+    <span class="label">Ready to bill</span>
+    <p
+      class="mt-1 font-mono text-xl tabular-nums {Number(readyToBill) > 0
+        ? 'text-accent'
+        : 'text-fg/80'}"
+    >
+      {fmt(readyToBill)}
+    </p>
+    <!--
+      The caveat lives WITH the number. Only rated hours can be billed, so a job
+      with a day of unrated work would otherwise show $0.00 and read as "nothing
+      to invoice" when there is plenty — just nothing priced yet.
+    -->
+    <p class="mt-1 text-xs text-fg/50">
+      {#if unratedMinutes > 0}
+        {hours(unratedMinutes)} h needs a rate
+      {:else if Number(readyToBill) > 0}
+        not on an invoice yet
+      {:else}
+        nothing waiting
+      {/if}
+    </p>
+  </div>
   <div class="bg-surface-2 px-5 py-4">
     <span class="label">Billed</span>
     <p class="mt-1 font-mono text-xl tabular-nums text-fg/80">{fmt(margin.billed)}</p>
-    <!--
-      Money waiting, sat next to money collected — the contrast is the point, and
-      this is where the eye already goes looking for it. Silent at zero rather
-      than showing "$0.00 ready", which would be noise on most jobs.
-    -->
-    {#if Number(readyToBill) > 0}
-      <p class="mt-1 text-xs text-accent">{fmt(readyToBill)} ready to bill</p>
-    {/if}
   </div>
   <div class="bg-surface-2 px-5 py-4">
     <span class="label">What it cost</span>
@@ -123,14 +146,19 @@
     <span class="label">Made</span>
     <p class="mt-1 font-mono text-xl tabular-nums text-fg">{fmt(margin.made)}</p>
   </div>
+  <!--
+    Per hour leads this tile, not the raw hour count: it is the number time
+    tracking exists to produce — "was this job worth my time" — and the hours it
+    was computed over ride underneath as its supporting detail.
+  -->
   <div class="bg-surface-2 px-5 py-4">
     <span class="label">Per hour</span>
     <!--
-      A dash, not $0.00, when nothing is logged. Zero would read as "this job
-      paid you nothing an hour" rather than "you haven't told me the hours".
+      A dash, never $0.00. Zero would read as "this job paid you nothing an
+      hour"; the truth until it is billed is "there is no answer yet".
     -->
     <p class="mt-1 font-mono text-xl tabular-nums text-fg">
-      {margin.effectiveHourly ? `${fmt(margin.effectiveHourly)}` : '—'}
+      {margin.effectiveHourly ? fmt(margin.effectiveHourly) : '—'}
     </p>
     <p class="mt-1 text-xs text-fg/50">
       {margin.minutes > 0 ? `over ${margin.hours} h` : 'no hours logged'}
@@ -263,12 +291,7 @@
       </li>
     {/each}
   </ul>
-  <p class="mt-3 text-sm text-fg/60">
-    {time.totalHours} hours in total.
-    {#if unratedMinutes > 0}
-      {hours(unratedMinutes)} h of that has no rate, so it won't be charged.
-    {/if}
-  </p>
+  <p class="mt-3 text-sm text-fg/60">{time.totalHours} hours in total.</p>
 {/if}
 
 {#if canWrite && job.invoices.length === 0 && time.timeEntries.length === 0}
