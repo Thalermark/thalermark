@@ -3,6 +3,7 @@ import {
   type LineItemType,
   addMoney,
   formatUnitPrice,
+  hoursFromMinutes,
   invoiceUpdateSchema,
   multiplyMoney,
   sumMoney,
@@ -48,6 +49,10 @@ type Row = {
   type: LineItemType;
   taxable: boolean;
   taxPolicyId: string;
+  // The tracked time entry this line bills (TMC-180). Since 0027 the saved line
+  // carries its own link, so an hour line rebuilds itself on load and deleting
+  // the row releases the entry.
+  timeEntryId: string | null;
 };
 const blankRow = (): Row => ({
   description: '',
@@ -56,6 +61,7 @@ const blankRow = (): Row => ({
   unitPrice: '',
   amount: '',
   sourceItemId: null,
+  timeEntryId: null,
   type: 'service',
   taxable: false,
   taxPolicyId: '',
@@ -86,6 +92,16 @@ export default function EditInvoice() {
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [contactName, setContactName] = useState('');
   const [taxPolicies, setTaxPolicies] = useState<TaxPolicyLite[]>([]);
+  const [pendingTime, setPendingTime] = useState<
+    {
+      id: string;
+      entryDate: string;
+      minutes: number;
+      hours: string;
+      note: string | null;
+      rate: string | null;
+    }[]
+  >([]);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -124,11 +140,36 @@ export default function EditInvoice() {
             unitPrice: formatUnitPrice(li.unitPrice),
             amount: multiplyMoney(li.quantity, li.unitPrice),
             sourceItemId: li.sourceItemId ?? null,
+            timeEntryId: li.timeEntryId ?? null,
             type: li.type === 'product' ? 'product' : 'service',
             taxable: li.taxable ?? false,
             taxPolicyId: li.taxPolicyId ?? '',
           })),
         });
+
+        // Hours logged on this invoice's job that no invoice has claimed, so a
+        // draft can absorb time logged AFTER it was started. Adding is an
+        // explicit press, unlike the create screen which seeds automatically:
+        // there nothing exists to disturb, here the lines are already curated.
+        if (inv.jobId) {
+          const timeRes = await api.api.jobs[':id'].time.$get({
+            param: { id: inv.jobId },
+            query: { unbilled: 'true' },
+          });
+          if (active && timeRes.ok) {
+            const { timeEntries } = await timeRes.json();
+            setPendingTime(
+              timeEntries.map((t) => ({
+                id: t.id,
+                entryDate: t.entryDate,
+                minutes: t.minutes,
+                hours: hoursFromMinutes(t.minutes),
+                note: t.note,
+                rate: t.rate,
+              })),
+            );
+          }
+        }
         const polRes = await api.api['tax-policies'].$get({ query: { companyId: inv.companyId } });
         if (active && polRes.ok) {
           const { taxPolicies: pols } = await polRes.json();
@@ -157,6 +198,35 @@ export default function EditInvoice() {
       s ? { ...s, rows: s.rows.map((r, j) => (j === i ? { ...r, ...patch } : r)) } : s,
     );
   const addRow = () => setSeed((s) => (s ? { ...s, rows: [...s.rows, blankRow()] } : s));
+
+  // Moves the unbilled hours into the line table. They leave the list at the
+  // same moment, or there is no way to tell the press worked.
+  function addTrackedTime() {
+    setSeed((s) => {
+      if (!s) return s;
+      const added: Row[] = pendingTime.map((t) => {
+        const unitPrice = t.rate ?? '0';
+        return {
+          description: t.note?.trim() || 'Hours',
+          quantity: t.hours,
+          unitLabel: 'hour',
+          unitPrice: formatUnitPrice(unitPrice),
+          // Same multiplyMoney every typed row uses, so a billed hour and a
+          // hand-typed hour cannot round differently.
+          amount: multiplyMoney(t.hours, unitPrice),
+          sourceItemId: null,
+          timeEntryId: t.id,
+          type: 'service' as LineItemType,
+          // Taxability of labour varies by state and trade; a tick beats a guess.
+          taxable: false,
+          taxPolicyId: '',
+        };
+      });
+      const keep = s.rows.filter((r) => r.description || r.quantity || r.unitPrice);
+      return { ...s, rows: [...keep, ...added] };
+    });
+    setPendingTime([]);
+  }
   const removeRow = (i: number) =>
     setSeed((s) => (s && s.rows.length > 1 ? { ...s, rows: s.rows.filter((_, j) => j !== i) } : s));
   const toggleRowTaxable = (i: number) =>
@@ -237,6 +307,7 @@ export default function EditInvoice() {
         taxAmount: lineTax(r.taxable, rate, amount),
         taxPolicyId: r.taxable ? r.taxPolicyId || undefined : undefined,
         sourceItemId: r.sourceItemId ?? undefined,
+        timeEntryId: r.timeEntryId ?? undefined,
       };
     });
     const sub = sumMoney(lineItems.map((li) => li.amount));
@@ -351,6 +422,39 @@ export default function EditInvoice() {
               onChange={(iso) => set('dueDate', iso)}
               error={fieldErrors.dueDate}
             />
+
+            {/*
+              Hours logged after this draft was started. An explicit press, not
+              an auto-seed: the lines here are already curated and silently
+              mutating them would be wrong.
+            */}
+            {pendingTime.length > 0 ? (
+              <View className="rounded-sm border border-gold-deep/30 bg-gold-deep/5 p-4">
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                  Unbilled hours on this job
+                </Text>
+                {pendingTime.map((t) => (
+                  <View key={t.id} className="mt-2 flex-row items-center gap-3">
+                    <Text className="w-24 text-sm text-ink/60">{t.entryDate}</Text>
+                    <Text className="w-14 font-mono text-sm text-ink/80">
+                      {formatUnitPrice(t.hours)} h
+                    </Text>
+                    <Text className="flex-1 text-sm text-ink/70" numberOfLines={1}>
+                      {t.note ?? ''}
+                    </Text>
+                    <Text className="font-mono text-xs text-ink/60">
+                      {t.rate ? `$${formatUnitPrice(t.rate)}/h` : 'no rate'}
+                    </Text>
+                  </View>
+                ))}
+                <Pressable
+                  onPress={addTrackedTime}
+                  className="mt-3 self-start rounded-sm bg-ink px-4 py-2.5 active:bg-gold-deep"
+                >
+                  <Text className="text-sm font-medium text-cream">Add to this invoice</Text>
+                </Pressable>
+              </View>
+            ) : null}
 
             <LineItems
               rows={seed.rows}

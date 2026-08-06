@@ -1,4 +1,12 @@
-import { companies, contacts, invoices, jobs, timeEntries } from '@thalermark/db';
+import {
+  type Transaction,
+  companies,
+  contacts,
+  invoices,
+  jobs,
+  timeEntries,
+  timeTimers,
+} from '@thalermark/db';
 import {
   centsToMoney,
   jobCreateSchema,
@@ -16,6 +24,7 @@ import {
   jobBilledCents,
   jobCostCents,
   jobMinutes,
+  jobUnbilled,
 } from '../lib/job-costing.js';
 import { applyCursor, keysetOrderBy, parseLimit, slicePage } from '../lib/pagination.js';
 import { UUID_RE, escapeLike } from '../lib/route-helpers.js';
@@ -37,6 +46,40 @@ import type { RlsVariables } from '../middleware/rls-context.js';
 // Gated on sales:write throughout, matching invoices and the items catalog: this
 // is billing-side work. That gives `member` access (they bill) and withholds it
 // from `accountant`, who reconciles books rather than logging shop hours.
+// Attach "what could this job invoice right now" to a page of job rows.
+//
+// One grouped query for the whole page rather than per row. Rows can span
+// companies in a multi-company workspace, so it groups by company — jobUnbilled
+// is company-scoped because time entries are.
+//
+// unratedMinutes rides along because a list has no room to explain itself: a job
+// with a day of unpriced work would otherwise show $0.00 and read as "nothing to
+// bill" when there is plenty, just nothing priced.
+async function withUnbilled<T extends { id: string; companyId: string }>(
+  tx: Transaction,
+  accountId: string,
+  rows: T[],
+): Promise<(T & { readyToBill: string; unratedMinutes: number })[]> {
+  const byCompany = new Map<string, string[]>();
+  for (const row of rows) {
+    byCompany.set(row.companyId, [...(byCompany.get(row.companyId) ?? []), row.id]);
+  }
+  const unbilled = new Map<string, { cents: number; unratedMinutes: number }>();
+  for (const [companyId, ids] of byCompany) {
+    for (const [jobId, v] of await jobUnbilled(tx, accountId, companyId, ids)) {
+      unbilled.set(jobId, v);
+    }
+  }
+  return rows.map((row) => {
+    const v = unbilled.get(row.id);
+    return {
+      ...row,
+      readyToBill: centsToMoney(v?.cents ?? 0),
+      unratedMinutes: v?.unratedMinutes ?? 0,
+    };
+  });
+}
+
 export function jobsRoutes() {
   return (
     new Hono<{ Variables: RlsVariables }>()
@@ -116,7 +159,7 @@ export function jobsRoutes() {
             .where(and(...conditions))
             .orderBy(asc(jobs.name))
             .limit(20);
-          return c.json({ jobs: rows, nextCursor: null });
+          return c.json({ jobs: await withUnbilled(tx, accountId, rows), nextCursor: null });
         }
 
         const limit = parseLimit(c.req.query('limit'));
@@ -133,7 +176,62 @@ export function jobsRoutes() {
           .orderBy(keysetOrderBy(keys, 'asc'))
           .limit(limit + 1);
         const page = slicePage(rows, limit, (r) => [r.name, r.id]);
-        return c.json({ jobs: page.rows, nextCursor: page.nextCursor });
+        return c.json({
+          jobs: await withUnbilled(tx, accountId, page.rows),
+          nextCursor: page.nextCursor,
+        });
+      })
+      // Declared BEFORE /api/jobs/:id — Hono is first-match, so the literal
+      // would otherwise be captured as an id. Same rule as /api/items/import.
+      .get('/api/jobs/summary', async (c) => {
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+        const companyId = c.req.query('companyId');
+
+        const scope = [eq(jobs.accountId, accountId)];
+        if (companyId) scope.push(eq(jobs.companyId, companyId));
+
+        const rows = await tx
+          .select({ id: jobs.id, companyId: jobs.companyId, status: jobs.status })
+          .from(jobs)
+          .where(and(...scope));
+
+        const open = rows.filter((r) => r.status === 'open').length;
+
+        // Money waiting across every job, and the hours that CANNOT be billed
+        // until someone prices them. The second is the actionable half: a job
+        // full of unrated work looks identical to a job with nothing to bill.
+        let readyCents = 0;
+        let readyOnClosedCents = 0;
+        let unratedMinutes = 0;
+        let jobsWithMoneyWaiting = 0;
+        const statusOf = new Map(rows.map((r) => [r.id, r.status]));
+        const byCompany = new Map<string, string[]>();
+        for (const r of rows) {
+          byCompany.set(r.companyId, [...(byCompany.get(r.companyId) ?? []), r.id]);
+        }
+        for (const [cid, ids] of byCompany) {
+          for (const [jobId, v] of await jobUnbilled(tx, accountId, cid, ids)) {
+            readyCents += v.cents;
+            unratedMinutes += v.unratedMinutes;
+            if (v.cents > 0) jobsWithMoneyWaiting += 1;
+            // Broken out because the default list shows OPEN jobs: without this
+            // the headline can read $191 while the visible list adds to $60, and
+            // the missing money is invisible rather than merely elsewhere.
+            if (statusOf.get(jobId) === 'closed') readyOnClosedCents += v.cents;
+          }
+        }
+
+        return c.json({
+          total: rows.length,
+          open,
+          closed: rows.length - open,
+          readyToBill: centsToMoney(readyCents),
+          readyToBillOnClosed: centsToMoney(readyOnClosedCents),
+          jobsWithMoneyWaiting,
+          unratedMinutes,
+          unratedHours: displayHours(unratedMinutes),
+        });
       })
       // Job detail: the job, the invoices it emitted, and the margin block.
       //
@@ -195,6 +293,9 @@ export function jobsRoutes() {
       .patch(
         '/api/jobs/:id',
         requireCapability('sales:write'),
+        // confirm rides as a query param so hc types it; the guard below reads
+        // it to let a deliberate close through.
+        validator('query', (v) => ({ confirm: v.confirm === 'true' ? 'true' : undefined })),
         validator('json', (value, c) => {
           const parsed = jobUpdateSchema.safeParse(value);
           if (!parsed.success) {
@@ -234,6 +335,20 @@ export function jobsRoutes() {
           const endedOn = patch.endedOn === undefined ? current.endedOn : patch.endedOn;
           if (startedOn && endedOn && startedOn > endedOn) {
             return c.json({ error: 'ended_before_started' }, 400);
+          }
+
+          // Closing a job with billable hours on it is how money goes missing:
+          // the job drops out of the default list and its unbilled work goes
+          // with it. Refused unless the caller says so explicitly — the amount
+          // comes back so the client can name it rather than nag vaguely.
+          if (patch.status === 'closed' && current.status !== 'closed') {
+            const waiting = (await jobUnbilled(tx, accountId, current.companyId, [id])).get(id);
+            if (waiting && waiting.cents > 0 && c.req.valid('query').confirm !== 'true') {
+              return c.json(
+                { error: 'job_has_unbilled_time', readyToBill: centsToMoney(waiting.cents) },
+                409,
+              );
+            }
           }
 
           const [updated] = await tx
@@ -392,6 +507,116 @@ export function jobsRoutes() {
           });
         },
       )
+      // --- The running stopwatch (TMC-180) -------------------------------
+      //
+      // Start refuses if the caller already has one running, naming the job it
+      // is on. Auto-stopping instead would silently log the previous job with
+      // whatever happened in between — the drive to this one — inside it.
+      .post('/api/jobs/:id/timer', requireCapability('sales:write'), async (c) => {
+        const jobId = c.req.param('id');
+        if (!UUID_RE.test(jobId)) return c.json({ error: 'invalid_id' }, 400);
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+        const userId = c.get('userId');
+
+        const [job] = await tx
+          .select({ id: jobs.id, companyId: jobs.companyId })
+          .from(jobs)
+          .where(and(eq(jobs.id, jobId), eq(jobs.accountId, accountId)))
+          .limit(1);
+        if (!job) return c.json({ error: 'job_not_found' }, 404);
+
+        // Checked before insert so the caller gets the running job's NAME rather
+        // than a unique-violation 500 — the message is the whole point of
+        // refusing. (The unique index is still the thing that makes it true.)
+        const [running] = await tx
+          .select({ jobId: timeTimers.jobId, startedAt: timeTimers.startedAt, name: jobs.name })
+          .from(timeTimers)
+          .innerJoin(jobs, eq(jobs.id, timeTimers.jobId))
+          .where(and(eq(timeTimers.accountId, accountId), eq(timeTimers.userId, userId)))
+          .limit(1);
+        if (running) {
+          return c.json(
+            {
+              error: 'timer_already_running',
+              jobId: running.jobId,
+              jobName: running.name,
+              startedAt: running.startedAt,
+            },
+            409,
+          );
+        }
+
+        const note = (await c.req.json().catch(() => null))?.note;
+        const row = {
+          id: uuidv7(),
+          accountId,
+          companyId: job.companyId,
+          jobId,
+          userId,
+          note: typeof note === 'string' && note.trim() ? note.trim().slice(0, 1000) : null,
+        };
+        await tx.insert(timeTimers).values(row);
+        // No audit row: starting a stopwatch records no work and changes no
+        // money. The audit trail gets the time entry, if one is ever logged.
+        const [created] = await tx
+          .select()
+          .from(timeTimers)
+          .where(eq(timeTimers.id, row.id))
+          .limit(1);
+        return c.json(created, 201);
+      })
+      // Stop returns the elapsed minutes and DELETES the timer. It deliberately
+      // does not log: the user still owes a note and a rate, and a stopwatch
+      // that silently became a billable entry would be the easiest way to
+      // invoice someone for a drive home.
+      .delete('/api/jobs/:id/timer', requireCapability('sales:write'), async (c) => {
+        const jobId = c.req.param('id');
+        if (!UUID_RE.test(jobId)) return c.json({ error: 'invalid_id' }, 400);
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+        const userId = c.get('userId');
+
+        const [running] = await tx
+          .select()
+          .from(timeTimers)
+          .where(
+            and(
+              eq(timeTimers.accountId, accountId),
+              eq(timeTimers.userId, userId),
+              eq(timeTimers.jobId, jobId),
+            ),
+          )
+          .limit(1);
+        if (!running) return c.json({ error: 'timer_not_running' }, 404);
+
+        await tx.delete(timeTimers).where(eq(timeTimers.id, running.id));
+
+        // Elapsed is computed from started_at, never accumulated, so a shut
+        // laptop cannot drift it. Rounded UP to the minute: a 30-second visit is
+        // a minute of work, and rounding it to zero loses the entry entirely.
+        const minutes = Math.max(1, Math.ceil((Date.now() - running.startedAt.getTime()) / 60_000));
+        return c.json({ minutes, note: running.note, startedAt: running.startedAt });
+      })
+      // The caller's running timer, if any. One request answers "is anything
+      // running, and where" for every screen that needs to know.
+      .get('/api/timer', async (c) => {
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+        const userId = c.get('userId');
+        const [running] = await tx
+          .select({
+            jobId: timeTimers.jobId,
+            jobName: jobs.name,
+            startedAt: timeTimers.startedAt,
+            note: timeTimers.note,
+          })
+          .from(timeTimers)
+          .innerJoin(jobs, eq(jobs.id, timeTimers.jobId))
+          .where(and(eq(timeTimers.accountId, accountId), eq(timeTimers.userId, userId)))
+          .limit(1);
+        return c.json({ timer: running ?? null });
+      })
       .patch(
         '/api/time-entries/:id',
         requireCapability('sales:write'),

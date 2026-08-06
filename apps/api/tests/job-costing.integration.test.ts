@@ -692,11 +692,11 @@ describe('billing tracked time onto an invoice', () => {
         dueDate: '2026-07-12',
         subtotal: '71.50',
         total: '71.50',
-        billedTimeEntryIds: entryIds,
         lineItems: [
           {
             position: 1,
             description: 'Sitting',
+            timeEntryId: entryIds[0],
             quantity: '3.2500',
             unitPrice: '22.0000',
             amount: '71.50',
@@ -748,11 +748,11 @@ describe('billing tracked time onto an invoice', () => {
           dueDate: '2026-07-13',
           subtotal: '71.50',
           total: '71.50',
-          billedTimeEntryIds: [entryId],
           lineItems: [
             {
               position: 1,
               description: 'Sitting',
+              timeEntryId: entryId,
               quantity: '3.2500',
               unitPrice: '22.0000',
               amount: '71.50',
@@ -786,11 +786,11 @@ describe('billing tracked time onto an invoice', () => {
           dueDate: '2026-07-12',
           subtotal: '22.00',
           total: '22.00',
-          billedTimeEntryIds: [entryId],
           lineItems: [
             {
               position: 1,
               description: 'Sitting',
+              timeEntryId: entryId,
               quantity: '1',
               unitPrice: '22.00',
               amount: '22.00',
@@ -830,7 +830,6 @@ describe('billing tracked time onto an invoice', () => {
           dueDate: '2026-07-12',
           subtotal: '10.00',
           total: '10.00',
-          billedTimeEntryIds: [],
           lineItems: [
             {
               position: 1,
@@ -1105,11 +1104,11 @@ describe('a rejected billing leaves nothing behind', () => {
           dueDate: '2026-07-12',
           subtotal: '71.50',
           total: '71.50',
-          billedTimeEntryIds: [entryId],
           lineItems: [
             {
               position: 1,
               description: 'Sitting',
+              timeEntryId: entryId,
               quantity: '3.2500',
               unitPrice: '22.0000',
               amount: '71.50',
@@ -1134,11 +1133,11 @@ describe('a rejected billing leaves nothing behind', () => {
           dueDate: '2026-07-13',
           subtotal: '71.50',
           total: '71.50',
-          billedTimeEntryIds: [entryId],
           lineItems: [
             {
               position: 1,
               description: 'Sitting again',
+              timeEntryId: entryId,
               quantity: '3.2500',
               unitPrice: '22.0000',
               amount: '71.50',
@@ -1191,11 +1190,11 @@ describe('voiding an invoice releases its hours', () => {
           dueDate: '2026-07-12',
           subtotal: '71.50',
           total: '71.50',
-          billedTimeEntryIds: [entryId],
           lineItems: [
             {
               position: 1,
               description: 'Sitting',
+              timeEntryId: entryId,
               quantity: '3.2500',
               unitPrice: '22.0000',
               amount: '71.50',
@@ -1230,6 +1229,542 @@ describe('voiding an invoice releases its hours', () => {
       expect(body.timeEntries[0]?.id).toBe(entryId);
       // The work itself is untouched — only the claim on it was cancelled.
       expect(body.timeEntries[0]?.minutes).toBe(195);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+});
+
+describe('a draft can absorb hours logged after it was started', () => {
+  beforeEach(resetDb);
+
+  async function draftWithOneHour(ctx: Ctx, jobId: string, contactId: string, entryId: string) {
+    const res = await ctx.app.request('/api/invoices', {
+      method: 'POST',
+      headers: ctx.headers,
+      body: JSON.stringify({
+        companyId: ctx.companyId,
+        contactId,
+        jobId,
+        number: 'INV-DRAFT',
+        issueDate: '2026-06-12',
+        dueDate: '2026-07-12',
+        subtotal: '15.00',
+        total: '15.00',
+        lineItems: [
+          {
+            position: 1,
+            description: 'Sitting',
+            timeEntryId: entryId,
+            quantity: '1.0000',
+            unitPrice: '15.0000',
+            amount: '15.00',
+            type: 'service',
+          },
+        ],
+      }),
+    });
+    return ((await res.json()) as { id: string }).id;
+  }
+
+  it('adds hours logged after the draft existed, keeping the ones it had', async () => {
+    const ctx = await setup('draft-absorbs-hours@test.com');
+    try {
+      const contactId = await makeContact(ctx, 'Chen');
+      const jobId = await makeJob(ctx, 'Tuesdays at the Chens', contactId);
+      const first = await logTime(ctx, jobId, 60, '15.0000');
+      const invoiceId = await draftWithOneHour(ctx, jobId, contactId, first);
+
+      // More work happens after the draft exists.
+      const second = await logTime(ctx, jobId, 180, '15.0000');
+
+      const patched = await ctx.app.request(`/api/invoices/${invoiceId}`, {
+        method: 'PATCH',
+        headers: ctx.headers,
+        body: JSON.stringify({
+          contactId,
+          jobId,
+          number: 'INV-DRAFT',
+          issueDate: '2026-06-12',
+          dueDate: '2026-07-12',
+          subtotal: '60.00',
+          total: '60.00',
+          lineItems: [
+            {
+              position: 1,
+              description: 'Sitting',
+              timeEntryId: first,
+              quantity: '1.0000',
+              unitPrice: '15.0000',
+              amount: '15.00',
+              type: 'service',
+            },
+            {
+              position: 2,
+              description: 'More sitting',
+              timeEntryId: second,
+              quantity: '3.0000',
+              unitPrice: '15.0000',
+              amount: '45.00',
+              type: 'service',
+            },
+          ],
+        }),
+      });
+      expect(patched.status).toBe(200);
+
+      const unbilled = await ctx.app.request(`/api/jobs/${jobId}/time?unbilled=true`, {
+        headers: ctx.headers,
+      });
+      expect(((await unbilled.json()) as { timeEntries: unknown[] }).timeEntries).toHaveLength(0);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  // The bug the line-level link exists to fix. Before invoice_line_items
+  // .time_entry_id there was no way back from a saved hour line to its entry, so
+  // removing the line stranded the entry as billed forever: never listed as
+  // unbilled, never billable again, the work silently unchargeable.
+  it('returns the hours to unbilled when their line is removed', async () => {
+    const ctx = await setup('draft-remove-line@test.com');
+    try {
+      const contactId = await makeContact(ctx, 'Chen');
+      const jobId = await makeJob(ctx, 'Tuesdays at the Chens', contactId);
+      const entryId = await logTime(ctx, jobId, 60, '15.0000');
+      const invoiceId = await draftWithOneHour(ctx, jobId, contactId, entryId);
+
+      const before = await ctx.app.request(`/api/jobs/${jobId}/time?unbilled=true`, {
+        headers: ctx.headers,
+      });
+      expect(((await before.json()) as { timeEntries: unknown[] }).timeEntries).toHaveLength(0);
+
+      // Replace the hour line with an ordinary one — the hours are no longer
+      // being charged for, so they must become billable again.
+      const patched = await ctx.app.request(`/api/invoices/${invoiceId}`, {
+        method: 'PATCH',
+        headers: ctx.headers,
+        body: JSON.stringify({
+          contactId,
+          jobId,
+          number: 'INV-DRAFT',
+          issueDate: '2026-06-12',
+          dueDate: '2026-07-12',
+          subtotal: '20.00',
+          total: '20.00',
+          lineItems: [
+            {
+              position: 1,
+              description: 'Callout fee',
+              quantity: '1',
+              unitPrice: '20.00',
+              amount: '20.00',
+              type: 'service',
+            },
+          ],
+        }),
+      });
+      expect(patched.status).toBe(200);
+
+      const after = await ctx.app.request(`/api/jobs/${jobId}/time?unbilled=true`, {
+        headers: ctx.headers,
+      });
+      const body = (await after.json()) as { timeEntries: { id: string; minutes: number }[] };
+      expect(body.timeEntries).toHaveLength(1);
+      expect(body.timeEntries[0]?.id).toBe(entryId);
+      // The work itself is untouched — only the claim on it was dropped.
+      expect(body.timeEntries[0]?.minutes).toBe(60);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+});
+
+describe('ready to bill on the list and the report', () => {
+  beforeEach(resetDb);
+
+  it('reports what each job could invoice, and keeps it out of made', async () => {
+    const ctx = await setup('ready-list-report@test.com');
+    try {
+      const contactId = await makeContact(ctx, 'Chen');
+      const jobId = await makeJob(ctx, 'Deck rebuild', contactId);
+      await makeInvoice(ctx, contactId, 'INV-1', '400.00', '2026-06-05', jobId);
+
+      // 3h at $25 = $75 waiting, plus 2h with no rate that bills nothing.
+      await logTime(ctx, jobId, 180, '25.0000');
+      await logTime(ctx, jobId, 120);
+
+      const list = await ctx.app.request(`/api/jobs?companyId=${ctx.companyId}`, {
+        headers: ctx.headers,
+      });
+      const listBody = (await list.json()) as {
+        jobs: { id: string; readyToBill: string; unratedMinutes: number }[];
+      };
+      const row = listBody.jobs.find((j) => j.id === jobId);
+      expect(row?.readyToBill).toBe('75.00');
+      // Surfaced separately so $0.00 never reads as "nothing to bill" when the
+      // truth is "nothing priced".
+      expect(row?.unratedMinutes).toBe(120);
+
+      const res = await ctx.app.request(
+        `/api/companies/${ctx.companyId}/job-margin?from=2026-06-01&to=2026-06-30`,
+        { headers: ctx.headers },
+      );
+      const body = (await res.json()) as {
+        jobs: { jobId: string; readyToBill: string; made: string; unratedMinutes: number }[];
+        totals: { made: string; readyToBill: string };
+      };
+      const job = body.jobs.find((j) => j.jobId === jobId);
+      expect(job?.readyToBill).toBe('75.00');
+      expect(job?.unratedMinutes).toBe(120);
+      // Ready to bill is NOT profit. Made stays what the job has actually
+      // earned; folding unbilled work in would inflate the bottom line with
+      // money nobody has been invoiced for.
+      expect(job?.made).toBe('400.00');
+      expect(body.totals.made).toBe('400.00');
+      expect(body.totals.readyToBill).toBe('75.00');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('drops to zero once the hours are billed', async () => {
+    const ctx = await setup('ready-after-billing@test.com');
+    try {
+      const contactId = await makeContact(ctx, 'Chen');
+      const jobId = await makeJob(ctx, 'Deck rebuild', contactId);
+      const entryId = await logTime(ctx, jobId, 180, '25.0000');
+
+      await ctx.app.request('/api/invoices', {
+        method: 'POST',
+        headers: ctx.headers,
+        body: JSON.stringify({
+          companyId: ctx.companyId,
+          contactId,
+          jobId,
+          number: 'INV-READY',
+          issueDate: '2026-06-12',
+          dueDate: '2026-07-12',
+          subtotal: '75.00',
+          total: '75.00',
+          lineItems: [
+            {
+              position: 1,
+              description: 'Work',
+              timeEntryId: entryId,
+              quantity: '3.0000',
+              unitPrice: '25.0000',
+              amount: '75.00',
+              type: 'service',
+            },
+          ],
+        }),
+      });
+
+      const list = await ctx.app.request(`/api/jobs?companyId=${ctx.companyId}`, {
+        headers: ctx.headers,
+      });
+      const body = (await list.json()) as { jobs: { id: string; readyToBill: string }[] };
+      expect(body.jobs.find((j) => j.id === jobId)?.readyToBill).toBe('0.00');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+});
+
+describe('the running stopwatch', () => {
+  beforeEach(resetDb);
+
+  it('starts, reports itself, and hands back minutes on stop without logging', async () => {
+    const ctx = await setup('timer-basic@test.com');
+    try {
+      const jobId = await makeJob(ctx, 'House 1');
+
+      const started = await ctx.app.request(`/api/jobs/${jobId}/timer`, {
+        method: 'POST',
+        headers: ctx.headers,
+        body: JSON.stringify({ note: 'framing' }),
+      });
+      expect(started.status).toBe(201);
+
+      const running = await ctx.app.request('/api/timer', { headers: ctx.headers });
+      const body = (await running.json()) as {
+        timer: { jobId: string; jobName: string; note: string | null } | null;
+      };
+      expect(body.timer?.jobId).toBe(jobId);
+      expect(body.timer?.jobName).toBe('House 1');
+      expect(body.timer?.note).toBe('framing');
+
+      const stopped = await ctx.app.request(`/api/jobs/${jobId}/timer`, {
+        method: 'DELETE',
+        headers: ctx.headers,
+      });
+      expect(stopped.status).toBe(200);
+      const result = (await stopped.json()) as { minutes: number; note: string | null };
+      // Rounded up: a 30-second visit is a minute of work, and rounding to zero
+      // would lose the entry entirely.
+      expect(result.minutes).toBeGreaterThanOrEqual(1);
+      expect(result.note).toBe('framing');
+
+      // Stopping records NOTHING. The user still owes a note and a rate, and a
+      // stopwatch that silently became a billable entry is the easiest way to
+      // invoice someone for a drive home.
+      const entries = await ctx.app.request(`/api/jobs/${jobId}/time`, { headers: ctx.headers });
+      expect(((await entries.json()) as { timeEntries: unknown[] }).timeEntries).toHaveLength(0);
+
+      const after = await ctx.app.request('/api/timer', { headers: ctx.headers });
+      expect(((await after.json()) as { timer: unknown }).timer).toBeNull();
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  // The rule that keeps the same minute from being billed to two customers.
+  // Refused rather than auto-stopped: forgetting to stop at house 1, driving 25
+  // minutes and starting at house 2 would otherwise log house 1 with the drive
+  // inside it, silently.
+  it('refuses a second timer and names the job holding it', async () => {
+    const ctx = await setup('timer-one-at-a-time@test.com');
+    try {
+      const houseOne = await makeJob(ctx, 'House 1');
+      const houseTwo = await makeJob(ctx, 'House 2');
+
+      expect(
+        (
+          await ctx.app.request(`/api/jobs/${houseOne}/timer`, {
+            method: 'POST',
+            headers: ctx.headers,
+          })
+        ).status,
+      ).toBe(201);
+
+      const second = await ctx.app.request(`/api/jobs/${houseTwo}/timer`, {
+        method: 'POST',
+        headers: ctx.headers,
+      });
+      expect(second.status).toBe(409);
+      const body = (await second.json()) as { error: string; jobId: string; jobName: string };
+      expect(body.error).toBe('timer_already_running');
+      // The name and id are the point — the user is at house 2 and the thing
+      // blocking them is somewhere else.
+      expect(body.jobName).toBe('House 1');
+      expect(body.jobId).toBe(houseOne);
+
+      // House 1 keeps running; the refusal changed nothing.
+      const running = await ctx.app.request('/api/timer', { headers: ctx.headers });
+      expect(((await running.json()) as { timer: { jobId: string } }).timer.jobId).toBe(houseOne);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('frees the person once the first timer stops', async () => {
+    const ctx = await setup('timer-sequential@test.com');
+    try {
+      const houseOne = await makeJob(ctx, 'House 1');
+      const houseTwo = await makeJob(ctx, 'House 2');
+
+      await ctx.app.request(`/api/jobs/${houseOne}/timer`, {
+        method: 'POST',
+        headers: ctx.headers,
+      });
+      await ctx.app.request(`/api/jobs/${houseOne}/timer`, {
+        method: 'DELETE',
+        headers: ctx.headers,
+      });
+
+      const second = await ctx.app.request(`/api/jobs/${houseTwo}/timer`, {
+        method: 'POST',
+        headers: ctx.headers,
+      });
+      expect(second.status).toBe(201);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('404s stopping a timer that is not running', async () => {
+    const ctx = await setup('timer-stop-none@test.com');
+    try {
+      const jobId = await makeJob(ctx, 'House 1');
+      const res = await ctx.app.request(`/api/jobs/${jobId}/timer`, {
+        method: 'DELETE',
+        headers: ctx.headers,
+      });
+      expect(res.status).toBe(404);
+      expect(((await res.json()) as { error: string }).error).toBe('timer_not_running');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+});
+
+describe('GET /api/jobs/summary', () => {
+  beforeEach(resetDb);
+
+  // Declared before /api/jobs/:id — Hono is first-match, so a regression in
+  // route order would make this 404 as an invalid id rather than answering.
+  it('is not captured as an id by the detail route', async () => {
+    const ctx = await setup('jobs-summary-route@test.com');
+    try {
+      const res = await ctx.app.request(`/api/jobs/summary?companyId=${ctx.companyId}`, {
+        headers: ctx.headers,
+      });
+      expect(res.status).toBe(200);
+      expect((await res.json()) as { total: number }).toHaveProperty('total');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('counts open and closed, and totals what is waiting', async () => {
+    const ctx = await setup('jobs-summary@test.com');
+    try {
+      const contactId = await makeContact(ctx, 'Chen');
+      const withMoney = await makeJob(ctx, 'Deck rebuild', contactId);
+      const unpriced = await makeJob(ctx, 'Favour job');
+      const closed = await makeJob(ctx, 'Done and dusted');
+
+      await logTime(ctx, withMoney, 180, '25.0000'); // $75 waiting
+      await logTime(ctx, unpriced, 120); // 2 h that cannot be billed
+      await ctx.app.request(`/api/jobs/${closed}`, {
+        method: 'PATCH',
+        headers: ctx.headers,
+        body: JSON.stringify({ status: 'closed' }),
+      });
+
+      const res = await ctx.app.request(`/api/jobs/summary?companyId=${ctx.companyId}`, {
+        headers: ctx.headers,
+      });
+      const body = (await res.json()) as {
+        total: number;
+        open: number;
+        closed: number;
+        readyToBill: string;
+        jobsWithMoneyWaiting: number;
+        unratedMinutes: number;
+        unratedHours: string;
+      };
+
+      expect(body.total).toBe(3);
+      expect(body.open).toBe(2);
+      expect(body.closed).toBe(1);
+      expect(body.readyToBill).toBe('75.00');
+      // Only the job with priced hours counts as waiting.
+      expect(body.jobsWithMoneyWaiting).toBe(1);
+      // The blocked hours are surfaced separately — a job full of unpriced work
+      // looks identical to one with nothing to bill unless it is called out.
+      expect(body.unratedMinutes).toBe(120);
+      expect(body.unratedHours).toBe('2.00');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+});
+
+describe('closing a job with money still on it', () => {
+  beforeEach(resetDb);
+
+  // Closing drops a job out of the default list and takes its unbilled work with
+  // it. Refused once, with the amount named, rather than done silently — losing
+  // track of billable money is the failure worth an extra click.
+  it('refuses the first attempt and says how much is waiting', async () => {
+    const ctx = await setup('close-with-money@test.com');
+    try {
+      const jobId = await makeJob(ctx, 'Deck rebuild');
+      await logTime(ctx, jobId, 180, '25.0000');
+
+      const res = await ctx.app.request(`/api/jobs/${jobId}`, {
+        method: 'PATCH',
+        headers: ctx.headers,
+        body: JSON.stringify({ status: 'closed' }),
+      });
+      expect(res.status).toBe(409);
+      const body = (await res.json()) as { error: string; readyToBill: string };
+      expect(body.error).toBe('job_has_unbilled_time');
+      expect(body.readyToBill).toBe('75.00');
+
+      // Still open — the refusal changed nothing.
+      const detail = await ctx.app.request(`/api/jobs/${jobId}`, { headers: ctx.headers });
+      expect(((await detail.json()) as { status: string }).status).toBe('open');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('closes when the caller confirms', async () => {
+    const ctx = await setup('close-confirmed@test.com');
+    try {
+      const jobId = await makeJob(ctx, 'Deck rebuild');
+      await logTime(ctx, jobId, 180, '25.0000');
+
+      const res = await ctx.app.request(`/api/jobs/${jobId}?confirm=true`, {
+        method: 'PATCH',
+        headers: ctx.headers,
+        body: JSON.stringify({ status: 'closed' }),
+      });
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as { status: string }).status).toBe('closed');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  // Nothing waiting, nothing to warn about — the guard must not become a nag.
+  it('closes without ceremony when nothing is waiting', async () => {
+    const ctx = await setup('close-clean@test.com');
+    try {
+      const jobId = await makeJob(ctx, 'Nothing owed');
+      const res = await ctx.app.request(`/api/jobs/${jobId}`, {
+        method: 'PATCH',
+        headers: ctx.headers,
+        body: JSON.stringify({ status: 'closed' }),
+      });
+      expect(res.status).toBe(200);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  // Unrated hours cannot be billed, so they are not money waiting and must not
+  // trigger the warning — otherwise every favour job nags on close.
+  it('does not warn for hours that have no rate', async () => {
+    const ctx = await setup('close-unrated@test.com');
+    try {
+      const jobId = await makeJob(ctx, 'Favour job');
+      await logTime(ctx, jobId, 120);
+      const res = await ctx.app.request(`/api/jobs/${jobId}`, {
+        method: 'PATCH',
+        headers: ctx.headers,
+        body: JSON.stringify({ status: 'closed' }),
+      });
+      expect(res.status).toBe(200);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('breaks out money parked on closed jobs in the summary', async () => {
+    const ctx = await setup('summary-closed-money@test.com');
+    try {
+      const openJob = await makeJob(ctx, 'Still going');
+      const closedJob = await makeJob(ctx, 'Filed away');
+      await logTime(ctx, openJob, 60, '20.0000'); // $20 reachable
+      await logTime(ctx, closedJob, 60, '30.0000'); // $30 parked
+      await ctx.app.request(`/api/jobs/${closedJob}?confirm=true`, {
+        method: 'PATCH',
+        headers: ctx.headers,
+        body: JSON.stringify({ status: 'closed' }),
+      });
+
+      const res = await ctx.app.request(`/api/jobs/summary?companyId=${ctx.companyId}`, {
+        headers: ctx.headers,
+      });
+      const body = (await res.json()) as { readyToBill: string; readyToBillOnClosed: string };
+      expect(body.readyToBill).toBe('50.00');
+      // Without this split the headline reads $50 while the default list adds to
+      // $20, and the difference looks like a bug rather than money parked.
+      expect(body.readyToBillOnClosed).toBe('30.00');
     } finally {
       await ctx.handle.close();
     }

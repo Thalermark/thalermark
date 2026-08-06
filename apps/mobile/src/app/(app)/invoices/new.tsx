@@ -396,6 +396,9 @@ export default function NewInvoice() {
         taxAmount: lineTax(r.taxable, rate, amount),
         taxPolicyId: r.taxable ? r.taxPolicyId || undefined : undefined,
         sourceItemId: r.sourceItemId ?? undefined,
+        // The line carries its tracked-time link; the API reads the billed set
+        // off the lines, so deleting a row releases its entry.
+        timeEntryId: r.timeEntryId ?? undefined,
       };
     });
     const billedIds = rows.map((r) => r.timeEntryId).filter((v): v is string => v !== null);

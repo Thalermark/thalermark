@@ -388,6 +388,10 @@ export type JobMargin = {
     hours: string;
     // Null when no time is tracked; 0 would read as "this job paid nothing".
     effectiveHourly: string | null;
+    // Tracked hours no invoice has claimed. Not part of billed or made — work
+    // done and not yet charged for is a different question from what was earned.
+    readyToBill: string;
+    unratedMinutes: number;
   }[];
   // Invoices that never joined a job, each standing in as its own job — the
   // rows this report returned before jobs existed, unchanged.
@@ -409,6 +413,7 @@ export type JobMargin = {
     made: string;
     minutes: number;
     hours: string;
+    readyToBill: string;
   };
 };
 

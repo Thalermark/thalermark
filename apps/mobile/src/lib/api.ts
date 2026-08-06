@@ -132,6 +132,7 @@ function facadeApi() {
     // Time entries hang off /api/time-entries rather than under /api/jobs, so
     // the same sub-app surfaces two keys here.
     'time-entries': jobs.api['time-entries'],
+    timer: jobs.api.timer,
     'tax-policies': taxPolicies.api['tax-policies'],
     'social-providers': socialProviders.api['social-providers'],
     locations: locations.api.locations,
@@ -186,6 +187,7 @@ type ApiClient = {
     items: ItemsApi['items'];
     jobs: JobsApi['jobs'];
     'time-entries': JobsApi['time-entries'];
+    timer: JobsApi['timer'];
     'tax-policies': TaxPoliciesApi['tax-policies'];
     'social-providers': SocialProvidersApi['social-providers'];
     locations: LocationsApi['locations'];

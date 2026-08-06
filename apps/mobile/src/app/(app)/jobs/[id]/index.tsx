@@ -6,7 +6,7 @@ import {
   sumMoney,
 } from '@thalermark/validation';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -88,6 +88,34 @@ export default function JobDetailScreen() {
   const [ratePrefilled, setRatePrefilled] = useState(false);
   const [timeError, setTimeError] = useState<string | null>(null);
   const [logging, setLogging] = useState(false);
+  const [confirmClose, setConfirmClose] = useState<string | null>(null);
+
+  // The caller's running stopwatch — on this job or another. Persisted server
+  // side, so one started on this phone can be stopped from a laptop later.
+  const [timer, setTimer] = useState<{
+    jobId: string;
+    jobName: string;
+    startedAt: string;
+  } | null>(null);
+  const [timerError, setTimerError] = useState<string | null>(null);
+  const [showTimer, setShowTimer] = useState(false);
+  // Ticks locally off startedAt. Elapsed is never accumulated, so a backgrounded
+  // app or a device clock that disagrees cannot drift it.
+  const [nowMs, setNowMs] = useState(Date.now());
+  useEffect(() => {
+    if (!timer) return;
+    const t = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [timer]);
+
+  const elapsed = timer
+    ? (() => {
+        const secs = Math.max(0, Math.floor((nowMs - new Date(timer.startedAt).getTime()) / 1000));
+        const h = Math.floor(secs / 3600);
+        const m = Math.floor((secs % 3600) / 60);
+        return h > 0 ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m`;
+      })()
+    : '';
 
   // Tracked hours not yet on an invoice — what billing would add right now.
   // Only rated entries: unrated hours bill nothing.
@@ -128,6 +156,13 @@ export default function JobDetailScreen() {
           return true;
         });
       }
+    }
+    const timerRes = await api.api.timer.$get();
+    if (timerRes.ok) {
+      const { timer: running } = await timerRes.json();
+      setTimer(running);
+      // A timer left running is never hidden behind a closed fold.
+      if (running) setShowTimer(true);
     }
     setLoading(false);
   }, [id]);
@@ -182,6 +217,44 @@ export default function JobDetailScreen() {
     }
   }
 
+  async function startTimer() {
+    setTimerError(null);
+    // No body: the API accepts an optional note at start, but neither client
+    // offers one, and the route reads it manually so hc does not type `json`.
+    const res = await api.api.jobs[':id'].timer.$post({ param: { id } });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as {
+        error?: string;
+        jobName?: string;
+      } | null;
+      // A refusal has to name the job holding the timer, or the user is stranded
+      // — they are at THIS job and the thing blocking them is somewhere else.
+      setTimerError(
+        body?.error === 'timer_already_running'
+          ? `A timer is already running on "${body.jobName}". Stop it there first.`
+          : 'Could not start the timer.',
+      );
+      return;
+    }
+    await load();
+  }
+
+  // Stop hands back the minutes and fills the duration field — it does NOT log.
+  // The note and rate are still the user's to give, and a stopwatch that
+  // silently became a billable entry is the easiest way to invoice someone for
+  // a drive home.
+  async function stopTimer() {
+    setTimerError(null);
+    const res = await api.api.jobs[':id'].timer.$delete({ param: { id } });
+    if (!res.ok) {
+      setTimerError('Could not stop the timer.');
+      return;
+    }
+    const { minutes } = await res.json();
+    setDuration((Math.round((minutes / 60) * 100) / 100).toFixed(2));
+    await load();
+  }
+
   async function removeEntry(entryId: string) {
     const res = await api.api['time-entries'][':id'].$delete({ param: { id: entryId } });
     if (!res.ok) {
@@ -196,13 +269,29 @@ export default function JobDetailScreen() {
     await load();
   }
 
-  async function toggleStatus() {
+  // Closing takes the job out of the default list and its unbilled work with
+  // it, so the API refuses the first attempt and names the amount. Asked once,
+  // then honoured — not blocked, and never silent.
+  async function toggleStatus(confirmed = false) {
     if (!job) return;
+    const next = job.status === 'open' ? 'closed' : 'open';
     const res = await api.api.jobs[':id'].$patch({
       param: { id },
-      json: { status: job.status === 'open' ? 'closed' : 'open' },
+      query: { confirm: confirmed ? 'true' : undefined },
+      json: { status: next },
     });
-    if (res.ok) await load();
+    if (res.ok) {
+      setConfirmClose(null);
+      await load();
+      return;
+    }
+    const body = (await res.json().catch(() => null)) as {
+      error?: string;
+      readyToBill?: string;
+    } | null;
+    if (body?.error === 'job_has_unbilled_time') {
+      setConfirmClose(body.readyToBill ?? '0.00');
+    }
   }
 
   if (loading) {
@@ -341,13 +430,36 @@ export default function JobDetailScreen() {
                 </Pressable>
               )}
               <Pressable
-                onPress={toggleStatus}
+                onPress={() => toggleStatus()}
                 className="items-center rounded-sm border border-ink/20 px-4 py-3"
               >
                 <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
                   {job.status === 'open' ? 'Close' : 'Reopen'}
                 </Text>
               </Pressable>
+            </View>
+          ) : null}
+
+          {confirmClose ? (
+            <View className="mt-4 rounded-sm border border-gold-deep/40 bg-gold-deep/5 p-4">
+              <Text className="text-sm text-ink/80">
+                This job still has {fmt(confirmClose)} ready to bill. Closing it hides the job from
+                the default list, and that money with it.
+              </Text>
+              <View className="mt-3 flex-row gap-2">
+                <Pressable
+                  onPress={() => toggleStatus(true)}
+                  className="items-center rounded-sm bg-ink px-4 py-2.5 active:bg-gold-deep"
+                >
+                  <Text className="text-sm font-medium text-cream">Close anyway</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => setConfirmClose(null)}
+                  className="items-center rounded-sm border border-ink/20 px-4 py-2.5"
+                >
+                  <Text className="text-sm text-ink/70">Keep it open</Text>
+                </Pressable>
+              </View>
             </View>
           ) : null}
 
@@ -420,6 +532,57 @@ export default function JobDetailScreen() {
                 )}
               </Pressable>
               {timeError ? <Text className="mt-2 text-xs text-oxblood">{timeError}</Text> : null}
+            </View>
+          ) : null}
+
+          {canWrite ? (
+            <View className="mt-4">
+              {/*
+                Behind a disclosure. Typing a duration is the path that actually
+                gets used — a stopwatch has to be remembered at the START of the
+                work, which is exactly when nobody is thinking about an app. So
+                it is available, not urged.
+              */}
+              <Pressable onPress={() => setShowTimer((v) => !v)}>
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                  {showTimer ? '− Stopwatch' : '+ Use a stopwatch'}
+                </Text>
+              </Pressable>
+              {showTimer ? (
+                <View className="mt-3">
+                  {timer && timer.jobId === id ? (
+                    <View className="flex-row items-center gap-3">
+                      <Text className="font-mono text-2xl text-gold-deep">{elapsed}</Text>
+                      <Pressable
+                        onPress={stopTimer}
+                        className="rounded-sm bg-ink px-4 py-2.5 active:bg-gold-deep"
+                      >
+                        <Text className="text-sm font-medium text-cream">Stop</Text>
+                      </Pressable>
+                      <Text className="flex-1 text-xs text-ink/50">
+                        Stopping fills in the hours — it doesn't log them.
+                      </Text>
+                    </View>
+                  ) : timer ? (
+                    <Pressable onPress={() => router.push(`/jobs/${timer.jobId}`)}>
+                      <Text className="text-sm text-ink/70">
+                        Running on {timer.jobName} for {elapsed}. Stop it there first — only one
+                        timer runs at a time, or the same minute gets billed to two customers.
+                      </Text>
+                    </Pressable>
+                  ) : (
+                    <Pressable
+                      onPress={startTimer}
+                      className="self-start rounded-sm bg-ink px-4 py-2.5 active:bg-gold-deep"
+                    >
+                      <Text className="text-sm font-medium text-cream">Start</Text>
+                    </Pressable>
+                  )}
+                  {timerError ? (
+                    <Text className="mt-2 text-xs text-oxblood">{timerError}</Text>
+                  ) : null}
+                </View>
+              ) : null}
             </View>
           ) : null}
 
