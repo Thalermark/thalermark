@@ -111,6 +111,7 @@ export type ServerApiClient = {
     // Time entries live under /api/time-entries, not /api/jobs, so the same
     // sub-app surfaces two keys here.
     'time-entries': JobsApi['time-entries'];
+    timer: JobsApi['timer'];
     'tax-policies': TaxPoliciesApi['tax-policies'];
     'audit-events': AuditEventsApi['audit-events'];
     companies: CompaniesApi['companies'] & ReportsApi['companies'];
@@ -147,6 +148,9 @@ export function serverApiClient(event: RequestEvent): ServerApiClient {
     // Time entries hang off /api/time-entries rather than under /api/jobs, so
     // the facade needs both keys from the same sub-app.
     'time-entries': hc<JobsAppType>(base, { headers }).api['time-entries'],
+    // The running-stopwatch read hangs off its own top-level path, so the
+    // facade needs a third key from the same sub-app.
+    timer: hc<JobsAppType>(base, { headers }).api.timer,
     'tax-policies': hc<TaxPoliciesAppType>(base, { headers }).api['tax-policies'],
     'audit-events': hc<AuditEventsAppType>(base, { headers }).api['audit-events'],
     companies: hc<CompaniesAppType>(base, { headers }).api.companies,

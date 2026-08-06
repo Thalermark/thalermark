@@ -1,4 +1,12 @@
-import { type Transaction, companies, contacts, invoices, jobs, timeEntries } from '@thalermark/db';
+import {
+  type Transaction,
+  companies,
+  contacts,
+  invoices,
+  jobs,
+  timeEntries,
+  timeTimers,
+} from '@thalermark/db';
 import {
   centsToMoney,
   jobCreateSchema,
@@ -430,6 +438,116 @@ export function jobsRoutes() {
           });
         },
       )
+      // --- The running stopwatch (TMC-180) -------------------------------
+      //
+      // Start refuses if the caller already has one running, naming the job it
+      // is on. Auto-stopping instead would silently log the previous job with
+      // whatever happened in between — the drive to this one — inside it.
+      .post('/api/jobs/:id/timer', requireCapability('sales:write'), async (c) => {
+        const jobId = c.req.param('id');
+        if (!UUID_RE.test(jobId)) return c.json({ error: 'invalid_id' }, 400);
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+        const userId = c.get('userId');
+
+        const [job] = await tx
+          .select({ id: jobs.id, companyId: jobs.companyId })
+          .from(jobs)
+          .where(and(eq(jobs.id, jobId), eq(jobs.accountId, accountId)))
+          .limit(1);
+        if (!job) return c.json({ error: 'job_not_found' }, 404);
+
+        // Checked before insert so the caller gets the running job's NAME rather
+        // than a unique-violation 500 — the message is the whole point of
+        // refusing. (The unique index is still the thing that makes it true.)
+        const [running] = await tx
+          .select({ jobId: timeTimers.jobId, startedAt: timeTimers.startedAt, name: jobs.name })
+          .from(timeTimers)
+          .innerJoin(jobs, eq(jobs.id, timeTimers.jobId))
+          .where(and(eq(timeTimers.accountId, accountId), eq(timeTimers.userId, userId)))
+          .limit(1);
+        if (running) {
+          return c.json(
+            {
+              error: 'timer_already_running',
+              jobId: running.jobId,
+              jobName: running.name,
+              startedAt: running.startedAt,
+            },
+            409,
+          );
+        }
+
+        const note = (await c.req.json().catch(() => null))?.note;
+        const row = {
+          id: uuidv7(),
+          accountId,
+          companyId: job.companyId,
+          jobId,
+          userId,
+          note: typeof note === 'string' && note.trim() ? note.trim().slice(0, 1000) : null,
+        };
+        await tx.insert(timeTimers).values(row);
+        // No audit row: starting a stopwatch records no work and changes no
+        // money. The audit trail gets the time entry, if one is ever logged.
+        const [created] = await tx
+          .select()
+          .from(timeTimers)
+          .where(eq(timeTimers.id, row.id))
+          .limit(1);
+        return c.json(created, 201);
+      })
+      // Stop returns the elapsed minutes and DELETES the timer. It deliberately
+      // does not log: the user still owes a note and a rate, and a stopwatch
+      // that silently became a billable entry would be the easiest way to
+      // invoice someone for a drive home.
+      .delete('/api/jobs/:id/timer', requireCapability('sales:write'), async (c) => {
+        const jobId = c.req.param('id');
+        if (!UUID_RE.test(jobId)) return c.json({ error: 'invalid_id' }, 400);
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+        const userId = c.get('userId');
+
+        const [running] = await tx
+          .select()
+          .from(timeTimers)
+          .where(
+            and(
+              eq(timeTimers.accountId, accountId),
+              eq(timeTimers.userId, userId),
+              eq(timeTimers.jobId, jobId),
+            ),
+          )
+          .limit(1);
+        if (!running) return c.json({ error: 'timer_not_running' }, 404);
+
+        await tx.delete(timeTimers).where(eq(timeTimers.id, running.id));
+
+        // Elapsed is computed from started_at, never accumulated, so a shut
+        // laptop cannot drift it. Rounded UP to the minute: a 30-second visit is
+        // a minute of work, and rounding it to zero loses the entry entirely.
+        const minutes = Math.max(1, Math.ceil((Date.now() - running.startedAt.getTime()) / 60_000));
+        return c.json({ minutes, note: running.note, startedAt: running.startedAt });
+      })
+      // The caller's running timer, if any. One request answers "is anything
+      // running, and where" for every screen that needs to know.
+      .get('/api/timer', async (c) => {
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+        const userId = c.get('userId');
+        const [running] = await tx
+          .select({
+            jobId: timeTimers.jobId,
+            jobName: jobs.name,
+            startedAt: timeTimers.startedAt,
+            note: timeTimers.note,
+          })
+          .from(timeTimers)
+          .innerJoin(jobs, eq(jobs.id, timeTimers.jobId))
+          .where(and(eq(timeTimers.accountId, accountId), eq(timeTimers.userId, userId)))
+          .limit(1);
+        return c.json({ timer: running ?? null });
+      })
       .patch(
         '/api/time-entries/:id',
         requireCapability('sales:write'),

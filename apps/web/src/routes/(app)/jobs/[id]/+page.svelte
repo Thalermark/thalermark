@@ -53,6 +53,36 @@
   // number — so the button points at the existing one instead.
   const openDraft = $derived(job.invoices.find((i) => i.status === 'draft'));
 
+  // The caller's running stopwatch. `mine` means it is on THIS job; otherwise it
+  // is being held by another one and starting here is refused.
+  const timer = $derived(data.timer);
+  const timerOnThisJob = $derived(timer?.jobId === job.id);
+
+  // Ticks locally off started_at. Elapsed is never accumulated — a shut laptop
+  // or a client clock that disagrees cannot drift it, because the server owns
+  // the start instant and this only renders the difference.
+  let now = $state(Date.now());
+  $effect(() => {
+    if (!timer) return;
+    const t = setInterval(() => {
+      now = Date.now();
+    }, 1000);
+    return () => clearInterval(t);
+  });
+  const elapsed = $derived.by(() => {
+    if (!timer) return '';
+    const secs = Math.max(0, Math.floor((now - new Date(timer.startedAt).getTime()) / 1000));
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    return h > 0 ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m`;
+  });
+
+  // A stop hands back minutes rather than logging — this drops them into the
+  // duration field so the note and rate are still the user's to fill in.
+  const stoppedDuration = $derived(
+    form?.stoppedMinutes ? (Math.round((form.stoppedMinutes / 60) * 100) / 100).toFixed(2) : '',
+  );
+
   const unratedMinutes = $derived(
     time.timeEntries
       .filter((e) => !e.billedInvoiceId && !e.rate)
@@ -254,6 +284,7 @@
         inputmode="decimal"
         placeholder="3.25"
         required
+        value={stoppedDuration}
         class="field mt-1"
       />
     </div>
@@ -286,6 +317,47 @@
     Leave the rate blank for hours you're not charging for — they still count toward what the job
     cost you in time.
   </p>
+
+  <!--
+    The stopwatch, behind a disclosure. Typing a duration is the path that
+    actually gets used — the timer has to be remembered at the START of the work,
+    which is exactly when nobody is thinking about an app. So it is available,
+    not urged.
+
+    Open by default only while one is running, so a timer you left going is never
+    hidden behind a closed fold.
+  -->
+  <details class="mt-4" open={Boolean(timer)}>
+    <summary class="label cursor-pointer select-none hover:text-accent">Use a stopwatch</summary>
+    <div class="mt-3">
+      {#if timerOnThisJob}
+        <form method="post" action="?/stopTimer" class="flex items-center gap-3">
+          <span class="font-mono text-2xl tabular-nums text-accent">{elapsed}</span>
+          <button type="submit" class="btn">Stop</button>
+          <span class="text-xs text-fg/50">Stopping fills in the hours — it doesn't log them.</span>
+        </form>
+      {:else if timer}
+        <!--
+          Held by another job. Naming it and linking there is the whole point:
+          the user is standing at THIS job and the thing blocking them is
+          somewhere else. Auto-stopping the other one would silently log it with
+          the drive in between inside it.
+        -->
+        <p class="text-sm text-fg/70">
+          Running on <a href="/jobs/{timer.jobId}" class="link">{timer.jobName}</a> for {elapsed}.
+          Stop it there first — only one timer runs at a time, or the same minute
+          gets billed to two customers.
+        </p>
+      {:else}
+        <form method="post" action="?/startTimer">
+          <button type="submit" class="btn">Start</button>
+        </form>
+      {/if}
+      {#if form?.timerError}
+        <p class="mt-2 text-xs text-danger">{form.timerError}</p>
+      {/if}
+    </div>
+  </details>
   {#if form?.timeError}
     <p class="mt-2 text-xs text-danger">{form.timeError}</p>
   {/if}

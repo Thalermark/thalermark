@@ -23,10 +23,52 @@ export const load: PageServerLoad = async (event) => {
   const time = timeRes.ok
     ? await timeRes.json()
     : { timeEntries: [], totalMinutes: 0, totalHours: '0.00' };
-  return { job, time };
+  // The caller's running stopwatch, if any — on this job or another. One read
+  // answers both "is my timer on THIS job" and "which job is holding it".
+  const timerRes = await client.api.timer.$get();
+  const { timer } = timerRes.ok ? await timerRes.json() : { timer: null };
+
+  return { job, time, timer };
 };
 
 export const actions: Actions = {
+  startTimer: async (event) => {
+    const client = serverApiClient(event);
+    const res = await client.api.jobs[':id'].timer.$post({ param: { id: event.params.id } });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as {
+        error?: string;
+        jobName?: string;
+        jobId?: string;
+      } | null;
+      // A refusal has to name the job holding the timer and link to it, or the
+      // user is stranded: they are standing at this job and the thing blocking
+      // them is somewhere else.
+      return fail(res.status, {
+        timerError:
+          body?.error === 'timer_already_running'
+            ? `A timer is already running on "${body.jobName}". Stop it there first.`
+            : (body?.error ?? 'could_not_start'),
+        runningJobId: body?.jobId,
+      });
+    }
+    redirect(303, `/jobs/${event.params.id}`);
+  },
+
+  // Stop hands back the elapsed minutes rather than logging. The user still owes
+  // a note and a rate, and a stopwatch that silently became a billable entry is
+  // the easiest way to invoice someone for a drive home.
+  stopTimer: async (event) => {
+    const client = serverApiClient(event);
+    const res = await client.api.jobs[':id'].timer.$delete({ param: { id: event.params.id } });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      return fail(res.status, { timerError: body?.error ?? 'could_not_stop' });
+    }
+    const { minutes, note } = await res.json();
+    return { stoppedMinutes: minutes, stoppedNote: note };
+  },
+
   logTime: async (event) => {
     const client = serverApiClient(event);
     const data = await event.request.formData();

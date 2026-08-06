@@ -1471,3 +1471,130 @@ describe('ready to bill on the list and the report', () => {
     }
   });
 });
+
+describe('the running stopwatch', () => {
+  beforeEach(resetDb);
+
+  it('starts, reports itself, and hands back minutes on stop without logging', async () => {
+    const ctx = await setup('timer-basic@test.com');
+    try {
+      const jobId = await makeJob(ctx, 'House 1');
+
+      const started = await ctx.app.request(`/api/jobs/${jobId}/timer`, {
+        method: 'POST',
+        headers: ctx.headers,
+        body: JSON.stringify({ note: 'framing' }),
+      });
+      expect(started.status).toBe(201);
+
+      const running = await ctx.app.request('/api/timer', { headers: ctx.headers });
+      const body = (await running.json()) as {
+        timer: { jobId: string; jobName: string; note: string | null } | null;
+      };
+      expect(body.timer?.jobId).toBe(jobId);
+      expect(body.timer?.jobName).toBe('House 1');
+      expect(body.timer?.note).toBe('framing');
+
+      const stopped = await ctx.app.request(`/api/jobs/${jobId}/timer`, {
+        method: 'DELETE',
+        headers: ctx.headers,
+      });
+      expect(stopped.status).toBe(200);
+      const result = (await stopped.json()) as { minutes: number; note: string | null };
+      // Rounded up: a 30-second visit is a minute of work, and rounding to zero
+      // would lose the entry entirely.
+      expect(result.minutes).toBeGreaterThanOrEqual(1);
+      expect(result.note).toBe('framing');
+
+      // Stopping records NOTHING. The user still owes a note and a rate, and a
+      // stopwatch that silently became a billable entry is the easiest way to
+      // invoice someone for a drive home.
+      const entries = await ctx.app.request(`/api/jobs/${jobId}/time`, { headers: ctx.headers });
+      expect(((await entries.json()) as { timeEntries: unknown[] }).timeEntries).toHaveLength(0);
+
+      const after = await ctx.app.request('/api/timer', { headers: ctx.headers });
+      expect(((await after.json()) as { timer: unknown }).timer).toBeNull();
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  // The rule that keeps the same minute from being billed to two customers.
+  // Refused rather than auto-stopped: forgetting to stop at house 1, driving 25
+  // minutes and starting at house 2 would otherwise log house 1 with the drive
+  // inside it, silently.
+  it('refuses a second timer and names the job holding it', async () => {
+    const ctx = await setup('timer-one-at-a-time@test.com');
+    try {
+      const houseOne = await makeJob(ctx, 'House 1');
+      const houseTwo = await makeJob(ctx, 'House 2');
+
+      expect(
+        (
+          await ctx.app.request(`/api/jobs/${houseOne}/timer`, {
+            method: 'POST',
+            headers: ctx.headers,
+          })
+        ).status,
+      ).toBe(201);
+
+      const second = await ctx.app.request(`/api/jobs/${houseTwo}/timer`, {
+        method: 'POST',
+        headers: ctx.headers,
+      });
+      expect(second.status).toBe(409);
+      const body = (await second.json()) as { error: string; jobId: string; jobName: string };
+      expect(body.error).toBe('timer_already_running');
+      // The name and id are the point — the user is at house 2 and the thing
+      // blocking them is somewhere else.
+      expect(body.jobName).toBe('House 1');
+      expect(body.jobId).toBe(houseOne);
+
+      // House 1 keeps running; the refusal changed nothing.
+      const running = await ctx.app.request('/api/timer', { headers: ctx.headers });
+      expect(((await running.json()) as { timer: { jobId: string } }).timer.jobId).toBe(houseOne);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('frees the person once the first timer stops', async () => {
+    const ctx = await setup('timer-sequential@test.com');
+    try {
+      const houseOne = await makeJob(ctx, 'House 1');
+      const houseTwo = await makeJob(ctx, 'House 2');
+
+      await ctx.app.request(`/api/jobs/${houseOne}/timer`, {
+        method: 'POST',
+        headers: ctx.headers,
+      });
+      await ctx.app.request(`/api/jobs/${houseOne}/timer`, {
+        method: 'DELETE',
+        headers: ctx.headers,
+      });
+
+      const second = await ctx.app.request(`/api/jobs/${houseTwo}/timer`, {
+        method: 'POST',
+        headers: ctx.headers,
+      });
+      expect(second.status).toBe(201);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('404s stopping a timer that is not running', async () => {
+    const ctx = await setup('timer-stop-none@test.com');
+    try {
+      const jobId = await makeJob(ctx, 'House 1');
+      const res = await ctx.app.request(`/api/jobs/${jobId}/timer`, {
+        method: 'DELETE',
+        headers: ctx.headers,
+      });
+      expect(res.status).toBe(404);
+      expect(((await res.json()) as { error: string }).error).toBe('timer_not_running');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+});
