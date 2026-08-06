@@ -29,4 +29,5 @@ export * from './tax_policies.js';
 export * from './telemetry_events.js';
 export * from './time_entries.js';
 export * from './time_timers.js';
+export * from './vehicle_years.js';
 export * from './vehicles.js';

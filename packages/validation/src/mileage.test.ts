@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   MAX_MILES_PER_TRIP,
+  MAX_MILES_PER_YEAR,
   STANDARD_MILEAGE_RATES,
   mileageTripCreateSchema,
   mileageValue,
+  partIVForVehicle,
   standardMileageRateFor,
   summariseMileage,
+  vehicleYearSchema,
 } from './mileage.js';
 
 describe('standardMileageRateFor', () => {
@@ -161,5 +164,132 @@ describe('mileageTripCreateSchema', () => {
     expect(mileageTripCreateSchema.safeParse({ ...valid, tripDate: '15/07/2026' }).success).toBe(
       false,
     );
+  });
+});
+
+// Schedule C Part IV, the per-vehicle disclosure. Verified against the 2025
+// Schedule C: 43 placed in service, 44a/b/c the mileage split, 45/46 personal
+// availability, 47a/b evidence.
+describe('partIVForVehicle', () => {
+  const answered = {
+    placedInServiceOn: '2024-11-01',
+    anotherVehicleAvailable: true,
+  };
+
+  // ───────────────────────────────────────────────────────────────────────
+  // THE load-bearing test. A purpose-built work vehicle must need NO year-end
+  // input: its total miles ARE the business miles already logged. If this ever
+  // fails, the feature has collapsed into the fleet-manager it was designed to
+  // avoid.
+  // ───────────────────────────────────────────────────────────────────────
+  it('asks a work-only vehicle for nothing at year end', () => {
+    const r = partIVForVehicle({
+      ...answered,
+      personalUse: 'none',
+      businessMiles: '8240.0000',
+      totalMiles: null,
+      commutingMiles: '0.0000',
+    });
+    expect(r.missing).toEqual([]);
+    expect(r.otherMiles).toBe('0.0000');
+    expect(r.inconsistent).toBe(false);
+  });
+
+  it('derives personal miles from the total for a mixed-use vehicle', () => {
+    const r = partIVForVehicle({
+      ...answered,
+      personalUse: 'some',
+      businessMiles: '8240.0000',
+      totalMiles: '12000.0000',
+      commutingMiles: '0.0000',
+    });
+    // 12,000 − 8,240 − 0. The number the form's line 44c wants.
+    expect(r.otherMiles).toBe('3760.0000');
+    expect(r.missing).toEqual([]);
+    expect(r.inconsistent).toBe(false);
+  });
+
+  it('subtracts commuting too — it is not deductible and not personal', () => {
+    const r = partIVForVehicle({
+      ...answered,
+      personalUse: 'some',
+      businessMiles: '8000.0000',
+      totalMiles: '12000.0000',
+      commutingMiles: '1500.0000',
+    });
+    expect(r.otherMiles).toBe('2500.0000');
+  });
+
+  it('asks a mixed-use vehicle for its total, and only that', () => {
+    const r = partIVForVehicle({
+      ...answered,
+      personalUse: 'some',
+      businessMiles: '8240.0000',
+      totalMiles: null,
+      commutingMiles: '0.0000',
+    });
+    expect(r.missing).toEqual(['total_miles']);
+    expect(r.otherMiles).toBeNull();
+  });
+
+  it('reports each unanswered standing fact separately', () => {
+    const r = partIVForVehicle({
+      placedInServiceOn: null,
+      personalUse: null,
+      anotherVehicleAvailable: null,
+      businessMiles: '0.0000',
+      totalMiles: null,
+      commutingMiles: '0.0000',
+    });
+    expect(r.missing).toEqual([
+      'placed_in_service',
+      'personal_use',
+      'another_vehicle',
+      'total_miles',
+    ]);
+  });
+
+  // The third state. Answer in February, log more trips in March, and a total
+  // that was right goes stale. It must surface — a negative "other" on a
+  // federal form would be far worse than saying the numbers disagree.
+  it('flags a total that no longer covers what was logged', () => {
+    const r = partIVForVehicle({
+      ...answered,
+      personalUse: 'some',
+      businessMiles: '12000.0001',
+      totalMiles: '12000.0000',
+      commutingMiles: '0.0000',
+    });
+    expect(r.inconsistent).toBe(true);
+    expect(r.otherMiles).toBeNull();
+  });
+
+  it('treats an exactly-covered total as consistent, not contradicted', () => {
+    const r = partIVForVehicle({
+      ...answered,
+      personalUse: 'some',
+      businessMiles: '12000.0000',
+      totalMiles: '12000.0000',
+      commutingMiles: '0.0000',
+    });
+    expect(r.inconsistent).toBe(false);
+    expect(r.otherMiles).toBe('0.0000');
+  });
+});
+
+describe('vehicleYearSchema', () => {
+  it('accepts a plain estimate', () => {
+    expect(vehicleYearSchema.safeParse({ totalMiles: '12000' }).success).toBe(true);
+  });
+
+  it('rejects a negative or typo-sized total', () => {
+    expect(vehicleYearSchema.safeParse({ totalMiles: '-1' }).success).toBe(false);
+    expect(
+      vehicleYearSchema.safeParse({ totalMiles: String(MAX_MILES_PER_YEAR + 1) }).success,
+    ).toBe(false);
+  });
+
+  it('allows clearing the total back to unanswered', () => {
+    expect(vehicleYearSchema.safeParse({ totalMiles: null }).success).toBe(true);
   });
 });

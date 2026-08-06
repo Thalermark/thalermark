@@ -1,10 +1,18 @@
-import { type Transaction, companies, jobs, mileageTrips, vehicles } from '@thalermark/db';
+import {
+  type Transaction,
+  companies,
+  jobs,
+  mileageTrips,
+  vehicleYears,
+  vehicles,
+} from '@thalermark/db';
 import {
   mileageTripCreateSchema,
   mileageTripUpdateSchema,
   summariseMileage,
   vehicleCreateSchema,
   vehicleUpdateSchema,
+  vehicleYearSchema,
 } from '@thalermark/validation';
 import { and, asc, desc, eq, gte, isNull, lte, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
@@ -514,6 +522,122 @@ export function mileageRoutes() {
           });
 
           return c.json(updated);
+        },
+      )
+      // Schedule C line 44's denominator: how far this vehicle went in total
+      // that year. Idempotent upsert — one row per vehicle per year, and
+      // answering twice is the same as answering once.
+      //
+      // NO assertPeriodOpen, deliberately, and a reviewer will ask why when the
+      // trip routes above all have it. A trip changes the dollar figure on line
+      // 9, which is what the period lock exists to protect. This changes no
+      // dollar figure on any form — it fills a disclosure box. A corporation
+      // that closed 2026 in January still has to answer this in March when the
+      // return is actually prepared, and locking it would make that impossible.
+      .put(
+        '/api/vehicles/:id/years/:year',
+        requireCapability('expenses:write'),
+        validator('json', (value, c) => {
+          const parsed = vehicleYearSchema.safeParse(value);
+          if (!parsed.success) {
+            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+          }
+          return parsed.data;
+        }),
+        async (c) => {
+          const vehicleId = c.req.param('id');
+          if (!UUID_RE.test(vehicleId)) return c.json({ error: 'invalid_id' }, 400);
+          const taxYear = Number(c.req.param('year'));
+          if (!Number.isInteger(taxYear) || taxYear < 1900 || taxYear > 2200) {
+            return c.json({ error: 'invalid_year' }, 400);
+          }
+          const body = c.req.valid('json');
+
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+
+          const [vehicle] = await tx
+            .select({ id: vehicles.id, companyId: vehicles.companyId })
+            .from(vehicles)
+            .where(and(eq(vehicles.id, vehicleId), eq(vehicles.accountId, accountId)))
+            .limit(1);
+          if (!vehicle) return c.json({ error: 'vehicle_not_found' }, 404);
+
+          const [existing] = await tx
+            .select()
+            .from(vehicleYears)
+            .where(
+              and(
+                eq(vehicleYears.vehicleId, vehicleId),
+                eq(vehicleYears.accountId, accountId),
+                eq(vehicleYears.taxYear, taxYear),
+              ),
+            )
+            .limit(1);
+
+          const totalMiles =
+            body.totalMiles === undefined ? (existing?.totalMiles ?? null) : body.totalMiles;
+          const commutingMiles = body.commutingMiles ?? existing?.commutingMiles ?? '0';
+
+          // BLOCKS, where the double-dip overlap warning only warns — and the
+          // asymmetry is the point. Both halves of a double-dip can be
+          // legitimate (parking and tolls stack on top of the rate), so that one
+          // informs. A total below the miles already logged against it is
+          // arithmetically impossible, so this one refuses. The logged figure
+          // rides along so the client can say why rather than just "invalid".
+          if (totalMiles !== null) {
+            const trips = await tx
+              .select({ miles: mileageTrips.miles })
+              .from(mileageTrips)
+              .where(
+                and(
+                  eq(mileageTrips.accountId, accountId),
+                  eq(mileageTrips.vehicleId, vehicleId),
+                  gte(mileageTrips.tripDate, `${taxYear}-01-01`),
+                  lte(mileageTrips.tripDate, `${taxYear}-12-31`),
+                ),
+              );
+            const businessMiles = summariseMileage(
+              trips.map((t) => ({ miles: t.miles, tripDate: `${taxYear}-01-01` })),
+            ).miles;
+            if (Number(totalMiles) < Number(businessMiles) + Number(commutingMiles)) {
+              return c.json({ error: 'total_below_logged', businessMiles, commutingMiles }, 400);
+            }
+          }
+
+          const id = existing?.id ?? uuidv7();
+          if (existing) {
+            await tx
+              .update(vehicleYears)
+              .set({ totalMiles, commutingMiles, updatedAt: new Date() })
+              .where(eq(vehicleYears.id, existing.id));
+          } else {
+            await tx.insert(vehicleYears).values({
+              id,
+              accountId,
+              companyId: vehicle.companyId,
+              vehicleId,
+              taxYear,
+              totalMiles,
+              commutingMiles,
+            });
+          }
+          const [saved] = await tx
+            .select()
+            .from(vehicleYears)
+            .where(eq(vehicleYears.id, id))
+            .limit(1);
+
+          await c.var.audit({
+            entityType: 'vehicle',
+            entityId: vehicleId,
+            action: 'update',
+            before: existing,
+            after: saved,
+            companyId: vehicle.companyId,
+          });
+
+          return c.json(saved, existing ? 200 : 201);
         },
       )
       // Retire, not delete. A truck sold in June still has to appear on that

@@ -1,5 +1,5 @@
 import { authUser, chartOfAccounts, companies, journalEntries, journalLines } from '@thalermark/db';
-import { memberships, mileageTrips } from '@thalermark/db';
+import { memberships, mileageTrips, vehicleYears, vehicles } from '@thalermark/db';
 import { and, eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
@@ -629,5 +629,140 @@ describe('vehicles', () => {
     expect(after.lineCount).toBe(before.lineCount);
     expect(after.balanceSheet).toBe(before.balanceSheet);
     expect(after.profitLoss).toBe(before.profitLoss);
+  });
+});
+
+// The per-year half of Part IV — line 44's total, and the arithmetic that turns
+// it into the three boxes the form actually wants.
+describe('vehicle years', () => {
+  beforeEach(resetDb);
+
+  async function makeVehicle(ctx: Ctx, label: string, extra: Record<string, unknown> = {}) {
+    const res = await ctx.app.request('/api/vehicles', {
+      method: 'POST',
+      headers: ctx.headers,
+      body: JSON.stringify({ companyId: ctx.companyId, label, ...extra }),
+    });
+    return (await res.json()) as { id: string };
+  }
+
+  async function putYear(ctx: Ctx, vehicleId: string, year: number, body: unknown) {
+    return ctx.app.request(`/api/vehicles/${vehicleId}/years/${year}`, {
+      method: 'PUT',
+      headers: ctx.headers,
+      body: JSON.stringify(body),
+    });
+  }
+
+  it('records a total and is idempotent', async () => {
+    const ctx = await setup('vy-upsert@example.com');
+    const v = await makeVehicle(ctx, 'F-150', { personalUse: 'some' });
+
+    const first = await putYear(ctx, v.id, 2026, { totalMiles: '12000' });
+    expect(first.status).toBe(201);
+    expect(((await first.json()) as { totalMiles: string }).totalMiles).toBe('12000.0000');
+
+    // Answering again replaces rather than duplicating — one row per vehicle
+    // per year, or "what did this truck do in 2026" is ambiguous on the return.
+    const second = await putYear(ctx, v.id, 2026, { totalMiles: '12500' });
+    expect(second.status).toBe(200);
+    expect(((await second.json()) as { totalMiles: string }).totalMiles).toBe('12500.0000');
+  });
+
+  // Blocks, where the double-dip overlap only warns. total < business is
+  // arithmetically impossible; a double deduction is merely suspicious.
+  it('refuses a total below the miles already logged, and says what they are', async () => {
+    const ctx = await setup('vy-below@example.com');
+    const v = await makeVehicle(ctx, 'F-150', { personalUse: 'some' });
+    await logTrip(ctx, { vehicleId: v.id, miles: '500', tripDate: '2026-07-15' });
+
+    const res = await putYear(ctx, v.id, 2026, { totalMiles: '400' });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string; businessMiles: string };
+    expect(body.error).toBe('total_below_logged');
+    expect(body.businessMiles).toBe('500.0000');
+  });
+
+  it('counts commuting against the total too', async () => {
+    const ctx = await setup('vy-commute@example.com');
+    const v = await makeVehicle(ctx, 'F-150', { personalUse: 'some' });
+    await logTrip(ctx, { vehicleId: v.id, miles: '500', tripDate: '2026-07-15' });
+
+    // 500 business + 600 commuting = 1100 > 1000.
+    expect(
+      (await putYear(ctx, v.id, 2026, { totalMiles: '1000', commutingMiles: '600' })).status,
+    ).toBe(400);
+    expect(
+      (await putYear(ctx, v.id, 2026, { totalMiles: '1200', commutingMiles: '600' })).status,
+    ).toBe(201);
+  });
+
+  it('scopes the logged comparison to the year being answered', async () => {
+    const ctx = await setup('vy-yearscope@example.com');
+    const v = await makeVehicle(ctx, 'F-150', { personalUse: 'some' });
+    await logTrip(ctx, { vehicleId: v.id, miles: '5000', tripDate: '2026-07-15' });
+
+    // 2025 has no trips, so a small total is fine even though 2026 has 5,000.
+    expect((await putYear(ctx, v.id, 2025, { totalMiles: '100' })).status).toBe(201);
+  });
+
+  // The divergence from trips, pinned. Vehicle answers fill a disclosure box and
+  // change no dollar figure, so a closed year must not lock them out.
+  it('accepts a year answer for a CLOSED year', async () => {
+    const ctx = await setup('vy-closed@example.com');
+    await ctx.app.request('/api/expenses', {
+      method: 'POST',
+      headers: ctx.headers,
+      body: JSON.stringify({
+        companyId: ctx.companyId,
+        merchant: 'Shell',
+        amount: '62.40',
+        expenseDate: '2025-03-02',
+        categoryAccountId: await coaId(ctx.companyId, '6100'),
+        paymentAccountId: await coaId(ctx.companyId, '1000'),
+      }),
+    });
+    const close = await ctx.app.request('/api/ledger/period-closes', {
+      method: 'POST',
+      headers: ctx.headers,
+      body: JSON.stringify({ companyId: ctx.companyId, fiscalYear: 2025 }),
+    });
+    expect(close.status).toBe(201);
+
+    const v = await makeVehicle(ctx, 'F-150', { personalUse: 'some' });
+    expect((await putYear(ctx, v.id, 2025, { totalMiles: '9000' })).status).toBe(201);
+    // ...while a TRIP in that same year is still refused.
+    expect((await logTrip(ctx, { tripDate: '2025-07-15' })).status).toBe(409);
+  });
+
+  it('goes when its vehicle goes, unlike a trip', async () => {
+    const ctx = await setup('vy-cascade@example.com');
+    const v = await makeVehicle(ctx, 'F-150', { personalUse: 'some' });
+    const trip = (await (await logTrip(ctx, { vehicleId: v.id })).json()) as { id: string };
+    await putYear(ctx, v.id, 2026, { totalMiles: '12000' });
+
+    const db = getTestDb();
+    await db.delete(vehicles).where(eq(vehicles.id, v.id));
+
+    // The year row is a fact ABOUT the vehicle — meaningless without it.
+    const years = await db
+      .select()
+      .from(vehicleYears)
+      .where(eq(vehicleYears.accountId, ctx.accountId));
+    expect(years).toHaveLength(0);
+    // The trip is evidence and survives.
+    const [row] = await db.select().from(mileageTrips).where(eq(mileageTrips.id, trip.id));
+    expect(row).toBeDefined();
+    expect(row?.vehicleId).toBeNull();
+  });
+
+  it('rejects a nonsense year and an unknown vehicle', async () => {
+    const ctx = await setup('vy-bad@example.com');
+    const v = await makeVehicle(ctx, 'F-150');
+    expect((await putYear(ctx, v.id, 1200, { totalMiles: '10' })).status).toBe(400);
+    expect(
+      (await putYear(ctx, '018f0000-0000-7000-8000-000000000009', 2026, { totalMiles: '10' }))
+        .status,
+    ).toBe(404);
   });
 });

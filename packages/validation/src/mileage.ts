@@ -100,6 +100,29 @@ function sumMiles(values: readonly string[]): string {
   return `${s.slice(0, -MILES_SCALE)}.${s.slice(-MILES_SCALE)}`;
 }
 
+// Exact 4dp addition, and subtraction that reports "would go negative" rather
+// than returning one. Part IV's `other` figure can only be wrong in one
+// direction — a total that doesn't cover the logged business miles — and a
+// silent -120.5 on a federal form is far worse than an explicit "these numbers
+// disagree". Hence the null.
+function addMiles(a: string, b: string): string {
+  return sumMiles([a, b]);
+}
+
+function subtractMiles(a: string, b: string): string | null {
+  const scaled = (v: string) => {
+    if (!/^\d+(\.\d+)?$/.test(v)) return 0n;
+    const dot = v.indexOf('.');
+    const intPart = dot === -1 ? v : v.slice(0, dot);
+    const fracPart = dot === -1 ? '' : v.slice(dot + 1);
+    return BigInt(intPart + (fracPart + '0'.repeat(MILES_SCALE)).slice(0, MILES_SCALE));
+  };
+  const diff = scaled(a) - scaled(b);
+  if (diff < 0n) return null;
+  const s = diff.toString().padStart(MILES_SCALE + 1, '0');
+  return `${s.slice(0, -MILES_SCALE)}.${s.slice(-MILES_SCALE)}`;
+}
+
 // Roll a set of trips into the figures every surface needs. Shared rather than
 // per-client for the same reason hoursFromMinutes is: the API computes this for
 // the tax worksheet and the clients compute it for the running total on the trip
@@ -216,3 +239,90 @@ export const vehicleUpdateSchema = z
   .refine((v) => Object.keys(v).length > 0, { message: 'no_fields_to_update' });
 
 export type VehicleUpdateInput = z.infer<typeof vehicleUpdateSchema>;
+
+// A vehicle's total miles for one tax year — Schedule C line 44's denominator.
+//
+// Only the TOTAL is asked for. Business miles come from the trip log and other
+// miles are derived, so this is one number, and it is an estimate on purpose:
+// people know their annual mileage from oil changes, insurance quotes and
+// registration renewals, whereas "personal miles" is a residual nobody tracks.
+// The figure is also not multiplied by anything — line 44 is a disclosure, so a
+// total wrong by 500 miles changes the deduction by exactly zero cents.
+//
+// The upper bound is a typo guard, not a policy, exactly like MAX_MILES_PER_TRIP.
+export const MAX_MILES_PER_YEAR = 300_000;
+
+export const vehicleYearSchema = z.object({
+  totalMiles: quantityString
+    .refine(
+      (s) => Number(s) >= 0 && Number(s) <= MAX_MILES_PER_YEAR,
+      `total miles must be between 0 and ${MAX_MILES_PER_YEAR}`,
+    )
+    .nullable()
+    .optional(),
+  commutingMiles: quantityString
+    .refine(
+      (s) => Number(s) >= 0 && Number(s) <= MAX_MILES_PER_YEAR,
+      `commuting miles must be between 0 and ${MAX_MILES_PER_YEAR}`,
+    )
+    .optional(),
+});
+
+export type VehicleYearInput = z.infer<typeof vehicleYearSchema>;
+
+// What is still missing before Part IV can be filled in for a vehicle.
+export type PartIVGap = 'placed_in_service' | 'personal_use' | 'another_vehicle' | 'total_miles';
+
+export type PartIVForVehicle = {
+  // Line 44c, DERIVED and never stored: total − business − commuting.
+  otherMiles: string | null;
+  missing: PartIVGap[];
+  // The third state. Someone can answer in February and log more trips
+  // afterwards, so a total that was right can go stale. The trip write must
+  // never consult this — blocking a real trip over an old estimate would be
+  // backwards — so the contradiction surfaces here at read time instead.
+  inconsistent: boolean;
+};
+
+// Everything Part IV needs for one vehicle, computed the same way on the server
+// (for the worksheet) and on the client (for the live "that leaves 3,760
+// personal" readout). Shared for the same reason summariseMileage is: two
+// implementations would disagree, and this one ends up on a federal form.
+//
+// THE CASE THAT MATTERS: a vehicle marked 'none' for personal use needs no year
+// row at all. Its total miles ARE the business miles already logged, commuting
+// is zero, and other is zero — so a purpose-built work truck is complete the
+// moment its standing facts are answered, and never asks its owner anything at
+// year end. If this function ever starts reporting `total_miles` missing for
+// such a vehicle, the design has collapsed back into the thing it avoids.
+export function partIVForVehicle(args: {
+  businessMiles: string;
+  personalUse: string | null;
+  placedInServiceOn: string | null;
+  anotherVehicleAvailable: boolean | null;
+  totalMiles: string | null;
+  commutingMiles: string;
+}): PartIVForVehicle {
+  const missing: PartIVGap[] = [];
+  if (!args.placedInServiceOn) missing.push('placed_in_service');
+  if (args.personalUse === null) missing.push('personal_use');
+  if (args.anotherVehicleAvailable === null) missing.push('another_vehicle');
+
+  // Work-only: the total is known without asking, and nothing is left over.
+  if (args.personalUse === 'none') {
+    return { otherMiles: '0.0000', missing, inconsistent: false };
+  }
+
+  if (args.totalMiles === null) {
+    missing.push('total_miles');
+    return { otherMiles: null, missing, inconsistent: false };
+  }
+
+  const accounted = addMiles(args.businessMiles, args.commutingMiles);
+  const remainder = subtractMiles(args.totalMiles, accounted);
+  if (remainder === null) {
+    // The total no longer covers what has been logged against it.
+    return { otherMiles: null, missing, inconsistent: true };
+  }
+  return { otherMiles: remainder, missing, inconsistent: false };
+}
