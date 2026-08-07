@@ -4,9 +4,18 @@
 # boot, RLS actually enforced — the integration suite runs as a BYPASSRLS
 # superuser and cannot prove that half).
 #
-# Overrides the shared lib's API/psql targets: this runs against the throwaway
-# API on :3001 and its own postgres on :5433, so a live dev environment on the
-# usual ports is untouched.
+# LINE NUMBERS ARE NOT STABLE. Every assertion here names a line on a real IRS
+# form, and TMC-167 proved those move: the §179D deduction (Form 7205) took a
+# line on Schedule C, the 1065 and the 1120-S for TY2023 and pushed everything
+# below it down one. This suite was written before that and asserted the old
+# numbering for two years without anyone noticing, because it lived in
+# gitignored scratch/ and never ran (TMC-195).
+#
+# So when a check here fails, DO NOT reach for the expected value first. Open
+# the form. The numbering below was re-verified line by line against the TY2025
+# PDFs on irs.gov on 2026-08-07 — f1040sc (rev. 4/3/25), f1065 (rev. 11/25/25),
+# f1120s (rev. 4/7/25), f1120 (rev. 9/26/25) — and matches the tables in
+# apps/api/src/lib/tax-worksheet.ts, which carry the same standing burden.
 source "$(dirname "$0")/lib.sh"
 
 
@@ -53,8 +62,8 @@ revenue "$SOLE" "12000.00" "$Y-03-01" "$Y-03-05"
 spend "$SOLE" 6000 "500.00" "$Y-04-01"   # Advertising      → L8
 spend "$SOLE" 6100 "412.80" "$Y-04-02"   # Car & truck      → L9  (also user-supplied)
 spend "$SOLE" 7000 "1105.60" "$Y-04-03"  # Supplies         → L22
-spend "$SOLE" 7900 "40.00" "$Y-04-04"    # Other expenses   → L27a
-spend "$SOLE" 7950 "3.44" "$Y-04-05"     # Merchant fees    → L27a
+spend "$SOLE" 7900 "40.00" "$Y-04-04"    # Other expenses   → L27b
+spend "$SOLE" 7950 "3.44" "$Y-04-05"     # Merchant fees    → L27b
 
 SC=$(sheet "$SOLE" "?year=$Y&basis=cash")
 check "form is Schedule C"            "$(echo "$SC" | jq -r .form)" "Schedule C (Form 1040)"
@@ -62,8 +71,13 @@ check "L8 advertising"                "$(amt "$SC" 8)" "500.00"
 check "L9 car & truck carries the books' half" "$(amt "$SC" 9)" "412.80"
 check "L9 still flagged user-supplied" "$(prop "$SC" 9 userSupplied)" "true"
 check "L22 supplies"                  "$(amt "$SC" 22)" "1105.60"
-check "L27a rolls both accounts"      "$(amt "$SC" 27a)" "43.44"
-check "L27a is the itemised line"     "$(prop "$SC" 27a itemized)" "true"
+check "L27b rolls both accounts"      "$(amt "$SC" 27b)" "43.44"
+check "L27b is the itemised line"     "$(prop "$SC" 27b itemized)" "true"
+# The line the §179D deduction took for TY2023, pushing other expenses to 27b.
+# Asserted empty-but-present on purpose: if a future renumbering moves the
+# catch-all again, the two checks above go quiet and only this one is left
+# holding the shape.
+check "L27a is §179D, rendered empty" "$(amt "$SC" 27a)" "0.00"
 check "L28 total expenses"            "$(echo "$SC" | jq -r .totalDeductions)" "2061.84"
 check "L30 home office is blank, not zero" "$(amt "$SC" 30)" "null"
 check "L31 net profit"                "$(echo "$SC" | jq -r .netIncome)" "9938.16"
@@ -83,9 +97,9 @@ PART=$(newco "Two Guys Landscaping" "partnership")
 revenue "$PART" "20000.00" "$Y-03-01" "$Y-03-05"
 spend "$PART" 6900 "175.00" "$Y-05-01"   # Repairs          → L11 (own line)
 spend "$PART" 6350 "900.00" "$Y-05-02"   # Depreciation     → L16a
-spend "$PART" 6700 "240.00" "$Y-06-01"   # Office           → L20 catch-all
-spend "$PART" 7000 "1105.60" "$Y-06-02"  # Supplies         → L20
-spend "$PART" 7400 "88.12" "$Y-06-03"    # Utilities        → L20
+spend "$PART" 6700 "240.00" "$Y-06-01"   # Office           → L21 catch-all
+spend "$PART" 7000 "1105.60" "$Y-06-02"  # Supplies         → L21
+spend "$PART" 7400 "88.12" "$Y-06-03"    # Utilities        → L21
 
 PS=$(sheet "$PART" "?year=$Y&basis=cash")
 check "form is 1065"                  "$(echo "$PS" | jq -r .form)" "Form 1065"
@@ -96,12 +110,13 @@ check "L16a depreciation"             "$(amt "$PS" 16a)" "900.00"
 check "L16b is zero"                  "$(amt "$PS" 16b)" "0.00"
 check "L16c nets to 16a"              "$(amt "$PS" 16c)" "900.00"
 check "L16a marked as a sub-line"     "$(prop "$PS" 16a subLine)" "true"
-check "L20 catch-all sums 3 accounts" "$(amt "$PS" 20)" "1433.72"
-check "L20 is itemised"               "$(prop "$PS" 20 itemized)" "true"
-check "L20 lists its accounts"        "$(echo "$PS" | jq -r '.deductions[]|select(.line=="20")|.accounts|map(.code)|join(",")')" "6700,7000,7400"
+check "L21 catch-all sums 3 accounts" "$(amt "$PS" 21)" "1433.72"
+check "L21 is itemised"               "$(prop "$PS" 21 itemized)" "true"
+check "L21 lists its accounts"        "$(echo "$PS" | jq -r '.deductions[]|select(.line=="21")|.accounts|map(.code)|join(",")')" "6700,7000,7400"
+check "L20 is §179D, rendered empty"  "$(amt "$PS" 20)" "0.00"
 # 175 + 900 + 1433.72 — depreciation counted ONCE despite showing on 16a and 16c.
-check "L21 total deductions"          "$(echo "$PS" | jq -r .totalDeductions)" "2508.72"
-check "L22 ordinary business income"  "$(amt "$PS" 22)" "17491.28"
+check "L22 total deductions"          "$(echo "$PS" | jq -r .totalDeductions)" "2508.72"
+check "L23 ordinary business income"  "$(amt "$PS" 23)" "17491.28"
 check "1065 has no advertising line"  "$(echo "$PS" | jq -r '[.deductions[]|select(.label|test("Advertising"))]|length')" "0"
 
 # ---------------------------------------------------------------------------
@@ -110,17 +125,18 @@ section "S corporation — Form 1120-S"
 SCORP=$(newco "Scorp Inc" "s_corp")
 revenue "$SCORP" "50000.00" "$Y-03-01" "$Y-03-05"
 spend "$SCORP" 6000 "500.00" "$Y-04-01"  # Advertising → L16 (own line here!)
-spend "$SCORP" 6700 "300.00" "$Y-04-02"  # Office      → L19 catch-all
+spend "$SCORP" 6700 "300.00" "$Y-04-02"  # Office      → L20 catch-all
 
 SS=$(sheet "$SCORP" "?year=$Y&basis=cash")
 check "form is 1120-S"                "$(echo "$SS" | jq -r .form)" "Form 1120-S"
 check "L6 total income"               "$(amt "$SS" 6)" "50000.00"
 check "L7 officer comp renders at 0"  "$(amt "$SS" 7)" "0.00"
 check "L16 advertising has own line"  "$(amt "$SS" 16)" "500.00"
-check "L19 catch-all"                 "$(amt "$SS" 19)" "300.00"
-check "L19 is itemised"               "$(prop "$SS" 19 itemized)" "true"
-check "L20 total deductions"          "$(echo "$SS" | jq -r .totalDeductions)" "800.00"
-check "L21 ordinary business income"  "$(amt "$SS" 21)" "49200.00"
+check "L20 catch-all"                 "$(amt "$SS" 20)" "300.00"
+check "L20 is itemised"               "$(prop "$SS" 20 itemized)" "true"
+check "L19 is §179D, rendered empty"  "$(amt "$SS" 19)" "0.00"
+check "L21 total deductions"          "$(echo "$SS" | jq -r .totalDeductions)" "800.00"
+check "L22 ordinary business income"  "$(amt "$SS" 22)" "49200.00"
 
 # ---------------------------------------------------------------------------
 section "C corporation — Form 1120, and the line-31 trap"
@@ -140,7 +156,11 @@ check "L27 total deductions EXCLUDES the tax" "$(echo "$CS" | jq -r .totalDeduct
 check "L28 taxable income is 9000 not 4800"   "$(amt "$CS" 28)" "9000.00"
 check "L29c NOL is blank, not a confident 0"  "$(amt "$CS" 29c)" "null"
 check "L30 taxable income"            "$(amt "$CS" 30)" "9000.00"
-check "1120 renders reserved L25"     "$(prop "$CS" 25 label)" "Reserved for future use"
+# L25 read "Reserved for future use" from the TCJA until TY2022, when §179D
+# claimed the slot. The 1120 was the one form TMC-167 found structurally intact,
+# because the new line landed somewhere already blank and nothing shifted below
+# it — so this asserts the label, which moved, not the numbering, which didn't.
+check "1120 renders §179D at L25"     "$(prop "$CS" 25 label)" "Energy efficient commercial buildings deduction (attach Form 7205)"
 
 # ---------------------------------------------------------------------------
 section "A stale mapping must not land on a plausible wrong line"
@@ -169,7 +189,10 @@ section "Legacy /schedule-c alias — shipped mobile builds depend on it"
 
 LEG=$(api GET "/api/companies/$SOLE/schedule-c?year=$Y&basis=cash")
 check "alias still returns the OLD shape"   "$(echo "$LEG" | jq -r '.partI.grossReceipts')" "12000.00"
-check "old partII spans 8..27a only"        "$(echo "$LEG" | jq -r '"\(.partII[0].line)..\(.partII[-1].line)"')" "8..27a"
+# The alias promises the old response SHAPE, not the old tax law: partII is
+# still every 'mapped' Part II line with 28-31 filtered back out to top-level
+# fields, and that range now ends at 27b because the form gained a line.
+check "old partII spans 8..27b"             "$(echo "$LEG" | jq -r '"\(.partII[0].line)..\(.partII[-1].line)"')" "8..27b"
 check "old totalExpenses field"             "$(echo "$LEG" | jq -r .totalExpenses)" "2061.84"
 check "old homeOffice null field"           "$(echo "$LEG" | jq -r '.homeOffice // "null"')" "null"
 check "old netProfit field"                 "$(echo "$LEG" | jq -r .netProfit)" "9938.16"
