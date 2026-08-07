@@ -356,6 +356,62 @@ describe('POST /api/invoices/:id/payments', () => {
     await ctx.handle.close();
   });
 
+  // Found by the randomised trial-balance invariant (TMC-188), in code that had
+  // already shipped. The sent → voided posting credits AR for the FULL total,
+  // which was correct while a 'sent' invoice could not hold cash. Partial
+  // payments broke that: a half-paid invoice is still 'sent', so voiding it
+  // credited AR by the whole total ON TOP of the payment's own credit, driving
+  // AR negative and stranding the customer's money against a receivable that no
+  // longer existed.
+  it('refuses to void an invoice that is still holding the customer money', async () => {
+    const ctx = await setup('void-with-payment@test.com');
+    const id = await makeInvoice(ctx, 'INV-009', '1000.00');
+    await pay(ctx, id, { amount: '400.00' });
+
+    const res = await ctx.app.request(`/api/invoices/${id}/void`, {
+      method: 'POST',
+      headers: ctx.headers,
+    });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe('has_payments');
+
+    // Untouched: still open, still owed $600, books still balanced.
+    const list = await ctx.app.request(`/api/invoices/${id}/payments`, { headers: ctx.headers });
+    // The GET returns the derived summary, not a nested invoice — `status` here
+    // is what the payment rows imply, which is exactly what should still say
+    // "open" after a refused void.
+    const body = (await list.json()) as SettlementResponse & { status: string };
+    expect(body.outstanding).toBe('600.00');
+    expect(body.status).toBe('sent');
+    expect(await trialBalanceCents(ctx.companyId)).toBe(0);
+
+    await ctx.handle.close();
+  });
+
+  // The guard is on the NET, not the row count — so the legitimate "they paid,
+  // we refunded in full, now cancel it" sequence still voids cleanly. Those two
+  // rows net to zero, AR is back at the full total, and that is exactly what
+  // the void posting reverses.
+  it('allows voiding once the money has been fully refunded', async () => {
+    const ctx = await setup('void-after-refund@test.com');
+    const id = await makeInvoice(ctx, 'INV-010', '1000.00');
+    await pay(ctx, id, { amount: '400.00' });
+    await pay(ctx, id, { amount: '-400.00', receivedOn: '2026-06-20' });
+
+    const res = await ctx.app.request(`/api/invoices/${id}/void`, {
+      method: 'POST',
+      headers: ctx.headers,
+    });
+    expect(res.status).toBe(200);
+
+    // Nothing left anywhere: no cash, no receivable, balanced books.
+    expect(await balanceCents(ctx.companyId, '1000')).toBe(0);
+    expect(await balanceCents(ctx.companyId, '1200')).toBe(0);
+    expect(await trialBalanceCents(ctx.companyId)).toBe(0);
+
+    await ctx.handle.close();
+  });
+
   it('rejects a zero-amount receipt', async () => {
     const ctx = await setup('zero-pay@test.com');
     const id = await makeInvoice(ctx, 'INV-008', '400.00');

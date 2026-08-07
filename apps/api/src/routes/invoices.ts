@@ -43,6 +43,7 @@ import { sendInvoiceEmail } from '../lib/invoice-email.js';
 import { suggestNextInvoiceNumber } from '../lib/invoice-number.js';
 import {
   checkPaymentEligibility,
+  paidCentsForInvoice,
   paymentCountForInvoice,
   summarizeSettlement,
   syncInvoiceSettlement,
@@ -939,9 +940,33 @@ export function invoicesRoutes(deps: AppDeps) {
           );
         },
       )
-      .post('/api/invoices/:id/void', requireCapability('sales:write'), (c) =>
-        transitionInvoice(c, c.req.param('id'), 'void', INVOICE_TRANSITIONS.void),
-      )
+      // Void refuses an invoice that is still holding the customer's money
+      // (TMC-188). The sent → voided posting credits AR for the FULL total,
+      // which was always correct while a 'sent' invoice could not have cash
+      // against it. Partial payments broke that assumption: a half-paid invoice
+      // is still 'sent', so voiding it credited AR by the whole total on top of
+      // the payment's own credit — driving AR negative and stranding the
+      // customer's cash against a receivable that no longer exists.
+      //
+      // The guard is on the NET, not on the row count, so the legitimate
+      // "they paid, we refunded them in full, now cancel the invoice" flow
+      // still voids cleanly: those two rows net to zero and AR is back at the
+      // full total, which is exactly what the void posting reverses.
+      //
+      // Refusing is the right answer rather than a partial reversal: money
+      // actually changed hands, and the honest sequence is to refund it (or
+      // remove the receipt if it was recorded in error) and then void.
+      .post('/api/invoices/:id/void', requireCapability('sales:write'), async (c) => {
+        const id = c.req.param('id');
+        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+        const paidCents = await paidCentsForInvoice(tx, { accountId, invoiceId: id });
+        if (paidCents !== 0) {
+          return c.json({ error: 'has_payments', paidCents }, 409);
+        }
+        return transitionInvoice(c, id, 'void', INVOICE_TRANSITIONS.void);
+      })
       // Edit the recorded payment on an already-paid invoice. Method/reference
       // are plain column updates. A changed payment date is an append-only
       // ledger correction (journal tables are insert-only, migration 0026):
