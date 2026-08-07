@@ -48,7 +48,7 @@ import {
 import { apBalance, arBalance, cashFlowNet, cashOnHand } from '../lib/ledger.js';
 import { recordLlmCallHealth } from '../lib/llm-connection.js';
 import { resolveAccountCredential } from '../lib/llm-credentials.js';
-import { UUID_RE } from '../lib/route-helpers.js';
+import { UUID_RE, localToday } from '../lib/route-helpers.js';
 import {
   type ExpenseAccountAmount,
   type TaxLineRow,
@@ -168,17 +168,8 @@ function parseReportWindow(
 const CLOSING_ENTRY_SOURCES = ['year_end_close', 'year_end_close_reversal'];
 const notAClosingEntry = () => notInArray(journalEntries.sourceEntityType, CLOSING_ENTRY_SOURCES);
 
-// Today's date *in the company's zone* — "year to date" and "as of today" should
-// roll over at the operator's midnight, not UTC's.
-function localToday(tz: string): string {
-  // en-CA formats as YYYY-MM-DD, which is the shape we want everywhere else.
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: tz,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date());
-}
+// localToday moved to lib/route-helpers.ts when the invoice mark-paid path
+// needed the same operator's-midnight rule to date a receipt (TMC-196).
 
 // Parse a single as-of date (YYYY-MM-DD) for point-in-time reports (balance
 // sheet, A/R aging). Default is today in the company's zone. Returns the

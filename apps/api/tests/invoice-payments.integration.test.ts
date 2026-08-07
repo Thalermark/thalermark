@@ -334,8 +334,14 @@ describe('POST /api/invoices/:id/payments', () => {
   });
 
   it('refuses a payment against an invoice settled by the legacy path', async () => {
-    // The guard that makes this safe against live data: mark-paid posted the
-    // cash already, so a payment row would bank the same money twice.
+    // The guard that makes this safe against live data: the old single-shot
+    // mark-paid posted the cash already, so a payment row would bank the same
+    // money twice.
+    //
+    // Since TMC-196 mark-paid leaves a receipt, so that state can no longer be
+    // produced by calling it — which is the fix. Anything still in this shape is
+    // a pre-TMC-187 row that migration 0032 has not reached, so the fixture
+    // builds it directly: settle, then drop the receipt and leave the cash.
     const ctx = await setup('legacy-paid@test.com');
     const id = await makeInvoice(ctx, 'INV-007', '400.00');
     const marked = await ctx.app.request(`/api/invoices/${id}/mark-paid`, {
@@ -344,6 +350,7 @@ describe('POST /api/invoices/:id/payments', () => {
       body: JSON.stringify({ method: 'cash', paidOn: '2026-06-14' }),
     });
     expect(marked.status).toBe(200);
+    await getTestDb().execute(sql`delete from invoice_payments where invoice_id = ${id}`);
     const cashAfterMarkPaid = await balanceCents(ctx.companyId, '1000');
 
     const res = await pay(ctx, id, { amount: '100.00' });
@@ -493,9 +500,12 @@ describe('DELETE /api/invoices/:id/payments/:paymentId', () => {
 describe('invoice settlement does not disturb what already shipped', () => {
   beforeEach(resetDb);
 
-  it('an invoice with no payment rows behaves exactly as before', async () => {
-    // The additive claim, asserted rather than assumed: the legacy full-payment
-    // path posts the same ledger it always did and needs no payment rows.
+  it('mark-paid posts the ledger it always did, and now leaves a receipt', async () => {
+    // The additive claim, asserted rather than assumed. TMC-196 made mark-paid
+    // record a receipt instead of posting a whole-document entry of its own —
+    // and the point of doing it that way is that the LEDGER DOES NOT MOVE. The
+    // cash/AR/trial-balance assertions below are unchanged from when this test
+    // asserted the receipt-free path; only the payments list is new.
     const ctx = await setup('unchanged@test.com');
     const id = await makeInvoice(ctx, 'INV-200', '750.00');
 
@@ -515,13 +525,102 @@ describe('invoice settlement does not disturb what already shipped', () => {
     expect(invoice.paymentReference).toBe('abc123');
 
     const list = await ctx.app.request(`/api/invoices/${id}/payments`, { headers: ctx.headers });
-    const body = (await list.json()) as SettlementResponse & { payments: unknown[] };
-    // No rows — and the summary honestly reports what the rows say, which is
-    // why the eligibility guard exists rather than trusting this number.
-    expect(body.payments).toHaveLength(0);
+    const body = (await list.json()) as SettlementResponse & {
+      payments: Array<{ amount: string; method: string; receivedOn: string }>;
+    };
+    // Exactly one receipt, for the whole invoice, carrying the details the
+    // caller supplied — not a second entry, and not a partial.
+    expect(body.payments).toHaveLength(1);
+    expect(body.payments[0]?.amount).toBe('750.00');
+    expect(body.payments[0]?.method).toBe('venmo');
+    expect(body.payments[0]?.receivedOn).toBe('2026-06-18');
+    expect(body.settlement).toBe('paid');
 
+    // The load-bearing half: identical to the pre-TMC-196 numbers.
     expect(await balanceCents(ctx.companyId, '1000')).toBe(75_000);
     expect(await balanceCents(ctx.companyId, '1200')).toBe(0);
+    expect(await trialBalanceCents(ctx.companyId)).toBe(0);
+
+    await ctx.handle.close();
+  });
+
+  it('an invoice settled by mark-paid can be refunded — the TMC-196 fix', async () => {
+    // The whole bug in one test. Before this, mark-paid left no receipt, the
+    // eligibility guard refused everything, and the invoice was frozen forever.
+    const ctx = await setup('markpaid-refundable@test.com');
+    const id = await makeInvoice(ctx, 'INV-201', '600.00');
+    await ctx.app.request(`/api/invoices/${id}/mark-paid`, {
+      method: 'POST',
+      headers: ctx.headers,
+      body: JSON.stringify({ method: 'cash', paidOn: '2026-06-20' }),
+    });
+
+    const refund = await pay(ctx, id, { amount: '-100.00', receivedOn: '2026-06-25' });
+    expect(refund.status).toBe(201);
+
+    // $600 in, $100 back out.
+    expect(await balanceCents(ctx.companyId, '1000')).toBe(50_000);
+    // The invoice is owed $100 again, and says so.
+    expect(await balanceCents(ctx.companyId, '1200')).toBe(10_000);
+    expect(await trialBalanceCents(ctx.companyId)).toBe(0);
+
+    await ctx.handle.close();
+  });
+
+  it('mark-paid on a part-paid invoice banks only what is still outstanding', async () => {
+    // A part-paid invoice is still 'sent', so mark-paid lands on one. Posting
+    // the whole total on top of a deposit already banked would put $1,000 of
+    // cash on a $600 invoice — reachable, silent, and wrong (TMC-196).
+    const ctx = await setup('markpaid-after-deposit@test.com');
+    const id = await makeInvoice(ctx, 'INV-202', '600.00');
+    await pay(ctx, id, { amount: '400.00', receivedOn: '2026-06-01' });
+
+    await ctx.app.request(`/api/invoices/${id}/mark-paid`, {
+      method: 'POST',
+      headers: ctx.headers,
+      body: JSON.stringify({ method: 'cash', paidOn: '2026-06-20' }),
+    });
+
+    // 400 + 200, not 400 + 600.
+    expect(await balanceCents(ctx.companyId, '1000')).toBe(60_000);
+    expect(await balanceCents(ctx.companyId, '1200')).toBe(0);
+    expect(await trialBalanceCents(ctx.companyId)).toBe(0);
+
+    const list = await ctx.app.request(`/api/invoices/${id}/payments`, { headers: ctx.headers });
+    const body = (await list.json()) as SettlementResponse & {
+      payments: Array<{ amount: string }>;
+    };
+    expect(body.payments.map((p) => p.amount)).toEqual(['400.00', '200.00']);
+    expect(body.settlement).toBe('paid');
+
+    await ctx.handle.close();
+  });
+
+  it('a never-issued invoice marked paid is a cash sale — revenue, not receivables', async () => {
+    // Nobody was ever owed anything, so there is no receivable to relieve. An
+    // AR leg here would be a receivable against a customer who was never
+    // billed, and it would survive a later refund as a phantom balance.
+    const ctx = await setup('cash-sale@test.com');
+    const id = await makeInvoice(ctx, 'INV-203', '500.00', false);
+    const marked = await ctx.app.request(`/api/invoices/${id}/mark-paid`, {
+      method: 'POST',
+      headers: ctx.headers,
+      body: JSON.stringify({ method: 'cash', paidOn: '2026-06-22' }),
+    });
+    expect(marked.status).toBe(200);
+
+    expect(await balanceCents(ctx.companyId, '1000')).toBe(50_000);
+    // Never touched. This is the assertion the whole cash-sale branch exists for.
+    expect(await balanceCents(ctx.companyId, '1200')).toBe(0);
+    expect(await balanceCents(ctx.companyId, '4000')).toBe(-50_000);
+    expect(await trialBalanceCents(ctx.companyId)).toBe(0);
+
+    // And it refunds back out of revenue, leaving no receivable behind.
+    const refund = await pay(ctx, id, { amount: '-125.00', receivedOn: '2026-06-28' });
+    expect(refund.status).toBe(201);
+    expect(await balanceCents(ctx.companyId, '1000')).toBe(37_500);
+    expect(await balanceCents(ctx.companyId, '1200')).toBe(0);
+    expect(await balanceCents(ctx.companyId, '4000')).toBe(-37_500);
     expect(await trialBalanceCents(ctx.companyId)).toBe(0);
 
     await ctx.handle.close();

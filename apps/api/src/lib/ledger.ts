@@ -7,7 +7,7 @@ import {
   journalEntries,
   journalLines,
 } from '@thalermark/db';
-import type { DepreciationConvention } from '@thalermark/validation';
+import { type DepreciationConvention, centsToMoney, toCents } from '@thalermark/validation';
 import type { SQL } from 'drizzle-orm';
 import { and, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
@@ -61,7 +61,7 @@ const COA_ACCUM_DEPRECIATION = '1900';
 const COA_LOANS_PAYABLE = '2700';
 const COA_DEPRECIATION_EXPENSE = '6350';
 const COA_INTEREST_EXPENSE = '6500';
-// Merchant Processing Fees (7950 → Schedule C line 27a). Stripe keeps its cut
+// Merchant Processing Fees (7950 → Schedule C line 27b). Stripe keeps its cut
 // before depositing, so a card payment debits Cash for the *net* and this for
 // the fee, against the customer's gross. Only the Stripe webhook supplies a
 // fee; every manual mark-paid channel leaves it null and posts Cash at gross.
@@ -1295,18 +1295,107 @@ export async function repostInvoicePaymentDate(
 // Stripe does not actually do. Manual refunds pass no fee so they collapse to
 // the clean two-line shape; a fee-bearing refund is not reachable from any
 // surface today, and wiring one needs this decided rather than inherited.
+// WHICH ACCOUNT THE RECEIPT CREDITS depends on whether a receivable was ever
+// established, and that is an accounting distinction rather than an
+// implementation detail (TMC-196).
+//
+//   'receivable' — the invoice was issued, so draft→sent already posted
+//                  Dr AR / Cr Revenue. The money arriving relieves that
+//                  receivable: Cr AR. This is the ordinary case.
+//
+//   'cashSale'   — the invoice was NEVER issued. Marking a draft paid is a
+//                  counter sale: the work was done and settled in one motion
+//                  and nobody was ever owed anything. There is no receivable to
+//                  relieve, so the receipt credits Revenue and Sales Tax
+//                  directly.
+//
+// Inventing an AR leg for the cash-sale case and immediately cancelling it
+// would net to zero at settlement and then come apart on the first refund —
+// leaving a receivable against a customer who owes nothing, and revenue
+// overstated by the amount handed back. The distinction is the same one
+// QuickBooks draws between an Invoice and a Sales Receipt, and the one
+// repostInvoicePaymentDate already makes ("derive it from whether the invoice
+// was ever sent").
+export type ReceiptCredit =
+  | { kind: 'receivable' }
+  | {
+      kind: 'cashSale';
+      // The invoice's own composition. The receipt is split across these in
+      // proportion, so a full receipt reproduces them exactly and a partial
+      // refund claws back a proportional slice of each.
+      serviceSubtotal: string;
+      productSubtotal: string;
+      tax: string;
+      total: string;
+    };
+
+// Splits `totalCents` across `weights` so the parts sum to EXACTLY totalCents.
+//
+// Largest-remainder: floor each share, then hand the leftover cents out to the
+// largest fractional parts. A naive round-each-then-hope leaves the entry off
+// by a cent on ordinary numbers ($33.33 of a 3-way split), and a journal entry
+// that is off by a cent does not post at all — the deferred sum-to-zero trigger
+// rejects it. Deterministic on ties (earlier index wins) so the same receipt
+// always produces the same entry.
+export function allocateProportionally(totalCents: number, weights: number[]): number[] {
+  const sum = weights.reduce((a, b) => a + b, 0);
+  // A zero-weight invoice cannot produce a receipt (amount must be non-zero and
+  // the total it is measured against is zero), but returning silently-wrong
+  // numbers here would be worse than putting it all on the first leg.
+  if (sum === 0) return weights.map((_, i) => (i === 0 ? totalCents : 0));
+
+  const exact = weights.map((w) => (totalCents * w) / sum);
+  const floored = exact.map(Math.floor);
+  let remainder = totalCents - floored.reduce((a, b) => a + b, 0);
+  // Indices ordered by the size of the fractional part they lost to the floor.
+  const order = exact
+    .map((v, i) => ({ i, frac: v - Math.floor(v) }))
+    .sort((a, b) => b.frac - a.frac || a.i - b.i);
+  for (const { i } of order) {
+    if (remainder <= 0) break;
+    floored[i] = (floored[i] ?? 0) + 1;
+    remainder -= 1;
+  }
+  return floored;
+}
+
 export function invoicePaymentLines(args: {
   amount: string;
   processingFee?: string | null;
+  // Defaults to the receivable shape, so every existing call site and test is
+  // unchanged and the cash-sale branch is inert until something asks for it.
+  credit?: ReceiptCredit;
 }): LedgerLine[] {
   const cents = Math.round(Number(args.amount) * 100);
-  const gross = (Math.abs(cents) / 100).toFixed(2);
+  const grossCents = Math.abs(cents);
+  const gross = (grossCents / 100).toFixed(2);
   const fee = args.processingFee ?? '0.00';
-  const lines: LedgerLine[] = [
+  const credit = args.credit ?? { kind: 'receivable' };
+
+  // Both shapes debit the same money — cash net of the processor's cut, plus
+  // the cut as an expense. Only the credit side differs.
+  const debits: LedgerLine[] = [
     { code: COA_CASH, side: 'debit', amount: subtractMoney(gross, fee) },
     { code: COA_MERCHANT_FEES, side: 'debit', amount: fee },
-    { code: COA_AR, side: 'credit', amount: gross },
   ];
+
+  const credits: LedgerLine[] =
+    credit.kind === 'receivable'
+      ? [{ code: COA_AR, side: 'credit', amount: gross }]
+      : (() => {
+          const [service = 0, product = 0, tax = 0] = allocateProportionally(grossCents, [
+            toCents(credit.serviceSubtotal),
+            toCents(credit.productSubtotal),
+            toCents(credit.tax),
+          ]);
+          return [
+            { code: COA_SERVICE_REVENUE, side: 'credit', amount: centsToMoney(service) },
+            { code: COA_PRODUCT_REVENUE, side: 'credit', amount: centsToMoney(product) },
+            { code: COA_SALES_TAX_PAYABLE, side: 'credit', amount: centsToMoney(tax) },
+          ];
+        })();
+
+  const lines = [...debits, ...credits];
   return cents < 0 ? reverseLedgerLines(lines) : lines;
 }
 
@@ -1316,7 +1405,42 @@ type InvoicePaymentPosting = {
   accountId: string;
   companyId: string;
   postedAt: Date;
+  // Omitted → the receivable shape, which is what every issued invoice wants.
+  // Resolve it with receiptCreditForInvoice rather than deciding at the call
+  // site, so the sent/never-sent question is answered in one place.
+  credit?: ReceiptCredit;
 };
+
+// Which credit shape a receipt against this invoice takes.
+//
+// The question is only ever "was this invoice issued?" — an issued invoice has
+// a receivable to relieve, a never-issued one is a counter sale. `sentAt` is the
+// discriminator the codebase already uses for exactly this call (see
+// repostInvoicePaymentDate's prevStatus).
+//
+// The cash-sale branch reads the invoice's own composition, splitting revenue
+// the same way invoicePostingLines does: product-typed line items credit Product
+// Revenue, the remainder credits Service Revenue.
+export async function receiptCreditForInvoice(
+  tx: Database | Transaction,
+  args: {
+    accountId: string;
+    invoice: Pick<Invoice, 'id' | 'subtotal' | 'tax' | 'total' | 'sentAt'>;
+  },
+): Promise<ReceiptCredit> {
+  if (args.invoice.sentAt) return { kind: 'receivable' };
+  const productSubtotal = await productSubtotalForInvoice(tx, {
+    accountId: args.accountId,
+    invoiceId: args.invoice.id,
+  });
+  return {
+    kind: 'cashSale',
+    serviceSubtotal: subtractMoney(args.invoice.subtotal, productSubtotal),
+    productSubtotal,
+    tax: args.invoice.tax,
+    total: args.invoice.total,
+  };
+}
 
 // Posts one receipt. source_entity_id is the INVOICE, not the payment — so every
 // entry for an invoice shares one source group and cashFlowNet's per-source
@@ -1333,7 +1457,7 @@ export async function postInvoicePayment(
     sourceEntityId: args.invoice.id,
     postedAt: args.postedAt,
     memo: `Invoice ${args.invoice.number} payment`,
-    lines: invoicePaymentLines(args.payment),
+    lines: invoicePaymentLines({ ...args.payment, credit: args.credit }),
     // Collecting on an invoice already issued is settlement, so a retired
     // company can still bank the cheque for work it billed under the old name.
     intent: 'settlement',
@@ -1355,7 +1479,7 @@ export async function postInvoicePaymentReversal(
     sourceEntityId: args.invoice.id,
     postedAt: args.postedAt,
     memo: `Invoice ${args.invoice.number} payment reversal`,
-    lines: reverseLedgerLines(invoicePaymentLines(args.payment)),
+    lines: reverseLedgerLines(invoicePaymentLines({ ...args.payment, credit: args.credit })),
     intent: 'settlement',
   });
 }
