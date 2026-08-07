@@ -22,10 +22,9 @@ permissions:
 # non-BYPASSRLS `thalermark_app` role — so RLS is actually enforced here in a
 # way the integration suite cannot check.
 #
-# Scope: suites 01-05. 06 is held out on TMC-195 (stale assertions, not a code
-# fault). 07 and 08 additionally drive the
-# SvelteKit app on TMC_WEB and are not wired up yet; adding them means building
-# and serving the web app in this job.
+# Scope: suites 01-06. 07 and 08 additionally drive the SvelteKit app on
+# TMC_WEB and are not wired up yet; adding them means building and serving the
+# web app in this job.
 
 jobs:
   e2e:
@@ -121,20 +120,14 @@ jobs:
 
       # TMC_DATABASE_URL routes the harness's psql_q through the runner's psql
       # instead of `docker exec`; there is no container to exec into here.
-      - name: Run the walkthrough (suites 01-05)
+      - name: Run the walkthrough (suites 01-06)
         env:
           TMC_API: http://localhost:3000
           TMC_DATABASE_URL: postgres://postgres:postgres@localhost:5432/thalermark
         run: |
           set -euo pipefail
           failed=0
-          # 06 is EXCLUDED, and that is a debt not a decision — see TMC-195.
-          # Its 11 tax-worksheet assertions rotted when TMC-167 renumbered the
-          # IRS lines (§179D took 27a for TY2023, pushing other expenses to
-          # 27b). The harness had never run since, so nobody saw them go wrong.
-          # The code is right and verified against the real forms; the suite is
-          # stale. Re-include the moment its assertions are updated.
-          for suite in e2e/0[1-5]-*.sh; do
+          for suite in e2e/0[1-6]-*.sh; do
             echo "::group::$suite"
             # Each suite reports its own pass/fail tally and exits non-zero on
             # any failure. Keep going rather than bailing on the first, so one
