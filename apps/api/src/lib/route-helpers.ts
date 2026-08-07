@@ -54,6 +54,21 @@ export function expenseDateToPostedAt(d: string): Date {
   return new Date(`${d}T00:00:00.000Z`);
 }
 
+// Today's date *in the company's zone* — "as of today" should roll over at the
+// operator's midnight, not UTC's. The reports use it for "year to date"; the
+// invoice mark-paid path uses it to date a receipt whose caller didn't supply a
+// date, where truncating `now` to a UTC date would file a Tokyo morning under
+// yesterday (TMC-196).
+export function localToday(tz: string): string {
+  // en-CA formats as YYYY-MM-DD, which is the shape we want everywhere else.
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+}
+
 // Resolves chart_of_accounts row ids to their { code, accountType } within one
 // company (scoped by account for defense-in-depth per
 // [[architecture_account_id_explicit_filter]]). The expense + bill endpoints

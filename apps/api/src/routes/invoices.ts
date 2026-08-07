@@ -12,6 +12,7 @@ import {
 } from '@thalermark/db';
 import { emit } from '@thalermark/telemetry';
 import {
+  centsToMoney,
   invoiceCreateSchema,
   invoiceMarkPaidSchema,
   invoicePaymentCreateSchema,
@@ -57,6 +58,7 @@ import {
   postInvoicePayment,
   postInvoicePaymentReversal,
   postInvoiceTransition,
+  receiptCreditForInvoice,
   repostInvoicePaymentDate,
 } from '../lib/ledger.js';
 import { applyCursor, keysetOrderBy, parseLimit, slicePage } from '../lib/pagination.js';
@@ -66,6 +68,7 @@ import {
   escapeLike,
   expenseDateToPostedAt,
   isValidDateParam,
+  localToday,
 } from '../lib/route-helpers.js';
 import type { AuditWriter } from '../middleware/audit.js';
 import { requireCapability } from '../middleware/authz.js';
@@ -156,6 +159,11 @@ async function applyInvoiceTransition(
     // backdated payment lands in the right reporting period. Defaults to now.
     patch?: Record<string, unknown>;
     effectiveAt?: Date;
+    // mark-paid posts a RECEIPT instead of a whole-document entry (TMC-196), so
+    // it suppresses the transition's own posting rather than double-banking the
+    // money. Nothing else sets this: draft→sent and sent→voided are genuine
+    // document-level events with no receipt behind them.
+    skipLedgerPosting?: boolean;
   },
 ): Promise<TransitionResult> {
   const { accountId, id, key, spec } = args;
@@ -265,14 +273,16 @@ async function applyInvoiceTransition(
   // deferred sum-to-zero trigger on journal_lines fires at commit and a
   // posting failure rolls the status flip + audit back together. Empty-
   // amount transitions (draft → voided, total=0 invoice) post nothing.
-  await postInvoiceTransition(tx, {
-    invoice: updated,
-    prevStatus: from,
-    nextStatus: updated.status as InvoiceStatus,
-    accountId,
-    companyId: updated.companyId,
-    postedAt,
-  });
+  if (!args.skipLedgerPosting) {
+    await postInvoiceTransition(tx, {
+      invoice: updated,
+      prevStatus: from,
+      nextStatus: updated.status as InvoiceStatus,
+      accountId,
+      companyId: updated.companyId,
+      postedAt,
+    });
+  }
 
   return { ok: true, invoice: updated, from };
 }
@@ -924,20 +934,102 @@ export function invoicesRoutes(deps: AppDeps) {
           }
           return parsed.data;
         }),
-        (c) => {
+        async (c) => {
+          const id = c.req.param('id');
+          if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
           const data = c.req.valid('json');
-          return transitionInvoice(
-            c,
-            c.req.param('id'),
-            'mark-paid',
-            INVOICE_TRANSITIONS['mark-paid'],
-            {
-              patch: { paymentMethod: data.method, paymentReference: data.reference ?? null },
-              // Backdated payment date drives paidAt + the ledger posting date;
-              // omitted → now (the quick caret-menu path).
-              effectiveAt: data.paidOn ? new Date(data.paidOn) : undefined,
-            },
-          );
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+
+          // The status flip, the audit entry and the concurrency re-assert are
+          // unchanged. Only the ledger posting moves: the receipt below posts in
+          // its place, so mark-paid stops being a second way to move money and
+          // becomes what TMC-187 always described it as — the special case of
+          // recording a payment (TMC-196).
+          const result = await applyInvoiceTransition(tx, c.var.audit, {
+            accountId,
+            id,
+            key: 'mark-paid',
+            spec: INVOICE_TRANSITIONS['mark-paid'],
+            patch: { paymentMethod: data.method, paymentReference: data.reference ?? null },
+            // Backdated payment date drives paidAt + the ledger posting date;
+            // omitted → now (the quick caret-menu path).
+            effectiveAt: data.paidOn ? new Date(data.paidOn) : undefined,
+            skipLedgerPosting: true,
+          });
+          if (!result.ok) {
+            if (result.error === 'invoice_not_found') return c.json({ error: result.error }, 404);
+            return c.json({ error: result.error, from: result.from, to: result.to }, 409);
+          }
+          const invoice = result.invoice;
+
+          // Record what actually ARRIVED — the balance still outstanding, not
+          // the invoice total. A part-paid invoice is still 'sent', so mark-paid
+          // lands on one perfectly happily, and posting the whole total on top of
+          // a deposit already banked books the same money twice.
+          const alreadyPaidCents = await paidCentsForInvoice(tx, { accountId, invoiceId: id });
+          const outstandingCents = toCents(invoice.total) - alreadyPaidCents;
+
+          // A zero-total invoice has nothing to receive, and a zero-amount
+          // receipt is refused by the payment schema for good reason. Settled by
+          // the status flip alone — the same carve-out migration 0032 made when
+          // it skipped total = 0.
+          if (outstandingCents <= 0) {
+            await emit(tx, { name: 'invoice_marked_paid' });
+            return c.json(invoice);
+          }
+
+          // No date supplied (the caret-menu tap) means "today" — and today is
+          // the operator's, not UTC's. Truncating `now` to a UTC date files a
+          // Tokyo morning under yesterday.
+          let receivedOn = data.paidOn;
+          if (!receivedOn) {
+            const [company] = await tx
+              .select({ timezone: companies.timezone })
+              .from(companies)
+              .where(and(eq(companies.id, invoice.companyId), eq(companies.accountId, accountId)))
+              .limit(1);
+            receivedOn = localToday(company?.timezone ?? 'UTC');
+          }
+
+          const [payment] = await tx
+            .insert(invoicePayments)
+            .values({
+              id: uuidv7(),
+              accountId,
+              companyId: invoice.companyId,
+              invoiceId: id,
+              amount: centsToMoney(outstandingCents),
+              receivedOn,
+              method: data.method,
+              reference: data.reference ?? null,
+            })
+            .returning();
+          if (!payment) return c.json({ error: 'invoice_not_found' }, 404);
+
+          await postInvoicePayment(tx, {
+            payment,
+            invoice,
+            accountId,
+            companyId: invoice.companyId,
+            postedAt: expenseDateToPostedAt(payment.receivedOn),
+            // Never-issued invoice → a counter sale, crediting revenue rather
+            // than a receivable nobody ever owed.
+            credit: await receiptCreditForInvoice(tx, { accountId, invoice }),
+          });
+
+          // Re-derive the header from the rows so the two cannot disagree. It
+          // rewrites the same status/paid_at/method the transition just set —
+          // deliberately, because the rows are the authority now.
+          const synced = await syncInvoiceSettlement(tx, {
+            accountId,
+            invoiceId: id,
+            totalCents: toCents(invoice.total),
+          });
+          if (!synced) return c.json({ error: 'invoice_not_found' }, 404);
+
+          await emit(tx, { name: 'invoice_marked_paid' });
+          return c.json(synced.invoice);
         },
       )
       // Void refuses an invoice that is still holding the customer's money
@@ -1310,6 +1402,10 @@ export function invoicesRoutes(deps: AppDeps) {
             accountId,
             companyId: invoice.companyId,
             postedAt: expenseDateToPostedAt(payment.receivedOn),
+            // Reached only for an issued invoice today (the eligibility guard
+            // above refuses a draft), so this resolves to the receivable shape.
+            // Asked rather than assumed so the two receipt paths stay identical.
+            credit: await receiptCreditForInvoice(tx, { accountId, invoice }),
           });
 
           const synced = await syncInvoiceSettlement(tx, {
@@ -1383,6 +1479,12 @@ export function invoicesRoutes(deps: AppDeps) {
             payment,
             invoice,
             accountId,
+            // Must resolve to the SAME shape the original receipt used, or the
+            // reversal cancels a different set of accounts than it posted and
+            // the invoice's source group stops netting to zero. Safe because the
+            // discriminator (sentAt) only ever goes null → set, and a receipt
+            // recorded before the invoice was issued is a cash sale forever.
+            credit: await receiptCreditForInvoice(tx, { accountId, invoice }),
             companyId: invoice.companyId,
             postedAt: expenseDateToPostedAt(payment.receivedOn),
           });

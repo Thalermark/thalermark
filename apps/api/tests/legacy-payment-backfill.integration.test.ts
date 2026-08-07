@@ -162,8 +162,18 @@ async function makeContact(ctx: Ctx, name: string): Promise<string> {
   return ((await res.json()) as { id: string }).id;
 }
 
-// A LEGACY invoice: issued, then settled by the old single-shot mark-paid,
-// which writes the header stamps and creates no payment rows.
+// A LEGACY invoice: issued, then settled the way mark-paid used to settle —
+// header stamps written, cash on the ledger, and NO payment rows.
+//
+// That state can no longer be produced by calling mark-paid. TMC-196 made
+// mark-paid record a receipt like every other path, which is precisely the fix
+// that stops new legacy invoices being created. So the shape this migration
+// exists to repair now has to be built deliberately: settle through the API,
+// then drop the receipt row and leave the ledger entry standing.
+//
+// Deleting the row directly rather than through the API is the point — the API
+// would post a reversal, and what we need is cash on the books with nothing to
+// explain it. That is exactly what a pre-TMC-187 database contains.
 async function makeLegacyPaidInvoice(
   ctx: Ctx,
   number: string,
@@ -211,6 +221,12 @@ async function makeLegacyPaidInvoice(
     }),
   });
   if (paid.status !== 200) throw new Error(`mark-paid failed: ${paid.status}`);
+
+  // Strip the receipt, keep the ledger entry — see the note above. The entry
+  // mark-paid posts is byte-identical to the one the old single-shot path
+  // posted (Dr Cash / Cr AR when issued, Dr Cash / Cr Revenue when not), so
+  // what is left behind is a faithful pre-TMC-187 row.
+  await getTestDb().execute(sql`delete from invoice_payments where invoice_id = ${id}`);
   return id;
 }
 

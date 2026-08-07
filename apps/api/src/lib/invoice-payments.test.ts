@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { checkPaymentEligibility, summarizeSettlement } from './invoice-payments.js';
-import { invoicePaymentLines } from './ledger.js';
+import { allocateProportionally, invoicePaymentLines } from './ledger.js';
 
 // The pure half of partial payments (TMC-187). The settlement label and the
 // eligibility guard are decision tables, so they are tested as decision tables
@@ -148,5 +148,100 @@ describe('invoicePaymentLines', () => {
     const refund = invoicePaymentLines({ amount: '-432.19', processingFee: '12.87' });
     expect(sum(paid, 'debit') - sum(refund, 'debit')).toBe(0);
     expect(sum(paid, 'credit') - sum(refund, 'credit')).toBe(0);
+  });
+
+  // TMC-196. Marking a never-issued draft paid is a counter sale: nobody was
+  // ever owed anything, so the receipt credits Revenue directly and AR must
+  // not appear at all.
+  describe('the cash-sale shape', () => {
+    // $600 of service + $200 of product + $64 tax = $864.
+    const sale = {
+      kind: 'cashSale' as const,
+      serviceSubtotal: '600.00',
+      productSubtotal: '200.00',
+      tax: '64.00',
+      total: '864.00',
+    };
+
+    it('a full receipt reproduces the invoice composition exactly', () => {
+      const lines = invoicePaymentLines({ amount: '864.00', credit: sale });
+      expect(lines).toEqual([
+        { code: '1000', side: 'debit', amount: '864.00' },
+        { code: '7950', side: 'debit', amount: '0.00' },
+        { code: '4000', side: 'credit', amount: '600.00' },
+        { code: '4100', side: 'credit', amount: '200.00' },
+        { code: '2200', side: 'credit', amount: '64.00' },
+      ]);
+      expect(sum(lines, 'debit')).toBe(sum(lines, 'credit'));
+    });
+
+    it('never touches accounts receivable', () => {
+      // The whole point. An AR leg here would be a receivable against a
+      // customer who was never billed.
+      const lines = invoicePaymentLines({ amount: '864.00', credit: sale });
+      expect(lines.some((l) => l.code === '1200')).toBe(false);
+    });
+
+    it('a refund claws back revenue, not receivables', () => {
+      const lines = invoicePaymentLines({ amount: '-108.00', credit: sale });
+      // Cash goes out; revenue and tax come back down in proportion
+      // (108 is one eighth of 864, so 75 / 25 / 8).
+      expect(lines).toEqual([
+        { code: '1000', side: 'credit', amount: '108.00' },
+        { code: '7950', side: 'credit', amount: '0.00' },
+        { code: '4000', side: 'debit', amount: '75.00' },
+        { code: '4100', side: 'debit', amount: '25.00' },
+        { code: '2200', side: 'debit', amount: '8.00' },
+      ]);
+      expect(sum(lines, 'debit')).toBe(sum(lines, 'credit'));
+    });
+
+    it('balances on an amount that does not divide cleanly', () => {
+      // $100 split three ways is the case a round-each-leg implementation gets
+      // wrong by a cent — and a one-cent imbalance does not post at all.
+      const thirds = {
+        kind: 'cashSale' as const,
+        serviceSubtotal: '33.33',
+        productSubtotal: '33.33',
+        tax: '33.34',
+        total: '100.00',
+      };
+      for (const amount of ['100.00', '33.33', '0.01', '66.67', '99.99']) {
+        const lines = invoicePaymentLines({ amount, credit: thirds });
+        expect(sum(lines, 'debit')).toBe(sum(lines, 'credit'));
+        expect(sum(lines, 'credit')).toBe(Math.round(Number(amount) * 100));
+      }
+    });
+  });
+});
+
+describe('allocateProportionally', () => {
+  it('hands out every cent, never one more or fewer', () => {
+    // Falsification: an implementation that rounds each share independently
+    // passes the easy cases and fails these.
+    const cases: Array<[number, number[]]> = [
+      [10_000, [3333, 3333, 3334]],
+      [1, [5000, 5000]],
+      [99, [1, 1, 1]],
+      [7, [100, 200, 300]],
+      [864_00, [600_00, 200_00, 64_00]],
+    ];
+    for (const [total, weights] of cases) {
+      const parts = allocateProportionally(total, weights);
+      expect(parts.reduce((a, b) => a + b, 0)).toBe(total);
+      expect(parts.every((p) => p >= 0)).toBe(true);
+    }
+  });
+
+  it('reproduces the weights exactly when the whole amount is allocated', () => {
+    // The property mark-paid depends on: a full receipt against a cash sale
+    // must post the invoice's own numbers, not a re-derived approximation.
+    expect(allocateProportionally(864_00, [600_00, 200_00, 64_00])).toEqual([
+      600_00, 200_00, 64_00,
+    ]);
+  });
+
+  it('puts everything on the first leg rather than dividing by zero', () => {
+    expect(allocateProportionally(500, [0, 0, 0])).toEqual([500, 0, 0]);
   });
 });
