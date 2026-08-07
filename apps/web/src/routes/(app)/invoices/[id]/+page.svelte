@@ -87,6 +87,8 @@
       (inv.status === 'sent' || (inv.status === 'paid' && settlement.payments.length > 0)),
   );
   let showPaymentPanel = $state(false);
+  // Deposit form on a draft, collapsed until asked for (TMC-199).
+  let showDeposit = $state(false);
   // Pre-fills the amount field with what is still owed — the overwhelmingly
   // common entry, and it saves the user doing the subtraction.
   const outstandingPlaceholder = $derived(settlement ? settlement.outstanding : '0.00');
@@ -355,6 +357,63 @@
       </form>
     {/if}
   </div>
+{/if}
+
+<!-- Taking a deposit on a draft, in one question (TMC-199).
+     This box used to be sixty words explaining our state machine — issue it,
+     mark it sent, then record a part-payment. The person reading it is standing
+     in a customer's yard holding cash and knows exactly one thing: how much. So
+     that is all it asks; issuing the invoice happens server-side in the same
+     transaction.
+     Collapsed by default: most drafts never take a deposit, and an open form
+     on every one of them is noise. The question IS the affordance — someone who
+     took money recognises it immediately, and everyone else reads past it. -->
+{#if canWrite && inv.status === 'draft'}
+  <section class="mt-8 rounded-sm border border-fg/10 bg-surface-2 p-5">
+    <!-- One button that toggles, with a caret that turns — so it reads as an
+         expandable section rather than a link that only goes one way. Closing
+         it again matters: someone who opens it to look, and did not take a
+         deposit, needs a way back to a quiet screen. -->
+    <button
+      type="button"
+      onclick={() => {
+        showDeposit = !showDeposit;
+      }}
+      aria-expanded={showDeposit}
+      class="flex items-center gap-2 font-serif text-xl font-light text-fg hover:text-accent"
+    >
+      <span
+        class="inline-block text-base text-fg/40 transition-transform duration-150"
+        class:rotate-90={showDeposit}
+        aria-hidden="true">&#9656;</span
+      >
+      Received a deposit?
+    </button>
+    {#if showDeposit}
+      <form method="post" action="?/takeDeposit" class="mt-3 flex flex-wrap items-end gap-3">
+        <div>
+          <label class="label" for="deposit-amount">How much</label>
+          <input
+            id="deposit-amount"
+            name="amount"
+            type="text"
+            inputmode="decimal"
+            required
+            placeholder={inv.total}
+            class="field mt-1 w-32 tabular-nums"
+          />
+        </div>
+        <button type="submit" class="btn">Record it</button>
+      </form>
+      <p class="mt-3 max-w-prose text-sm text-fg/60">
+        We'll finish the invoice off and log what they paid. You can still send
+        it to them whenever you like.
+      </p>
+      {#if form?.transitionError}
+        <p class="mt-3 text-sm text-danger">{form.transitionError}</p>
+      {/if}
+    {/if}
+  </section>
 {/if}
 
 {#if settlement && (settlement.payments.length > 0 || canRecordPayment)}

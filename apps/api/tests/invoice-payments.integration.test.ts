@@ -333,6 +333,57 @@ describe('POST /api/invoices/:id/payments', () => {
     await ctx.handle.close();
   });
 
+  it('a deposit on a draft issues it and banks the money in one step', async () => {
+    // TMC-199. The person doing this is standing in a customer's yard holding
+    // cash; they send one number and the server does the rest.
+    const ctx = await setup('deposit-on-draft@test.com');
+    const id = await makeInvoice(ctx, 'INV-300', '2000.00', false);
+
+    const res = await ctx.app.request(`/api/invoices/${id}/deposit`, {
+      method: 'POST',
+      headers: ctx.headers,
+      body: JSON.stringify({ amount: '500.00', receivedOn: '2026-06-12' }),
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as SettlementResponse;
+    expect(body.settlement).toBe('partial');
+    expect(body.outstanding).toBe('1500.00');
+
+    // Issued AND part-paid: revenue recognised in full, $500 of cash in, and
+    // $1,500 still sitting in receivables.
+    expect(await balanceCents(ctx.companyId, '4000')).toBe(-200_000);
+    expect(await balanceCents(ctx.companyId, '1000')).toBe(50_000);
+    expect(await balanceCents(ctx.companyId, '1200')).toBe(150_000);
+    expect(await trialBalanceCents(ctx.companyId)).toBe(0);
+
+    await ctx.handle.close();
+  });
+
+  it('a failed deposit leaves the invoice a draft — nothing half-done', async () => {
+    // The reason this is one endpoint rather than two client calls. A zero
+    // amount is refused by the payment schema, and the issue must roll back
+    // with it: an invoice issued that nobody meant to issue, with the money
+    // still unrecorded, is worse than the state we started in.
+    const ctx = await setup('deposit-atomic@test.com');
+    const id = await makeInvoice(ctx, 'INV-301', '900.00', false);
+
+    const res = await ctx.app.request(`/api/invoices/${id}/deposit`, {
+      method: 'POST',
+      headers: ctx.headers,
+      body: JSON.stringify({ amount: '0.00' }),
+    });
+    expect(res.status).toBe(400);
+
+    const after = await ctx.app.request(`/api/invoices/${id}`, { headers: ctx.headers });
+    expect(((await after.json()) as { status: string }).status).toBe('draft');
+    // And not a cent moved.
+    expect(await balanceCents(ctx.companyId, '1000')).toBe(0);
+    expect(await balanceCents(ctx.companyId, '1200')).toBe(0);
+    expect(await trialBalanceCents(ctx.companyId)).toBe(0);
+
+    await ctx.handle.close();
+  });
+
   it('refuses a payment against an invoice settled by the legacy path', async () => {
     // The guard that makes this safe against live data: the old single-shot
     // mark-paid posted the cash already, so a payment row would bank the same

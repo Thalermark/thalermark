@@ -258,6 +258,29 @@ async function runRecordPayment(event: Parameters<Actions[string]>[0]) {
 // Silence (or resume) automated chasing for this one invoice — TMC-189. Its own
 // endpoint rather than the invoice PATCH, which is draft-only and would reject
 // every SENT invoice, i.e. every invoice reminders apply to.
+// One-step deposit on a draft (TMC-199). The server issues the invoice and
+// records the payment in a single transaction — the client sends one number.
+async function runTakeDeposit(event: Parameters<Actions[string]>[0]) {
+  const client = serverApiClient(event);
+  const id = event.params.id;
+  const formData = await event.request.formData();
+  const amount = String(formData.get('amount') ?? '').trim();
+  if (!amount) return fail(400, { transitionError: 'Enter how much they paid.' });
+
+  const res = await client.api.invoices[':id'].deposit.$post({
+    param: { id },
+    json: { amount },
+  });
+  if (res.status === 404) throw error(404, 'invoice not found');
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { error?: string } | null;
+    return fail(res.status, {
+      transitionError: apiErrorMessage(body?.error, 'deposit_failed', body),
+    });
+  }
+  redirect(303, `/invoices/${id}`);
+}
+
 async function runSetReminders(event: Parameters<Actions[string]>[0]) {
   const client = serverApiClient(event);
   const id = event.params.id;
@@ -308,5 +331,6 @@ export const actions: Actions = {
   recordPayment: runRecordPayment,
   removePayment: runRemovePayment,
   setReminders: runSetReminders,
+  takeDeposit: runTakeDeposit,
   duplicate: runDuplicate,
 };
