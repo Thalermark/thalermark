@@ -35,11 +35,11 @@ IV=$(api POST /api/invoices "{\"companyId\":\"$CID\",\"contactId\":\"$C1\",\"num
 api POST "/api/invoices/$IV/mark-sent" '{}' >/dev/null
 
 # Two years already written down, so the wizard has real carryover to show.
-root="$(cd "$(dirname "$0")/../.." && pwd)"
+root="$(cd "$(dirname "$0")/.." && pwd)"
 ( cd "$root" &&
   DATABASE_URL="$(grep -m1 '^DATABASE_URL=' .env | cut -d= -f2-)" \
   APP_DATABASE_URL="$(grep -m1 '^APP_DATABASE_URL=' .env | cut -d= -f2-)" \
-  pnpm --filter @thalermark/api exec tsx "$root/scratch/e2e/sweep.ts" 2026-06-01 >/dev/null 2>&1 )
+  pnpm --filter @thalermark/api exec tsx "$root/e2e/sweep.ts" 2026-06-01 >/dev/null 2>&1 )
 
 BS=$(api GET "/api/companies/$CID/balance-sheet?asOf=2026-06-30")
 cat <<EOF

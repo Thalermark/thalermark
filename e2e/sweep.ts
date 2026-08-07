@@ -7,8 +7,8 @@
 //
 // bootstrapDb is the owner connection (it must see every tenant's purchases to
 // know what is due); tenantDb is the RLS-bound one the postings go through.
-import { createApiDatabase } from '../../apps/api/src/lib/db.js';
-import { sweepDepreciation } from '../../apps/api/src/lib/depreciation.js';
+import { createApiDatabase } from '../apps/api/src/lib/db.js';
+import { sweepDepreciation } from '../apps/api/src/lib/depreciation.js';
 
 const at = process.argv[2];
 if (!at) throw new Error('usage: sweep.ts <YYYY-MM-DD>');

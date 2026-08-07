@@ -38,11 +38,11 @@ DRAFT=$(api POST /api/invoices "{\"companyId\":\"$CID\",\"contactId\":\"$C1\",\"
 SENT=$(api POST /api/invoices "{\"companyId\":\"$CID\",\"contactId\":\"$C2\",\"number\":\"INV-1041\",\"issueDate\":\"2026-05-14\",\"dueDate\":\"2026-06-14\",\"subtotal\":\"1350.00\",\"tax\":\"0.00\",\"total\":\"1350.00\",\"lineItems\":[{\"position\":1,\"description\":\"Monthly maintenance\",\"quantity\":\"1\",\"unitPrice\":\"1350.00\",\"amount\":\"1350.00\"}]}" | jq -r '.id')
 api POST "/api/invoices/$SENT/mark-sent" '{}' >/dev/null
 
-root="$(cd "$(dirname "$0")/../.." && pwd)"
+root="$(cd "$(dirname "$0")/.." && pwd)"
 ( cd "$root" &&
   DATABASE_URL="$(grep -m1 '^DATABASE_URL=' .env | cut -d= -f2-)" \
   APP_DATABASE_URL="$(grep -m1 '^APP_DATABASE_URL=' .env | cut -d= -f2-)" \
-  pnpm --filter @thalermark/api exec tsx "$root/scratch/e2e/sweep.ts" 2026-06-01 >/dev/null 2>&1 )
+  pnpm --filter @thalermark/api exec tsx "$root/e2e/sweep.ts" 2026-06-01 >/dev/null 2>&1 )
 
 BS=$(api GET "/api/companies/$CID/balance-sheet?asOf=2026-12-31")
 cat <<EOF

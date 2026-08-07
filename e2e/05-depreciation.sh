@@ -11,12 +11,21 @@ source "$(dirname "$0")/lib.sh"
 # at that. TMC_ENV_FILE points this at a throwaway stack's env alongside
 # TMC_API/TMC_PG; the quote-stripping handles a file that DID quote its values.
 sweep() { # sweep <YYYY-MM-DD>
-  local root envfile; root="$(cd "$(dirname "$0")/../.." && pwd)"
+  local root envfile dbu appdbu; root="$(cd "$(dirname "$0")/.." && pwd)"
   envfile="${TMC_ENV_FILE:-$root/.env}"
+  # Prefer what is already exported, and only fall back to the .env file. CI
+  # passes these directly and has NO .env, where grepping a missing file
+  # silently yields empty connection strings and the sweep fails to connect.
+  dbu="${DATABASE_URL:-}"; appdbu="${APP_DATABASE_URL:-}"
+  if [ -z "$dbu" ] && [ -f "$envfile" ]; then
+    dbu="$(grep -m1 '^DATABASE_URL=' "$envfile" | cut -d= -f2- | tr -d "'\"")"
+  fi
+  if [ -z "$appdbu" ] && [ -f "$envfile" ]; then
+    appdbu="$(grep -m1 '^APP_DATABASE_URL=' "$envfile" | cut -d= -f2- | tr -d "'\"")"
+  fi
   ( cd "$root" &&
-    DATABASE_URL="$(grep -m1 '^DATABASE_URL=' "$envfile" | cut -d= -f2- | tr -d "'\"")" \
-    APP_DATABASE_URL="$(grep -m1 '^APP_DATABASE_URL=' "$envfile" | cut -d= -f2- | tr -d "'\"")" \
-    pnpm --filter @thalermark/api exec tsx "$root/scratch/e2e/sweep.ts" "$1" | tail -1 )
+    DATABASE_URL="$dbu" APP_DATABASE_URL="$appdbu" \
+    pnpm --filter @thalermark/api exec tsx "$root/e2e/sweep.ts" "$1" | tail -1 )
 }
 
 depr_total() { # depr_total <companyId>
