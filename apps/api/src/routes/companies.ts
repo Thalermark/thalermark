@@ -109,6 +109,8 @@ export function companiesRoutes(deps: AppDeps) {
             depreciationConvention: companies.depreciationConvention,
             vehicleExpenseMethod: companies.vehicleExpenseMethod,
             timezone: companies.timezone,
+            remindersEnabled: companies.remindersEnabled,
+            reminderOffsets: companies.reminderOffsets,
             businessAddress: companies.businessAddress,
             businessPhone: companies.businessPhone,
             businessEmail: companies.businessEmail,
@@ -194,6 +196,8 @@ export function companiesRoutes(deps: AppDeps) {
               depreciationConvention: created.depreciationConvention,
               vehicleExpenseMethod: created.vehicleExpenseMethod,
               timezone: created.timezone,
+              remindersEnabled: created.remindersEnabled,
+              reminderOffsets: created.reminderOffsets,
               businessAddress: created.businessAddress,
               businessPhone: created.businessPhone,
               businessEmail: created.businessEmail,
@@ -436,6 +440,11 @@ export function companiesRoutes(deps: AppDeps) {
           if (data.vehicleExpenseMethod !== undefined)
             patch.vehicleExpenseMethod = data.vehicleExpenseMethod;
           if (data.timezone !== undefined) patch.timezone = data.timezone;
+          // Automated reminders (TMC-189). Both sparse — the switch and the
+          // schedule are edited independently, and turning reminders off must
+          // not discard the schedule someone tuned.
+          if (data.remindersEnabled !== undefined) patch.remindersEnabled = data.remindersEnabled;
+          if (data.reminderOffsets !== undefined) patch.reminderOffsets = data.reminderOffsets;
           // Business identity — sparse + '' → null, same as replyToEmail below.
           if (data.businessAddress !== undefined) patch.businessAddress = data.businessAddress;
           if (data.businessPhone !== undefined) patch.businessPhone = data.businessPhone;
@@ -524,6 +533,8 @@ export function companiesRoutes(deps: AppDeps) {
               depreciationConvention: before.depreciationConvention,
               vehicleExpenseMethod: before.vehicleExpenseMethod,
               timezone: before.timezone,
+              remindersEnabled: before.remindersEnabled,
+              reminderOffsets: before.reminderOffsets,
               businessAddress: before.businessAddress,
               businessPhone: before.businessPhone,
               businessEmail: before.businessEmail,

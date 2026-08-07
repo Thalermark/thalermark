@@ -176,8 +176,45 @@ const optionalText = (max: number) =>
     .transform((v) => (v ? v : null))
     .optional();
 
+// Automated payment reminders (TMC-189).
+//
+// The schedule is a list of day offsets relative to each invoice's due date;
+// negative is before it falls due. The UI splits them into "before it's due" and
+// "after it's due" and never shows a minus sign — the same reason the refund
+// control offers a direction rather than asking for a negative number.
+//
+// BOTH BOUNDS ARE A SAFETY FEATURE, NOT TIDINESS. This sends mail to third
+// parties from a shared sending domain. Someone who sets fifteen reminders is
+// not chasing an invoice, they are harassing a customer and burning our
+// deliverability while they do it. Six stages is more than any legitimate
+// schedule needs.
+//
+// -30..+90 bounds each stage: a reminder more than a month before an invoice
+// falls due is not a reminder, and one more than a quarter late belongs in a
+// conversation rather than an automated email.
+export const MAX_REMINDER_STAGES = 6;
+export const MIN_REMINDER_OFFSET = -30;
+export const MAX_REMINDER_OFFSET = 90;
+
+export const reminderOffsetsSchema = z
+  .array(z.number().int().min(MIN_REMINDER_OFFSET).max(MAX_REMINDER_OFFSET))
+  .max(MAX_REMINDER_STAGES)
+  // Duplicates would be silently swallowed anyway — the send log is unique on
+  // (invoice, offset), so a repeated 7 could only ever send once. Rejecting it
+  // at save time says so out loud instead of letting the UI show a stage that
+  // never fires.
+  .refine((v) => new Set(v).size === v.length, { message: 'duplicate_reminder_offset' })
+  // Stored sorted so the settings screen and the send order agree without the
+  // UI having to sort, and so two schedules with the same stages compare equal.
+  .transform((v) => [...v].sort((a, b) => a - b));
+
 export const companyUpdateSchema = z
   .object({
+    // Sparse like the rest: omitted leaves the schedule alone. An empty array is
+    // a legitimate value meaning "enabled but nothing scheduled" — which sends
+    // nothing, and is a less surprising state than silently re-adding defaults.
+    remindersEnabled: z.boolean().optional(),
+    reminderOffsets: reminderOffsetsSchema.optional(),
     name: z.string().min(1).max(200).optional(),
     businessType: businessTypeSchema.optional(),
     // Sparse like the rest. Sticky by intent — changing accounting method with
