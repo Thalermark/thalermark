@@ -554,7 +554,20 @@ export default function InvoiceDetail() {
                   <Pressable
                     onPress={() => {
                       setShowPaymentPanel(true);
-                      setPayAmount(settlement.outstanding);
+                      // Pre-fill only when something is genuinely outstanding.
+                      // On a settled invoice the balance is "0.00", and handing
+                      // that to the user is handing them an amount the API
+                      // refuses — a zero-amount receipt is rejected, correctly.
+                      // The empty-input guard in onRecordPayment doesn't save
+                      // it either, because "0.00" is not empty.
+                      //
+                      // Reachable before TMC-196 only on an invoice settled
+                      // through payment rows; now every mark-paid invoice shows
+                      // this button, so it IS the refund path's default state
+                      // rather than an edge case (TMC-197).
+                      setPayAmount(
+                        Number(settlement.outstanding) > 0 ? settlement.outstanding : '',
+                      );
                     }}
                     className="mt-4 rounded-sm border border-ink/20 px-4 py-2.5 active:border-gold-deep"
                   >
