@@ -197,6 +197,30 @@ export const actions: Actions = {
     return { depreciationSaved: true };
   },
 
+  // Standard mileage vs actual vehicle expenses (TMC-179). Its own action for
+  // the same reason as the two above: it is a standing tax election that
+  // silently changes what lands on the return, not a display preference.
+  saveVehicleExpenseMethod: async (event) => {
+    const client = serverApiClient(event);
+    const formData = await event.request.formData();
+    const companyId = String(formData.get('companyId') ?? '');
+    const vehicleExpenseMethod = String(formData.get('vehicleExpenseMethod') ?? '');
+    if (!companyId) return fail(400, { vehicleMethodError: 'missing_company_id' });
+    if (vehicleExpenseMethod !== 'standard' && vehicleExpenseMethod !== 'actual') {
+      return fail(400, { vehicleMethodError: 'invalid_vehicle_expense_method' });
+    }
+
+    const res = await client.api.companies[':id'].$patch({
+      param: { id: companyId },
+      json: { vehicleExpenseMethod },
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      return fail(res.status, { vehicleMethodError: body?.error ?? 'save_failed' });
+    }
+    return { vehicleMethodSaved: true };
+  },
+
   // The zone every report's day boundaries resolve in (TMC-157). Its own
   // action for the same reason as the accounting method: it silently changes
   // which period figures land in, so it shouldn't ride along with an address

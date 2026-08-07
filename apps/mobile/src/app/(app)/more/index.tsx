@@ -20,6 +20,7 @@ type Entry = {
     | '/estimates'
     | '/invoices/recurring'
     | '/jobs'
+    | '/mileage'
     | '/bills'
     | '/owner-money'
     | '/ledger'
@@ -71,6 +72,16 @@ const JOBS_ENTRY: Entry = {
   icon: 'hammer-outline',
   title: 'Jobs',
   subtitle: 'Log hours against a job, then turn them into an invoice.',
+};
+
+// Mileage (TMC-179) — business driving, at the IRS standard rate. Grouped with
+// Purchases rather than Sales: it produces a deduction, not revenue. Ungated
+// like the other list links; the API gates writes on expenses:write.
+const MILEAGE_ENTRY: Entry = {
+  href: '/mileage',
+  icon: 'car-outline',
+  title: 'Mileage',
+  subtitle: 'Log business trips — often the biggest deduction on the return.',
 };
 
 // Bills (accounts payable) — money you owe vendors. Ungated like web's nav link
@@ -240,7 +251,7 @@ export default function MoreHub() {
         />
         <Section
           label="Purchases"
-          entries={[BILLS_ENTRY, OWNER_MONEY_ENTRY]}
+          entries={[BILLS_ENTRY, MILEAGE_ENTRY, OWNER_MONEY_ENTRY]}
           onOpen={(href) => router.push(href)}
         />
         <Section label="Workspace" entries={accountEntries} onOpen={(href) => router.push(href)} />

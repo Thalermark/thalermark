@@ -466,12 +466,109 @@ export function parseTaxMapping(
 // useless to the person filing.
 export type TaxAccount = { code: string; name: string; amount: string };
 
+// A figure that belongs on a form line but is NOT in the general ledger.
+// Standard mileage is the only one, and the reason it exists at all: no money
+// moves when you drive, so nothing posts — and yet on a landscaper's return it
+// is routinely the largest single deduction.
+//
+// Deliberately NOT a TaxAccount. These are not chart rows, and a reader has to
+// be able to see which half of a line came out of the books and which was
+// computed from a log.
+export type TaxAddend = { line: string; label: string; amount: string };
+
 export type TaxLineRow = TaxLine & {
   // Null on a userSupplied line — an explicit blank, never 0.00, because a zero
   // reads as "you had none of this".
   amount: string | null;
   accounts: TaxAccount[];
+  // Non-ledger figures summed into this line's `amount`. Absent on every line
+  // but Schedule C 9 today. Rendered beside the line so both halves of a
+  // part-mapped, part-computed figure stay visible.
+  computed?: TaxAddend[];
 };
+
+// Which line each form puts a standard-mileage deduction on.
+//
+// Null on three of the four, and that is an ANSWER, not an omission. A
+// partnership or a corporation does not take a standard mileage deduction on its
+// own return: it reimburses the driver under an accountable plan and deducts the
+// reimbursement, which is ordinary spend already posted to 6100 and already
+// rolled onto "other deductions" (1065 L21 / 1120-S L20 / 1120 L26). Adding an
+// addend there would double-count it.
+//
+// Keeping the line ids HERE rather than at the call site is the same rule the
+// rest of this file follows — form knowledge lives beside the form tables, so a
+// renumbering is caught in one place (TMC-167).
+export const STANDARD_MILEAGE_LINE: Readonly<Record<TaxFormCode, string | null>> = {
+  schedule_c: '9',
+  '1065': null,
+  '1120s': null,
+  '1120': null,
+};
+
+// Built from the form itself, so an addend can never name a line that isn't
+// 'mapped' on the form it is about to be rolled into.
+export function standardMileageAddend(form: TaxFormDef, amount: string): TaxAddend[] {
+  const line = STANDARD_MILEAGE_LINE[form.code];
+  if (!line || toCents(amount) === 0) return [];
+  return [{ line, label: 'Standard mileage', amount }];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Schedule C Part IV, "Information on Your Vehicle" — the per-vehicle disclosure
+// that sits beside the deduction (TMC-179).
+//
+// VERIFIED AGAINST the 2025 Schedule C on 2026-08-06, line numbers and wording
+// both. RE-CHECK EVERY JANUARY, same standing burden as the deduction tables
+// above — and note that TMC-167 found all four of those off by one line while
+// every test still passed, because a table asserted against itself is
+// self-consistent by construction. Only the PDF catches a renumbering.
+//
+// Part IV's own header: "Complete this part only if you are claiming car or
+// truck expenses on line 9 and are not required to file Form 4562 for this
+// business. See the instructions for line 13 to find out if you must file Form
+// 4562." Note it keys off CLAIMING LINE 9, not off which method was elected —
+// an actual-expense filer whose costs post to 6100 lands on line 9 too, so Part
+// IV applies to them as well.
+// ─────────────────────────────────────────────────────────────────────────────
+export const PART_IV_LINES = {
+  placedInService: { line: '43', label: 'When did you place your vehicle in service?' },
+  business: { line: '44a', label: 'Business miles' },
+  commuting: { line: '44b', label: 'Commuting miles' },
+  other: { line: '44c', label: 'Other (personal) miles' },
+  personalUse: { line: '45', label: 'Available for personal use during off-duty hours?' },
+  anotherVehicle: { line: '46', label: 'Another vehicle available for personal use?' },
+  evidence: { line: '47a', label: 'Do you have evidence to support your deduction?' },
+  evidenceWritten: { line: '47b', label: 'Is the evidence written?' },
+} as const;
+
+// Where a vehicle disclosure goes, per form.
+//
+// 'none' on the three corporate/partnership returns, and it is an ANSWER rather
+// than an omission — exactly like STANDARD_MILEAGE_LINE's three nulls, and for
+// the same reason. Under the accountable-plan doctrine this codebase already
+// committed to, the vehicle is the DRIVER's, not the corporation's; the business
+// reimburses and deducts the reimbursement as ordinary spend. It has no listed
+// property to disclose. (A corporation that genuinely owns the truck would file
+// 4562 Part V, but we cannot know that without asking, and asking is a bigger
+// feature than this one.)
+//
+// The Schedule C branch is decided by whether Form 4562 is required, which the
+// form's own header tells us to check via LINE 13 — depreciation and section
+// 179. Line 13 is account 6350, so a balance there this year means they are
+// filing 4562 and Part IV moves to its Part V. That is the form's own pointer,
+// not a heuristic we invented — though it is still a proxy at the edges
+// (amortization also triggers 4562), which is why the copy says "likely goes on"
+// rather than "must".
+export type VehicleInfoDestination = 'schedule_c_part_iv' | 'form_4562_part_v' | 'none';
+
+export function vehicleInfoDestination(
+  form: TaxFormDef,
+  hasDepreciationThisYear: boolean,
+): VehicleInfoDestination {
+  if (form.code !== 'schedule_c') return 'none';
+  return hasDepreciationThisYear ? 'form_4562_part_v' : 'schedule_c_part_iv';
+}
 
 export type ExpenseAccountAmount = {
   code: string;
@@ -507,14 +604,32 @@ export type DeductionRollup = {
 //
 // Accounts contributing 0.00 are dropped from a line's `accounts` breakdown
 // (they'd be noise) but the line itself still renders.
+//
+// `addends` carries non-ledger figures (standard mileage) onto their line. It
+// defaults to empty, so every existing call site and test is unaffected and the
+// whole mechanism is inert until something supplies one.
 export function rollUpDeductions(
   accounts: ExpenseAccountAmount[],
   form: TaxFormDef,
+  addends: readonly TaxAddend[] = [],
 ): DeductionRollup {
   const linesByNumber = new Map(form.deductions.map((l) => [l.line, l]));
   const byLine = new Map<string, TaxAccount[]>();
   const unmapped: TaxAccount[] = [];
   let totalCents = 0;
+
+  // Addends count toward the total unconditionally. By construction
+  // (standardMileageAddend reads the same `form`) an addend cannot name a line
+  // that isn't a 'mapped' deduction, so there is no excludeFromTotal case to
+  // consider — and a deduction total that disagreed with the lines above it
+  // would be the one failure this file exists to prevent.
+  const addendsByLine = new Map<string, TaxAddend[]>();
+  for (const addend of addends) {
+    totalCents += toCents(addend.amount);
+    const bucket = addendsByLine.get(addend.line);
+    if (bucket) bucket.push(addend);
+    else addendsByLine.set(addend.line, [addend]);
+  }
 
   for (const acct of accounts) {
     const cents = toCents(acct.amount);
@@ -549,10 +664,18 @@ export function rollUpDeductions(
       return { ...line, amount, accounts: [] };
     }
     const contributing = byLine.get(line.line) ?? [];
-    const lineCents = contributing.reduce((sum, a) => sum + toCents(a.amount), 0);
+    const computed = addendsByLine.get(line.line);
+    const lineCents =
+      contributing.reduce((sum, a) => sum + toCents(a.amount), 0) +
+      (computed?.reduce((sum, a) => sum + toCents(a.amount), 0) ?? 0);
     centsByLine.set(line.line, lineCents);
     if (line.excludeFromTotal) excludedTotals[line.line] = centsToMoney(lineCents);
-    return { ...line, amount: centsToMoney(lineCents), accounts: contributing };
+    return {
+      ...line,
+      amount: centsToMoney(lineCents),
+      accounts: contributing,
+      ...(computed ? { computed } : {}),
+    };
   });
 
   // Second pass — a lineNet line reads lines resolved above it. Sequential by

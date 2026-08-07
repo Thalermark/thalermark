@@ -214,6 +214,14 @@
       >
         Jobs
       </a>
+      <a
+        href="/mileage"
+        role="menuitem"
+        onclick={close}
+        class="block px-4 py-2 text-sm text-fg/80 transition-colors hover:bg-surface-2 hover:text-fg"
+      >
+        Mileage
+      </a>
       {#if canAdjustLedger}
         <a
           href="/ledger"

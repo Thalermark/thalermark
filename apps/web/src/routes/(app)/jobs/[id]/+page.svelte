@@ -8,6 +8,13 @@
   const margin = $derived(data.job.margin);
   const time = $derived(data.time);
   const canWrite = $derived(may(data.role, 'sales:write'));
+  // Whatever was last driven to this job, else the only vehicle there is. A
+  // one-truck operator never touches the picker.
+  const defaultVehicleId = $derived(
+    data.trips.find((t) => t.vehicleId)?.vehicleId ??
+      (data.vehicles.length === 1 ? data.vehicles[0]?.id : '') ??
+      '',
+  );
 
   const fmt = (s: string) =>
     Number(s).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
@@ -416,6 +423,95 @@
     {/each}
   </ul>
   <p class="mt-3 text-sm text-fg/60">{time.totalHours} hours in total.</p>
+{/if}
+
+<!--
+  Miles (TMC-179). Its own heading and its own form, NEVER a field on the Hours
+  form above. Hours produce revenue and miles produce a deduction; in a form
+  they look identical, and mixing them is how someone bills a customer for a
+  drive. It also sits below the margin block on purpose — mileage is a tax
+  figure, not a job cost, and it does not move the margin.
+-->
+<h2 class="mt-10 font-serif text-2xl font-light text-fg">Miles</h2>
+<p class="mt-1 text-sm text-fg/60">
+  Driving to this job. Counts toward your vehicle deduction, not this job's cost.
+</p>
+
+{#if canWrite}
+  <form method="post" action="?/logMiles" class="mt-4 rounded-sm border border-fg/15 bg-surface-2 p-5">
+    <div class="grid gap-4 sm:grid-cols-[9rem_7rem_1fr_9rem_auto] sm:items-end">
+      <label class="block">
+        <span class="label">Date</span>
+        <input
+          type="date"
+          name="tripDate"
+          required
+          value={new Date().toISOString().slice(0, 10)}
+          class="field mt-1 w-full"
+        />
+      </label>
+      <label class="block">
+        <span class="label">Miles</span>
+        <input
+          type="text"
+          inputmode="decimal"
+          name="miles"
+          required
+          placeholder="24.5"
+          class="field mt-1 w-full"
+        />
+      </label>
+      <label class="block">
+        <span class="label">What for</span>
+        <input
+          type="text"
+          name="purpose"
+          required
+          value="Drove to {job.name}"
+          class="field mt-1 w-full"
+        />
+      </label>
+      <!--
+        Which vehicle. Without this every trip logged here would land unassigned
+        — in the deduction but in no Part IV row — and the worksheet would then
+        tell the user to go and fix it. Defaults to the one last driven to this
+        job, else the only vehicle there is, so the common case is no work.
+      -->
+      <label class="block">
+        <span class="label">Vehicle</span>
+        <select name="vehicleId" class="field mt-1 w-full">
+          <option value="">—</option>
+          {#each data.vehicles as v (v.id)}
+            <option value={v.id} selected={defaultVehicleId === v.id}>{v.label}</option>
+          {/each}
+        </select>
+      </label>
+      <button type="submit" class="btn">Log</button>
+    </div>
+    {#if form?.milesError}
+      <p class="mt-3 text-xs text-danger">{form.milesError}</p>
+    {/if}
+  </form>
+{/if}
+
+{#if data.trips.length > 0}
+  <ul class="mt-4 divide-y divide-fg/10 rounded-sm border border-fg/10 bg-surface-2">
+    {#each data.trips as trip (trip.id)}
+      <li class="flex items-center justify-between gap-4 px-5 py-3 text-sm">
+        <span class="text-fg/80">
+          {trip.tripDate} · {trip.purpose}{data.vehicles.find((v) => v.id === trip.vehicleId)?.label
+            ? ` · ${data.vehicles.find((v) => v.id === trip.vehicleId)?.label}`
+            : ''}
+        </span>
+        <span class="font-mono tabular-nums text-fg/70">
+          {Number(trip.miles).toLocaleString('en-US', { maximumFractionDigits: 1 })} mi
+        </span>
+      </li>
+    {/each}
+  </ul>
+  <p class="mt-3 text-sm text-fg/60">
+    <a href="/mileage" class="link">All your driving →</a>
+  </p>
 {/if}
 
 {#if canWrite && job.invoices.length === 0 && time.timeEntries.length === 0}

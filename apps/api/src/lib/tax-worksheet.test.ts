@@ -2,12 +2,16 @@ import { chartForBusinessType } from '@thalermark/db';
 import { describe, expect, it } from 'vitest';
 import {
   type ExpenseAccountAmount,
+  PART_IV_LINES,
+  STANDARD_MILEAGE_LINE,
   TAX_FORMS,
   type TaxFormCode,
   parseTaxMapping,
   rollUpDeductions,
+  standardMileageAddend,
   taxFormFor,
   taxYearWindow,
+  vehicleInfoDestination,
 } from './tax-worksheet.js';
 
 // Pure-policy coverage for the four form mappings. The SQL that feeds them — and
@@ -332,5 +336,137 @@ describe('taxYearWindow', () => {
     const w = taxYearWindow(2028);
     expect(w.to).toBe('2028-12-31');
     expect(w.toExclusiveDate).toBe('2029-01-01');
+  });
+});
+
+// Standard mileage (TMC-179). The only non-ledger figure that reaches a form
+// line: no money moves when you drive, so nothing posts, and yet on a
+// landscaper's return it is routinely the biggest deduction on the page.
+describe('standard mileage addends', () => {
+  // The regression guard for the whole mechanism. If an empty addend list ever
+  // changes the output, every worksheet shipped before this feature moved.
+  it('changes nothing when there are no addends', () => {
+    const accounts = [
+      acct('6100', 'Car & Truck Expenses', 'Schedule C, Line 9', '412.80'),
+      acct('7500', 'Wages', 'Schedule C, Line 26', '1200.00'),
+    ];
+    const before = rollUpDeductions(accounts, SCHEDULE_C);
+    const after = rollUpDeductions(accounts, SCHEDULE_C, []);
+    expect(after).toEqual(before);
+    expect(after.rows.every((r) => r.computed === undefined)).toBe(true);
+  });
+
+  it('adds mileage to the books half of line 9 and shows both', () => {
+    const { rows, totalDeductions } = rollUpDeductions(
+      [acct('6100', 'Car & Truck Expenses', 'Schedule C, Line 9', '412.80')],
+      SCHEDULE_C,
+      standardMileageAddend(SCHEDULE_C, '5600.00'),
+    );
+    const row = rows.find((r) => r.line === '9');
+    expect(row?.amount).toBe('6012.80');
+    // The books' half stays visible and unchanged — `accounts` keeps meaning
+    // "chart rows that fed this line", which mileage is not.
+    expect(row?.accounts).toEqual([
+      { code: '6100', name: 'Car & Truck Expenses', amount: '412.80' },
+    ]);
+    expect(row?.computed).toEqual([{ line: '9', label: 'Standard mileage', amount: '5600.00' }]);
+    // Still user-supplied, and MORE so than before: the rate already covers gas,
+    // so the user may now need to take parking and tolls back OUT of 6100.
+    expect(row?.userSupplied).toBe(true);
+    expect(totalDeductions).toBe('6012.80');
+  });
+
+  it('carries mileage onto a line with no ledger postings at all', () => {
+    const { rows, totalDeductions } = rollUpDeductions(
+      [],
+      SCHEDULE_C,
+      standardMileageAddend(SCHEDULE_C, '5600.00'),
+    );
+    const row = rows.find((r) => r.line === '9');
+    expect(row?.amount).toBe('5600.00');
+    expect(row?.accounts).toEqual([]);
+    expect(totalDeductions).toBe('5600.00');
+  });
+
+  // A corporation does not take a standard mileage deduction on its own return —
+  // it reimburses the driver, and that reimbursement is ordinary 6100 spend
+  // already rolled onto "other deductions". An addend there would double-count.
+  it('produces no addend for the three entity forms that reimburse instead', () => {
+    for (const code of ['1065', '1120s', '1120'] as const) {
+      expect(standardMileageAddend(TAX_FORMS[code], '5600.00')).toEqual([]);
+    }
+  });
+
+  it('produces no addend for zero miles', () => {
+    expect(standardMileageAddend(SCHEDULE_C, '0.00')).toEqual([]);
+  });
+
+  // TMC-167 caught all four line tables being off by one. This is the same class
+  // of guard: whatever line the map names must actually exist on that form, be
+  // 'mapped' (only mapped lines take amounts), and not be the itemised catch-all
+  // — an addend on an itemised line would leave the attached statement short.
+  it('names a real, mapped, non-itemized line on every form', () => {
+    for (const [code, lineNumber] of Object.entries(STANDARD_MILEAGE_LINE)) {
+      if (lineNumber === null) continue;
+      const form = TAX_FORMS[code as TaxFormCode];
+      const line = form.deductions.find((l) => l.line === lineNumber);
+      expect(line, `${code} line ${lineNumber} must exist`).toBeDefined();
+      expect(line?.role).toBe('mapped');
+      expect(line?.itemized).toBeUndefined();
+      expect(line?.excludeFromTotal).toBeUndefined();
+    }
+  });
+});
+
+// Schedule C Part IV — the per-vehicle disclosure beside the deduction.
+describe('Part IV vehicle information', () => {
+  it('sends a Schedule C filer with no depreciation to Part IV', () => {
+    expect(vehicleInfoDestination(SCHEDULE_C, false)).toBe('schedule_c_part_iv');
+  });
+
+  // Part IV's own header says to check line 13 — depreciation and section 179 —
+  // to find out whether Form 4562 is required. Line 13 is account 6350.
+  it('sends a Schedule C filer WITH depreciation to Form 4562 Part V', () => {
+    expect(vehicleInfoDestination(SCHEDULE_C, true)).toBe('form_4562_part_v');
+  });
+
+  // 'none' is an ANSWER, not an omission: a corporation reimburses the driver
+  // under an accountable plan and deducts ordinary spend. The vehicle is the
+  // driver's, so the business has no listed property to disclose.
+  it('discloses nothing on the three entity forms, depreciation or not', () => {
+    for (const code of ['1065', '1120s', '1120'] as const) {
+      expect(vehicleInfoDestination(TAX_FORMS[code], false)).toBe('none');
+      expect(vehicleInfoDestination(TAX_FORMS[code], true)).toBe('none');
+    }
+  });
+
+  // TMC-167 found all four deduction tables off by one line while every test
+  // passed, because a table asserted against itself is self-consistent by
+  // construction. This asserts the shape only — the line NUMBERS can be wrong
+  // and this will still pass. Only a diff against the real PDF catches that,
+  // which is why the module carries a VERIFIED AGAINST / RE-CHECK banner.
+  it('names every Part IV line, in the form order a reader will follow', () => {
+    expect(Object.values(PART_IV_LINES).map((l) => l.line)).toEqual([
+      '43',
+      '44a',
+      '44b',
+      '44c',
+      '45',
+      '46',
+      '47a',
+      '47b',
+    ]);
+    for (const entry of Object.values(PART_IV_LINES)) {
+      expect(entry.label.length).toBeGreaterThan(0);
+    }
+  });
+
+  // Part IV is a disclosure, not a deduction — none of its lines may collide
+  // with a line that carries money into totalDeductions.
+  it('names no line that also exists as a Schedule C deduction', () => {
+    const deductionLines = new Set(SCHEDULE_C.deductions.map((l) => l.line));
+    for (const entry of Object.values(PART_IV_LINES)) {
+      expect(deductionLines.has(entry.line)).toBe(false);
+    }
   });
 });

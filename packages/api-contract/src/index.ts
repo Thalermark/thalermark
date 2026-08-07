@@ -28,6 +28,7 @@ export type {
   JobsAppType,
   LedgerAppType,
   LocationsAppType,
+  MileageAppType,
   OwnerMoneyEventsAppType,
   PurchasesAppType,
   RecurringInvoicesAppType,

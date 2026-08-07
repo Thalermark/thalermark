@@ -329,6 +329,7 @@ export function copyableProfile(source: {
   accountingMethod: string;
   timezone: string;
   depreciationConvention: string;
+  vehicleExpenseMethod: string;
   paymentCashEnabled: boolean;
   paymentCheckEnabled: boolean;
   paymentCheckAddress: string | null;
@@ -349,6 +350,9 @@ export function copyableProfile(source: {
     accountingMethod: source.accountingMethod,
     timezone: source.timezone,
     depreciationConvention: source.depreciationConvention,
+    // A standing tax election, so it should survive an incorporation handoff the
+    // same way the accounting method and depreciation convention do.
+    vehicleExpenseMethod: source.vehicleExpenseMethod,
     paymentCashEnabled: source.paymentCashEnabled,
     paymentCheckEnabled: source.paymentCheckEnabled,
     paymentCheckAddress: source.paymentCheckAddress,

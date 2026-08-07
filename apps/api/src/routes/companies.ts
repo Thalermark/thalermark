@@ -107,6 +107,7 @@ export function companiesRoutes(deps: AppDeps) {
             businessType: companies.businessType,
             accountingMethod: companies.accountingMethod,
             depreciationConvention: companies.depreciationConvention,
+            vehicleExpenseMethod: companies.vehicleExpenseMethod,
             timezone: companies.timezone,
             businessAddress: companies.businessAddress,
             businessPhone: companies.businessPhone,
@@ -191,6 +192,7 @@ export function companiesRoutes(deps: AppDeps) {
               businessType: created.businessType,
               accountingMethod: created.accountingMethod,
               depreciationConvention: created.depreciationConvention,
+              vehicleExpenseMethod: created.vehicleExpenseMethod,
               timezone: created.timezone,
               businessAddress: created.businessAddress,
               businessPhone: created.businessPhone,
@@ -431,6 +433,8 @@ export function companiesRoutes(deps: AppDeps) {
           if (data.accountingMethod !== undefined) patch.accountingMethod = data.accountingMethod;
           if (data.depreciationConvention !== undefined)
             patch.depreciationConvention = data.depreciationConvention;
+          if (data.vehicleExpenseMethod !== undefined)
+            patch.vehicleExpenseMethod = data.vehicleExpenseMethod;
           if (data.timezone !== undefined) patch.timezone = data.timezone;
           // Business identity — sparse + '' → null, same as replyToEmail below.
           if (data.businessAddress !== undefined) patch.businessAddress = data.businessAddress;
@@ -518,6 +522,7 @@ export function companiesRoutes(deps: AppDeps) {
               businessType: before.businessType,
               accountingMethod: before.accountingMethod,
               depreciationConvention: before.depreciationConvention,
+              vehicleExpenseMethod: before.vehicleExpenseMethod,
               timezone: before.timezone,
               businessAddress: before.businessAddress,
               businessPhone: before.businessPhone,
@@ -536,6 +541,7 @@ export function companiesRoutes(deps: AppDeps) {
               businessType: after.businessType,
               accountingMethod: after.accountingMethod,
               depreciationConvention: after.depreciationConvention,
+              vehicleExpenseMethod: after.vehicleExpenseMethod,
               timezone: after.timezone,
               businessAddress: after.businessAddress,
               businessPhone: after.businessPhone,
@@ -563,6 +569,7 @@ export function companiesRoutes(deps: AppDeps) {
             businessType: after.businessType,
             accountingMethod: after.accountingMethod,
             depreciationConvention: after.depreciationConvention,
+            vehicleExpenseMethod: after.vehicleExpenseMethod,
             timezone: after.timezone,
             businessAddress: after.businessAddress,
             businessPhone: after.businessPhone,

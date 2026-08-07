@@ -40,6 +40,7 @@
   // default and the column default; full_year exists only as an accountant's
   // override for an asset already being depreciated that way elsewhere.
   const depreciationConvention = $derived(data.company.depreciationConvention ?? 'half_year');
+  const vehicleExpenseMethod = $derived(data.company.vehicleExpenseMethod ?? 'standard');
   // Reporting timezone. Stored value wins; the browser's zone is only offered
   // as a one-click suggestion when the two disagree, so we never silently
   // change which period someone's figures land in.
@@ -434,6 +435,75 @@
         <span class="text-sm text-fg/60">Saved.</span>
       {:else if form?.depreciationError}
         <span class="text-sm text-danger">Couldn't save: {form.depreciationError}</span>
+      {/if}
+    </div>
+  </form>
+</section>
+
+<!--
+  Vehicle costs (TMC-179). Sits next to the depreciation convention deliberately:
+  the two interact — standard mileage already absorbs the depreciation on the
+  vehicle, so claiming both is a double deduction.
+-->
+<section class="mt-8 rounded-sm border border-fg/15 bg-surface-2">
+  <header class="border-b border-fg/10 px-6 py-5">
+    <span class="eyebrow">Vehicle costs</span>
+    <p class="mt-2 font-serif text-lg text-fg">{data.company.name}</p>
+  </header>
+  <form method="POST" action="?/saveVehicleExpenseMethod" class="px-6 py-6">
+    <input type="hidden" name="companyId" value={data.company.id} />
+    <p class="max-w-prose text-sm leading-relaxed text-fg/70">
+      The IRS lets you deduct driving one of two ways, and you have to pick one. Most people in your
+      line of work are better off with the flat rate per mile — it needs nothing but a log of your
+      trips.
+    </p>
+    <div class="mt-5 space-y-3">
+      <label class="flex items-start gap-3">
+        <input
+          type="radio"
+          name="vehicleExpenseMethod"
+          value="standard"
+          checked={vehicleExpenseMethod === 'standard'}
+          class="mt-1"
+        />
+        <span>
+          <span class="block text-sm text-fg">A flat rate for every business mile</span>
+          <span class="block text-xs text-fg/60">
+            Log your trips on the Mileage page and we'll work out what they're worth. The rate
+            already covers your gas, repairs, insurance and the truck's depreciation, so don't claim
+            those separately as well.
+          </span>
+        </span>
+      </label>
+      <label class="flex items-start gap-3">
+        <input
+          type="radio"
+          name="vehicleExpenseMethod"
+          value="actual"
+          checked={vehicleExpenseMethod === 'actual'}
+          class="mt-1"
+        />
+        <span>
+          <span class="block text-sm text-fg">What the vehicle actually cost me</span>
+          <span class="block text-xs text-fg/60">
+            Your real gas, repairs and insurance, scaled to how much of your driving was for work.
+            We can't total that up for you — we don't know which repairs were the truck's or what
+            share of your driving was business — so your mileage log stays a record only, and this
+            line is one you'll fill in yourself.
+          </span>
+        </span>
+      </label>
+    </div>
+    <p class="mt-4 max-w-prose text-xs leading-relaxed text-fg/50">
+      Worth knowing before you switch: once you've claimed actual costs on a vehicle you usually
+      can't move it back to the flat rate later. If you're unsure, ask whoever files your taxes.
+    </p>
+    <div class="mt-5 flex items-center gap-4">
+      <button type="submit" class="btn">Save</button>
+      {#if form?.vehicleMethodSaved}
+        <span class="text-sm text-fg/60">Saved.</span>
+      {:else if form?.vehicleMethodError}
+        <span class="text-sm text-danger">Couldn't save: {form.vehicleMethodError}</span>
       {/if}
     </div>
   </form>

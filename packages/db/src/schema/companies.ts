@@ -66,6 +66,27 @@ export const companies = pgTable(
     // Company-level, like accountingMethod, because a convention is a policy
     // applied across a filer's assets rather than a per-asset judgement.
     depreciationConvention: text('depreciation_convention').notNull().default('half_year'),
+    // How this business deducts vehicle costs — 'standard' | 'actual' (TMC-179).
+    // The IRS lets you take EITHER a flat rate per business mile OR your actual
+    // gas/repairs/insurance/depreciation, never both for one vehicle, because
+    // the standard rate is a statutory substitute that already absorbs them all.
+    // So this is a real election that decides whether the mileage log reaches
+    // the return at all, not a display preference.
+    //
+    // 'standard' by default: it is what this audience uses, it needs no receipts
+    // beyond the trip log, and it is the only one of the two this schema can
+    // compute — there is no vehicle dimension on expenses and no business-use
+    // percentage, so 'actual' means "keep mileage off my return" rather than
+    // "compute the other figure for me".
+    //
+    // Company-level though the IRS rule is per-vehicle: the lock that bites is
+    // the irreversible year-one MACRS one, which we hold no history to enforce,
+    // so a per-vehicle field would look authoritative and enforce nothing. See
+    // the migration for the upgrade path. Carries the same restatement hazard as
+    // accountingMethod and depreciationConvention — it is a current-value column,
+    // so changing it restates prior years; the worksheet's ?method= override
+    // exists so nobody flips the election merely to compare.
+    vehicleExpenseMethod: text('vehicle_expense_method').notNull().default('standard'),
     // Business identity surfaced on invoices/estimates: a free-text postal
     // address and a contact phone. Both nullable — pre-existing companies and
     // freshly-created ones start null, and the public invoice simply omits the

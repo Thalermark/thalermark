@@ -28,6 +28,23 @@
   change it afterwards. Most people do this once their accountant has finished the tax return.
 </p>
 
+<!--
+  A LINK, not a copy of the form. The vehicle answers are deliberately NOT
+  period-locked, so they can be given before or after a close — which means this
+  page has no reason to own them, and a second copy of the form would be a second
+  thing to keep correct. Pointing at the worksheet also lands the user where the
+  rest of the return is.
+-->
+{#if data.vehiclesNeedingAnswers > 0}
+  <p class="callout mt-6 text-sm text-fg/70">
+    Before you close: {data.vehiclesNeedingAnswers === 1
+      ? 'one of your vehicles is'
+      : `${data.vehiclesNeedingAnswers} of your vehicles are`} missing details the return needs.
+    <a href="/reports/tax-worksheet" class="link">Finish that first</a> — you can still answer it
+    after closing, but it's easier while the year is in front of you.
+  </p>
+{/if}
+
 {#if form?.formError}
   <div class="callout mt-6 border-danger/40 text-danger">{form.formError}</div>
 {/if}

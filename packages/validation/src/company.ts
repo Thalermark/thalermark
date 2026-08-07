@@ -101,6 +101,26 @@ export const DEPRECIATION_CONVENTIONS = ['half_year', 'full_year'] as const;
 export const depreciationConventionSchema = z.enum(DEPRECIATION_CONVENTIONS);
 export type DepreciationConvention = z.infer<typeof depreciationConventionSchema>;
 
+// How the business deducts vehicle costs (TMC-179). The IRS lets you take a flat
+// rate per business mile OR your actual gas/repairs/insurance/depreciation, and
+// never both for one vehicle — the standard rate is a statutory substitute that
+// already absorbs all of them.
+//
+// 'standard' is the default and the right one for nearly everyone here. It is
+// also the only one this product can compute: 'actual' needs a per-vehicle split
+// of expenses and a business-use percentage, neither of which exists in the
+// schema, so choosing it means "leave mileage off my return" rather than
+// "work out the other number for me". Settings says exactly that.
+export const VEHICLE_EXPENSE_METHODS = ['standard', 'actual'] as const;
+
+export const vehicleExpenseMethodSchema = z.enum(VEHICLE_EXPENSE_METHODS);
+export type VehicleExpenseMethod = z.infer<typeof vehicleExpenseMethodSchema>;
+
+export const VEHICLE_EXPENSE_METHOD_LABELS: Record<VehicleExpenseMethod, string> = {
+  standard: 'Standard mileage',
+  actual: 'Actual vehicle expenses',
+};
+
 // IANA timezone the company's reporting day boundaries resolve in (TMC-157).
 //
 // Validated by asking Intl to build a formatter for it: that's the same tz
@@ -169,6 +189,7 @@ export const companyUpdateSchema = z
     // old convention (the ledger is append-only), so Settings presents it as an
     // accountant's one-time correction rather than a toggle.
     depreciationConvention: depreciationConventionSchema.optional(),
+    vehicleExpenseMethod: vehicleExpenseMethodSchema.optional(),
     // Sparse like the rest. No null case: the column is NOT NULL, and "no
     // timezone" is spelled 'UTC'.
     timezone: timezoneSchema.optional(),

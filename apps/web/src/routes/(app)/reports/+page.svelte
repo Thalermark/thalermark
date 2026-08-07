@@ -95,6 +95,24 @@
   </div>
 {/if}
 
+<!-- Part IV can't be filed without these, and unlike the close nudge above this
+     one is NOT gated on ledger:adjust — the person who drives the truck is
+     usually the person who has to answer it. -->
+{#if data.vehiclesNeedingAnswers > 0}
+  <div class="callout mt-4">
+    <p class="text-sm text-fg/70">
+      <span class="text-fg">
+        {data.vehiclesNeedingAnswers === 1
+          ? 'One of your vehicles is missing details'
+          : `${data.vehiclesNeedingAnswers} of your vehicles are missing details`} your return needs.
+      </span>
+      The IRS asks when you started using each one for work and whether you also drive it
+      personally.
+      <a href="/reports/tax-worksheet" class="link">Finish that now</a>.
+    </p>
+  </div>
+{/if}
+
 <div class="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2">
   {#each reports as r (r.href)}
     <a
