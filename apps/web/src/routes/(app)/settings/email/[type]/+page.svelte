@@ -8,6 +8,7 @@
     invoice: 'Invoice',
     estimate: 'Estimate',
     statement: 'Customer statement',
+    reminder: 'Payment reminder',
   };
 
   const PLACEHOLDER_HELP: Record<string, string> = {
@@ -15,6 +16,10 @@
     invoice_number: 'invoice number',
     estimate_number: 'estimate number',
     amount: 'total amount with currency',
+    // Deliberately worded to contrast with `amount` above. A reminder chases
+    // what is STILL OWED — after any deposit — and the two stop being the same
+    // number the moment a customer pays part of an invoice (TMC-189).
+    outstanding: 'amount still owed, after any payments',
     due_date: 'invoice due date',
     statement_date: 'statement date',
     balance_due: 'balance owed',

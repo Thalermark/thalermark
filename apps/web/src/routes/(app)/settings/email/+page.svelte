@@ -7,6 +7,7 @@
     invoice: 'Invoice',
     estimate: 'Estimate',
     statement: 'Customer statement',
+    reminder: 'Payment reminder',
   };
 
   // After a "View" action, render the chosen template's preview inline under its
