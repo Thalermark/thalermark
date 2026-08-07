@@ -65,6 +65,11 @@ export const load: PageServerLoad = async (event) => {
     needsBusinessDetails,
     businessCompanyId,
     settlement,
+    // Whether the BUSINESS has automatic reminders switched on. The per-invoice
+    // control is meaningless without it — "stop reminding about this invoice"
+    // on a company that never reminds anyone reads as a setting that does
+    // nothing, so the section says which of the two levels is off (TMC-189).
+    companyRemindersEnabled: company?.remindersEnabled ?? false,
   };
 };
 

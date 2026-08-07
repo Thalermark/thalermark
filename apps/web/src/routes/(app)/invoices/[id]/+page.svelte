@@ -489,24 +489,37 @@
       {/if}
     {/if}
 
-    <!-- Silence automated chasing for this one invoice (TMC-189). It lives in
-         the Payments panel rather than the action row because it is part of the
-         money conversation with this customer, not a document state change like
-         send/void. Shown whenever reminders could still apply. -->
+    <!-- Automatic reminders for this one invoice (TMC-189). Lives in the
+         Payments panel rather than the action row because it is part of the
+         money conversation with this customer, not a document state change
+         like send or void.
+         Titled and stateful on purpose: a bare "stop reminding" link tells a
+         user nothing about whether reminders exist, whether they are on, or
+         what stopping would change. -->
     {#if canWrite && inv.status !== 'voided'}
-      <form method="post" action="?/setReminders" class="mt-5 border-t border-fg/10 pt-4">
-        <input type="hidden" name="optedOut" value={inv.remindersOptedOut ? 'false' : 'true'} />
-        {#if inv.remindersOptedOut}
-          <p class="text-sm text-fg/70">
-            Automatic reminders are off for this invoice.
-            <button type="submit" class="link ml-1">Turn them back on</button>
+      <div class="mt-5 border-t border-fg/10 pt-4">
+        <h3 class="label">Automatic reminders</h3>
+        {#if !data.companyRemindersEnabled}
+          <p class="mt-1 text-sm text-fg/60">
+            Off for this business. <a href="/settings/reminders" class="link">Turn them on</a>
+            to chase unpaid invoices automatically.
           </p>
+        {:else if inv.remindersOptedOut}
+          <p class="mt-1 text-sm text-fg/70">Paused for this invoice — we won't chase it.</p>
+          <form method="post" action="?/setReminders" class="mt-1">
+            <input type="hidden" name="optedOut" value="false" />
+            <button type="submit" class="link text-sm">Resume reminders</button>
+          </form>
         {:else}
-          <button type="submit" class="text-xs uppercase tracking-widest text-fg/40 hover:text-accent">
-            Stop reminding about this invoice
-          </button>
+          <p class="mt-1 text-sm text-fg/70">
+            On — we'll chase this invoice until it's paid in full.
+          </p>
+          <form method="post" action="?/setReminders" class="mt-1">
+            <input type="hidden" name="optedOut" value="true" />
+            <button type="submit" class="link text-sm">Pause for this invoice</button>
+          </form>
         {/if}
-      </form>
+      </div>
     {/if}
 
   </section>
