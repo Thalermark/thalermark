@@ -64,6 +64,22 @@ const PAYMENT_METHOD_LABELS: Record<string, string> = {
 };
 const PAID_METHODS = ['cash', 'check', 'venmo', 'zelle', 'other'] as const;
 
+// The payments list + derived settlement from GET /api/invoices/:id/payments.
+// Declared locally rather than inferred off the client so the screen keeps
+// compiling if the route's response shape is widened.
+type Settlement = {
+  settlement: 'unpaid' | 'partial' | 'paid' | 'overpaid';
+  paid: string;
+  outstanding: string;
+  payments: {
+    id: string;
+    amount: string;
+    receivedOn: string;
+    method: string;
+    reference: string | null;
+  }[];
+};
+
 const TRANSITION_ERRORS: Record<string, string> = {
   invalid_transition: 'This invoice can no longer be changed.',
   invalid_recipient: 'Add a contact email or enter one to send.',
@@ -90,6 +106,18 @@ export default function InvoiceDetail() {
   const [paidMethod, setPaidMethod] = useState<(typeof PAID_METHODS)[number]>('cash');
   const [paidReference, setPaidReference] = useState('');
   const [paidOn, setPaidOn] = useState(todayIso());
+
+  // Partial payments (TMC-187) — the deposit path. The mark-paid panel above
+  // stays the one-tap "they paid it all"; this records one receipt at a time.
+  const [settlement, setSettlement] = useState<Settlement | null>(null);
+  const [showPaymentPanel, setShowPaymentPanel] = useState(false);
+  const [payAmount, setPayAmount] = useState('');
+  const [payMethod, setPayMethod] = useState<(typeof PAID_METHODS)[number]>('cash');
+  const [payReference, setPayReference] = useState('');
+  const [payOn, setPayOn] = useState(todayIso());
+  // Direction rather than a typed minus sign — nobody should have to know that
+  // a refund is stored as a negative payment.
+  const [payDirection, setPayDirection] = useState<'in' | 'out'>('in');
 
   const load = useCallback(async () => {
     const res = await api.api.invoices[':id'].$get({ param: { id } });
@@ -128,6 +156,12 @@ export default function InvoiceDetail() {
         lineItems: inv.lineItems,
       },
     });
+    // Receipts + derived settlement. Best-effort like the audit trail below —
+    // losing the payments panel is better than blanking the whole invoice.
+    try {
+      const payRes = await api.api.invoices[':id'].payments.$get({ param: { id } });
+      if (payRes.ok) setSettlement((await payRes.json()) as Settlement);
+    } catch {}
     // Audit trail — best-effort; refetched on every load() (focus + after each
     // in-screen transition), so the history reflects the action just taken. A
     // failure here must not flip the whole screen to error, hence the swallow.
@@ -217,6 +251,43 @@ export default function InvoiceDetail() {
     );
   }
 
+  function onRecordPayment() {
+    const raw = payAmount.trim();
+    if (!raw) {
+      setTransitionError('Enter an amount.');
+      return;
+    }
+    const amount = payDirection === 'out' ? `-${raw.replace(/^-/, '')}` : raw;
+    const reference = payReference.trim();
+    act(
+      () =>
+        api.api.invoices[':id'].payments.$post({
+          param: { id },
+          json: { amount, receivedOn: payOn, method: payMethod, reference: reference || undefined },
+        }),
+      () => {
+        setShowPaymentPanel(false);
+        setPayAmount('');
+        setPayReference('');
+        setPayDirection('in');
+      },
+    );
+  }
+
+  function onRemovePayment(paymentId: string) {
+    Alert.alert('Remove this payment?', 'The ledger entry is reversed, not erased.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: () =>
+          act(() =>
+            api.api.invoices[':id'].payments[':paymentId'].$delete({ param: { id, paymentId } }),
+          ),
+      },
+    ]);
+  }
+
   // Duplicate-as-template — clone into a fresh draft (the server carries the
   // line sourceItemIds forward) and land on its edit screen. Any status.
   async function onDuplicate() {
@@ -247,6 +318,14 @@ export default function InvoiceDetail() {
       },
     ]);
   }
+
+  // Mirrors the API's eligibility rule so the button never offers a certain
+  // 409: an issued invoice, and a settled one only if it got there through
+  // payment rows (a legacy header-only settlement stays closed).
+  const canRecordPayment =
+    canWrite &&
+    !!settlement &&
+    (status === 'sent' || (status === 'paid' && settlement.payments.length > 0));
 
   const publicUrl = inv?.publicToken ? `${getServerUrl()}/i/${inv.publicToken}` : null;
   const paidVia =
@@ -431,6 +510,159 @@ export default function InvoiceDetail() {
                 >
                   <Text className="text-center text-sm font-medium text-cream">Confirm paid</Text>
                 </Pressable>
+              </View>
+            ) : null}
+
+            {/* Payments (TMC-187) */}
+            {settlement && (settlement.payments.length > 0 || canRecordPayment) ? (
+              <View className="mt-8 rounded-sm border border-ink/10 bg-cream-warm p-4">
+                <Text className="font-serif text-lg font-light text-ink">Payments</Text>
+                <Text className="mt-1 text-sm text-ink/70">
+                  {settlement.settlement === 'overpaid'
+                    ? `Overpaid by $${Math.abs(Number(settlement.outstanding)).toFixed(2)}`
+                    : settlement.settlement === 'paid'
+                      ? 'Paid in full'
+                      : `$${Number(settlement.paid).toFixed(2)} of $${Number(inv.total).toFixed(2)} · $${Number(settlement.outstanding).toFixed(2)} still owed`}
+                </Text>
+
+                {settlement.payments.map((p) => (
+                  <View
+                    key={p.id}
+                    className="mt-3 flex-row items-start justify-between border-t border-ink/10 pt-3"
+                  >
+                    <View className="flex-1 pr-3">
+                      <Text className="text-sm text-ink">
+                        {Number(p.amount) < 0 ? 'Refund ' : ''}$
+                        {Math.abs(Number(p.amount)).toFixed(2)}
+                      </Text>
+                      <Text className="mt-0.5 text-xs text-ink/50">
+                        {p.receivedOn} · {PAYMENT_METHOD_LABELS[p.method] ?? p.method}
+                        {p.reference ? ` · ${p.reference}` : ''}
+                      </Text>
+                    </View>
+                    {canRecordPayment ? (
+                      <Pressable onPress={() => onRemovePayment(p.id)} disabled={acting}>
+                        <Text className="font-mono text-xs uppercase tracking-widest text-ink/40">
+                          Remove
+                        </Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                ))}
+
+                {canRecordPayment && !showPaymentPanel ? (
+                  <Pressable
+                    onPress={() => {
+                      setShowPaymentPanel(true);
+                      setPayAmount(settlement.outstanding);
+                    }}
+                    className="mt-4 rounded-sm border border-ink/20 px-4 py-2.5 active:border-gold-deep"
+                  >
+                    <Text className="text-center font-mono text-xs uppercase tracking-widest text-ink/70">
+                      Record a payment
+                    </Text>
+                  </Pressable>
+                ) : null}
+
+                {canRecordPayment && showPaymentPanel ? (
+                  <View className="mt-4 border-t border-ink/10 pt-4">
+                    <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                      Amount
+                    </Text>
+                    <TextInput
+                      value={payAmount}
+                      onChangeText={setPayAmount}
+                      keyboardType="decimal-pad"
+                      placeholder="0.00"
+                      className="mt-1 rounded-sm border border-ink/20 bg-cream px-3 py-2.5 text-ink"
+                    />
+
+                    <Text className="mt-4 font-mono text-xs uppercase tracking-widest text-ink/50">
+                      Date received
+                    </Text>
+                    <TextInput
+                      value={payOn}
+                      onChangeText={setPayOn}
+                      placeholder="YYYY-MM-DD"
+                      autoCapitalize="none"
+                      className="mt-1 rounded-sm border border-ink/20 bg-cream px-3 py-2.5 text-ink"
+                    />
+
+                    <Text className="mt-4 font-mono text-xs uppercase tracking-widest text-ink/50">
+                      Method
+                    </Text>
+                    <View className="mt-2 flex-row flex-wrap gap-2">
+                      {PAID_METHODS.map((m) => (
+                        <Pressable
+                          key={m}
+                          onPress={() => setPayMethod(m)}
+                          className={`rounded-sm border px-3 py-1.5 ${
+                            payMethod === m ? 'border-gold-deep bg-ink' : 'border-ink/20'
+                          }`}
+                        >
+                          <Text
+                            className={`text-xs ${payMethod === m ? 'text-cream' : 'text-ink/70'}`}
+                          >
+                            {PAYMENT_METHOD_LABELS[m] ?? m}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
+
+                    <Text className="mt-4 font-mono text-xs uppercase tracking-widest text-ink/50">
+                      Type
+                    </Text>
+                    <View className="mt-2 flex-row gap-2">
+                      {(
+                        [
+                          ['in', 'Payment received'],
+                          ['out', 'Refund or credit'],
+                        ] as const
+                      ).map(([value, label]) => (
+                        <Pressable
+                          key={value}
+                          onPress={() => setPayDirection(value)}
+                          className={`rounded-sm border px-3 py-1.5 ${
+                            payDirection === value ? 'border-gold-deep bg-ink' : 'border-ink/20'
+                          }`}
+                        >
+                          <Text
+                            className={`text-xs ${
+                              payDirection === value ? 'text-cream' : 'text-ink/70'
+                            }`}
+                          >
+                            {label}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
+
+                    <Text className="mt-4 font-mono text-xs uppercase tracking-widest text-ink/50">
+                      Reference (optional)
+                    </Text>
+                    <TextInput
+                      value={payReference}
+                      onChangeText={setPayReference}
+                      placeholder="Check number, confirmation code"
+                      className="mt-1 rounded-sm border border-ink/20 bg-cream px-3 py-2.5 text-ink"
+                    />
+
+                    <Pressable
+                      onPress={onRecordPayment}
+                      disabled={acting}
+                      className="mt-4 rounded-sm bg-ink px-4 py-3 active:bg-gold-deep disabled:opacity-50"
+                    >
+                      <Text className="text-center text-sm font-medium text-cream">
+                        Record payment
+                      </Text>
+                    </Pressable>
+                    <Pressable onPress={() => setShowPaymentPanel(false)} className="mt-3">
+                      <Text className="text-center font-mono text-xs uppercase tracking-widest text-ink/50">
+                        Cancel
+                      </Text>
+                    </Pressable>
+                  </View>
+                ) : null}
               </View>
             ) : null}
 
