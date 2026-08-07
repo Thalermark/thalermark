@@ -123,7 +123,7 @@ async function setup(ctx: Ctx, email: string) {
 describe('email templates', () => {
   beforeEach(resetDb);
 
-  it('GET returns the three defaults, uncustomized, with placeholders', async () => {
+  it('GET returns the four defaults, uncustomized, with placeholders', async () => {
     const ctx = buildApp();
     try {
       const { companyId, h } = await setup(ctx, 'a@acme.test');
@@ -132,7 +132,14 @@ describe('email templates', () => {
       });
       expect(res.status).toBe(200);
       const { templates } = (await res.json()) as { templates: TemplateView[] };
-      expect(templates.map((t) => t.type)).toEqual(['invoice', 'estimate', 'statement']);
+      expect(templates.map((t) => t.type)).toEqual([
+        'invoice',
+        'estimate',
+        'statement',
+        // The reminder copy is editable like the rest — a business that wants to
+        // escalate its chasing should not need us to ship new wording (TMC-189).
+        'reminder',
+      ]);
       const invoice = templates.find((t) => t.type === 'invoice');
       expect(invoice?.isCustomized).toBe(false);
       expect(invoice?.subject).toContain('{{invoice_number}}');

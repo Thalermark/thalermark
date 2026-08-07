@@ -38,6 +38,7 @@
         { href: '/settings/tax-policies', label: 'Tax', cap: 'settings:manage' },
         { href: '/settings/payments', label: 'Payments', cap: 'settings:manage' },
         { href: '/settings/email', label: 'Email templates', cap: 'settings:manage' },
+        { href: '/settings/reminders', label: 'Reminders', cap: 'settings:manage' },
         { href: '/settings/ai', label: 'AI', cap: 'settings:manage' },
       ],
     },

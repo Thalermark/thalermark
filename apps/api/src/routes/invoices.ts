@@ -16,6 +16,7 @@ import {
   invoiceCreateSchema,
   invoiceMarkPaidSchema,
   invoicePaymentCreateSchema,
+  invoiceRemindersSchema,
   invoiceSendSchema,
   invoiceUpdateSchema,
   toCents,
@@ -1030,6 +1031,68 @@ export function invoicesRoutes(deps: AppDeps) {
 
           await emit(tx, { name: 'invoice_marked_paid' });
           return c.json(synced.invoice);
+        },
+      )
+      // Per-invoice reminder opt-out (TMC-189). "I've spoken to them, don't
+      // chase this one" — a conversation the software cannot see and must not
+      // override.
+      //
+      // ITS OWN ROUTE, not part of the invoice PATCH, because that PATCH is
+      // draft-only and reminders are only ever sent for a SENT invoice. Folding
+      // it in would have produced a control that 409s on every invoice it
+      // actually matters for.
+      //
+      // Allowed on anything but a voided invoice — including a PAID one, which
+      // is not redundant: a refund reopens an invoice to 'sent' and it starts
+      // being chased again, so opting a settled invoice out is a real thing to
+      // want.
+      .post(
+        '/api/invoices/:id/reminders',
+        requireCapability('sales:write'),
+        validator('json', (value, c) => {
+          const parsed = invoiceRemindersSchema.safeParse(value);
+          if (!parsed.success) {
+            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+          }
+          return parsed.data;
+        }),
+        async (c) => {
+          const id = c.req.param('id');
+          if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+          const { optedOut } = c.req.valid('json');
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+
+          const [current] = await tx
+            .select()
+            .from(invoices)
+            .where(and(eq(invoices.id, id), eq(invoices.accountId, accountId)))
+            .limit(1);
+          if (!current) return c.json({ error: 'invoice_not_found' }, 404);
+          if (current.status === 'voided') {
+            return c.json({ error: 'invoice_voided', status: current.status }, 409);
+          }
+
+          const [updated] = await tx
+            .update(invoices)
+            .set({ remindersOptedOut: optedOut, updatedAt: new Date() })
+            .where(and(eq(invoices.id, id), eq(invoices.accountId, accountId)))
+            .returning();
+          if (!updated) return c.json({ error: 'invoice_not_found' }, 404);
+
+          // Audited like every other mutation: silencing a chase is a decision
+          // someone made, and "why did this customer never get reminded" is
+          // exactly the question the trail exists to answer.
+          await c.var.audit({
+            entityType: 'invoice',
+            entityId: id,
+            action: 'reminders-opt-out',
+            before: { remindersOptedOut: current.remindersOptedOut },
+            after: { remindersOptedOut: updated.remindersOptedOut },
+            companyId: updated.companyId,
+          });
+
+          return c.json(updated);
         },
       )
       // Void refuses an invoice that is still holding the customer's money

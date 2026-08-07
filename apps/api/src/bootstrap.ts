@@ -19,7 +19,7 @@ import { configureLogger, getLogger } from '@thalermark/logger';
 import { type StorageProvider, createStorageProvider } from '@thalermark/storage';
 import type { PgBoss } from 'pg-boss';
 import type { AppDeps } from './app.js';
-import { DEFAULT_DEPRECIATION_SWEEP_CRON, type Env } from './env.js';
+import { DEFAULT_DEPRECIATION_SWEEP_CRON, DEFAULT_REMINDER_SWEEP_CRON, type Env } from './env.js';
 import { communityAccountNotices } from './lib/account-notice.js';
 import { createApiAuth, enabledSocialProviders } from './lib/auth.js';
 import { deriveConnectionKey } from './lib/crypto.js';
@@ -35,6 +35,7 @@ import {
 import { guardedFetchForPolicy } from './lib/llm-endpoint.js';
 import { type Mailer, createConsoleMailer, createResendMailer } from './lib/mailer.js';
 import { sweepRecurringInvoices } from './lib/recurring.js';
+import { sweepInvoiceReminders } from './lib/reminders.js';
 import { provisionAppRole, provisionPgBossRole } from './lib/role-provision.js';
 import { createStripeBundle } from './lib/stripe.js';
 
@@ -298,6 +299,7 @@ export function createDefaultAppDeps(
 
 const SWEEP_QUEUE = 'recurring-invoice-sweep';
 const DEPRECIATION_QUEUE = 'depreciation-sweep';
+const REMINDER_QUEUE = 'invoice-reminder-sweep';
 
 // The per-call inputs the recurring-invoice sweep needs. `entitlement` is passed
 // in (not baked) so a commercial root's plan-aware provider makes the sweep
@@ -342,6 +344,32 @@ export async function registerCoreJobs(boss: PgBoss, deps: SweepJobDeps, env: En
   const depreciationCron = env.depreciationSweepCron ?? DEFAULT_DEPRECIATION_SWEEP_CRON;
   await boss.schedule(DEPRECIATION_QUEUE, depreciationCron, undefined, { tz: 'UTC' });
   log.info('depreciation sweep scheduled ({cron} UTC)', { cron: depreciationCron });
+
+  // Payment reminders (TMC-189). THE ONLY SWEEP THAT MAILS A THIRD PARTY — the
+  // customer of the person using this software, in that person's name.
+  //
+  // Registering it does NOT start anyone's reminders: companies.reminders_enabled
+  // is false for every existing company and every new one, so this scheduler
+  // wakes up daily and finds nothing until an owner deliberately switches it on.
+  // That is the intended shape of shipping a feature that sends mail on someone
+  // else's behalf.
+  //
+  // Takes the entitlement provider, unlike depreciation: withholding a chase
+  // from a lapsed account is withholding a FEATURE, where withholding
+  // depreciation would put a wrong number on a tax return. Different kinds of
+  // thing, hence the different answer.
+  await boss.createQueue(REMINDER_QUEUE);
+  await boss.work(REMINDER_QUEUE, async () => {
+    await sweepInvoiceReminders({
+      bootstrapDb: deps.bootstrapDb,
+      tenantDb: deps.tenantDb,
+      mail: { mailer: deps.mailer, emailFrom: deps.emailFrom, publicAppUrl: deps.publicAppUrl },
+      entitlement: deps.entitlement,
+    });
+  });
+  const reminderCron = env.reminderSweepCron ?? DEFAULT_REMINDER_SWEEP_CRON;
+  await boss.schedule(REMINDER_QUEUE, reminderCron, undefined, { tz: 'UTC' });
+  log.info('invoice-reminder sweep scheduled ({cron} UTC)', { cron: reminderCron });
 }
 
 // A started server handle with a drain-then-callback close — structurally what

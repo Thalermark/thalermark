@@ -107,6 +107,13 @@ export const invoices = pgTable(
     recurringInvoiceId: uuid('recurring_invoice_id').references(() => recurringInvoices.id, {
       onDelete: 'set null',
     }),
+    // Exclude THIS invoice from automated reminders (TMC-189), whatever the
+    // company schedule says. The escape hatch for "I've spoken to them, don't
+    // chase this one" — which is a conversation the software cannot see and
+    // must not override. Opt-OUT rather than opt-in because the company switch
+    // is already the opt-in; needing two yeses to chase a late invoice would
+    // make the feature useless.
+    remindersOptedOut: boolean('reminders_opted_out').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

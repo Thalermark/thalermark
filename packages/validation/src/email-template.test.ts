@@ -8,12 +8,23 @@ import {
 } from './email-template.js';
 
 describe('email-template validation', () => {
-  it('covers the three customer-facing types, each with a placeholder set', () => {
-    expect(EMAIL_TEMPLATE_TYPES).toEqual(['invoice', 'estimate', 'statement']);
+  it('covers the four customer-facing types, each with a placeholder set', () => {
+    expect(EMAIL_TEMPLATE_TYPES).toEqual(['invoice', 'estimate', 'statement', 'reminder']);
     for (const t of EMAIL_TEMPLATE_TYPES) {
       expect(EMAIL_TEMPLATE_PLACEHOLDERS[t].length).toBeGreaterThan(0);
       expect(EMAIL_TEMPLATE_PLACEHOLDERS[t]).toContain('company_name');
     }
+  });
+
+  it('a reminder can say what is OUTSTANDING and cannot say the total', () => {
+    // Enforced by absence rather than documentation (TMC-189). A reminder
+    // chases what is still owed, and the two stop being the same number the
+    // moment a deposit exists — so {{amount}} is simply not offered, and
+    // unknownPlaceholders rejects it at save time.
+    expect(EMAIL_TEMPLATE_PLACEHOLDERS.reminder).toContain('outstanding');
+    expect(EMAIL_TEMPLATE_PLACEHOLDERS.reminder).not.toContain('amount');
+    expect(unknownPlaceholders('reminder', 'You owe {{amount}}')).toEqual(['amount']);
+    expect(unknownPlaceholders('reminder', 'You owe {{outstanding}}')).toEqual([]);
   });
 
   it('extracts placeholders, tolerating inner whitespace + duplicates', () => {

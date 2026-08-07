@@ -107,6 +107,19 @@ export type Env = {
   // test Env literals shouldn't have to grow a field for a scheduler that only
   // ever boots in server.ts. loadEnv always resolves it.
   depreciationSweepCron?: string;
+  // When the payment-reminder sweep runs (TMC-189). Optional for the same
+  // reason as the two above.
+  //
+  // 13:00 UTC rather than the small hours the other sweeps use, because this is
+  // the only sweep whose OUTPUT LANDS IN A STRANGER'S INBOX. The other two post
+  // ledger entries nobody reads at the moment they happen; a reminder timestamped
+  // 3am reads as machinery, and this feature's whole job is to sound like the
+  // business owner. 13:00 UTC is mid-morning across the US, which is where the
+  // audience is. Override via REMINDER_SWEEP_CRON.
+  //
+  // The sweep still decides WHICH DAY per company timezone, so the cron only
+  // picks the hour — a company in Auckland gets the right date either way.
+  reminderSweepCron?: string;
   // Run the pg-boss scheduler + worker in this process. Default true, so a
   // single-box install runs the recurring-invoice sweep in the api. For a
   // multi-replica deploy, set JOBS_ENABLED=false on the extra replicas so jobs
@@ -140,6 +153,7 @@ const DEFAULT_PORT = 3000;
 // Shared so bootstrap's fallback for an Env literal that omitted the field
 // (tests, embedders) can't drift from what loadEnv resolves.
 export const DEFAULT_DEPRECIATION_SWEEP_CRON = '0 7 * * *';
+export const DEFAULT_REMINDER_SWEEP_CRON = '0 13 * * *';
 const VALID_NODE_ENVS: Env['nodeEnv'][] = ['development', 'test', 'production'];
 const VALID_LOG_LEVELS: LogLevel[] = ['debug', 'info', 'warning', 'error', 'fatal'];
 
@@ -205,6 +219,7 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     stripeRequireConnectedAccount: parseBool(source.STRIPE_REQUIRE_CONNECTED_ACCOUNT),
     recurringSweepCron: source.RECURRING_SWEEP_CRON || '0 6 * * *',
     depreciationSweepCron: source.DEPRECIATION_SWEEP_CRON || DEFAULT_DEPRECIATION_SWEEP_CRON,
+    reminderSweepCron: source.REMINDER_SWEEP_CRON || DEFAULT_REMINDER_SWEEP_CRON,
     // Empty string (a bare JOBS_ENABLED= in compose env_file) → unset → default
     // true, same tri-state trap handled above for the other boolean flags.
     jobsEnabled: source.JOBS_ENABLED ? parseBool(source.JOBS_ENABLED) : true,
