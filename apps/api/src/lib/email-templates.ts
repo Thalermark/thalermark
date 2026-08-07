@@ -24,6 +24,17 @@ export const DEFAULT_TEMPLATES: Record<EmailTemplateType, { subject: string; bod
     subject: 'Statement from {{company_name}} — balance due {{balance_due}}',
     body: "Hi {{customer_name}},\n\nHere's your account statement from {{company_name}} as of {{statement_date}}.",
   },
+  // Deliberately gentle, and deliberately not accusatory (TMC-189). The same
+  // copy has to work five days BEFORE the due date and two weeks after it,
+  // because one schedule drives both — so it states the fact and leaves the
+  // customer their dignity. A business that wants to escalate can edit it.
+  //
+  // {{outstanding}}, never {{amount}}: this chases what is still owed, which
+  // stops being the invoice total the moment a deposit exists.
+  reminder: {
+    subject: 'Invoice {{invoice_number}} from {{company_name}} — {{outstanding}} outstanding',
+    body: 'Hi {{customer_name}},\n\nA quick note that {{outstanding}} is outstanding on invoice {{invoice_number}}, due {{due_date}}.\n\nIf you have already sent it, thank you — please ignore this.',
+  },
 };
 
 // Substitute {{ key }} → value (tolerant of inner whitespace). A key not in

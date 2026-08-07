@@ -137,11 +137,24 @@ async function seedPayment(ctx: Ctx, invoiceId: string, amount: string, received
   });
 }
 
-function sweep(ctx: Ctx, now: string) {
+type SentMail = { to: string; subject: string; text?: string; html?: string };
+
+// Captures what would have gone out. A reminder that "sent" without a mailer
+// would still bank its row and burn the stage, so the no-mailer path is a
+// throw, not a silent success — see the dedicated test below.
+function stubMailer(sink: SentMail[]) {
+  return {
+    async send(msg: { to: string; subject: string; text?: string; html?: string }) {
+      sink.push(msg);
+    },
+  };
+}
+
+function sweep(ctx: Ctx, now: string, sink: SentMail[] = []) {
   return sweepInvoiceReminders({
     bootstrapDb: getTestDb(),
     tenantDb: ctx.handle.db,
-    mail: {},
+    mail: { mailer: stubMailer(sink), emailFrom: 'billing@example.com' },
     now: new Date(now),
   });
 }
@@ -251,6 +264,66 @@ describe('sweepInvoiceReminders', () => {
       await sweep(ctx, '2026-06-17T09:00:00Z');
       const [row] = await remindersFor(ctx, id);
       expect(row?.outstanding).toBe('600.00');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('the email quotes what is owed, and never the invoice total', async () => {
+    // The assertion this whole feature turns on. A $1,000 invoice with $400
+    // paid must chase $600 — anything else emails a wrong number to someone
+    // who is not our user, in our user's name.
+    const ctx = await setup('email-body@test.com');
+    try {
+      await enableReminders(ctx, [7]);
+      const id = await seedInvoice(ctx, { dueDate: '2026-06-10', total: '1000.00' });
+      await seedPayment(ctx, id, '400.00', '2026-06-01');
+      const sink: SentMail[] = [];
+      await sweep(ctx, '2026-06-17T09:00:00Z', sink);
+
+      expect(sink).toHaveLength(1);
+      expect(sink[0]?.to).toBe('customer@example.com');
+      const body = `${sink[0]?.subject} ${sink[0]?.text}`;
+      expect(body).toContain('600.00');
+      expect(body).not.toContain('1000.00');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('does not bank the stage when there is no mailer to send with', async () => {
+    // A self-host without SMTP. Recording the row anyway would burn the stage
+    // forever — switching mail on later would find every reminder already
+    // "sent" and the customer would never hear anything.
+    const ctx = await setup('no-mailer@test.com');
+    try {
+      await enableReminders(ctx, [7]);
+      const id = await seedInvoice(ctx, { dueDate: '2026-06-10' });
+      const result = await sweepInvoiceReminders({
+        bootstrapDb: getTestDb(),
+        tenantDb: ctx.handle.db,
+        mail: {},
+        now: new Date('2026-06-17T09:00:00Z'),
+      });
+      expect(result.failed).toBe(1);
+      expect(result.sent).toBe(0);
+      // The row must have rolled back with the failed send.
+      expect(await remindersFor(ctx, id)).toHaveLength(0);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('never emails a customer who has no address on file', async () => {
+    const ctx = await setup('no-email@test.com');
+    try {
+      await enableReminders(ctx, [7]);
+      await ctx.db.update(contacts).set({ email: null }).where(eq(contacts.id, ctx.contactId));
+      const id = await seedInvoice(ctx, { dueDate: '2026-06-10' });
+      const sink: SentMail[] = [];
+      expect((await sweep(ctx, '2026-06-17T09:00:00Z', sink)).sent).toBe(0);
+      expect(sink).toHaveLength(0);
+      expect(await remindersFor(ctx, id)).toHaveLength(0);
     } finally {
       await ctx.handle.close();
     }

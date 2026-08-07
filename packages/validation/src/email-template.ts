@@ -3,7 +3,7 @@ import { z } from 'zod';
 // The three customer-facing emails a business can customize. Platform emails
 // (verification, invitation) are Thalermark's voice + a security surface, so
 // they stay hardcoded and are intentionally NOT in this list.
-export const EMAIL_TEMPLATE_TYPES = ['invoice', 'estimate', 'statement'] as const;
+export const EMAIL_TEMPLATE_TYPES = ['invoice', 'estimate', 'statement', 'reminder'] as const;
 export const emailTemplateTypeSchema = z.enum(EMAIL_TEMPLATE_TYPES);
 export type EmailTemplateType = z.infer<typeof emailTemplateTypeSchema>;
 
@@ -18,6 +18,14 @@ export const EMAIL_TEMPLATE_PLACEHOLDERS = {
   invoice: ['customer_name', 'invoice_number', 'amount', 'due_date', 'company_name'],
   estimate: ['customer_name', 'estimate_number', 'amount', 'company_name'],
   statement: ['customer_name', 'company_name', 'statement_date', 'balance_due'],
+  // NOTE THE ABSENCE OF `amount` (TMC-189). A reminder chases what is STILL
+  // OWED, and the two are not the same number the moment a deposit exists.
+  // Offering `amount` here would let a business write "you owe {{amount}}" and
+  // email the full total to a customer who paid half last week — the third
+  // instance of the "owed == total" bug class in this area, and the first that
+  // reaches a customer's inbox rather than a screen. It is left out so the
+  // mistake cannot be made, not merely documented as unwise.
+  reminder: ['customer_name', 'invoice_number', 'outstanding', 'due_date', 'company_name'],
 } as const satisfies Record<EmailTemplateType, readonly string[]>;
 
 // Matches a `{{ token }}` (tolerant of inner whitespace). Names are lowercase

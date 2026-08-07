@@ -8,6 +8,7 @@ import { getLogger } from '@thalermark/logger';
 import { centsToMoney, toCents } from '@thalermark/validation';
 import { sql } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
+import { renderTemplate, resolveEmailTemplate } from './email-templates.js';
 import { type EntitlementProvider, communityEntitlements } from './entitlement.js';
 import type { Mailer } from './mailer.js';
 
@@ -53,6 +54,12 @@ type DueReminder = {
   accountId: string;
   companyId: string;
   number: string;
+  dueDate: string;
+  currency: string;
+  customerName: string;
+  customerEmail: string;
+  companyName: string;
+  replyToEmail: string | null;
   offsetDays: number;
   companyToday: string;
   outstanding: string;
@@ -89,6 +96,12 @@ async function findDueReminders(db: Database, nowTs: Date): Promise<DueReminder[
     account_id: string;
     company_id: string;
     number: string;
+    due_date: string;
+    currency: string;
+    customer_name: string;
+    customer_email: string;
+    company_name: string;
+    reply_to_email: string | null;
     offset_days: number;
     company_today: string;
     outstanding: string;
@@ -98,6 +111,12 @@ async function findDueReminders(db: Database, nowTs: Date): Promise<DueReminder[
       i.account_id    AS account_id,
       i.company_id    AS company_id,
       i.number        AS number,
+      i.due_date      AS due_date,
+      i.currency      AS currency,
+      ct.name         AS customer_name,
+      ct.email        AS customer_email,
+      c.name          AS company_name,
+      c.reply_to_email AS reply_to_email,
       o.offset_days   AS offset_days,
       (${nowTs}::timestamptz AT TIME ZONE c.timezone)::date AS company_today,
       (i.total - COALESCE((
@@ -105,8 +124,15 @@ async function findDueReminders(db: Database, nowTs: Date): Promise<DueReminder[
       ), 0))::numeric(15,2) AS outstanding
     FROM invoices i
     JOIN companies c ON c.id = i.company_id
+    -- INNER join, and NOT NULL on the address below: a reminder with nowhere to
+    -- go is not a reminder. Without this the sweep would record a send row for
+    -- an invoice whose customer has no email, marking the stage done forever
+    -- while nothing was ever delivered.
+    JOIN contacts ct ON ct.id = i.contact_id
     CROSS JOIN LATERAL unnest(c.reminder_offsets) AS o(offset_days)
     WHERE c.reminders_enabled
+      AND ct.email IS NOT NULL
+      AND ct.email <> ''
       AND c.retired_at IS NULL
       AND i.status = 'sent'
       AND NOT i.reminders_opted_out
@@ -155,6 +181,12 @@ async function findDueReminders(db: Database, nowTs: Date): Promise<DueReminder[
     accountId: r.account_id,
     companyId: r.company_id,
     number: r.number,
+    dueDate: r.due_date,
+    currency: r.currency,
+    customerName: r.customer_name,
+    customerEmail: r.customer_email,
+    companyName: r.company_name,
+    replyToEmail: r.reply_to_email,
     offsetDays: Number(r.offset_days),
     companyToday: r.company_today,
     outstanding: centsToMoney(toCents(r.outstanding)),
@@ -208,10 +240,38 @@ export async function sweepInvoiceReminders(args: {
             sentOn: item.companyToday,
             outstanding: item.outstanding,
           });
-          // TODO(next leg): render the 'reminder' template with the OUTSTANDING
-          // balance and send it. Deliberately not the invoice total — see
-          // TMC-189; that is the third instance of the "owed == total" bug class
-          // and the first one that would reach a customer's inbox.
+          // Rendered inside the tenant tx so the company's own edited copy is
+          // used, and sent while the row is still uncommitted. A mailer failure
+          // throws, the transaction rolls back, the send row disappears — and
+          // the stage is retried on the next sweep rather than marked done for
+          // an email that never left.
+          const template = await resolveEmailTemplate(
+            tx,
+            item.accountId,
+            item.companyId,
+            'reminder',
+          );
+          const { subject, textBody, htmlBody } = renderTemplate(template, {
+            customer_name: item.customerName,
+            invoice_number: item.number,
+            // OUTSTANDING, never the invoice total. Same shape the invoice
+            // email uses for its own amount.
+            outstanding: `${item.outstanding} ${item.currency}`,
+            due_date: item.dueDate,
+            company_name: item.companyName,
+          });
+          // No mailer configured (a self-host without SMTP) must NOT bank the
+          // row — otherwise switching mail on later finds every stage already
+          // "sent" and the customer never hears anything.
+          if (!args.mail.mailer) throw new Error('no mailer configured');
+          await args.mail.mailer.send({
+            to: item.customerEmail,
+            subject,
+            text: textBody,
+            html: htmlBody,
+            from: args.mail.emailFrom,
+            replyTo: item.replyToEmail ?? undefined,
+          });
         },
       );
       sent += 1;
