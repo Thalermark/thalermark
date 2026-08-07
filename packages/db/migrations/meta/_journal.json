@@ -232,6 +232,13 @@
       "when": 1786071036016,
       "tag": "0032_backfill_legacy_invoice_payments",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1786121216203,
+      "tag": "0033_invoice_reminders",
+      "breakpoints": true
     }
   ]
 }

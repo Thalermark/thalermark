@@ -1,4 +1,5 @@
 import {
+  bigint,
   boolean,
   index,
   jsonb,
@@ -179,6 +180,35 @@ export const companies = pgTable(
     // The switcher hides retired companies behind a toggle rather than dropping
     // them, and the ledger refuses to post into one (lib/company-lock.ts).
     retiredAt: timestamp('retired_at', { withTimezone: true }),
+    // Automated payment reminders (TMC-189).
+    //
+    // OFF BY DEFAULT, and that is a deliberate product decision rather than
+    // caution about the code. Turning this on makes the system send mail to
+    // someone else's customers, in the account owner's name, from a shared
+    // sending domain. Defaulting it on would mean every existing beta company
+    // silently began chasing its clients the day it shipped.
+    remindersEnabled: boolean('reminders_enabled').notNull().default(false),
+    // The schedule, as day offsets relative to each invoice's due date.
+    // Negative = before it falls due, positive = after. `[-5, 7]` is "five days
+    // before, then a week late".
+    //
+    // Offsets rather than absolute dates because every invoice has a different
+    // due date — "ten days late" has to be computed per invoice, so a schedule
+    // of dates could not be shared. Offsets rather than an ordinal list because
+    // the offset also names the stage in invoice_reminders, so editing the
+    // schedule can never make an already-sent reminder look unsent.
+    //
+    // Bounded in the validation layer, not here: a cap on how many stages and
+    // how far out each may sit. Unbounded, this is a spam cannon pointed at our
+    // own deliverability.
+    // bigint rather than integer purely to satisfy squawk's int-exhaustion rule,
+    // which the whole schema follows (useful_life_years, interval_count). A day
+    // offset will never need 64 bits; consistency with the CI gate is worth more
+    // than the four bytes.
+    reminderOffsets: bigint('reminder_offsets', { mode: 'number' })
+      .array()
+      .notNull()
+      .default([-5, 7]),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
