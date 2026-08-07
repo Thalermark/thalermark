@@ -163,6 +163,15 @@ export type InvoiceMarkPaidInput = z.infer<typeof invoiceMarkPaidSchema>;
 // is an event with a date; defaulting it to today is only defensible on the
 // quick "mark it paid" path where the user is recording something as it
 // happens.
+// Per-invoice reminder opt-out (TMC-189). A single boolean, on its own route
+// rather than folded into the invoice PATCH, because that PATCH is draft-only
+// and this has to work on a SENT invoice — which is the only kind reminders are
+// ever sent for.
+export const invoiceRemindersSchema = z.object({
+  optedOut: z.boolean(),
+});
+export type InvoiceRemindersInput = z.infer<typeof invoiceRemindersSchema>;
+
 export const invoicePaymentCreateSchema = z.object({
   amount: signedMoneyString,
   receivedOn: isoDateString,

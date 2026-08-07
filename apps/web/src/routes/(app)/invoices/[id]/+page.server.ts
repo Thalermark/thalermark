@@ -250,6 +250,29 @@ async function runRecordPayment(event: Parameters<Actions[string]>[0]) {
 
 // Remove a receipt recorded in error. Posts a reversing entry dated at the
 // original — the ledger is append-only, so this never erases history.
+// Silence (or resume) automated chasing for this one invoice — TMC-189. Its own
+// endpoint rather than the invoice PATCH, which is draft-only and would reject
+// every SENT invoice, i.e. every invoice reminders apply to.
+async function runSetReminders(event: Parameters<Actions[string]>[0]) {
+  const client = serverApiClient(event);
+  const id = event.params.id;
+  const formData = await event.request.formData();
+  const optedOut = String(formData.get('optedOut') ?? '') === 'true';
+
+  const res = await client.api.invoices[':id'].reminders.$post({
+    param: { id },
+    json: { optedOut },
+  });
+  if (res.status === 404) throw error(404, 'invoice not found');
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { error?: string } | null;
+    return fail(res.status, {
+      transitionError: apiErrorMessage(body?.error, 'reminders_update_failed', body),
+    });
+  }
+  redirect(303, `/invoices/${id}`);
+}
+
 async function runRemovePayment(event: Parameters<Actions[string]>[0]) {
   const client = serverApiClient(event);
   const id = event.params.id;
@@ -279,5 +302,6 @@ export const actions: Actions = {
   editPayment: (event) => postPayment(event, 'edit-payment'),
   recordPayment: runRecordPayment,
   removePayment: runRemovePayment,
+  setReminders: runSetReminders,
   duplicate: runDuplicate,
 };

@@ -488,6 +488,27 @@
         </form>
       {/if}
     {/if}
+
+    <!-- Silence automated chasing for this one invoice (TMC-189). It lives in
+         the Payments panel rather than the action row because it is part of the
+         money conversation with this customer, not a document state change like
+         send/void. Shown whenever reminders could still apply. -->
+    {#if canWrite && inv.status !== 'voided'}
+      <form method="post" action="?/setReminders" class="mt-5 border-t border-fg/10 pt-4">
+        <input type="hidden" name="optedOut" value={inv.remindersOptedOut ? 'false' : 'true'} />
+        {#if inv.remindersOptedOut}
+          <p class="text-sm text-fg/70">
+            Automatic reminders are off for this invoice.
+            <button type="submit" class="link ml-1">Turn them back on</button>
+          </p>
+        {:else}
+          <button type="submit" class="text-xs uppercase tracking-widest text-fg/40 hover:text-accent">
+            Stop reminding about this invoice
+          </button>
+        {/if}
+      </form>
+    {/if}
+
   </section>
 {/if}
 

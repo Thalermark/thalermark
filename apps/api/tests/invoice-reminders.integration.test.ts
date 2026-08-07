@@ -68,6 +68,10 @@ async function setup(email: string) {
     body: JSON.stringify({ email, password: 'correct horse battery staple', name: email }),
   });
   if (res.status !== 200) throw new Error(`sign-up failed: ${res.status}`);
+  const list =
+    (res.headers as { getSetCookie?: () => string[] }).getSetCookie?.() ??
+    [res.headers.get('set-cookie') ?? ''].filter(Boolean);
+  const cookie = list.map((c) => c.split(';')[0]).join('; ');
 
   const db = getTestDb();
   const [user] = await db.select().from(authUser).where(eq(authUser.email, email));
@@ -88,7 +92,17 @@ async function setup(email: string) {
     email: 'customer@example.com',
   });
 
-  return { app, handle, accountId: m.accountId, companyId: company.id, contactId, db };
+  return {
+    app,
+    handle,
+    accountId: m.accountId,
+    companyId: company.id,
+    contactId,
+    db,
+    // For the few assertions that go through the HTTP surface rather than
+    // seeding rows — the opt-out route below.
+    authHeaders: { cookie, 'x-account-id': m.accountId } as Record<string, string>,
+  };
 }
 
 async function enableReminders(ctx: Ctx, offsets: number[], timezone = 'UTC') {
@@ -345,6 +359,29 @@ describe('sweepInvoiceReminders', () => {
     try {
       await enableReminders(ctx, [7]);
       const id = await seedInvoice(ctx, { dueDate: '2026-06-10', optedOut: true });
+      expect((await sweep(ctx, '2026-06-17T09:00:00Z')).sent).toBe(0);
+      expect(await remindersFor(ctx, id)).toHaveLength(0);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('a sent invoice can be opted out through the API, and then is left alone', async () => {
+    // The escape hatch: "I have spoken to them, do not chase this one." The
+    // route is separate from the invoice PATCH on purpose — that PATCH is
+    // draft-only and would reject every invoice this matters for.
+    const ctx = await setup('opt-out-route@test.com');
+    try {
+      await enableReminders(ctx, [7]);
+      const id = await seedInvoice(ctx, { dueDate: '2026-06-10' });
+
+      const res = await ctx.app.request(`/api/invoices/${id}/reminders`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...ctx.authHeaders },
+        body: JSON.stringify({ optedOut: true }),
+      });
+      expect(res.status).toBe(200);
+
       expect((await sweep(ctx, '2026-06-17T09:00:00Z')).sent).toBe(0);
       expect(await remindersFor(ctx, id)).toHaveLength(0);
     } finally {

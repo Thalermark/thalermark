@@ -47,6 +47,10 @@ type Invoice = {
   paymentMethod: string | null;
   paymentReference: string | null;
   paidAt: string | null;
+  // Per-invoice reminder opt-out (TMC-189). Optional so an older API build,
+  // which a mobile binary in the stores may well be talking to, simply reads
+  // undefined rather than the screen failing to parse the invoice at all.
+  remindersOptedOut?: boolean;
   lineItems: LineItem[];
 };
 type DetailState =
@@ -249,6 +253,13 @@ export default function InvoiceDetail() {
         }),
       () => setShowPaidPanel(false),
     );
+  }
+
+  // Silence (or resume) automated chasing for this one invoice (TMC-189). Its
+  // own endpoint rather than the invoice PATCH, which is draft-only and would
+  // reject every SENT invoice — i.e. every invoice reminders apply to.
+  function onSetReminders(optedOut: boolean) {
+    act(() => api.api.invoices[':id'].reminders.$post({ param: { id }, json: { optedOut } }));
   }
 
   function onRecordPayment() {
@@ -549,6 +560,19 @@ export default function InvoiceDetail() {
                     ) : null}
                   </View>
                 ))}
+
+                {canWrite && status !== 'voided' ? (
+                  <Pressable
+                    onPress={() => onSetReminders(!inv?.remindersOptedOut)}
+                    className="mt-4 border-t border-ink/10 pt-3"
+                  >
+                    <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                      {inv?.remindersOptedOut
+                        ? 'Reminders off for this invoice — turn back on'
+                        : 'Stop reminding about this invoice'}
+                    </Text>
+                  </Pressable>
+                ) : null}
 
                 {canRecordPayment && !showPaymentPanel ? (
                   <Pressable
