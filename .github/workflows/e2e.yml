@@ -1,0 +1,156 @@
+name: E2E
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+# The end-to-end walkthrough, against a real HTTP surface (TMC-188).
+#
+# Distinct from the `test` job in ci.yml, and deliberately so. The integration
+# suite builds the app in-process and talks to Postgres as the container
+# SUPERUSER, which bypasses row-level security entirely. These suites sign up
+# over HTTP, carry a real session, and reach the database through the
+# non-BYPASSRLS `thalermark_app` role — so RLS is actually enforced here in a
+# way the integration suite cannot check.
+#
+# Scope: suites 01-05. 06 is held out on TMC-195 (stale assertions, not a code
+# fault). 07 and 08 additionally drive the
+# SvelteKit app on TMC_WEB and are not wired up yet; adding them means building
+# and serving the web app in this job.
+
+jobs:
+  e2e:
+    name: end-to-end walkthrough
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: thalermark
+        ports:
+          - 5432:5432
+        # Without a healthcheck the job races the container and the first
+        # connection fails on a cold start.
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      NODE_ENV: development
+      # Superuser handle: migrations, role provisioning, and the harness's
+      # direct SQL assertions.
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/thalermark
+      # The app's own non-BYPASSRLS role. runBootMigrations provisions it from
+      # THALERMARK_APP_PASSWORD below, so the two must agree. The name is not
+      # APP_ROLE_PASSWORD — that reads as unset, provisioning is silently
+      # skipped, and the app pool then fails to authenticate.
+      APP_DATABASE_URL: postgres://thalermark_app:e2e_app_password@localhost:5432/thalermark
+      THALERMARK_APP_PASSWORD: e2e_app_password
+      MIGRATE_ON_BOOT: 'true'
+      BETTER_AUTH_SECRET: e2e-secret-at-least-32-characters-long
+      BETTER_AUTH_URL: http://localhost:3000
+      PUBLIC_APP_URL: http://localhost:5173
+      API_PORT: '3000'
+      # The harness signs up a fresh account per suite and hammers the API far
+      # harder than a human would; the limiter would throttle it into false
+      # failures. It is exercised by app-rate-limit.integration.test.ts instead.
+      RATE_LIMIT_ENABLED: 'false'
+      # No pg-boss in this job — the sweeps have their own coverage and a
+      # background worker only adds nondeterminism to the assertions.
+      JOBS_ENABLED: 'false'
+      LOG_LEVEL: warning
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The harness asserts directly against the database, so it needs a client.
+      # ubuntu-latest ships one today, but relying on that makes the job depend
+      # on a runner-image detail that can change under us.
+      - name: Install postgresql-client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: Build
+        run: pnpm build
+
+      # Backgrounded, with output kept so a boot failure is diagnosable rather
+      # than just a timed-out wait.
+      - name: Start the API
+        run: |
+          pnpm --filter @thalermark/api start > /tmp/api.log 2>&1 &
+          echo $! > /tmp/api.pid
+
+      - name: Wait for readiness
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:3000/ready > /dev/null 2>&1; then
+              echo "API ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "API did not become ready — boot log follows:"
+          cat /tmp/api.log
+          exit 1
+
+      # TMC_DATABASE_URL routes the harness's psql_q through the runner's psql
+      # instead of `docker exec`; there is no container to exec into here.
+      - name: Run the walkthrough (suites 01-05)
+        env:
+          TMC_API: http://localhost:3000
+          TMC_DATABASE_URL: postgres://postgres:postgres@localhost:5432/thalermark
+        run: |
+          set -euo pipefail
+          failed=0
+          # 06 is EXCLUDED, and that is a debt not a decision — see TMC-195.
+          # Its 11 tax-worksheet assertions rotted when TMC-167 renumbered the
+          # IRS lines (§179D took 27a for TY2023, pushing other expenses to
+          # 27b). The harness had never run since, so nobody saw them go wrong.
+          # The code is right and verified against the real forms; the suite is
+          # stale. Re-include the moment its assertions are updated.
+          for suite in e2e/0[1-5]-*.sh; do
+            echo "::group::$suite"
+            # Each suite reports its own pass/fail tally and exits non-zero on
+            # any failure. Keep going rather than bailing on the first, so one
+            # run surfaces every broken suite instead of only the earliest.
+            if ! bash "$suite"; then
+              failed=1
+              echo "::error::$suite failed"
+            fi
+            echo "::endgroup::"
+          done
+          exit $failed
+
+      - name: API log on failure
+        if: failure()
+        run: cat /tmp/api.log
+
+      - name: Stop the API
+        if: always()
+        run: kill "$(cat /tmp/api.pid)" 2>/dev/null || true
