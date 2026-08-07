@@ -12,6 +12,7 @@ export * from './estimates.js';
 export * from './expense_allocations.js';
 export * from './expenses.js';
 export * from './invitations.js';
+export * from './invoice_payments.js';
 export * from './invoices.js';
 export * from './items.js';
 export * from './jobs.js';
