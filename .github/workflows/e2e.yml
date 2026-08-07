@@ -55,9 +55,11 @@ jobs:
       # direct SQL assertions.
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/thalermark
       # The app's own non-BYPASSRLS role. runBootMigrations provisions it from
-      # APP_ROLE_PASSWORD below, so the two must agree.
+      # THALERMARK_APP_PASSWORD below, so the two must agree. The name is not
+      # APP_ROLE_PASSWORD — that reads as unset, provisioning is silently
+      # skipped, and the app pool then fails to authenticate.
       APP_DATABASE_URL: postgres://thalermark_app:e2e_app_password@localhost:5432/thalermark
-      APP_ROLE_PASSWORD: e2e_app_password
+      THALERMARK_APP_PASSWORD: e2e_app_password
       MIGRATE_ON_BOOT: 'true'
       BETTER_AUTH_SECRET: e2e-secret-at-least-32-characters-long
       BETTER_AUTH_URL: http://localhost:3000
