@@ -7,16 +7,23 @@ import {
   estimateLineItems,
   estimates,
   invoiceLineItems,
+  invoicePayments,
   invoices,
 } from '@thalermark/db';
 import { getLogger } from '@thalermark/logger';
 import { centsToMoney } from '@thalermark/validation';
-import { and, asc, eq } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { v7 as uuidv7 } from 'uuid';
 import type { AppDeps } from '../app.js';
-import { postInvoiceTransition } from '../lib/ledger.js';
+import {
+  checkPaymentEligibility,
+  paidCentsForInvoice,
+  paymentCountForInvoice,
+  syncInvoiceSettlement,
+} from '../lib/invoice-payments.js';
+import { postInvoicePayment } from '../lib/ledger.js';
 import { UUID_RE } from '../lib/route-helpers.js';
 import {
   constructWebhookEvent,
@@ -261,7 +268,17 @@ export function publicRoutes(deps: AppDeps) {
           if (invoice.status !== 'sent') {
             return c.json({ error: 'not_payable', status: invoice.status }, 409);
           }
-          const amountCents = decimalDollarsToCents(invoice.total);
+          // Charge the OUTSTANDING balance, not the invoice total (TMC-187).
+          // Once a deposit can be recorded, minting for the total would bill the
+          // customer a second time for money the business already has — the
+          // exact bug partial payments would otherwise introduce on day one.
+          // With no payments recorded this is the total, so the common path is
+          // unchanged.
+          const paidCents = await paidCentsForInvoice(bootstrapDb, {
+            accountId: invoice.accountId,
+            invoiceId: invoice.id,
+          });
+          const amountCents = decimalDollarsToCents(invoice.total) - paidCents;
           if (amountCents <= 0) return c.json({ error: 'invalid_amount' }, 400);
 
           // Connect routing decision. A company that has onboarded Connect must
@@ -473,40 +490,61 @@ export function publicRoutes(deps: AppDeps) {
             .where(eq(invoices.id, invoiceId))
             .limit(1);
           if (!current) return c.json({ received: true });
-          // Already-paid is the idempotent case (Stripe re-delivery, double-
-          // submit). 200 so Stripe stops retrying; no audit row.
-          if (current.status === 'paid') return c.json({ received: true });
-          // Other terminal states (voided, draft-without-send) — should not
-          // happen because the payment-intent mint guards on status=sent, but
-          // a PI created out-of-band could land here. 200 + no-op so
-          // the webhook queue drains; the manual reconciliation is on the
-          // operator at that point.
-          if (current.status !== 'sent') return c.json({ received: true });
+          // Whether a receipt may be recorded at all. Replaces the old
+          // "already paid → no-op" check, which stopped being a correct
+          // idempotency test the moment an invoice could take a second payment:
+          // a partially-paid invoice is still 'sent', so status alone can no
+          // longer distinguish a re-delivery from a genuine follow-on payment.
+          // The real idempotency guard is the unique index on
+          // stripe_payment_intent_id, enforced at insert below.
+          //
+          // 'paid' with existing rows stays eligible (a correction, or an
+          // overpayment); 'paid' with none is a legacy header-only settlement
+          // whose cash is already booked; draft/voided are refused outright.
+          const existingPaymentCount = await paymentCountForInvoice(bootstrapDb, {
+            accountId: current.accountId,
+            invoiceId,
+          });
+          const eligible = checkPaymentEligibility({
+            status: current.status,
+            existingPaymentCount,
+          });
+          if (!eligible.ok) {
+            log.error(
+              'stripe webhook ignored for invoice {invoiceId}: {reason} (status {status})',
+              { invoiceId, reason: eligible.reason, status: current.status },
+            );
+            return c.json({ received: true });
+          }
 
-          // Amount + currency verification. We minted the PaymentIntent for the
-          // invoice total, but trust nothing on the way back in: confirm Stripe
-          // actually captured that exact amount and currency before reconciling
-          // as paid-in-full. amount_received is what was collected (cents); a
-          // mismatch — partial capture, a stale intent against a since-changed
-          // total, or a crafted event — must not post Dr Cash / Cr AR for the
-          // full balance. Acknowledge 200 so Stripe stops retrying (the amount
-          // won't change on redelivery) but leave the invoice 'sent' for the
-          // operator to reconcile by hand.
-          const expectedCents = decimalDollarsToCents(current.total);
+          // Currency verification. Trust nothing on the way back in.
           const receivedCents = intent.amount_received ?? 0;
           const expectedCurrency = current.currency.toLowerCase();
-          if (receivedCents !== expectedCents || intent.currency !== expectedCurrency) {
+          if (intent.currency !== expectedCurrency || receivedCents <= 0) {
             log.error(
-              'stripe webhook payment mismatch for invoice {invoiceId}: expected {expectedCents} {expectedCurrency}, received {receivedCents} {receivedCurrency}',
+              'stripe webhook rejected for invoice {invoiceId}: received {receivedCents} {receivedCurrency}, expected {expectedCurrency}',
               {
                 invoiceId,
-                expectedCents,
-                expectedCurrency,
                 receivedCents,
                 receivedCurrency: intent.currency,
+                expectedCurrency,
               },
             );
             return c.json({ received: true });
+          }
+
+          // The amount is no longer required to equal the invoice total.
+          // Previously a short capture had to be refused, because the only
+          // posting available was "settle the whole balance" and booking that
+          // against less money would have invented cash. Now we record exactly
+          // what Stripe says it captured, so a partial capture is simply a
+          // partial payment and the books stay true by construction.
+          const expectedCents = decimalDollarsToCents(current.total);
+          if (receivedCents !== expectedCents) {
+            log.info(
+              'stripe partial payment for invoice {invoiceId}: captured {receivedCents} of {expectedCents}',
+              { invoiceId, receivedCents, expectedCents },
+            );
           }
 
           // Processor fee (TMC-156). Stripe deposits net of its cut, so the
@@ -538,35 +576,57 @@ export function publicRoutes(deps: AppDeps) {
           const processingFee = feeCents === null ? null : centsToMoney(feeCents);
 
           const now = new Date();
-          // Wrap the status flip + audit + ledger posting in one tx so
-          // the deferred sum-to-zero trigger on journal_lines fires at
-          // commit (auto-commit per statement would fail mid-posting)
-          // and a posting failure rolls the status flip back rather than
-          // leaving a paid invoice with no journal entry.
+          const receivedOn = now.toISOString().slice(0, 10);
+          // Wrap the payment insert + audit + ledger posting in one tx so the
+          // deferred sum-to-zero trigger on journal_lines fires at commit
+          // (auto-commit per statement would fail mid-posting) and a posting
+          // failure rolls the receipt back rather than leaving money recorded
+          // with no journal entry.
           await bootstrapDb.transaction(async (tx) => {
-            const [updated] = await tx
-              .update(invoices)
-              // Stamp the channel so the detail page reads "Paid via Card
-              // (Stripe)" consistently with the manual mark-paid methods.
-              // processingFee lands here so postInvoiceTransition can read it
-              // straight off `updated` — and so repostInvoicePaymentDate can
-              // reproduce the identical lines if the date is later corrected.
-              .set({
-                status: 'paid',
-                paidAt: now,
-                updatedAt: now,
-                paymentMethod: 'stripe',
+            // Idempotency, enforced by the database rather than by a status
+            // read. Stripe re-delivers, and two concurrent deliveries both pass
+            // any SELECT-time guard; the unique index on
+            // stripe_payment_intent_id is the only check that holds under a
+            // race. A conflict means we already booked this intent, so the
+            // insert returns nothing and the whole tx becomes a no-op.
+            const [payment] = await tx
+              .insert(invoicePayments)
+              .values({
+                id: uuidv7(),
+                accountId: current.accountId,
+                companyId: current.companyId,
+                invoiceId,
+                amount: centsToMoney(receivedCents),
+                receivedOn,
+                // Stamped server-side, never user-submitted — 'stripe' is
+                // deliberately absent from INVOICE_PAYMENT_METHODS.
+                method: 'stripe',
                 processingFee,
+                stripePaymentIntentId: intent.id,
               })
-              // Re-assert status='sent' inside the UPDATE so concurrent
-              // deliveries (or a webhook overlapping a manual mark-paid) can't
-              // both post. The SELECT guard above runs outside any lock; under
-              // READ COMMITTED the losing UPDATE re-evaluates this predicate
-              // against the freshly committed row, matches 0 rows, and bails
-              // before the ledger posting double-counts Dr Cash / Cr AR.
-              .where(and(eq(invoices.id, invoiceId), eq(invoices.status, 'sent')))
+              .onConflictDoNothing()
               .returning();
-            if (!updated) return;
+            if (!payment) return;
+
+            // Dr Cash (net) + Dr Merchant Processing Fees / Cr AR (gross) for
+            // THIS receipt. The fee legs collapse away when processingFee is
+            // null, exactly as before.
+            await postInvoicePayment(tx, {
+              payment,
+              invoice: current,
+              accountId: current.accountId,
+              companyId: current.companyId,
+              postedAt: now,
+            });
+
+            // Derives status from the rows and writes the header to agree —
+            // the same single path the in-app routes use, so the webhook cannot
+            // reach a state the manual flow could not.
+            const synced = await syncInvoiceSettlement(tx, {
+              accountId: current.accountId,
+              invoiceId,
+              totalCents: expectedCents,
+            });
 
             // Audit row attributed to the synthetic system user (migration
             // 0009 seeded it specifically for this kind of provider callback).
@@ -582,20 +642,12 @@ export function publicRoutes(deps: AppDeps) {
               entityId: invoiceId,
               action: 'stripe-paid',
               before: { status: current.status, paidAt: current.paidAt },
-              after: { status: updated.status, paidAt: updated.paidAt },
-            });
-
-            // Ledger posting (slice L2). Webhook only fires sent → paid
-            // (current.status === 'sent' guard above), so the posting is
-            // Dr Cash (net) + Dr Merchant Processing Fees / Cr AR (gross) —
-            // the fee legs collapse away when processingFee is null.
-            await postInvoiceTransition(tx, {
-              invoice: updated,
-              prevStatus: 'sent',
-              nextStatus: 'paid',
-              accountId: current.accountId,
-              companyId: current.companyId,
-              postedAt: now,
+              after: {
+                status: synced?.invoice.status ?? current.status,
+                paidAt: synced?.invoice.paidAt ?? null,
+                settlement: synced?.summary.settlement,
+                amount: payment.amount,
+              },
             });
           });
 

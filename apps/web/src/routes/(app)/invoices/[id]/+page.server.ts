@@ -44,6 +44,14 @@ export const load: PageServerLoad = async (event) => {
     ? ((await auditRes.json()) as { events: AuditEvent[] }).events
     : [];
 
+  // Receipts against this invoice (TMC-187), with the derived settlement.
+  // Best-effort like the audit trail: a failed fetch renders the page without
+  // the payments panel rather than 500ing the whole invoice.
+  const paymentsRes = await client.api.invoices[':id'].payments.$get({
+    param: { id: event.params.id },
+  });
+  const settlement = paymentsRes.ok ? await paymentsRes.json() : null;
+
   // origin is what the recipient will see in the URL — derived from the
   // incoming request so it works behind any reverse-proxy / custom domain
   // without an extra env var. Passed alongside the invoice so the share
@@ -56,6 +64,7 @@ export const load: PageServerLoad = async (event) => {
     auditEvents,
     needsBusinessDetails,
     businessCompanyId,
+    settlement,
   };
 };
 
@@ -197,6 +206,70 @@ async function runAddBusinessDetails(event: Parameters<Actions[string]>[0]) {
   redirect(303, `/invoices/${id}`);
 }
 
+// Record one receipt against an issued invoice (TMC-187) — the deposit path.
+// Distinct from markPaid above, which settles the whole outstanding balance in
+// one shot and stays the one-click option for "they paid it all".
+//
+// `amount` is signed on the wire so a refund or credit note is the same form
+// with a negative number; the UI offers it as an explicit choice rather than
+// asking anyone to type a minus sign.
+async function runRecordPayment(event: Parameters<Actions[string]>[0]) {
+  const client = serverApiClient(event);
+  const id = event.params.id;
+  const formData = await event.request.formData();
+  const amountRaw = String(formData.get('amount') ?? '').trim();
+  const direction = String(formData.get('direction') ?? 'in');
+  if (!amountRaw) return fail(400, { transitionError: 'Enter an amount.' });
+  const amount = direction === 'out' ? `-${amountRaw.replace(/^-/, '')}` : amountRaw;
+
+  const method = String(formData.get('method') ?? 'cash') as
+    | 'cash'
+    | 'check'
+    | 'venmo'
+    | 'zelle'
+    | 'other';
+  const referenceRaw = formData.get('reference');
+  const reference =
+    typeof referenceRaw === 'string' && referenceRaw.trim() ? referenceRaw.trim() : undefined;
+  const receivedOn = String(formData.get('receivedOn') ?? '').trim();
+  if (!receivedOn) return fail(400, { transitionError: 'Enter the date the money arrived.' });
+
+  const res = await client.api.invoices[':id'].payments.$post({
+    param: { id },
+    json: { amount, receivedOn, method, reference },
+  });
+  if (res.status === 404) throw error(404, 'invoice not found');
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { error?: string } | null;
+    return fail(res.status, {
+      transitionError: apiErrorMessage(body?.error, 'payment_failed', body),
+    });
+  }
+  redirect(303, `/invoices/${id}`);
+}
+
+// Remove a receipt recorded in error. Posts a reversing entry dated at the
+// original — the ledger is append-only, so this never erases history.
+async function runRemovePayment(event: Parameters<Actions[string]>[0]) {
+  const client = serverApiClient(event);
+  const id = event.params.id;
+  const formData = await event.request.formData();
+  const paymentId = String(formData.get('paymentId') ?? '');
+  if (!paymentId) return fail(400, { transitionError: 'missing_payment_id' });
+
+  const res = await client.api.invoices[':id'].payments[':paymentId'].$delete({
+    param: { id, paymentId },
+  });
+  if (res.status === 404) throw error(404, 'payment not found');
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { error?: string } | null;
+    return fail(res.status, {
+      transitionError: apiErrorMessage(body?.error, 'payment_remove_failed', body),
+    });
+  }
+  redirect(303, `/invoices/${id}`);
+}
+
 export const actions: Actions = {
   send: runSend,
   addBusinessDetails: runAddBusinessDetails,
@@ -204,5 +277,7 @@ export const actions: Actions = {
   markPaid: (event) => postPayment(event, 'mark-paid'),
   void: (event) => runTransition(event, 'void'),
   editPayment: (event) => postPayment(event, 'edit-payment'),
+  recordPayment: runRecordPayment,
+  removePayment: runRemovePayment,
   duplicate: runDuplicate,
 };

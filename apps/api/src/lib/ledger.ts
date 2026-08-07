@@ -1271,6 +1271,95 @@ export async function repostInvoicePaymentDate(
   });
 }
 
+// --- Invoice payments (TMC-187) --------------------------------------------
+// One receipt against an issued invoice, posted on its own rather than as part
+// of a whole-document status flip:
+//   Dr Cash 1000                    = amount − fee
+//   Dr Merchant Processing Fees 7950 = fee (0 on every manual channel)
+//   Cr Accounts Receivable 1200      = amount
+//
+// This is the same shape the sent→paid transition has always posted, re-grained
+// from "the invoice total" to "this receipt". A full payment therefore emits a
+// byte-identical entry to the one the old single-shot path produced, which is
+// what lets the two coexist while the header columns are still maintained.
+//
+// A payment requires an ISSUED invoice, because it relieves AR and a draft has
+// no receivable. See the schema comment on invoice_payments for why taking a
+// deposit against a draft would need an unearned-revenue account we deliberately
+// have not added.
+//
+// NEGATIVE AMOUNTS are refunds and credit notes. The lines are built from the
+// absolute value and then flipped, so a refund reads Cr Cash / Dr AR and nets
+// against the receipt it undoes without a second concept. Note the fee leg flips
+// with it: refunding a card payment would claw back the processor's cut, which
+// Stripe does not actually do. Manual refunds pass no fee so they collapse to
+// the clean two-line shape; a fee-bearing refund is not reachable from any
+// surface today, and wiring one needs this decided rather than inherited.
+export function invoicePaymentLines(args: {
+  amount: string;
+  processingFee?: string | null;
+}): LedgerLine[] {
+  const cents = Math.round(Number(args.amount) * 100);
+  const gross = (Math.abs(cents) / 100).toFixed(2);
+  const fee = args.processingFee ?? '0.00';
+  const lines: LedgerLine[] = [
+    { code: COA_CASH, side: 'debit', amount: subtractMoney(gross, fee) },
+    { code: COA_MERCHANT_FEES, side: 'debit', amount: fee },
+    { code: COA_AR, side: 'credit', amount: gross },
+  ];
+  return cents < 0 ? reverseLedgerLines(lines) : lines;
+}
+
+type InvoicePaymentPosting = {
+  payment: { id: string; amount: string; processingFee?: string | null };
+  invoice: { id: string; number: string };
+  accountId: string;
+  companyId: string;
+  postedAt: Date;
+};
+
+// Posts one receipt. source_entity_id is the INVOICE, not the payment — so every
+// entry for an invoice shares one source group and cashFlowNet's per-source
+// netting keeps working exactly as it does for the single-shot path. A payment
+// and its later reversal cancel inside that group for free.
+export async function postInvoicePayment(
+  tx: Database | Transaction,
+  args: InvoicePaymentPosting,
+): Promise<string | null> {
+  return postJournalEntry(tx, {
+    accountId: args.accountId,
+    companyId: args.companyId,
+    sourceEntityType: 'invoice',
+    sourceEntityId: args.invoice.id,
+    postedAt: args.postedAt,
+    memo: `Invoice ${args.invoice.number} payment`,
+    lines: invoicePaymentLines(args.payment),
+    // Collecting on an invoice already issued is settlement, so a retired
+    // company can still bank the cheque for work it billed under the old name.
+    intent: 'settlement',
+  });
+}
+
+// Undo one receipt, dated at the date it was posted rather than today — a
+// reversal must land in the same reporting period as the entry it cancels, or
+// deleting a mistake would move cash off a closed month and onto this one. The
+// stored fee feeds both sides, which is why it is persisted on the row.
+export async function postInvoicePaymentReversal(
+  tx: Database | Transaction,
+  args: InvoicePaymentPosting,
+): Promise<string | null> {
+  return postJournalEntry(tx, {
+    accountId: args.accountId,
+    companyId: args.companyId,
+    sourceEntityType: 'invoice',
+    sourceEntityId: args.invoice.id,
+    postedAt: args.postedAt,
+    memo: `Invoice ${args.invoice.number} payment reversal`,
+    lines: reverseLedgerLines(invoicePaymentLines(args.payment)),
+    intent: 'settlement',
+  });
+}
+
 // --- Ledger read helpers (position dashboard + cash-flow nudges) -----------
 // "cash" = the Cash account (1000); "owed" = the AR balance.
 //

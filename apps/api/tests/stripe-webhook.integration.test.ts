@@ -5,6 +5,7 @@ import {
   authUser,
   companies,
   contacts,
+  invoicePayments,
   invoices,
   journalEntries,
   journalLines,
@@ -300,7 +301,12 @@ describe('Stripe webhook', () => {
     }
   });
 
-  it('does not reconcile a partial/wrong-amount payment as paid-in-full', async () => {
+  // BEHAVIOUR CHANGED BY TMC-187, deliberately. A short capture used to be
+  // refused outright, and it had to be: the only posting available was "settle
+  // the whole balance", so booking it against less money would have invented
+  // cash. Now the receipt is recorded for exactly what Stripe captured, which
+  // makes a partial capture an ordinary partial payment.
+  it('records a short capture as a partial payment rather than refusing it', async () => {
     const { invoiceId } = await seedSentInvoice();
     const { app, handle, stripe } = buildApp();
     if (!stripe) throw new Error('stripe bundle not configured');
@@ -312,18 +318,59 @@ describe('Stripe webhook', () => {
         headers: { 'stripe-signature': sig },
         body: payload,
       });
-      // 200 so Stripe stops retrying, but the invoice stays 'sent' and no
-      // ledger entry is posted — the operator reconciles by hand.
       expect(res.status).toBe(200);
 
       const db = getTestDb();
-      const [unchanged] = await db.select().from(invoices).where(eq(invoices.id, invoiceId));
-      expect(unchanged?.status).toBe('sent');
+      // Still open — $50 of a larger invoice does not settle it.
+      const [invoice] = await db.select().from(invoices).where(eq(invoices.id, invoiceId));
+      expect(invoice?.status).toBe('sent');
+
+      // ...but the money is on the books, for the amount actually captured.
+      const payments = await db
+        .select()
+        .from(invoicePayments)
+        .where(eq(invoicePayments.invoiceId, invoiceId));
+      expect(payments).toHaveLength(1);
+      expect(payments[0]?.amount).toBe('50.00');
+      expect(payments[0]?.method).toBe('stripe');
+
       const entries = await db
         .select()
         .from(journalEntries)
         .where(eq(journalEntries.sourceEntityId, invoiceId));
-      expect(entries).toHaveLength(0);
+      // The issue posting plus this receipt.
+      expect(entries.length).toBeGreaterThan(0);
+    } finally {
+      await handle.close();
+    }
+  });
+
+  // The idempotency guard that replaced the old "already paid → no-op" check.
+  // Status can no longer distinguish a re-delivery from a genuine second
+  // payment, so the unique index on stripe_payment_intent_id is what holds.
+  it('does not double-book when the same intent is delivered twice', async () => {
+    const { invoiceId } = await seedSentInvoice();
+    const { app, handle, stripe } = buildApp();
+    if (!stripe) throw new Error('stripe bundle not configured');
+    try {
+      const payload = paymentSucceededPayload(invoiceId, { amountReceived: 5000 });
+      const sig = signEvent(stripe.client, payload);
+      const send = () =>
+        app.request('/api/webhooks/stripe', {
+          method: 'POST',
+          headers: { 'stripe-signature': sig },
+          body: payload,
+        });
+      expect((await send()).status).toBe(200);
+      expect((await send()).status).toBe(200);
+
+      const db = getTestDb();
+      const payments = await db
+        .select()
+        .from(invoicePayments)
+        .where(eq(invoicePayments.invoiceId, invoiceId));
+      // One receipt, not two — the customer paid once.
+      expect(payments).toHaveLength(1);
     } finally {
       await handle.close();
     }

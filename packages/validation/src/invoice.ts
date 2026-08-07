@@ -1,6 +1,13 @@
 import { z } from 'zod';
 import { lineItemType } from './item.js';
-import { isoDateString, moneyString, priceString, quantityString, taxRateString } from './money.js';
+import {
+  isoDateString,
+  moneyString,
+  priceString,
+  quantityString,
+  signedMoneyString,
+  taxRateString,
+} from './money.js';
 
 // Per-line input. position is the 1-based ordinal the UI uses to render the
 // rows; the server trusts what the client sent rather than re-sequencing,
@@ -141,3 +148,29 @@ export const invoiceMarkPaidSchema = z.object({
 });
 
 export type InvoiceMarkPaidInput = z.infer<typeof invoiceMarkPaidSchema>;
+
+// Input schema for POST /api/invoices/:id/payments — one receipt against an
+// issued invoice (TMC-187). The deposit-shaped sibling of mark-paid, which is
+// now sugar for "a payment for the whole outstanding balance".
+//
+// `amount` is SIGNED: a negative records a refund or a credit note, which post
+// as the same ledger lines with the sides flipped rather than as a separate
+// entity. It is deliberately not capped at the outstanding balance — a customer
+// really can overpay, and a system that refuses to record what actually
+// happened is worse than one that shows an overpaid invoice.
+//
+// `receivedOn` is required here, unlike mark-paid's optional paidOn. A receipt
+// is an event with a date; defaulting it to today is only defensible on the
+// quick "mark it paid" path where the user is recording something as it
+// happens.
+export const invoicePaymentCreateSchema = z.object({
+  amount: signedMoneyString,
+  receivedOn: isoDateString,
+  method: z.enum(INVOICE_PAYMENT_METHODS),
+  reference: z
+    .union([z.string().trim().max(100), z.literal(''), z.null()])
+    .transform((v) => (v ? v : null))
+    .optional(),
+});
+
+export type InvoicePaymentCreateInput = z.infer<typeof invoicePaymentCreateSchema>;

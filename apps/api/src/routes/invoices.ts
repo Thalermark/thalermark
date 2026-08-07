@@ -6,6 +6,7 @@ import {
   expenseAllocations,
   expenses,
   invoiceLineItems,
+  invoicePayments,
   invoices,
   timeEntries,
 } from '@thalermark/db';
@@ -13,8 +14,10 @@ import { emit } from '@thalermark/telemetry';
 import {
   invoiceCreateSchema,
   invoiceMarkPaidSchema,
+  invoicePaymentCreateSchema,
   invoiceSendSchema,
   invoiceUpdateSchema,
+  toCents,
 } from '@thalermark/validation';
 import {
   and,
@@ -39,11 +42,22 @@ import { resolveEmailTemplate } from '../lib/email-templates.js';
 import { sendInvoiceEmail } from '../lib/invoice-email.js';
 import { suggestNextInvoiceNumber } from '../lib/invoice-number.js';
 import {
+  checkPaymentEligibility,
+  paymentCountForInvoice,
+  summarizeSettlement,
+  syncInvoiceSettlement,
+} from '../lib/invoice-payments.js';
+import {
   assertJobInCompany,
   stampBilledTimeEntries,
   validateBilledTimeEntries,
 } from '../lib/job-costing.js';
-import { postInvoiceTransition, repostInvoicePaymentDate } from '../lib/ledger.js';
+import {
+  postInvoicePayment,
+  postInvoicePaymentReversal,
+  postInvoiceTransition,
+  repostInvoicePaymentDate,
+} from '../lib/ledger.js';
 import { applyCursor, keysetOrderBy, parseLimit, slicePage } from '../lib/pagination.js';
 import {
   EMAIL_RE,
@@ -1170,6 +1184,213 @@ export function invoicesRoutes(deps: AppDeps) {
           });
 
           return c.json({ ...invoice, sentTo: to });
+        },
+      )
+      // --- Payments (TMC-187) ------------------------------------------------
+      // A receipt against an issued invoice. This is the deposit path: a
+      // landscaper takes 50% down, records it here, and the invoice reads
+      // half-paid instead of having to be lied about in one direction or the
+      // other.
+      //
+      // mark-paid above is now the special case of this — a payment for the
+      // whole outstanding balance — rather than the only way money can arrive.
+      // It is left exactly as it was so the quick path and every existing
+      // caller are untouched.
+      // Unguarded like every other read in this file — the capability model
+      // gates writes, and any member who can see an invoice can see what has
+      // been paid against it.
+      .get('/api/invoices/:id/payments', async (c) => {
+        const id = c.req.param('id');
+        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+
+        const [invoice] = await tx
+          .select({ id: invoices.id, total: invoices.total })
+          .from(invoices)
+          .where(and(eq(invoices.id, id), eq(invoices.accountId, accountId)))
+          .limit(1);
+        if (!invoice) return c.json({ error: 'invoice_not_found' }, 404);
+
+        const payments = await tx
+          .select()
+          .from(invoicePayments)
+          .where(and(eq(invoicePayments.accountId, accountId), eq(invoicePayments.invoiceId, id)))
+          .orderBy(asc(invoicePayments.receivedOn), asc(invoicePayments.id));
+
+        const paidCents = payments.reduce((sum, p) => sum + toCents(p.amount), 0);
+        return c.json({
+          payments,
+          ...summarizeSettlement({ totalCents: toCents(invoice.total), paidCents }),
+        });
+      })
+      .post(
+        '/api/invoices/:id/payments',
+        requireCapability('sales:write'),
+        validator('json', (value, c) => {
+          const parsed = invoicePaymentCreateSchema.safeParse(value);
+          if (!parsed.success) {
+            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+          }
+          return parsed.data;
+        }),
+        async (c) => {
+          const id = c.req.param('id');
+          if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+          const data = c.req.valid('json');
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+
+          const [invoice] = await tx
+            .select()
+            .from(invoices)
+            .where(and(eq(invoices.id, id), eq(invoices.accountId, accountId)))
+            .limit(1);
+          if (!invoice) return c.json({ error: 'invoice_not_found' }, 404);
+
+          const existingPaymentCount = await paymentCountForInvoice(tx, {
+            accountId,
+            invoiceId: id,
+          });
+          const eligible = checkPaymentEligibility({
+            status: invoice.status,
+            existingPaymentCount,
+          });
+          if (!eligible.ok) {
+            return c.json({ error: eligible.reason, status: invoice.status }, 409);
+          }
+
+          const paymentId = uuidv7();
+          const [payment] = await tx
+            .insert(invoicePayments)
+            .values({
+              id: paymentId,
+              accountId,
+              companyId: invoice.companyId,
+              invoiceId: id,
+              amount: data.amount,
+              receivedOn: data.receivedOn,
+              method: data.method,
+              reference: data.reference ?? null,
+            })
+            .returning();
+          if (!payment) return c.json({ error: 'invoice_not_found' }, 404);
+
+          // Posts inside the tenant tx like every other mutation, so the
+          // deferred sum-to-zero trigger fires at commit and a rejected posting
+          // (closed period, retired company) rolls the row back with it.
+          await postInvoicePayment(tx, {
+            payment,
+            invoice,
+            accountId,
+            companyId: invoice.companyId,
+            postedAt: expenseDateToPostedAt(payment.receivedOn),
+          });
+
+          const synced = await syncInvoiceSettlement(tx, {
+            accountId,
+            invoiceId: id,
+            totalCents: toCents(invoice.total),
+          });
+          if (!synced) return c.json({ error: 'invoice_not_found' }, 404);
+
+          await c.var.audit({
+            entityType: 'invoice',
+            entityId: id,
+            action: 'payment-recorded',
+            before: { status: invoice.status },
+            after: {
+              status: synced.invoice.status,
+              settlement: synced.summary.settlement,
+              paymentId,
+              amount: payment.amount,
+              receivedOn: payment.receivedOn,
+              method: payment.method,
+            },
+            companyId: invoice.companyId,
+          });
+
+          if (synced.summary.status === 'paid') {
+            await emit(tx, { name: 'invoice_marked_paid' });
+          }
+
+          return c.json({ payment, invoice: synced.invoice, ...synced.summary }, 201);
+        },
+      )
+      // Removing a receipt is an append-only ledger correction, not a deletion
+      // of history: the reversal posts at the date the payment was ORIGINALLY
+      // booked, so the period it belonged to nets to zero rather than the cash
+      // jumping into the current month. Same discipline as
+      // repostInvoicePaymentDate above.
+      .delete(
+        '/api/invoices/:id/payments/:paymentId',
+        requireCapability('sales:write'),
+        async (c) => {
+          const id = c.req.param('id');
+          const paymentId = c.req.param('paymentId');
+          if (!UUID_RE.test(id) || !UUID_RE.test(paymentId)) {
+            return c.json({ error: 'invalid_id' }, 400);
+          }
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+
+          const [invoice] = await tx
+            .select()
+            .from(invoices)
+            .where(and(eq(invoices.id, id), eq(invoices.accountId, accountId)))
+            .limit(1);
+          if (!invoice) return c.json({ error: 'invoice_not_found' }, 404);
+
+          const [payment] = await tx
+            .select()
+            .from(invoicePayments)
+            .where(
+              and(
+                eq(invoicePayments.id, paymentId),
+                eq(invoicePayments.accountId, accountId),
+                eq(invoicePayments.invoiceId, id),
+              ),
+            )
+            .limit(1);
+          if (!payment) return c.json({ error: 'payment_not_found' }, 404);
+
+          await postInvoicePaymentReversal(tx, {
+            payment,
+            invoice,
+            accountId,
+            companyId: invoice.companyId,
+            postedAt: expenseDateToPostedAt(payment.receivedOn),
+          });
+
+          await tx
+            .delete(invoicePayments)
+            .where(
+              and(eq(invoicePayments.id, paymentId), eq(invoicePayments.accountId, accountId)),
+            );
+
+          const synced = await syncInvoiceSettlement(tx, {
+            accountId,
+            invoiceId: id,
+            totalCents: toCents(invoice.total),
+          });
+          if (!synced) return c.json({ error: 'invoice_not_found' }, 404);
+
+          await c.var.audit({
+            entityType: 'invoice',
+            entityId: id,
+            action: 'payment-removed',
+            before: {
+              status: invoice.status,
+              paymentId,
+              amount: payment.amount,
+              receivedOn: payment.receivedOn,
+              method: payment.method,
+            },
+            after: { status: synced.invoice.status, settlement: synced.summary.settlement },
+            companyId: invoice.companyId,
+          });
+
+          return c.json({ invoice: synced.invoice, ...synced.summary });
         },
       )
   );

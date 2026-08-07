@@ -74,6 +74,32 @@
   // correction handled server-side.
   const canEditPayment = $derived(canWrite && inv.status === 'paid');
   let showEditPayment = $state(false);
+
+  // Partial payments (TMC-187). The panel renders whenever the API returned a
+  // settlement summary — which it does for any invoice — but the record form is
+  // gated on the same rule the API enforces: an issued invoice, and a settled
+  // one only if it got there through payment rows. Mirroring the server rule
+  // here keeps the button from offering a guaranteed 409.
+  const settlement = $derived(data.settlement);
+  const canRecordPayment = $derived(
+    canWrite &&
+      !!settlement &&
+      (inv.status === 'sent' || (inv.status === 'paid' && settlement.payments.length > 0)),
+  );
+  let showPaymentPanel = $state(false);
+  // Pre-fills the amount field with what is still owed — the overwhelmingly
+  // common entry, and it saves the user doing the subtraction.
+  const outstandingPlaceholder = $derived(settlement ? settlement.outstanding : '0.00');
+  // Overpayment is stored as a negative outstanding; show it as a positive
+  // "overpaid by" figure rather than making the reader parse a minus sign.
+  const overpaidBy = $derived(
+    settlement ? Math.abs(Number(settlement.outstanding)).toFixed(2) : '0.00',
+  );
+  const today = new Date().toISOString().slice(0, 10);
+
+  function money(value: string): string {
+    return `$${formatUnitPrice(Math.abs(Number(value)).toFixed(2))}`;
+  }
 </script>
 
 <a href="/invoices" class="eyebrow text-fg/60 hover:text-fg">← Invoices</a>
@@ -329,6 +355,140 @@
       </form>
     {/if}
   </div>
+{/if}
+
+{#if settlement && (settlement.payments.length > 0 || canRecordPayment)}
+  <section class="mt-8 rounded-sm border border-fg/10 bg-surface-2 p-5">
+    <div class="flex flex-wrap items-baseline justify-between gap-4">
+      <h2 class="font-serif text-xl font-light text-fg">Payments</h2>
+      <p class="text-sm text-fg/70">
+        {#if settlement.settlement === 'overpaid'}
+          Overpaid by <span class="tabular-nums text-fg">{money(overpaidBy)}</span>
+        {:else if settlement.settlement === 'paid'}
+          Paid in full
+        {:else}
+          <span class="tabular-nums text-fg">{money(settlement.paid)}</span> of
+          <span class="tabular-nums text-fg">{money(inv.total)}</span> ·
+          <span class="tabular-nums text-fg">{money(settlement.outstanding)}</span> still owed
+        {/if}
+      </p>
+    </div>
+
+    {#if settlement.payments.length > 0}
+      <ul class="mt-4 divide-y divide-fg/10 border-y border-fg/10">
+        {#each settlement.payments as p (p.id)}
+          <li class="flex flex-wrap items-baseline justify-between gap-3 py-2.5 text-sm">
+            <span class="text-fg/70">
+              {p.receivedOn} · {PAYMENT_METHOD_LABELS[p.method] ?? p.method}{#if p.reference}
+                · {p.reference}{/if}
+            </span>
+            <span class="flex items-baseline gap-4">
+              <!-- A negative row is a refund or credit note, not a receipt. Say
+                   so in words rather than relying on the minus sign alone. -->
+              <span class="tabular-nums {Number(p.amount) < 0 ? 'text-fg/60' : 'text-fg'}">
+                {#if Number(p.amount) < 0}Refund {/if}{money(p.amount)}
+              </span>
+              {#if canRecordPayment}
+                <form method="post" action="?/removePayment">
+                  <input type="hidden" name="paymentId" value={p.id} />
+                  <button
+                    type="submit"
+                    class="text-xs uppercase tracking-widest text-fg/40 hover:text-accent"
+                  >
+                    Remove
+                  </button>
+                </form>
+              {/if}
+            </span>
+          </li>
+        {/each}
+      </ul>
+    {/if}
+
+    {#if canRecordPayment}
+      {#if !showPaymentPanel}
+        <button
+          type="button"
+          onclick={() => {
+            showPaymentPanel = true;
+          }}
+          class="mt-4 rounded-sm border border-fg/20 px-3 py-1 font-mono text-xs uppercase tracking-widest text-fg/70 hover:border-accent hover:text-accent"
+        >
+          Record a payment
+        </button>
+      {:else}
+        <form method="post" action="?/recordPayment" class="mt-4 max-w-md">
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="label" for="payment-amount">Amount</label>
+              <input
+                id="payment-amount"
+                name="amount"
+                type="text"
+                inputmode="decimal"
+                required
+                class="field mt-1 tabular-nums"
+                placeholder={outstandingPlaceholder}
+              />
+            </div>
+            <div>
+              <label class="label" for="payment-date">Date received</label>
+              <input
+                id="payment-date"
+                name="receivedOn"
+                type="date"
+                required
+                value={today}
+                class="field mt-1"
+              />
+            </div>
+          </div>
+          <div class="mt-4 grid grid-cols-2 gap-4">
+            <div>
+              <label class="label" for="payment-method">Method</label>
+              <select id="payment-method" name="method" class="field mt-1">
+                {#each PAID_METHOD_CHOICES as choice (choice.value)}
+                  <option value={choice.value}>{choice.label}</option>
+                {/each}
+              </select>
+            </div>
+            <div>
+              <!-- Direction rather than a typed minus sign: nobody should have
+                   to know that a refund is a negative payment. -->
+              <label class="label" for="payment-direction">Type</label>
+              <select id="payment-direction" name="direction" class="field mt-1">
+                <option value="in">Payment received</option>
+                <option value="out">Refund or credit</option>
+              </select>
+            </div>
+          </div>
+          <div class="mt-4">
+            <label class="label" for="payment-reference">Reference (optional)</label>
+            <input
+              id="payment-reference"
+              name="reference"
+              type="text"
+              maxlength="100"
+              class="field mt-1"
+              placeholder="Check number, confirmation code"
+            />
+          </div>
+          <div class="mt-5 flex items-center gap-3">
+            <button type="submit" class="btn">Record payment</button>
+            <button
+              type="button"
+              onclick={() => {
+                showPaymentPanel = false;
+              }}
+              class="text-xs uppercase tracking-widest text-fg/50 hover:text-accent"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      {/if}
+    {/if}
+  </section>
 {/if}
 
 {#if publicUrl}

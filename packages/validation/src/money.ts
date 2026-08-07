@@ -8,12 +8,31 @@ import { z } from 'zod';
 // numeric(15,2) / numeric(15,4) columns as-is.
 //
 // 2 fractional digits for amounts, 4 for quantity (matches the DB columns).
-// Leading zero required ("0.50" not ".50"); negatives intentionally rejected
-// — credits/refunds get a dedicated representation when that feature lands.
+// Leading zero required ("0.50" not ".50"); negatives rejected — an invoice
+// line, a subtotal or an expense is never negative. The dedicated
+// representation this used to promise for credits/refunds is signedMoneyString
+// below, which landed with partial payments (TMC-187).
 export const moneyString = z
   .string()
   .regex(/^\d+(\.\d{1,2})?$/, 'money must be a decimal string with up to 2 fractional digits')
   .refine((s) => s.length <= 18, 'money exceeds 15-digit precision');
+
+// Money that may be negative — the representation for a refund or a credit
+// note, which are recorded as negative payments rather than as a second entity
+// (TMC-187). Deliberately NOT a widening of moneyString: the places that accept
+// a negative are few and each is a decision, so they opt in by name.
+//
+// Zero is rejected. A zero-amount receipt records nothing, posts nothing (the
+// journal helper drops zero lines and then refuses the under-2-line entry), and
+// exists only to confuse a later reader of the payment list.
+export const signedMoneyString = z
+  .string()
+  .regex(
+    /^-?\d+(\.\d{1,2})?$/,
+    'money must be a decimal string with up to 2 fractional digits, optionally negative',
+  )
+  .refine((s) => s.length <= 19, 'money exceeds 15-digit precision')
+  .refine((s) => Number(s) !== 0, 'amount must not be zero');
 
 // Unit price allows up to 4 fractional digits (numeric(15,4)) — finer than a
 // money amount so a line total that doesn't divide evenly by the quantity can

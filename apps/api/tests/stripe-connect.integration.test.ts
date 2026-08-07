@@ -5,6 +5,7 @@ import {
   authUser,
   companies,
   contacts,
+  invoicePayments,
   invoices,
   memberships,
   seedChartOfAccounts,
@@ -697,6 +698,83 @@ describe('requireConnectedAccount — platform-account fallback gate (TMC-175)',
         { stripeAccount?: string },
       ];
       expect(opts.stripeAccount).toBe('acct_required_ok');
+    } finally {
+      await handle.close();
+    }
+  });
+
+  // TMC-187. The intent must be minted for what is STILL OWED, not the invoice
+  // total. Minting the total once a deposit exists bills the customer a second
+  // time for money the business already has — a silent overcharge on the one
+  // path where the person paying is not the person using the software.
+  it('mints the intent for the outstanding balance after a deposit', async () => {
+    const createPaymentIntent = vi.fn(async () => ({
+      client_secret: 'pi_secret_partial',
+      id: 'pi_partial',
+    }));
+    const stripe = makeStubStripe({ createPaymentIntent });
+    const { app, handle } = buildApp(stripe);
+    try {
+      const { publicToken, invoiceId, companyId } = await seedPayableInvoice({
+        accountId: 'acct_live_partial',
+        chargesEnabled: true,
+      });
+      // A $40 deposit already recorded against the $100 invoice.
+      const db = getTestDb();
+      const [inv] = await db.select().from(invoices).where(eq(invoices.id, invoiceId));
+      if (!inv) throw new Error('seed invoice missing');
+      await db.insert(invoicePayments).values({
+        id: uuidv7(),
+        accountId: inv.accountId,
+        companyId,
+        invoiceId,
+        amount: '40.00',
+        receivedOn: '2026-06-01',
+        method: 'cash',
+      });
+
+      const res = await app.request(`/api/public/invoices/${publicToken}/payment-intent`, {
+        method: 'POST',
+      });
+      expect(res.status).toBe(200);
+
+      const [params] = createPaymentIntent.mock.calls[0] as unknown as [{ amount: number }];
+      // $60 remaining, not the $100 total.
+      expect(params.amount).toBe(6000);
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('refuses to mint an intent once the invoice is fully paid off', async () => {
+    const createPaymentIntent = vi.fn(async () => ({ client_secret: 'x', id: 'pi_x' }));
+    const stripe = makeStubStripe({ createPaymentIntent });
+    const { app, handle } = buildApp(stripe);
+    try {
+      const { publicToken, invoiceId, companyId } = await seedPayableInvoice({
+        accountId: 'acct_live_settled',
+        chargesEnabled: true,
+      });
+      const db = getTestDb();
+      const [inv] = await db.select().from(invoices).where(eq(invoices.id, invoiceId));
+      if (!inv) throw new Error('seed invoice missing');
+      await db.insert(invoicePayments).values({
+        id: uuidv7(),
+        accountId: inv.accountId,
+        companyId,
+        invoiceId,
+        amount: '100.00',
+        receivedOn: '2026-06-01',
+        method: 'cash',
+      });
+
+      const res = await app.request(`/api/public/invoices/${publicToken}/payment-intent`, {
+        method: 'POST',
+      });
+      // Nothing left to charge. Better a clean refusal than a $0 intent or,
+      // worse, a second full charge.
+      expect(res.status).toBe(400);
+      expect(createPaymentIntent).not.toHaveBeenCalled();
     } finally {
       await handle.close();
     }
