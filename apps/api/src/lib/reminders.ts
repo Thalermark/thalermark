@@ -136,9 +136,15 @@ async function findDueReminders(db: Database, nowTs: Date): Promise<DueReminder[
       AND NOT EXISTS (
         SELECT 1 FROM invoice_payments p
         WHERE p.invoice_id = i.id
+          -- ::int on the bound parameter is load-bearing. Untyped, Postgres
+          -- resolves date-minus-parameter as date-minus-DATE, which yields an
+          -- integer, and the comparison then fails with "operator does not exist:
+          -- date > integer". A literal 3 types correctly, which is why this
+          -- passed a hand-run psql check and failed the moment it ran
+          -- parameterised.
           AND p.received_on
               > (${nowTs}::timestamptz AT TIME ZONE c.timezone)::date
-                - ${QUIET_DAYS_AFTER_PAYMENT}
+                - ${QUIET_DAYS_AFTER_PAYMENT}::int
           AND p.received_on <= (${nowTs}::timestamptz AT TIME ZONE c.timezone)::date
       )
     ORDER BY i.id, o.offset_days
