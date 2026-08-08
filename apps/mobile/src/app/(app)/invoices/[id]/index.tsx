@@ -525,6 +525,36 @@ export default function InvoiceDetail() {
             ) : null}
 
             {/* Payments (TMC-187) */}
+            {/* A draft cannot take a payment, and until TMC-199 the screen said
+                nothing — the panel simply did not render, leaving "Mark paid"
+                (which books the FULL total) as the only payment-shaped control
+                for someone holding a deposit. The rule stays; saying so is what
+                was missing. This client matters most: it is the one being used
+                standing in a customer's yard. */}
+            {canWrite && status === 'draft' ? (
+              <View className="mt-8 rounded-sm border border-ink/10 bg-cream-warm p-4">
+                <Text className="font-serif text-lg font-light text-ink">Payments</Text>
+                <Text className="mt-2 text-sm text-ink/70">
+                  Took a deposit? Issue this invoice first — send it, or just mark it as sent — then
+                  you can record part-payments against it as the money comes in.
+                </Text>
+                <Text className="mt-2 text-sm text-ink/60">
+                  If they've already paid in full, Mark paid settles it in one step.
+                </Text>
+                <Pressable
+                  onPress={() =>
+                    act(() => api.api.invoices[':id']['mark-sent'].$post({ param: { id } }))
+                  }
+                  disabled={acting}
+                  className="mt-3 rounded-sm border border-ink/20 px-4 py-2.5 active:border-gold-deep"
+                >
+                  <Text className="text-center font-mono text-xs uppercase tracking-widest text-ink/70">
+                    Mark as sent, so I can record a deposit
+                  </Text>
+                </Pressable>
+              </View>
+            ) : null}
+
             {settlement && (settlement.payments.length > 0 || canRecordPayment) ? (
               <View className="mt-8 rounded-sm border border-ink/10 bg-cream-warm p-4">
                 <Text className="font-serif text-lg font-light text-ink">Payments</Text>

@@ -14,6 +14,7 @@ import { emit } from '@thalermark/telemetry';
 import {
   centsToMoney,
   invoiceCreateSchema,
+  invoiceDepositSchema,
   invoiceMarkPaidSchema,
   invoicePaymentCreateSchema,
   invoiceRemindersSchema,
@@ -1031,6 +1032,111 @@ export function invoicesRoutes(deps: AppDeps) {
 
           await emit(tx, { name: 'invoice_marked_paid' });
           return c.json(synced.invoice);
+        },
+      )
+      // Take a deposit on a draft, in ONE step (TMC-199).
+      //
+      // The person calling this is standing in a customer's yard holding cash.
+      // They know one number. Issuing the invoice so a receivable exists is the
+      // system's job, and doing it here rather than making them do it first is
+      // the whole point — the previous flow was three actions and an
+      // explanation of our state machine.
+      //
+      // ATOMIC BY CONSTRUCTION. Both halves run on the request's tenant tx, so
+      // a failed payment rolls the issue back with it. Two client calls could
+      // not give that: a mark-sent that succeeded followed by a payment that
+      // failed would leave an invoice issued that nobody meant to issue, with
+      // the money still unrecorded.
+      //
+      // AND IT SIDESTEPS UNEARNED REVENUE. Taking money against a document that
+      // was never issued would need a liability account across five entity COA
+      // seeds. Issuing first means the receivable exists and the deposit
+      // relieves it exactly like any other payment — ordinary double-entry, no
+      // new accounts, no new concepts.
+      .post(
+        '/api/invoices/:id/deposit',
+        requireCapability('sales:write'),
+        validator('json', (value, c) => {
+          const parsed = invoiceDepositSchema.safeParse(value);
+          if (!parsed.success) {
+            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+          }
+          return parsed.data;
+        }),
+        async (c) => {
+          const id = c.req.param('id');
+          if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+          const data = c.req.valid('json');
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+
+          // Issue it. Reuses the one path that owns status + ledger together,
+          // so the AR posting lands on the ISSUE date exactly as a normal send
+          // would — this is not a special kind of issuing.
+          const issued = await applyInvoiceTransition(tx, c.var.audit, {
+            accountId,
+            id,
+            key: 'mark-sent',
+            spec: INVOICE_TRANSITIONS['mark-sent'],
+          });
+          if (!issued.ok) {
+            if (issued.error === 'invoice_not_found') return c.json({ error: issued.error }, 404);
+            return c.json({ error: issued.error, from: issued.from, to: issued.to }, 409);
+          }
+          const invoice = issued.invoice;
+
+          const [company] = await tx
+            .select({ timezone: companies.timezone })
+            .from(companies)
+            .where(and(eq(companies.id, invoice.companyId), eq(companies.accountId, accountId)))
+            .limit(1);
+          const receivedOn = data.receivedOn ?? localToday(company?.timezone ?? 'UTC');
+
+          const [payment] = await tx
+            .insert(invoicePayments)
+            .values({
+              id: uuidv7(),
+              accountId,
+              companyId: invoice.companyId,
+              invoiceId: id,
+              amount: data.amount,
+              receivedOn,
+              method: data.method ?? 'cash',
+            })
+            .returning();
+          if (!payment) return c.json({ error: 'invoice_not_found' }, 404);
+
+          await postInvoicePayment(tx, {
+            payment,
+            invoice,
+            accountId,
+            companyId: invoice.companyId,
+            postedAt: expenseDateToPostedAt(payment.receivedOn),
+            credit: await receiptCreditForInvoice(tx, { accountId, invoice }),
+          });
+
+          const synced = await syncInvoiceSettlement(tx, {
+            accountId,
+            invoiceId: id,
+            totalCents: toCents(invoice.total),
+          });
+          if (!synced) return c.json({ error: 'invoice_not_found' }, 404);
+
+          await c.var.audit({
+            entityType: 'invoice',
+            entityId: id,
+            action: 'deposit-taken',
+            before: { status: 'draft' },
+            after: {
+              status: synced.invoice.status,
+              settlement: synced.summary.settlement,
+              amount: payment.amount,
+              receivedOn: payment.receivedOn,
+            },
+            companyId: invoice.companyId,
+          });
+
+          return c.json({ payment, invoice: synced.invoice, ...synced.summary }, 201);
         },
       )
       // Per-invoice reminder opt-out (TMC-189). "I've spoken to them, don't

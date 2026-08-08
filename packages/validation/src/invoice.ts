@@ -167,6 +167,23 @@ export type InvoiceMarkPaidInput = z.infer<typeof invoiceMarkPaidSchema>;
 // rather than folded into the invoice PATCH, because that PATCH is draft-only
 // and this has to work on a SENT invoice — which is the only kind reminders are
 // ever sent for.
+// One-step deposit on a draft (TMC-199). The person using this is standing in
+// a customer's yard holding cash; they know one number and should be asked for
+// exactly that. Issuing the invoice is the system's job, not theirs.
+//
+// receivedOn and method are optional so the common case is a single field.
+export const invoiceDepositSchema = z.object({
+  // STRICTLY POSITIVE. moneyString alone accepts "0.00", and a zero deposit is
+  // not a deposit — it would issue the invoice and write an empty payment row,
+  // which is exactly the half-done state this endpoint exists to prevent.
+  // Caught by the atomicity test, which failed for this reason rather than the
+  // one it was written for.
+  amount: moneyString.refine((v) => Number(v) > 0, { message: 'amount_must_be_positive' }),
+  receivedOn: isoDateString.optional(),
+  method: z.enum(INVOICE_PAYMENT_METHODS).optional(),
+});
+export type InvoiceDepositInput = z.infer<typeof invoiceDepositSchema>;
+
 export const invoiceRemindersSchema = z.object({
   optedOut: z.boolean(),
 });
