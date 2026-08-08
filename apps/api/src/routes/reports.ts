@@ -34,7 +34,20 @@ import {
   toCents,
 } from '@thalermark/validation';
 import type { AnyColumn, SQL } from 'drizzle-orm';
-import { and, asc, eq, gte, inArray, isNull, lt, lte, ne, notInArray, sql } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  eq,
+  gte,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  lte,
+  ne,
+  notInArray,
+  sql,
+} from 'drizzle-orm';
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 import type { AppDeps } from '../app.js';
@@ -42,6 +55,8 @@ import {
   displayHours,
   effectiveHourly,
   jobBilledCents,
+  jobDraftedCents,
+  jobMade,
   jobMinutes,
   jobUnbilled,
 } from '../lib/job-costing.js';
@@ -1856,6 +1871,33 @@ export function reportsRoutes(deps: AppDeps) {
             )
             .orderBy(asc(invoices.issueDate), asc(invoices.number));
 
+          // Jobs whose only invoice in this window is still a DRAFT (TMC-203).
+          //
+          // The window above is built from sent/paid invoices, which is right for
+          // revenue — but it also decided which JOBS appear at all, so a job
+          // carrying nothing but a draft dropped out of the report entirely. Its
+          // costs went with it: not in `jobCosts`, not in `shared`, not in
+          // `unattributed` (they are allocated, just to an absent job). Money
+          // spent was reported nowhere, which is the TMC-202 failure again a
+          // layer up.
+          //
+          // Deliberately NOT folded into windowInvoices — that list also feeds
+          // `unjobbedInvoices`, where a draft would count its own subtotal as
+          // billed and recognise revenue on an unsent invoice.
+          const draftJobRows = await tx
+            .select({ jobId: invoices.jobId })
+            .from(invoices)
+            .where(
+              and(
+                eq(invoices.accountId, accountId),
+                eq(invoices.companyId, id),
+                isNotNull(invoices.jobId),
+                inArray(invoices.status, ['draft']),
+                gte(invoices.issueDate, from),
+                lte(invoices.issueDate, to),
+              ),
+            );
+
           // Which invoices belong to a named job. Every invoice in the company,
           // not just the windowed ones: a cost can be tagged to an invoice that
           // sits outside the window and still belongs to a job inside it.
@@ -1933,33 +1975,44 @@ export function reportsRoutes(deps: AppDeps) {
           // just the windowed ones — the job is the unit here, not the month, and
           // its costs were never window-scoped either. Halving a deposit-plus-
           // final job at the window edge would show a loss that isn't real.
+          //
+          // Drafted-only jobs join them (TMC-203). A job with an invoice written
+          // but not sent is work in progress, not work that did not happen, and
+          // leaving it out took its costs off the report with it.
           const windowJobIds = [
-            ...new Set(windowInvoices.map((inv) => inv.jobId).filter((v): v is string => !!v)),
+            ...new Set(
+              [...windowInvoices, ...draftJobRows]
+                .map((inv) => inv.jobId)
+                .filter((v): v is string => !!v),
+            ),
           ];
-          const [jobRows, billedByJob, minutesByJob, unbilledByJob] = await Promise.all([
-            windowJobIds.length > 0
-              ? tx
-                  .select({
-                    id: jobsTable.id,
-                    name: jobsTable.name,
-                    status: jobsTable.status,
-                    customerName: contacts.name,
-                  })
-                  .from(jobsTable)
-                  .leftJoin(contacts, eq(contacts.id, jobsTable.contactId))
-                  .where(
-                    and(eq(jobsTable.accountId, accountId), inArray(jobsTable.id, windowJobIds)),
-                  )
-                  .orderBy(asc(jobsTable.name))
-              : Promise.resolve([]),
-            jobBilledCents(tx, accountId, id, windowJobIds),
-            jobMinutes(tx, accountId, id, windowJobIds),
-            jobUnbilled(tx, accountId, id, windowJobIds),
-          ]);
+          const [jobRows, billedByJob, minutesByJob, unbilledByJob, draftedByJob] =
+            await Promise.all([
+              windowJobIds.length > 0
+                ? tx
+                    .select({
+                      id: jobsTable.id,
+                      name: jobsTable.name,
+                      status: jobsTable.status,
+                      customerName: contacts.name,
+                    })
+                    .from(jobsTable)
+                    .leftJoin(contacts, eq(contacts.id, jobsTable.contactId))
+                    .where(
+                      and(eq(jobsTable.accountId, accountId), inArray(jobsTable.id, windowJobIds)),
+                    )
+                    .orderBy(asc(jobsTable.name))
+                : Promise.resolve([]),
+              jobBilledCents(tx, accountId, id, windowJobIds),
+              jobMinutes(tx, accountId, id, windowJobIds),
+              jobUnbilled(tx, accountId, id, windowJobIds),
+              jobDraftedCents(tx, accountId, id, windowJobIds),
+            ]);
 
           const namedJobs = jobRows.map((job) => {
             const billedCents = billedByJob.get(job.id) ?? 0;
             const costCents = costByJob.get(job.id) ?? 0;
+            const draftedCents = draftedByJob.get(job.id) ?? 0;
             const madeCents = billedCents - costCents;
             const minutes = minutesByJob.get(job.id) ?? 0;
             return {
@@ -1968,8 +2021,12 @@ export function reportsRoutes(deps: AppDeps) {
               status: job.status,
               customerName: job.customerName,
               billed: centsToMoney(billedCents),
+              // Written but not sent. Reported beside `billed`, never inside it
+              // — the ledger recognises revenue on the issue date, and a draft
+              // has not been issued (TMC-202/203).
+              drafted: centsToMoney(draftedCents),
               costs: centsToMoney(costCents),
-              made: centsToMoney(madeCents),
+              made: jobMade(billedCents, costCents),
               minutes,
               hours: displayHours(minutes),
               // Tracked hours no invoice has claimed. Not part of billed or
@@ -2009,6 +2066,19 @@ export function reportsRoutes(deps: AppDeps) {
           const jobCostTotalCents = allRows.reduce((t, r) => t + toCents(r.costs), 0);
           const trackedMinutes = namedJobs.reduce((t, r) => t + r.minutes, 0);
           const readyTotalCents = namedJobs.reduce((t, r) => t + toCents(r.readyToBill), 0);
+          const draftedTotalCents = namedJobs.reduce((t, r) => t + toCents(r.drafted), 0);
+          // Costs on jobs with no recognised revenue — the rows whose `made` is
+          // null. They are work in progress, so they must not be subtracted from
+          // the bottom line either: the same matching argument that keeps them
+          // out of a row's margin keeps them out of the total (TMC-203).
+          //
+          // Reported rather than silently dropped, so `jobCosts` still equals
+          // what the rows show and the two figures can be reconciled:
+          //   made = billed − (jobCosts − workInProgress) − shared
+          const wipCostCents = allRows.reduce(
+            (t, r) => t + (r.made === null ? toCents(r.costs) : 0),
+            0,
+          );
 
           return c.json({
             from,
@@ -2019,14 +2089,27 @@ export function reportsRoutes(deps: AppDeps) {
             unjobbedInvoices,
             totals: {
               billed: centsToMoney(billedTotalCents),
+              // Written but not sent, across the jobs in this window.
+              drafted: centsToMoney(draftedTotalCents),
               jobCosts: centsToMoney(jobCostTotalCents),
+              // The slice of jobCosts sitting on jobs that have recognised no
+              // revenue yet. Held out of `made` below; see the reconciliation.
+              workInProgress: centsToMoney(wipCostCents),
               shared: centsToMoney(sharedCents),
               unattributed: unattributed?.total ?? '0.00',
               // Jobs minus their own costs minus the shared pool. Deliberately
               // excludes unattributed — those are costs the user hasn't placed,
               // and folding them in silently would make this disagree with the
               // per-job rows above it.
-              made: centsToMoney(billedTotalCents - jobCostTotalCents - sharedCents),
+              //
+              // Work-in-progress costs come out too (TMC-203), so the bottom
+              // line never charges the period for work whose revenue has not
+              // landed. Without this the total contradicted its own rows: every
+              // WIP row showed "—" for margin while the total quietly subtracted
+              // that row's costs anyway.
+              made: centsToMoney(
+                billedTotalCents - (jobCostTotalCents - wipCostCents) - sharedCents,
+              ),
               minutes: trackedMinutes,
               hours: displayHours(trackedMinutes),
               // Deliberately outside `made`: this is work not yet charged for,

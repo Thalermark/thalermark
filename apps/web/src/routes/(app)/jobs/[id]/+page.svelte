@@ -247,7 +247,23 @@
   </div>
   <div class="bg-surface-2 px-5 py-4">
     <span class="label">Made</span>
-    <p class="mt-1 font-mono text-xl tabular-nums text-fg">{fmt(margin.made)}</p>
+    <!--
+      A dash, never a number, until something has been billed — exactly the rule
+      the per-hour tile below already follows. `billed - costs` with nothing
+      billed is the negative of the costs, so a job with $340 of plants and an
+      unsent invoice reported a $340 LOSS on work that had simply not been
+      charged for yet. The costs are real; the loss was not.
+    -->
+    <p class="mt-1 font-mono text-xl tabular-nums text-fg">
+      {margin.made === null ? '—' : fmt(margin.made)}
+    </p>
+    <p class="mt-1 text-xs text-fg/50">
+      {#if margin.made === null}
+        nothing billed yet
+      {:else}
+        &nbsp;
+      {/if}
+    </p>
   </div>
   <!--
     Per hour leads this tile, not the raw hour count: it is the number time

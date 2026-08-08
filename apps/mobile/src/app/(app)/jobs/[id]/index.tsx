@@ -41,7 +41,8 @@ type JobDetail = {
     // never folded into it (TMC-202).
     drafted: string;
     costs: string;
-    made: string;
+    // Null until some revenue is recognised — there is no margin to state yet.
+    made: string | null;
     minutes: number;
     hours: string;
     effectiveHourly: string | null;
@@ -388,7 +389,12 @@ export default function JobDetailScreen() {
                 <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
                   Made
                 </Text>
-                <Text className="mt-1 font-mono text-lg text-ink">{fmt(job.margin.made)}</Text>
+                {/* A dash until something is billed, matching Per hour beside
+                    it. `billed - costs` with nothing billed is the negative of
+                    the costs — a loss the job never took (TMC-203). */}
+                <Text className="mt-1 font-mono text-lg text-ink">
+                  {job.margin.made === null ? '—' : fmt(job.margin.made)}
+                </Text>
               </View>
               <View>
                 <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">

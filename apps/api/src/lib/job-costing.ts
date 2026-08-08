@@ -235,6 +235,32 @@ export function effectiveHourly(
   return centsToMoney(Math.round((madeCents * 60) / minutes));
 }
 
+// What a job made — null until any of its revenue is recognised (TMC-203).
+//
+// `billed - costs` with nothing billed is not a loss, it is the NEGATIVE OF THE
+// COSTS, and printing it breaks the matching principle: the cost is reported
+// while the revenue that justifies it is not. A landscaper who spent $340 of
+// plants on a job invoiced but not yet sent has not lost $340 — those costs are
+// work in progress, and the margin is not knowable until the revenue lands.
+//
+// Counting a draft as revenue instead would be the opposite error. An unsent
+// invoice has no issue date, and the ledger recognises invoice revenue ON the
+// issue date, so the report would run ahead of the books.
+//
+// The guard is `billedCents <= 0`, identical to effectiveHourly above — this is
+// not a new policy, it is the one already applied to the per-hour figure, which
+// has always refused to state a rate with nothing billed. `made` simply never
+// followed it.
+//
+// A job with SOME revenue recognised and a draft still outstanding does state a
+// margin, against all of its costs. That figure is provisional rather than
+// wrong, and the `drafted` amount is reported beside it so the reader can see
+// the job is not finished.
+export function jobMade(billedCents: number, costCents: number): string | null {
+  if (billedCents <= 0) return null;
+  return centsToMoney(billedCents - costCents);
+}
+
 // What each job could invoice right now: tracked hours no invoice has claimed.
 //
 // Only entries carrying a RATE. Unrated hours bill nothing, so folding them in

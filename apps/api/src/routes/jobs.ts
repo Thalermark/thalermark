@@ -24,6 +24,7 @@ import {
   jobBilledCents,
   jobCostCents,
   jobDraftedCents,
+  jobMade,
   jobMinutes,
   jobUnbilled,
 } from '../lib/job-costing.js';
@@ -300,7 +301,10 @@ export function jobsRoutes() {
             // invoice.
             drafted: centsToMoney(draftedCents),
             costs: centsToMoney(costCents),
-            made: centsToMoney(madeCents),
+            // Null until some revenue is recognised (TMC-203) — see jobMade.
+            // With nothing billed this used to print the negative of the costs,
+            // reporting a loss on a job that had simply not been invoiced yet.
+            made: jobMade(billedCents, costCents),
             minutes: trackedMinutes,
             hours: displayHours(trackedMinutes),
             // The number the whole feature exists to produce. Null with no hours
