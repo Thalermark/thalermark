@@ -10,6 +10,7 @@ import {
 import type { CompanyCopyInclude, CompanyCopyResult } from '@thalermark/validation';
 import { and, asc, eq, isNull } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
+import { reindexCompany } from './search/reindex.js';
 
 // Copying one company's setup into another.
 //
@@ -304,6 +305,19 @@ export async function copyCompanyReferenceData(
       result.emailTemplates = rows.length;
     }
   }
+
+  // Every section above inserts in bulk, and the only audit event the caller
+  // writes is a single `company / copy-from` — so nothing here reaches the
+  // audit-driven search reindex and the copied contacts and items would be
+  // unfindable until the weekly sweep (TMC-198).
+  //
+  // Reprojecting the whole target company rather than threading ids out of each
+  // section is deliberate: it cannot be broken by someone adding an eighth
+  // copied entity type and forgetting this line, and targetIsEmpty() already
+  // bounds how much there is to project. It also covers the incorporation
+  // handoff, which copies through this same function while auditing only at
+  // company grain.
+  await reindexCompany(tx, scope.accountId, scope.targetCompanyId);
 
   return result;
 }

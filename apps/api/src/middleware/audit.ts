@@ -16,7 +16,12 @@ export type AuditWriterDeps = {
   tx: Transaction;
   accountId: string;
   actorUserId: string;
-  onWrite: () => void;
+  // Receives the entry that was just written. Callers use it both as the
+  // "something was audited" signal that schedules the telemetry flush, and as
+  // the invalidation key that marks an entity for search reprojection
+  // (TMC-198) — which is how 40 existing audit call sites keep the search index
+  // fresh without a single route handler changing.
+  onWrite: (entry: AuditEntry) => void;
 };
 
 export function createAuditWriter({
@@ -40,6 +45,6 @@ export function createAuditWriter({
       before: entry.before ?? null,
       after: entry.after ?? null,
     });
-    onWrite();
+    onWrite(entry);
   };
 }

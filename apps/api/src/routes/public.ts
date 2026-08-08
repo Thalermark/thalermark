@@ -25,6 +25,7 @@ import {
 } from '../lib/invoice-payments.js';
 import { postInvoicePayment } from '../lib/ledger.js';
 import { UUID_RE } from '../lib/route-helpers.js';
+import { reindexEntities } from '../lib/search/reindex.js';
 import {
   constructWebhookEvent,
   decimalDollarsToCents,
@@ -104,6 +105,16 @@ async function publicEstimateRespond(
       declinedAt: updated.declinedAt,
     },
   });
+
+  // The public paths skip rlsContext entirely, so there is no tenant tx and no
+  // c.var.audit — which means the audit-driven search reindex never fires here
+  // (TMC-198). Without this line, a customer accepting an estimate would leave
+  // it showing as "sent" in search forever. Handing the projector bootstrapDb
+  // is safe because every projector filters account_id explicitly rather than
+  // relying on the policy.
+  await reindexEntities(bootstrapDb, current.accountId, [
+    { entityType: 'estimate', entityId: current.id },
+  ]);
 
   return c.json({
     status: updated.status,
@@ -628,6 +639,11 @@ export function publicRoutes(deps: AppDeps) {
               totalCents: expectedCents,
             });
 
+            // Search reindex is NOT needed here: syncInvoiceSettlement above
+            // reprojects the invoice itself, in this same tx, because it is the
+            // single funnel every settlement path runs through. Adding a second
+            // call would only duplicate it.
+            //
             // Audit row attributed to the synthetic system user (migration
             // 0009 seeded it specifically for this kind of provider callback).
             // bootstrapDb path — RLS would otherwise hide the row from the
@@ -707,6 +723,11 @@ export function publicRoutes(deps: AppDeps) {
             actorUserId: SYSTEM_USER_ID,
             entityType: 'company',
             entityId: company.id,
+            // No search reindex: `company` is not a searchable entity and no
+            // document carries a company name, so this webhook cannot make the
+            // index stale. Pinned by a test asserting search_documents is
+            // untouched across this callback, so it stays closed by evidence
+            // rather than by belief.
             action: 'stripe-connect-update',
             before: {
               stripeConnectChargesEnabled: company.stripeConnectChargesEnabled,

@@ -20,6 +20,7 @@ export * from './password-strength.js';
 export * from './period-close.js';
 export * from './recurring-invoice.js';
 export * from './roles.js';
+export * from './search.js';
 export * from './tax-policy.js';
 export * from './telemetry.js';
 export * from './time-entry.js';

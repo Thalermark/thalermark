@@ -2,6 +2,7 @@ import { type Database, type Invoice, type Transaction, invoicePayments } from '
 import { invoices } from '@thalermark/db';
 import { centsToMoney, toCents } from '@thalermark/validation';
 import { and, desc, eq, sql } from 'drizzle-orm';
+import { reindexEntities } from './search/reindex.js';
 
 // Deriving settlement from payment rows (TMC-187).
 //
@@ -195,6 +196,18 @@ export async function syncInvoiceSettlement(
     })
     .where(and(eq(invoices.id, args.invoiceId), eq(invoices.accountId, args.accountId)))
     .returning();
+
+  // Reproject here rather than at the four call sites (TMC-198). This function
+  // writes no audit event of its own, so the audit-driven reindex cannot see
+  // it — yet every path that can change an invoice's settlement status runs
+  // through here: manual mark-paid, a partial payment, a payment removal that
+  // reopens the invoice, and the Stripe webhook. One call covers all four, and
+  // covers the fifth that gets written next year.
+  if (updated) {
+    await reindexEntities(tx, args.accountId, [
+      { entityType: 'invoice', entityId: args.invoiceId },
+    ]);
+  }
 
   return updated ? { invoice: updated, summary } : null;
 }
