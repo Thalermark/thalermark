@@ -276,17 +276,22 @@ export function jobsRoutes() {
           .where(and(eq(invoices.jobId, id), eq(invoices.accountId, accountId)))
           .orderBy(asc(invoices.issueDate), asc(invoices.number));
 
-        const [billed, drafted, costs, minutes] = await Promise.all([
+        const [billed, drafted, costs, minutes, unbilled] = await Promise.all([
           jobBilledCents(tx, accountId, job.companyId, [id]),
           jobDraftedCents(tx, accountId, job.companyId, [id]),
           jobCostCents(tx, accountId, job.companyId, [id]),
           jobMinutes(tx, accountId, job.companyId, [id]),
+          jobUnbilled(tx, accountId, job.companyId, [id]),
         ]);
         const billedCents = billed.get(id) ?? 0;
         const draftedCents = drafted.get(id) ?? 0;
         const costCents = costs.get(id) ?? 0;
         const trackedMinutes = minutes.get(id) ?? 0;
         const madeCents = billedCents - costCents;
+        // Is more revenue coming? An unsent invoice or unbilled priced hours
+        // both say yes. Without this the margin cannot tell "not billed yet"
+        // from "voided, never will be" — see jobMade (TMC-204).
+        const revenueStillExpected = draftedCents > 0 || (unbilled.get(id)?.cents ?? 0) > 0;
 
         return c.json({
           ...job,
@@ -301,10 +306,10 @@ export function jobsRoutes() {
             // invoice.
             drafted: centsToMoney(draftedCents),
             costs: centsToMoney(costCents),
-            // Null until some revenue is recognised (TMC-203) — see jobMade.
-            // With nothing billed this used to print the negative of the costs,
-            // reporting a loss on a job that had simply not been invoiced yet.
-            made: jobMade(billedCents, costCents),
+            // Null while revenue is still expected, a real figure otherwise —
+            // see jobMade. A drafted job states no margin; a VOIDED one states
+            // its loss, because that money is genuinely gone (TMC-204).
+            made: jobMade(billedCents, costCents, revenueStillExpected),
             minutes: trackedMinutes,
             hours: displayHours(trackedMinutes),
             // The number the whole feature exists to produce. Null with no hours

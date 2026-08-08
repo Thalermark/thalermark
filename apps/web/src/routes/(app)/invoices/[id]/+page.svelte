@@ -707,6 +707,18 @@
         <dt class="text-fg/60">Billed</dt>
         <dd class="font-mono tabular-nums text-fg/80">{inv.jobCosting.billed}</dd>
       </div>
+      <!--
+        Only on a draft. This invoice isn't billed anything yet, so showing the
+        amount here is the difference between "no revenue" and "no revenue YET"
+        — and a voided invoice deliberately shows nothing, because nothing is
+        coming.
+      -->
+      {#if Number(inv.jobCosting.drafted) > 0}
+        <div class="flex justify-between gap-6">
+          <dt class="text-fg/60">Drafted<span class="ml-2 text-xs text-fg/40">not sent</span></dt>
+          <dd class="font-mono tabular-nums text-fg/80">{inv.jobCosting.drafted}</dd>
+        </div>
+      {/if}
       <div class="flex justify-between gap-6">
         <dt class="text-fg/60">
           Costs
@@ -717,10 +729,21 @@
         </dt>
         <dd class="font-mono tabular-nums text-fg/80">−{inv.jobCosting.costs}</dd>
       </div>
+      <!--
+        A dash while the money is still coming, a real figure once it is settled
+        one way or the other. A DRAFT states nothing; a VOIDED invoice states the
+        loss, because the work was done, the receipts are real, and nobody will
+        ever be billed for it (TMC-204).
+      -->
       <div class="flex justify-between gap-6 border-t border-fg/10 pt-2">
         <dt class="text-fg">Made</dt>
-        <dd class="font-mono text-base tabular-nums text-fg">{inv.jobCosting.made}</dd>
+        <dd class="font-mono text-base tabular-nums text-fg">
+          {inv.jobCosting.made ?? '—'}
+        </dd>
       </div>
+      {#if inv.jobCosting.made === null}
+        <p class="text-xs text-fg/50">Nothing billed yet — send the invoice to see what it made.</p>
+      {/if}
     </dl>
     <p class="mt-3 text-xs text-fg/50">
       Billed is pre-tax. Only your customer sees the invoice — this is for you.

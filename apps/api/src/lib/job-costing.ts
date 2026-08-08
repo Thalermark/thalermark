@@ -235,29 +235,43 @@ export function effectiveHourly(
   return centsToMoney(Math.round((madeCents * 60) / minutes));
 }
 
-// What a job made — null until any of its revenue is recognised (TMC-203).
+// What a job made — withheld only while revenue is still EXPECTED (TMC-203,
+// corrected by TMC-204).
 //
-// `billed - costs` with nothing billed is not a loss, it is the NEGATIVE OF THE
-// COSTS, and printing it breaks the matching principle: the cost is reported
-// while the revenue that justifies it is not. A landscaper who spent $340 of
-// plants on a job invoiced but not yet sent has not lost $340 — those costs are
-// work in progress, and the margin is not knowable until the revenue lands.
+// `billed - costs` with nothing billed is the NEGATIVE OF THE COSTS. Whether
+// printing that is right depends entirely on why nothing is billed, and the two
+// reasons pull in opposite directions:
 //
-// Counting a draft as revenue instead would be the opposite error. An unsent
-// invoice has no issue date, and the ledger recognises invoice revenue ON the
-// issue date, so the report would run ahead of the books.
+//   revenue PENDING   — an invoice drafted but unsent, or hours not yet billed.
+//                       Reporting the cost while withholding the revenue that
+//                       justifies it breaks the matching principle and invents a
+//                       loss. A landscaper who spent $340 of plants on a job he
+//                       has not sent the invoice for has not lost $340.
+//   revenue CANCELLED — the invoice was voided. The work was done, the materials
+//                       were bought, and nobody will ever be billed. That is a
+//                       REAL loss, and hiding it is as wrong as inventing one.
 //
-// The guard is `billedCents <= 0`, identical to effectiveHourly above — this is
-// not a new policy, it is the one already applied to the per-hour figure, which
-// has always refused to state a rate with nothing billed. `made` simply never
-// followed it.
+// Both states carry billedCents === 0, which is why a guard reading only that
+// number cannot tell them apart. TMC-203 shipped exactly such a guard and so
+// suppressed the voided loss — contradicting jobCostCents above, which has
+// always said "voiding an invoice cancels the revenue, not the money already
+// spent... showing a loss is the correct answer, not a glitch".
+//
+// Counting a draft as revenue instead would be a third error. An unsent invoice
+// has no issue date, and the ledger recognises invoice revenue ON the issue
+// date, so the report would run ahead of the books.
 //
 // A job with SOME revenue recognised and a draft still outstanding does state a
 // margin, against all of its costs. That figure is provisional rather than
-// wrong, and the `drafted` amount is reported beside it so the reader can see
-// the job is not finished.
-export function jobMade(billedCents: number, costCents: number): string | null {
-  if (billedCents <= 0) return null;
+// wrong, and blanking a number the reader already had would cost more than the
+// imprecision — the `drafted` amount sits beside it as the signal that the job
+// is unfinished.
+export function jobMade(
+  billedCents: number,
+  costCents: number,
+  revenueStillExpected: boolean,
+): string | null {
+  if (billedCents <= 0 && revenueStillExpected) return null;
   return centsToMoney(billedCents - costCents);
 }
 

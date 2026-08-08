@@ -52,7 +52,9 @@ import {
   syncInvoiceSettlement,
 } from '../lib/invoice-payments.js';
 import {
+  BILLED_INVOICE_STATUSES,
   assertJobInCompany,
+  jobMade,
   stampBilledTimeEntries,
   validateBilledTimeEntries,
 } from '../lib/job-costing.js';
@@ -755,11 +757,27 @@ export function invoicesRoutes(deps: AppDeps) {
           (total, row) => total + Math.round(Number(row.amount) * 100 * Number(row.share)),
           0,
         );
-        const billedCents = Math.round(Number(invoice.subtotal) * 100);
+        // Recognised revenue, not the raw subtotal (TMC-204). This block had no
+        // notion of status at all, so one $900 invoice with $340 of receipts
+        // reported "made $560" identically whether it was sent, still a draft,
+        // or VOIDED — reporting a profit on revenue that had been cancelled.
+        //
+        // That is the TMC-183 defect at a fourth call site, and it survived that
+        // cleanup because there was no wrong predicate to find: the filter was
+        // absent rather than mistaken, so no grep for 'void' could surface it.
+        const recognised = BILLED_INVOICE_STATUSES.includes(
+          invoice.status as (typeof BILLED_INVOICE_STATUSES)[number],
+        );
+        const billedCents = recognised ? Math.round(Number(invoice.subtotal) * 100) : 0;
         const jobCosting = {
-          billed: invoice.subtotal,
+          billed: (billedCents / 100).toFixed(2),
+          // What this invoice would bill once sent. Zero unless it is a draft —
+          // a voided invoice is not pending, it is cancelled.
+          drafted: invoice.status === 'draft' ? invoice.subtotal : '0.00',
           costs: (costCents / 100).toFixed(2),
-          made: ((billedCents - costCents) / 100).toFixed(2),
+          // Same rule the job screen and the report use: withheld while the
+          // revenue is still coming, stated as a real loss once it never will.
+          made: jobMade(billedCents, costCents, invoice.status === 'draft'),
           costCount: costRows.length,
         };
         return c.json({ ...invoice, lineItems: lines, jobCosting });

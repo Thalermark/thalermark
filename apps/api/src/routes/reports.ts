@@ -2026,7 +2026,15 @@ export function reportsRoutes(deps: AppDeps) {
               // has not been issued (TMC-202/203).
               drafted: centsToMoney(draftedCents),
               costs: centsToMoney(costCents),
-              made: jobMade(billedCents, costCents),
+              // Withheld only while revenue is still coming — a drafted job or
+              // one with unbilled priced hours. A job whose invoice was VOIDED
+              // states its loss instead, because nobody will ever be billed for
+              // it (TMC-204).
+              made: jobMade(
+                billedCents,
+                costCents,
+                draftedCents > 0 || (unbilledByJob.get(job.id)?.cents ?? 0) > 0,
+              ),
               minutes,
               hours: displayHours(minutes),
               // Tracked hours no invoice has claimed. Not part of billed or
