@@ -53,9 +53,9 @@ type Row = {
   taxable: boolean;
   taxPolicyId: string;
   // Set when this row was seeded from a tracked time entry (TMC-180). Carried on
-  // the ROW, not in a separate list, so deleting the row also drops the entry
-  // from billedTimeEntryIds — otherwise an entry could be stamped billed with
-  // no line on the invoice to show for it.
+  // the ROW, not in a separate list: the API derives the billed set from the
+  // submitted lines, so deleting the row releases its entry. A separate list
+  // could stamp an entry billed with no line on the invoice to show for it.
   timeEntryId: string | null;
 };
 const blankRow = (): Row => ({
@@ -173,7 +173,7 @@ export default function NewInvoice() {
         // hours are SEEDED AS LINE ROWS rather than offered in a separate
         // checklist: on a phone, a row you can see and edit beats a list you
         // have to reconcile against one. Deleting a row drops its entry too,
-        // because billedTimeEntryIds is derived from the rows.
+        // because the billed set is derived from the rows' timeEntryId.
         //
         // Priced with the same multiplyMoney every typed row uses, so a billed
         // hour and a hand-typed hour cannot round differently.
@@ -401,7 +401,6 @@ export default function NewInvoice() {
         timeEntryId: r.timeEntryId ?? undefined,
       };
     });
-    const billedIds = rows.map((r) => r.timeEntryId).filter((v): v is string => v !== null);
     const sub = sumMoney(lineItems.map((li) => li.amount));
     const taxVal = sumMoney(lineItems.map((li) => li.taxAmount ?? '0'));
     const payload = {
@@ -419,8 +418,6 @@ export default function NewInvoice() {
       showEmail,
       lineItems,
       jobId: jobId || undefined,
-      // Derived from the rows, so a deleted hour row takes its entry with it.
-      billedTimeEntryIds: billedIds.length > 0 ? billedIds : undefined,
     };
 
     const parsed = invoiceCreateSchema.safeParse(payload);

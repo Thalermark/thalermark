@@ -2,17 +2,15 @@ import { pickActiveCompany } from '$lib/active-company';
 import { apiErrorMessage } from '$lib/api-errors';
 import { type ServerApiClient, serverApiClient } from '$lib/api.server';
 import { NEW_CONTACT_SENTINEL, findEmailDupe } from '$lib/contact-dupes';
-import { lineTax, policyRate } from '$lib/line-tax';
+import { computeInvoiceLines } from '$lib/invoice-lines';
 import { error, fail, redirect } from '@sveltejs/kit';
 import {
   type InvoiceCreateInput,
-  type InvoiceLineItemInput,
   type LineItemType,
   addMoney,
   contactCreateSchema,
   hoursFromMinutes,
   invoiceCreateSchema,
-  multiplyMoney,
   sumMoney,
 } from '@thalermark/validation';
 import type { Actions, PageServerLoad } from './$types';
@@ -308,24 +306,7 @@ export const actions: Actions = {
     // as a typed row and nothing special happens on this side. Each hour row
     // carries its timeEntryId, and the API reads the link off the lines.
     const policies = await loadPolicyRates(event, companyId);
-    const computedLines: InvoiceLineItemInput[] = values.lineItems.map((row, i) => {
-      const amount = multiplyMoney(row.quantity, row.unitPrice);
-      const rate = row.taxable ? policyRate(policies, row.taxPolicyId ?? '') : '0';
-      return {
-        position: i + 1,
-        description: row.description,
-        quantity: row.quantity,
-        unitLabel: row.unitLabel,
-        unitPrice: row.unitPrice,
-        amount,
-        type: row.type,
-        taxable: row.taxable,
-        taxRatePct: rate,
-        taxAmount: lineTax(row.taxable, rate, amount),
-        taxPolicyId: row.taxable ? row.taxPolicyId : undefined,
-        sourceItemId: row.sourceItemId,
-      };
-    });
+    const computedLines = computeInvoiceLines(values.lineItems, policies);
     const subtotal = sumMoney(computedLines.map((li) => li.amount));
     const tax = sumMoney(computedLines.map((li) => li.taxAmount ?? '0'));
     const total = addMoney(subtotal, tax);
