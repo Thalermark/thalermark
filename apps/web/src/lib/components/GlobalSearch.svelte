@@ -5,6 +5,7 @@
     formatMoney,
     groupByType,
     hrefFor,
+    indexOfTopHit,
     isWorthSearching,
   } from '$lib/global-search';
   import type { SearchResult } from '@thalermark/validation';
@@ -36,9 +37,10 @@
   const search = createGlobalSearch((state) => {
     results = state.results;
     loading = state.loading;
-    // Pre-seed the first option so Enter takes the top hit without arrowing —
-    // the same affordance the contact picker has.
-    activeIndex = state.results.length > 0 ? 0 : -1;
+    // Pre-seed the best-scoring hit so Enter takes it without arrowing — the
+    // same affordance the contact picker has. NOT index 0: sections render in a
+    // fixed order, so the top scorer is rarely the first row on screen.
+    activeIndex = indexOfTopHit(state.results);
   });
 
   const groups = $derived(groupByType(results));

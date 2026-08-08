@@ -123,9 +123,30 @@ export function formatMoney(amount: string): string {
   return Number(amount).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 }
 
-// Groups results for display while preserving rank order: a type's section
-// appears where its best hit ranked, so the strongest match is always in the
-// first group rather than wherever a fixed entity order happened to put it.
+// THE ORDER SECTIONS APPEAR IN. Change this array to reorder them.
+//
+// Fixed, deliberately. The first version ordered groups by whichever type's
+// best hit scored highest, which sounded right and was wrong in practice: the
+// dropdown's shape moved between queries (invoices above jobs for one term,
+// below it for the next), so there was nothing to build muscle memory against.
+// A predictable layout beats a marginally better-ordered one when the whole
+// point is to find something fast.
+//
+// Contacts lead because a person's name is the most common thing typed into a
+// search box, and a contact is the hub you navigate onward from. Then the sales
+// documents, then money-out, then the supporting entities.
+export const SEARCH_GROUP_ORDER: SearchEntityType[] = [
+  'contact',
+  'invoice',
+  'estimate',
+  'expense',
+  'bill',
+  'job',
+  'item',
+];
+
+// Groups results for display in SEARCH_GROUP_ORDER. Rank order is preserved
+// WITHIN each group, and empty groups are omitted entirely.
 export function groupByType(
   results: SearchResult[],
 ): { type: SearchEntityType; label: string; items: SearchResult[] }[] {
@@ -135,7 +156,24 @@ export function groupByType(
     if (list) list.push(r);
     else groups.set(r.entityType, [r]);
   }
-  return [...groups.entries()]
-    .filter(([type]) => SEARCH_ENTITY_TYPES.includes(type))
-    .map(([type, items]) => ({ type, label: LABELS[type], items }));
+  return SEARCH_GROUP_ORDER.filter((type) => groups.has(type)).map((type) => ({
+    type,
+    label: LABELS[type],
+    items: groups.get(type) as SearchResult[],
+  }));
+}
+
+// Where the best-scoring result lands once the groups are laid out.
+//
+// Needed because the two orders have come apart: the API returns results ranked
+// by score, but the dropdown renders them grouped, so the top scorer is no
+// longer the first row. Without this, Enter-without-arrowing would pick
+// whatever happened to sit at the top of the Contacts section instead of the
+// thing that actually matched best.
+export function indexOfTopHit(results: SearchResult[]): number {
+  const top = results[0];
+  if (!top) return -1;
+  return groupByType(results)
+    .flatMap((g) => g.items)
+    .findIndex((r) => r.entityType === top.entityType && r.entityId === top.entityId);
 }
