@@ -17,6 +17,7 @@ import { getActiveAccountId } from '../../../lib/secure-store';
 type Entry = {
   href:
     | '/more/profile'
+    | '/search'
     | '/estimates'
     | '/invoices/recurring'
     | '/jobs'
@@ -48,6 +49,16 @@ const PROFILE_ENTRY: Entry = {
   icon: 'person-circle-outline',
   title: 'Profile',
   subtitle: 'Your display name and password.',
+};
+
+// Global search (TMC-198). The second door in — Home's header bar is the first.
+// Sits under Account rather than a section of its own because it spans every
+// section below it and belongs to no one of them.
+const SEARCH_ENTRY: Entry = {
+  href: '/search',
+  icon: 'search-outline',
+  title: 'Search',
+  subtitle: 'Find an invoice, contact, expense, bill or job by name, number or amount.',
 };
 
 const SALES_ENTRIES: Entry[] = [
@@ -243,7 +254,11 @@ export default function MoreHub() {
         <Text className="font-mono text-xs uppercase tracking-widest text-gold-deep">More</Text>
         <Text className="mt-2 font-serif text-3xl font-light text-ink">{accountName ?? ' '}</Text>
 
-        <Section label="Account" entries={[PROFILE_ENTRY]} onOpen={(href) => router.push(href)} />
+        <Section
+          label="Account"
+          entries={[SEARCH_ENTRY, PROFILE_ENTRY]}
+          onOpen={(href) => router.push(href)}
+        />
         <Section
           label="Sales"
           entries={[...SALES_ENTRIES, JOBS_ENTRY]}

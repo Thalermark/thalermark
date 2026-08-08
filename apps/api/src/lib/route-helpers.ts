@@ -4,6 +4,7 @@
 
 import { type Transaction, chartOfAccounts, contacts } from '@thalermark/db';
 import { and, eq, inArray } from 'drizzle-orm';
+import { reindexEntities } from './search/reindex.js';
 
 // UUIDv7 shape guard for `:id` path params. Most routes validate an id before
 // it reaches Postgres so a malformed value returns a clean 400 instead of a
@@ -132,6 +133,13 @@ export async function resolveVendorLink(
       .update(contacts)
       .set({ isVendor: true, updatedAt: new Date() })
       .where(and(eq(contacts.id, vendorContactId), eq(contacts.accountId, accountId)));
+    // This mutates a contact while the only audit event written belongs to the
+    // expense or bill that triggered it, so the audit-driven reindex never
+    // hears about it (TMC-198). The v1 contact document carries no role flags,
+    // making this strictly defensive today — but it costs one line and puts the
+    // repair next to the mutation, which closes the bug the moment anyone adds
+    // a customer/vendor facet to search.
+    await reindexEntities(tx, accountId, [{ entityType: 'contact', entityId: vendorContactId }]);
   }
   return { id: vendor.id, name: vendor.name };
 }

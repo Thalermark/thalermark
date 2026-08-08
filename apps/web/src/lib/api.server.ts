@@ -20,6 +20,7 @@ import type {
   PurchasesAppType,
   RecurringInvoicesAppType,
   ReportsAppType,
+  SearchAppType,
   SettingsAiAppType,
   TaxPoliciesAppType,
 } from '@thalermark/api-contract';
@@ -54,6 +55,7 @@ const mkRecurring = (...a: Parameters<typeof hc>) => hc<RecurringInvoicesAppType
 const mkEstimates = (...a: Parameters<typeof hc>) => hc<EstimatesAppType>(...a);
 const mkExpenses = (...a: Parameters<typeof hc>) => hc<ExpensesAppType>(...a);
 const mkReports = (...a: Parameters<typeof hc>) => hc<ReportsAppType>(...a);
+const mkSearch = (...a: Parameters<typeof hc>) => hc<SearchAppType>(...a);
 const mkSettingsAi = (...a: Parameters<typeof hc>) => hc<SettingsAiAppType>(...a);
 const mkEntityTransfer = (...a: Parameters<typeof hc>) => hc<EntityTransferAppType>(...a);
 type MainApi = ReturnType<typeof mkMain>['api'];
@@ -74,6 +76,7 @@ type RecurringApi = ReturnType<typeof mkRecurring>['api'];
 type EstimatesApi = ReturnType<typeof mkEstimates>['api'];
 type ExpensesApi = ReturnType<typeof mkExpenses>['api'];
 type ReportsApi = ReturnType<typeof mkReports>['api'];
+type SearchApi = ReturnType<typeof mkSearch>['api'];
 type SettingsAiApi = ReturnType<typeof mkSettingsAi>['api'];
 type EntityTransferApi = ReturnType<typeof mkEntityTransfer>['api'];
 
@@ -128,6 +131,7 @@ export type ServerApiClient = {
     'recurring-invoices': RecurringApi['recurring-invoices'];
     estimates: EstimatesApi['estimates'];
     expenses: ExpensesApi['expenses'];
+    search: SearchApi['search'];
     settings: SettingsAiApi['settings'];
   };
 };
@@ -168,6 +172,7 @@ export function serverApiClient(event: RequestEvent): ServerApiClient {
     'recurring-invoices': hc<RecurringInvoicesAppType>(base, { headers }).api['recurring-invoices'],
     estimates: hc<EstimatesAppType>(base, { headers }).api.estimates,
     expenses: hc<ExpensesAppType>(base, { headers }).api.expenses,
+    search: hc<SearchAppType>(base, { headers }).api.search,
     settings: hc<SettingsAiAppType>(base, { headers }).api.settings,
     'entity-transfers': hc<EntityTransferAppType>(base, { headers }).api['entity-transfers'],
   };

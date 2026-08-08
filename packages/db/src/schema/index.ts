@@ -27,6 +27,7 @@ export * from './opening_balances.js';
 export * from './owner_money_events.js';
 export * from './period_closes.js';
 export * from './recurring-invoices.js';
+export * from './search_documents.js';
 export * from './tax_policies.js';
 export * from './telemetry_events.js';
 export * from './time_entries.js';

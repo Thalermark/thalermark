@@ -24,6 +24,7 @@ import { suggestNextInvoiceNumber } from './invoice-number.js';
 import { postInvoiceTransition } from './ledger.js';
 import type { Mailer } from './mailer.js';
 import { expenseDateToPostedAt } from './route-helpers.js';
+import { createSearchSession } from './search/session.js';
 
 const log = getLogger(['api', 'recurring']);
 
@@ -420,13 +421,18 @@ export async function sweepRecurringInvoices(args: {
     }
     try {
       await withAccountContext(args.tenantDb, { accountId: schedule.accountId }, async (tx) => {
+        // Same search session the request path uses, so an invoice generated at
+        // 6am is findable the moment it exists rather than at the next weekly
+        // reindex.
+        const search = createSearchSession(tx, schedule.accountId);
         const audit = createAuditWriter({
           tx,
           accountId: schedule.accountId,
           actorUserId: SYSTEM_USER_ID,
-          onWrite: () => {},
+          onWrite: (entry) => search.note(entry.entityType, entry.entityId),
         });
         await generateOnce(tx, { schedule, audit, mail: args.mail, now });
+        await search.flush();
       });
       generated += 1;
     } catch (err) {

@@ -17,6 +17,7 @@ import type {
   PurchasesAppType,
   RecurringInvoicesAppType,
   ReportsAppType,
+  SearchAppType,
   SocialProvidersAppType,
   TaxPoliciesAppType,
   TelemetryAppType,
@@ -83,6 +84,7 @@ function buildClients(baseUrl: string) {
     // they're served at runtime by the `companies` override below (hc is a URL
     // builder). This client exists to derive ReportsApi for the intersection.
     reports: hc<ReportsAppType>(baseUrl, { headers: authHeaders }),
+    search: hc<SearchAppType>(baseUrl, { headers: authHeaders }),
   };
 }
 
@@ -128,6 +130,7 @@ function facadeApi() {
     recurringInvoices,
     estimates,
     expenses,
+    search,
   } = liveClients();
   const overrides: Record<string, unknown> = {
     items: items.api.items,
@@ -158,6 +161,7 @@ function facadeApi() {
     'recurring-invoices': recurringInvoices.api['recurring-invoices'],
     estimates: estimates.api.estimates,
     expenses: expenses.api.expenses,
+    search: search.api.search,
   };
   return new Proxy(main.api, {
     get(target, prop) {
@@ -188,6 +192,7 @@ type RecurringApi = ReturnType<typeof buildClients>['recurringInvoices']['api'];
 type EstimatesApi = ReturnType<typeof buildClients>['estimates']['api'];
 type ExpensesApi = ReturnType<typeof buildClients>['expenses']['api'];
 type ReportsApi = ReturnType<typeof buildClients>['reports']['api'];
+type SearchApi = ReturnType<typeof buildClients>['search']['api'];
 type ApiClient = {
   api: MainApi & {
     items: ItemsApi['items'];
@@ -224,6 +229,7 @@ type ApiClient = {
     'recurring-invoices': RecurringApi['recurring-invoices'];
     estimates: EstimatesApi['estimates'];
     expenses: ExpensesApi['expenses'];
+    search: SearchApi['search'];
   };
 };
 

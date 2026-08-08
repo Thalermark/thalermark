@@ -4,6 +4,7 @@ import type { Role } from '@thalermark/validation';
 import { and, eq } from 'drizzle-orm';
 import type { MiddlewareHandler } from 'hono';
 import type { ApiAuth } from '../lib/auth.js';
+import { createSearchSession } from '../lib/search/session.js';
 import { type AuditWriter, createAuditWriter } from './audit.js';
 
 export type RlsContextDeps = {
@@ -142,15 +143,22 @@ function makeRunInTx(
   return async (fn) => {
     let didWrite = false;
     const result = await withAccountContext(db, ctx, async (tx) => {
+      const search = createSearchSession(tx, ctx.accountId);
       const audit = createAuditWriter({
         tx,
         accountId: ctx.accountId,
         actorUserId: ctx.userId,
-        onWrite: () => {
+        onWrite: (entry) => {
           didWrite = true;
+          search.note(entry.entityType, entry.entityId);
         },
       });
-      return fn(tx, audit);
+      const out = await fn(tx, audit);
+      // runInTx can be called several times per request (the send routes use
+      // one bracket either side of the upstream call). Each bracket flushes its
+      // own set inside its own tx, which is correct and self-contained.
+      await search.flush();
+      return out;
     });
     if (didWrite) scheduleFlush(db, ctx.accountId);
     return result;
@@ -211,14 +219,16 @@ export function rlsContext({
       await withAccountContext(db, { accountId, userId: session.user.id }, async (tx) => {
         c.set('tx', tx);
         c.set('accountId', accountId);
+        const search = createSearchSession(tx, accountId);
         c.set(
           'audit',
           createAuditWriter({
             tx,
             accountId,
             actorUserId: session.user.id,
-            onWrite: () => {
+            onWrite: (entry) => {
               didWrite = true;
+              search.note(entry.entityType, entry.entityId);
             },
           }),
         );
@@ -227,6 +237,9 @@ export function rlsContext({
         // rendered. Re-throw here to roll back the tenant tx (and the audit
         // row written before the handler exploded).
         if (c.error) throw c.error;
+        // After the error check on purpose: a handler that threw must not leave
+        // search documents describing a mutation that is about to roll back.
+        await search.flush();
       });
       // Fire-and-forget: drain the telemetry staging queue after a write
       // commits. Reads skip this so list endpoints don't pay a per-request

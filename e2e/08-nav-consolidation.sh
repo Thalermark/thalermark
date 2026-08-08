@@ -38,6 +38,11 @@ has  "Expenses"                   "$NAV" '>Expenses</a>'
 has  "Contacts"                   "$NAV" '>Contacts</a>'
 has  "Reports"                    "$NAV" '>Reports</a>'
 hasnt "Recurring is gone from nav" "$NAV" '>Recurring</a>'
+# Global search (TMC-198) sits beside the nav as a collapsed magnifier, so it
+# adds no sixth link — but it must not silently disappear either. It's a
+# <button> rather than an <a>, which is also why the five assertions above are
+# untouched by it.
+has  "search button is rendered"  "$NAV" 'aria-label="Search"'
 
 # ---------------------------------------------------------------------------
 section "Repeating invoices are still reachable"

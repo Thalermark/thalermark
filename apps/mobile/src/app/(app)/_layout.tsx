@@ -245,6 +245,10 @@ export default function AppLayout() {
         {/* Routable but hidden from the tab bar. Estimates lost its tab in the
           M11f consolidation — it's reached from the More hub's Sales section;
           select-company is reached via redirect only. */}
+        {/* Global search (TMC-198) — reached from the Home header and the More
+          hub, not the tab bar. Deliberately not a sixth tab: search is
+          something you reach for, not somewhere you live. */}
+        <Tabs.Screen name="search" options={{ href: null }} />
         <Tabs.Screen name="estimates" options={{ href: null }} />
         <Tabs.Screen name="bills" options={{ href: null }} />
         <Tabs.Screen name="owner-money" options={{ href: null }} />

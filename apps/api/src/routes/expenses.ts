@@ -401,6 +401,13 @@ export function expensesRoutes(deps: AppDeps) {
       // No ledger posting and no audit row: this is a tag, not a route. It
       // changes nothing about what the expense IS, only what it is attributed
       // to, and the books are identical either way.
+      //
+      // No search reindex either, and for the same reason — the expense
+      // document carries merchant, memo and amount, none of which this touches.
+      // The trip-wire: if the expense projector ever indexes the allocated
+      // job's name (so "receipts for the Smith job" works), this endpoint
+      // becomes a reindex trigger and must call reindexEntities. See the note
+      // on projectJobs.
       .put(
         '/api/expenses/:id/allocations',
         requireCapability('expenses:write'),

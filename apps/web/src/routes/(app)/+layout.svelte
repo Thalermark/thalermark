@@ -1,5 +1,6 @@
 <script lang="ts">
   import { page } from '$app/state';
+  import GlobalSearch from '$lib/components/GlobalSearch.svelte';
   import LegalConsent from '$lib/components/LegalConsent.svelte';
   import TelemetryConsent from '$lib/components/TelemetryConsent.svelte';
   import UserMenu from '$lib/components/UserMenu.svelte';
@@ -84,6 +85,7 @@
         <a href="/contacts" class="hover:text-fg">Contacts</a>
         <a href="/reports" class="hover:text-fg">Reports</a>
       </nav>
+      <GlobalSearch />
       <UserMenu
         name={session.user.name}
         email={session.user.email}
