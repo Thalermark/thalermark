@@ -79,12 +79,19 @@
             // while everything visible adds to $60, and the difference looks
             // like a bug rather than money parked somewhere else. The tile links
             // to every job so the number is always reachable.
+            // Drafted money sits BELOW those two and above "nothing waiting"
+            // (TMC-202): it is not waiting to be billed — it is already on an
+            // invoice — but a bare "$0.00 nothing waiting" is a lie while an
+            // unsent invoice exists, and that is the only case where this money
+            // is reported nowhere at all.
             sub:
               Number(summary.readyToBillOnClosed) > 0
                 ? `${fmt(summary.readyToBillOnClosed)} on closed jobs`
                 : summary.jobsWithMoneyWaiting > 0
                   ? `across ${summary.jobsWithMoneyWaiting} ${summary.jobsWithMoneyWaiting === 1 ? 'job' : 'jobs'}`
-                  : 'nothing waiting',
+                  : Number(summary.drafted) > 0
+                    ? `${fmt(summary.drafted)} drafted, not sent`
+                    : 'nothing waiting',
             href: '/jobs?status=all',
             alert: Number(summary.readyToBillOnClosed) > 0,
           },

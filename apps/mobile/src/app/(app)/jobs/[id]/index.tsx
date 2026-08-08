@@ -37,6 +37,9 @@ type JobDetail = {
   invoices: { id: string; number: string; issueDate: string; status: string; total: string }[];
   margin: {
     billed: string;
+    // On an invoice that exists but hasn't been sent. Reported beside billed,
+    // never folded into it (TMC-202).
+    drafted: string;
     costs: string;
     made: string;
     minutes: number;
@@ -366,6 +369,14 @@ export default function JobDetailScreen() {
                   Billed
                 </Text>
                 <Text className="mt-1 font-mono text-lg text-ink/80">{fmt(job.margin.billed)}</Text>
+                {/* Written but not sent (TMC-202) — rendered only when there is
+                    one, since a row of three figures has no space to spare and
+                    "$0.00 drafted" is noise on the usual send-it-now path. */}
+                {Number(job.margin.drafted) > 0 && (
+                  <Text className="mt-1 font-mono text-[10px] text-ink/50">
+                    +{fmt(job.margin.drafted)} drafted
+                  </Text>
+                )}
               </View>
               <View>
                 <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">

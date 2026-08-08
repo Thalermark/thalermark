@@ -24,6 +24,18 @@ import { and, eq, inArray, isNotNull, isNull, notInArray, sql } from 'drizzle-or
 // allowlist can also never be widened by accident when a status is added.
 export const BILLED_INVOICE_STATUSES = ['sent', 'paid'] as const;
 
+// Written but not yet sent. Its own number rather than a member of either
+// neighbour, because a draft is genuinely a third state and folding it into one
+// of the other two is wrong in a different direction each way (TMC-202):
+//
+//   into BILLED  → "made" starts counting money nobody has been asked for
+//   into READY   → the same hours get billed twice, which is TMC-200
+//
+// Without it the money is in NEITHER: the hours are stamped (so not ready) and
+// the invoice is unsent (so not billed), and a job holding a real draft invoice
+// reports zero across every tile.
+export const DRAFT_INVOICE_STATUSES = ['draft'] as const;
+
 // One expense-allocation row's contribution, in cents. Kept in one place so the
 // per-invoice block on GET /api/invoices/:id and the per-job rollup round
 // identically — share is a fraction, so the rounding step is real.
@@ -103,12 +115,19 @@ export async function jobCostCents(
   return byJob;
 }
 
-// What each job has billed, in cents. SUBTOTAL, not total: sales tax collected
-// is not the user's money, and counting it would inflate every taxed job.
-export async function jobBilledCents(
+// Per-job invoice subtotals for a set of statuses, in cents. SUBTOTAL, not
+// total: sales tax collected is not the user's money, and counting it would
+// inflate every taxed job.
+//
+// The status list is the ONLY difference between the billed and drafted
+// figures, so it is a parameter rather than a second copy of this query — the
+// drift this file's header warns about is exactly how the voided-invoice bug
+// (TMC-183) got in.
+async function jobInvoicedCents(
   tx: Transaction,
   accountId: string,
   companyId: string,
+  statuses: readonly string[],
   jobIds?: string[],
 ): Promise<Map<string, number>> {
   const byJob = new Map<string, number>();
@@ -122,7 +141,7 @@ export async function jobBilledCents(
         eq(invoices.accountId, accountId),
         eq(invoices.companyId, companyId),
         isNotNull(invoices.jobId),
-        inArray(invoices.status, [...BILLED_INVOICE_STATUSES]),
+        inArray(invoices.status, [...statuses]),
         ...(jobIds ? [inArray(invoices.jobId, jobIds)] : []),
       ),
     );
@@ -131,6 +150,28 @@ export async function jobBilledCents(
     byJob.set(row.jobId, (byJob.get(row.jobId) ?? 0) + Math.round(Number(row.subtotal) * 100));
   }
   return byJob;
+}
+
+// What each job has actually billed — invoices that reached the customer.
+export function jobBilledCents(
+  tx: Transaction,
+  accountId: string,
+  companyId: string,
+  jobIds?: string[],
+): Promise<Map<string, number>> {
+  return jobInvoicedCents(tx, accountId, companyId, BILLED_INVOICE_STATUSES, jobIds);
+}
+
+// What each job has written but not sent. Disjoint from jobBilledCents by
+// construction — the two status lists cannot overlap — so a caller can show
+// both without double-counting a penny.
+export function jobDraftedCents(
+  tx: Transaction,
+  accountId: string,
+  companyId: string,
+  jobIds?: string[],
+): Promise<Map<string, number>> {
+  return jobInvoicedCents(tx, accountId, companyId, DRAFT_INVOICE_STATUSES, jobIds);
 }
 
 // Tracked minutes per job. Every entry counts, billed or not — hours are what

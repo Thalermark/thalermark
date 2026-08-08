@@ -1077,6 +1077,171 @@ describe('per-hour is null until there is something to divide', () => {
   });
 });
 
+// TMC-202. Hours on a DRAFT invoice were counted nowhere: stamped, so gone from
+// readyToBill; unsent, so absent from billed. A job holding a real invoice for
+// real work reported $0.00 across every tile.
+//
+// These assert the three-row table on the ticket — money waiting, money drafted,
+// money billed — and that it moves between them without ever being counted
+// twice or vanishing.
+describe('money on an unsent invoice is reported, not lost', () => {
+  beforeEach(resetDb);
+
+  // Same as makeInvoice but stops before mark-sent, which is the whole point.
+  async function makeDraftInvoice(
+    ctx: Ctx,
+    contactId: string,
+    number: string,
+    subtotal: string,
+    jobId: string,
+    timeEntryId?: string,
+  ): Promise<string> {
+    const res = await ctx.app.request('/api/invoices', {
+      method: 'POST',
+      headers: ctx.headers,
+      body: JSON.stringify({
+        companyId: ctx.companyId,
+        contactId,
+        jobId,
+        number,
+        issueDate: '2026-06-10',
+        dueDate: '2026-07-10',
+        subtotal,
+        total: subtotal,
+        lineItems: [
+          {
+            position: 1,
+            description: 'Work',
+            timeEntryId,
+            quantity: '1',
+            unitPrice: subtotal,
+            amount: subtotal,
+            type: 'service',
+          },
+        ],
+      }),
+    });
+    if (res.status !== 201) throw new Error(`draft create failed: ${res.status}`);
+    return ((await res.json()) as { id: string }).id;
+  }
+
+  type Margin = { billed: string; drafted: string; made: string };
+  async function margin(ctx: Ctx, jobId: string): Promise<Margin> {
+    const res = await ctx.app.request(`/api/jobs/${jobId}`, { headers: ctx.headers });
+    return ((await res.json()) as { margin: Margin }).margin;
+  }
+  async function readyToBill(ctx: Ctx, jobId: string): Promise<string> {
+    // No `status` filter — the route accepts only 'open'/'closed' and 400s on
+    // anything else, so "every job" is expressed by omitting it.
+    const res = await ctx.app.request(`/api/jobs?companyId=${ctx.companyId}`, {
+      headers: ctx.headers,
+    });
+    const body = (await res.json()) as { jobs: { id: string; readyToBill: string }[] };
+    return body.jobs.find((j) => j.id === jobId)?.readyToBill ?? 'missing';
+  }
+
+  it('reports drafted money the moment it leaves ready-to-bill', async () => {
+    const ctx = await setup('job-drafted@test.com');
+    try {
+      const contactId = await makeContact(ctx, 'Smith');
+      const jobId = await makeJob(ctx, 'Drafted not sent', contactId);
+      const entryId = await logTime(ctx, jobId, 120, '50.00');
+
+      // Before: the hours are waiting, nothing is drafted or billed.
+      expect(await readyToBill(ctx, jobId)).toBe('100.00');
+      expect((await margin(ctx, jobId)).drafted).toBe('0.00');
+
+      await makeDraftInvoice(ctx, contactId, 'INV-DRAFT', '100.00', jobId, entryId);
+
+      // After: the money moved sideways into `drafted` rather than disappearing.
+      // Every one of these was 0.00 before the fix, with a real $100 invoice on
+      // the job — that is the bug, in one assertion block.
+      const m = await margin(ctx, jobId);
+      expect(m.drafted).toBe('100.00');
+      expect(m.billed).toBe('0.00');
+      expect(m.made).toBe('0.00');
+      expect(await readyToBill(ctx, jobId)).toBe('0.00');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('moves the money to billed on send, counting it once at every step', async () => {
+    const ctx = await setup('job-drafted-sent@test.com');
+    try {
+      const contactId = await makeContact(ctx, 'Smith');
+      const jobId = await makeJob(ctx, 'Then sent', contactId);
+      const entryId = await logTime(ctx, jobId, 120, '50.00');
+      const invoiceId = await makeDraftInvoice(
+        ctx,
+        contactId,
+        'INV-SEND',
+        '100.00',
+        jobId,
+        entryId,
+      );
+
+      await ctx.app.request(`/api/invoices/${invoiceId}/mark-sent`, {
+        method: 'POST',
+        headers: ctx.headers,
+      });
+
+      const m = await margin(ctx, jobId);
+      expect(m.billed).toBe('100.00');
+      // The load-bearing half: drafted must EMPTY. If it kept the money the job
+      // would read $200 of income from one $100 invoice.
+      expect(m.drafted).toBe('0.00');
+      expect(m.made).toBe('100.00');
+      expect(await readyToBill(ctx, jobId)).toBe('0.00');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  // The allowlist that lets `drafted` exist can be widened by accident the same
+  // way BILLED_INVOICE_STATUSES once was (TMC-183, 'void' vs 'voided'). A voided
+  // invoice is not drafted money and must not reappear as any kind of income.
+  it('does not count a voided invoice as drafted', async () => {
+    const ctx = await setup('job-drafted-void@test.com');
+    try {
+      const contactId = await makeContact(ctx, 'Smith');
+      const jobId = await makeJob(ctx, 'Voided', contactId);
+      const invoiceId = await makeDraftInvoice(ctx, contactId, 'INV-VOID', '100.00', jobId);
+
+      await ctx.app.request(`/api/invoices/${invoiceId}/void`, {
+        method: 'POST',
+        headers: ctx.headers,
+      });
+
+      const m = await margin(ctx, jobId);
+      expect(m.drafted).toBe('0.00');
+      expect(m.billed).toBe('0.00');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('rolls drafted money up to the jobs summary', async () => {
+    const ctx = await setup('job-drafted-summary@test.com');
+    try {
+      const contactId = await makeContact(ctx, 'Smith');
+      const jobId = await makeJob(ctx, 'Summary', contactId);
+      const entryId = await logTime(ctx, jobId, 120, '50.00');
+      await makeDraftInvoice(ctx, contactId, 'INV-SUM', '100.00', jobId, entryId);
+
+      const res = await ctx.app.request(`/api/jobs/summary?companyId=${ctx.companyId}`, {
+        headers: ctx.headers,
+      });
+      const body = (await res.json()) as { readyToBill: string; drafted: string };
+      // The headline read "$0.00 nothing waiting" with $100 drafted and unsent.
+      expect(body.readyToBill).toBe('0.00');
+      expect(body.drafted).toBe('100.00');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+});
+
 describe('a rejected billing leaves nothing behind', () => {
   beforeEach(resetDb);
 
