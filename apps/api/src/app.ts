@@ -46,6 +46,7 @@ import { publicRoutes } from './routes/public.js';
 import { purchasesRoutes } from './routes/purchases.js';
 import { recurringInvoicesRoutes } from './routes/recurring.js';
 import { reportsRoutes } from './routes/reports.js';
+import { searchRoutes } from './routes/search.js';
 import { settingsAiRoutes } from './routes/settings-ai.js';
 import { socialProvidersRoutes } from './routes/social-providers.js';
 import { taxPoliciesRoutes } from './routes/tax-policies.js';
@@ -334,6 +335,7 @@ export function createApp(deps: AppDeps) {
   // provider, local-FS file serving, the mailer for document sends) rather than
   // the tenant tx, so they're constructed with deps here.
   app.route('/', socialProvidersRoutes(deps));
+  app.route('/', searchRoutes(deps));
   app.route('/', locationsRoutes(deps));
   app.route('/', filesRoutes(deps));
   app.route('/', accountRoutes(deps));
@@ -376,6 +378,7 @@ export type InvoicesAppType = ReturnType<typeof invoicesRoutes>;
 export type RecurringInvoicesAppType = ReturnType<typeof recurringInvoicesRoutes>;
 export type EstimatesAppType = ReturnType<typeof estimatesRoutes>;
 export type ReportsAppType = ReturnType<typeof reportsRoutes>;
+export type SearchAppType = ReturnType<typeof searchRoutes>;
 export type SettingsAiAppType = ReturnType<typeof settingsAiRoutes>;
 // filesRoutes has no XAppType export: GET /api/files/:token is served by a
 // signed URL hit directly (img src / download), never via a typed hc client, so

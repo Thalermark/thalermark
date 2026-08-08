@@ -12,12 +12,18 @@ const log = getLogger(['api', 'rate-limit']);
 //   email     — per account: invoice/estimate sends, capped to blunt spam.
 //   publicPay — per invoice token: the unauthenticated PaymentIntent mint,
 //               capped so a leaked token can't spawn unbounded Stripe intents.
+//   search    — per account: THE ONLY RATE-LIMITED READ. A debounced type-ahead
+//               is the one endpoint a client hits at typing speed, and each hit
+//               is a GIN scan behind a SECURITY DEFINER function. 120/min is two
+//               a second sustained — generous against a 180ms debounce, tight
+//               against a script.
 // Hardcoded like Better Auth's auth customRules — generous for humans, tight
 // enough to bound cost/abuse. Tune here if real traffic needs it.
 export const RATE_LIMITS = {
   ai: { bucket: 'ai', windowSeconds: 60, max: 60 },
   email: { bucket: 'email', windowSeconds: 60, max: 30 },
   publicPay: { bucket: 'public-pay', windowSeconds: 60, max: 10 },
+  search: { bucket: 'search', windowSeconds: 60, max: 120 },
 } as const;
 
 export type RateLimitConfig = { bucket: string; windowSeconds: number; max: number };

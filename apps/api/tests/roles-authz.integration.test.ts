@@ -302,11 +302,14 @@ describe('capability gate — settings, reports, workspace', () => {
 describe('reads are ungated (viewer can GET)', () => {
   beforeEach(resetDb);
 
-  it('viewer reads contacts, invoices, and the team list', async () => {
+  it('viewer reads contacts, invoices, the team list, and search', async () => {
     const { app, handle } = buildApp();
     try {
       const { accountId, cookies } = await workspaceWithRoles(app);
-      for (const path of ['/api/contacts', '/api/invoices', '/api/team']) {
+      // /api/search is deliberately ungated too (TMC-198). A gate there would
+      // be the only read gate in the app, and would imply a read model that
+      // does not exist — search returns nothing a viewer cannot already list.
+      for (const path of ['/api/contacts', '/api/invoices', '/api/team', '/api/search?q=smith']) {
         const res = await req(app, 'GET', path, { cookie: cookies.viewer, accountId });
         expect(res.status, path).toBe(200);
       }
