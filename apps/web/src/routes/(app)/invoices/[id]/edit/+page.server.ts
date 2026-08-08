@@ -1,15 +1,13 @@
 import { apiErrorMessage } from '$lib/api-errors';
 import { serverApiClient } from '$lib/api.server';
-import { lineTax, policyRate } from '$lib/line-tax';
+import { computeInvoiceLines } from '$lib/invoice-lines';
 import { error, fail, redirect } from '@sveltejs/kit';
 import {
-  type InvoiceLineItemInput,
   type InvoiceUpdateInput,
   type LineItemType,
   addMoney,
   hoursFromMinutes,
   invoiceUpdateSchema,
-  multiplyMoney,
   sumMoney,
 } from '@thalermark/validation';
 import type { Actions, PageServerLoad } from './$types';
@@ -203,24 +201,10 @@ export const actions: Actions = {
     const curRes = await client.api.invoices[':id'].$get({ param: { id: event.params.id } });
     const companyId = curRes.ok ? (await curRes.json()).companyId : '';
     const policies = await loadPolicyRates(event, companyId);
-    const computedLines: InvoiceLineItemInput[] = values.lineItems.map((row, i) => {
-      const amount = multiplyMoney(row.quantity, row.unitPrice);
-      const rate = row.taxable ? policyRate(policies, row.taxPolicyId ?? '') : '0';
-      return {
-        position: i + 1,
-        description: row.description,
-        quantity: row.quantity,
-        unitLabel: row.unitLabel,
-        unitPrice: row.unitPrice,
-        amount,
-        type: row.type,
-        taxable: row.taxable,
-        taxRatePct: rate,
-        taxAmount: lineTax(row.taxable, rate, amount),
-        taxPolicyId: row.taxable ? row.taxPolicyId : undefined,
-        sourceItemId: row.sourceItemId,
-      };
-    });
+    // Every row carries its tracked-time link, saved or just added: the API
+    // REPLACES the billed set from the submitted lines, so a row that arrives
+    // without one releases the entry the invoice already bills for.
+    const computedLines = computeInvoiceLines(values.lineItems, policies);
     const subtotal = sumMoney(computedLines.map((li) => li.amount));
     const tax = sumMoney(computedLines.map((li) => li.taxAmount ?? '0'));
     const total = addMoney(subtotal, tax);
