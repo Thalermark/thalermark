@@ -226,6 +226,20 @@
   <div class="bg-surface-2 px-5 py-4">
     <span class="label">Billed</span>
     <p class="mt-1 font-mono text-xl tabular-nums text-fg/80">{fmt(margin.billed)}</p>
+    <!--
+      Money on an invoice that exists but hasn't gone out (TMC-202). It belongs
+      HERE rather than in "ready to bill": those hours are already on an invoice,
+      so offering them again is what let the same work be billed twice. Shown
+      only when there is a draft — a permanent "$0.00 drafted" is noise on the
+      overwhelmingly common path where the invoice was sent immediately.
+    -->
+    <p class="mt-1 text-xs text-fg/50">
+      {#if Number(margin.drafted) > 0}
+        {fmt(margin.drafted)} drafted, not sent
+      {:else}
+        &nbsp;
+      {/if}
+    </p>
   </div>
   <div class="bg-surface-2 px-5 py-4">
     <span class="label">What it cost</span>

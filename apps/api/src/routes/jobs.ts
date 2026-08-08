@@ -23,6 +23,7 @@ import {
   effectiveHourly,
   jobBilledCents,
   jobCostCents,
+  jobDraftedCents,
   jobMinutes,
   jobUnbilled,
 } from '../lib/job-costing.js';
@@ -198,6 +199,11 @@ export function jobsRoutes() {
 
         const open = rows.filter((r) => r.status === 'open').length;
 
+        // Money on unsent invoices (TMC-202). Same reason it exists on the
+        // detail route: without it this money is in no tile at all, and the
+        // headline reads $0.00 waiting while a drafted invoice sits unsent.
+        let draftedCents = 0;
+
         // Money waiting across every job, and the hours that CANNOT be billed
         // until someone prices them. The second is the actionable half: a job
         // full of unrated work looks identical to a job with nothing to bill.
@@ -220,6 +226,9 @@ export function jobsRoutes() {
             // the missing money is invisible rather than merely elsewhere.
             if (statusOf.get(jobId) === 'closed') readyOnClosedCents += v.cents;
           }
+          for (const [, cents] of await jobDraftedCents(tx, accountId, cid, ids)) {
+            draftedCents += cents;
+          }
         }
 
         return c.json({
@@ -228,6 +237,7 @@ export function jobsRoutes() {
           closed: rows.length - open,
           readyToBill: centsToMoney(readyCents),
           readyToBillOnClosed: centsToMoney(readyOnClosedCents),
+          drafted: centsToMoney(draftedCents),
           jobsWithMoneyWaiting,
           unratedMinutes,
           unratedHours: displayHours(unratedMinutes),
@@ -265,12 +275,14 @@ export function jobsRoutes() {
           .where(and(eq(invoices.jobId, id), eq(invoices.accountId, accountId)))
           .orderBy(asc(invoices.issueDate), asc(invoices.number));
 
-        const [billed, costs, minutes] = await Promise.all([
+        const [billed, drafted, costs, minutes] = await Promise.all([
           jobBilledCents(tx, accountId, job.companyId, [id]),
+          jobDraftedCents(tx, accountId, job.companyId, [id]),
           jobCostCents(tx, accountId, job.companyId, [id]),
           jobMinutes(tx, accountId, job.companyId, [id]),
         ]);
         const billedCents = billed.get(id) ?? 0;
+        const draftedCents = drafted.get(id) ?? 0;
         const costCents = costs.get(id) ?? 0;
         const trackedMinutes = minutes.get(id) ?? 0;
         const madeCents = billedCents - costCents;
@@ -280,6 +292,13 @@ export function jobsRoutes() {
           invoices: memberInvoices,
           margin: {
             billed: centsToMoney(billedCents),
+            // Written but not sent (TMC-202). Deliberately NOT added into
+            // billed/made — it is reported beside them so the money is visible
+            // without claiming it was ever asked for. Hours on a draft are
+            // stamped, so they have already left readyToBill; without this they
+            // are counted nowhere and the job reports zero while holding an
+            // invoice.
+            drafted: centsToMoney(draftedCents),
             costs: centsToMoney(costCents),
             made: centsToMoney(madeCents),
             minutes: trackedMinutes,
