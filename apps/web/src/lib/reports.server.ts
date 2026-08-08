@@ -427,8 +427,14 @@ export type JobMargin = {
     status: string;
     customerName: string | null;
     billed: string;
+    // Written but not sent. Beside `billed`, never inside it — the ledger
+    // recognises revenue on the issue date and a draft has not been issued.
+    drafted: string;
     costs: string;
-    made: string;
+    // Null when the job has recognised no revenue yet. `billed - costs` with
+    // nothing billed is the negative of the costs, which reported a loss the
+    // job never took (TMC-203); its costs are work in progress instead.
+    made: string | null;
     minutes: number;
     hours: string;
     // Null when no time is tracked; 0 would read as "this job paid nothing".
@@ -452,7 +458,11 @@ export type JobMargin = {
   }[];
   totals: {
     billed: string;
+    drafted: string;
     jobCosts: string;
+    // The slice of jobCosts sitting on jobs that have recognised no revenue.
+    // Held out of `made`, so: made = billed − (jobCosts − workInProgress) − shared.
+    workInProgress: string;
     shared: string;
     unattributed: string;
     made: string;

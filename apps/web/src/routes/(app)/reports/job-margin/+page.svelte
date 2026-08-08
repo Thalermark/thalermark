@@ -24,8 +24,12 @@
     tag: string | null;
     date: string;
     billed: string;
+    // Written but not sent. Null on rows that cannot have one.
+    drafted: string | null;
     costs: string;
-    made: string;
+    // Null when the job has recognised no revenue yet — its costs are work in
+    // progress and there is no margin to state (TMC-203).
+    made: string | null;
     hours: string | null;
     perHour: string | null;
     ready: string | null;
@@ -39,6 +43,7 @@
       tag: j.customerName,
       date: '—',
       billed: j.billed,
+      drafted: Number(j.drafted) > 0 ? j.drafted : null,
       costs: j.costs,
       made: j.made,
       hours: j.minutes > 0 ? j.hours : null,
@@ -52,6 +57,10 @@
       tag: inv.number,
       date: inv.issueDate,
       billed: inv.billed,
+      // An unjobbed row is a sent or paid invoice by definition — the report's
+      // window never admits a draft as its own row, because its subtotal would
+      // read as recognised revenue.
+      drafted: null,
       costs: inv.costs,
       made: inv.made,
       hours: null,
@@ -63,7 +72,18 @@
   ]);
 
   const csvRows = $derived<CsvCell[][]>([
-    ['Job', 'Customer or number', 'Date', 'Hours', 'Billed', 'Costs', 'Made', 'Per hour', 'Ready to bill'],
+    [
+      'Job',
+      'Customer or number',
+      'Date',
+      'Hours',
+      'Billed',
+      'Drafted',
+      'Costs',
+      'Made',
+      'Per hour',
+      'Ready to bill',
+    ],
     ...rows.map(
       (r) =>
         [
@@ -72,19 +92,24 @@
           r.date === '—' ? '' : r.date,
           r.hours ?? '',
           r.billed,
+          r.drafted ?? '',
           r.costs,
-          r.made,
+          // Empty, never 0 — a spreadsheet would sum a zero into a total that
+          // is not true. No recognised revenue means no margin to state.
+          r.made ?? '',
           r.perHour ?? '',
           r.ready ?? '',
         ] as CsvCell[],
     ),
-    ['Shared costs', '', '', '', '', report.totals.shared, '', '', ''],
+    ['Shared costs', '', '', '', '', '', report.totals.shared, '', '', ''],
+    ['Work in progress', '', '', '', '', '', report.totals.workInProgress, '', '', ''],
     [
       'Total',
       '',
       '',
       report.totals.hours,
       report.totals.billed,
+      report.totals.drafted,
       report.totals.jobCosts,
       report.totals.made,
       '',
@@ -126,6 +151,7 @@
           <th class="px-5 py-3">Date</th>
           <th class="w-24 px-5 py-3 text-right">Hours</th>
           <th class="w-32 px-5 py-3 text-right">Billed</th>
+          <th class="w-32 px-5 py-3 text-right">Drafted</th>
           <th class="w-32 px-5 py-3 text-right">Costs</th>
           <th class="w-32 px-5 py-3 text-right">Made</th>
           <th class="w-32 px-5 py-3 text-right">Per hour</th>
@@ -147,9 +173,21 @@
             </td>
             <td class="px-5 py-3 text-right font-mono tabular-nums text-fg/70">{fmt(r.billed)}</td>
             <td class="px-5 py-3 text-right font-mono tabular-nums text-fg/70">
+              {r.drafted ? fmt(r.drafted) : '—'}
+            </td>
+            <td class="px-5 py-3 text-right font-mono tabular-nums text-fg/70">
               {Number(r.costs) > 0 ? `−${fmt(r.costs)}` : '—'}
             </td>
-            <td class="px-5 py-3 text-right font-mono tabular-nums text-fg">{fmt(r.made)}</td>
+            <!--
+              A dash until something is billed. `billed - costs` with nothing
+              billed is the negative of the costs, and printing that told a
+              landscaper he had LOST the price of the plants on a job he simply
+              had not invoiced yet. Those costs are work in progress; the loss
+              was never real.
+            -->
+            <td class="px-5 py-3 text-right font-mono tabular-nums text-fg">
+              {r.made === null ? '—' : fmt(r.made)}
+            </td>
             <!--
               Blank, not zero, when no time was logged. A dash reads as "you
               didn't tell me"; $0.00/hr reads as "this job paid you nothing".
@@ -176,11 +214,34 @@
         -->
         {#if shared > 0}
           <tr class="text-fg/70">
-            <td class="px-5 py-3" colspan="4">
+            <td class="px-5 py-3" colspan="5">
               Shared costs
               <span class="ml-2 text-xs text-fg/50">not counted against any one job</span>
             </td>
             <td class="px-5 py-3 text-right font-mono tabular-nums">−{fmt(report.totals.shared)}</td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+        {/if}
+        <!--
+          Costs on jobs that have recognised no revenue yet. Held OUT of the made
+          total below, for the same reason those rows show no margin — charging
+          the period for work whose revenue hasn't landed would make the bottom
+          line contradict the rows above it. Shown rather than netted silently,
+          so made = billed − (costs − work in progress) can be checked by eye.
+        -->
+        {#if Number(report.totals.workInProgress) > 0}
+          <tr class="text-fg/70">
+            <td class="px-5 py-3" colspan="5">
+              Work in progress
+              <span class="ml-2 text-xs text-fg/50">
+                spent on jobs that haven't billed yet, so not counted against this period
+              </span>
+            </td>
+            <td class="px-5 py-3 text-right font-mono tabular-nums">
+              +{fmt(report.totals.workInProgress)}
+            </td>
             <td></td>
             <td></td>
             <td></td>
@@ -192,6 +253,9 @@
             {report.totals.minutes > 0 ? report.totals.hours : '—'}
           </td>
           <td class="px-5 py-3 text-right tabular-nums text-fg/70">{fmt(report.totals.billed)}</td>
+          <td class="px-5 py-3 text-right tabular-nums text-fg/70">
+            {Number(report.totals.drafted) > 0 ? fmt(report.totals.drafted) : '—'}
+          </td>
           <td class="px-5 py-3 text-right tabular-nums text-fg/70">
             −{fmt(report.totals.jobCosts)}
           </td>

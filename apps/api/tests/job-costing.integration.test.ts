@@ -877,6 +877,119 @@ describe('billing tracked time onto an invoice', () => {
   });
 });
 
+// TMC-203. The report's window was built from sent/paid invoices, and that list
+// also decided which JOBS appeared — so a job whose only invoice was a draft
+// fell out of the report entirely, taking its costs with it. Those costs were
+// then in no bucket at all: not jobCosts, not shared, not unattributed.
+describe('job-margin and work in progress', () => {
+  beforeEach(resetDb);
+
+  async function draftInvoice(ctx: Ctx, contactId: string, jobId: string, subtotal: string) {
+    const res = await ctx.app.request('/api/invoices', {
+      method: 'POST',
+      headers: ctx.headers,
+      body: JSON.stringify({
+        companyId: ctx.companyId,
+        contactId,
+        jobId,
+        number: `INV-D${Math.floor(Number(subtotal))}`,
+        issueDate: '2026-06-10',
+        dueDate: '2026-07-10',
+        subtotal,
+        total: subtotal,
+        lineItems: [
+          {
+            position: 1,
+            description: 'Work',
+            quantity: '1',
+            unitPrice: subtotal,
+            amount: subtotal,
+            type: 'service',
+          },
+        ],
+      }),
+    });
+    if (res.status !== 201) throw new Error(`draft create failed: ${res.status}`);
+    return ((await res.json()) as { id: string }).id;
+  }
+
+  type MarginReport = {
+    jobs: { jobId: string; billed: string; drafted: string; costs: string; made: string | null }[];
+    totals: {
+      billed: string;
+      drafted: string;
+      jobCosts: string;
+      workInProgress: string;
+      made: string;
+    };
+  };
+  async function report(ctx: Ctx): Promise<MarginReport> {
+    const res = await ctx.app.request(
+      `/api/companies/${ctx.companyId}/job-margin?from=2026-06-01&to=2026-06-30`,
+      { headers: ctx.headers },
+    );
+    return (await res.json()) as MarginReport;
+  }
+
+  it('keeps a drafted-only job and its costs on the report', async () => {
+    const ctx = await setup('margin-wip@test.com');
+    try {
+      const contactId = await makeContact(ctx, 'Chen');
+      const jobId = await makeJob(ctx, 'Drafted only', contactId);
+      const cost = await makeExpense(ctx, '340.00');
+      await allocate(ctx, cost, [{ jobId, share: '1' }]);
+      await draftInvoice(ctx, contactId, jobId, '900.00');
+
+      const body = await report(ctx);
+      // The whole row used to be absent.
+      const row = body.jobs.find((j) => j.jobId === jobId);
+      expect(row).toBeDefined();
+      expect(row?.billed).toBe('0.00');
+      expect(row?.drafted).toBe('900.00');
+      expect(row?.costs).toBe('340.00');
+      // NOT '-340.00'. Nothing is recognised, so there is no margin to state.
+      expect(row?.made).toBeNull();
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('holds work-in-progress costs out of the bottom line, and says so', async () => {
+    const ctx = await setup('margin-wip-totals@test.com');
+    try {
+      const contactId = await makeContact(ctx, 'Chen');
+      // A finished job: billed and costed, margin real.
+      const doneJob = await makeJob(ctx, 'Finished', contactId);
+      await makeInvoice(ctx, contactId, 'INV-S', '900.00', '2026-06-10', doneJob);
+      const doneCost = await makeExpense(ctx, '340.00');
+      await allocate(ctx, doneCost, [{ jobId: doneJob, share: '1' }]);
+
+      // An in-progress job: costs spent, invoice written but not sent.
+      const wipJob = await makeJob(ctx, 'In progress', contactId);
+      const wipCost = await makeExpense(ctx, '200.00');
+      await allocate(ctx, wipCost, [{ jobId: wipJob, share: '1' }]);
+      await draftInvoice(ctx, contactId, wipJob, '700.00');
+
+      const t = (await report(ctx)).totals;
+      expect(t.billed).toBe('900.00');
+      expect(t.drafted).toBe('700.00');
+      // Every cost still shows in jobCosts — nothing is hidden.
+      expect(t.jobCosts).toBe('540.00');
+      expect(t.workInProgress).toBe('200.00');
+      // …but only the finished job's costs reduce the bottom line. Before, the
+      // total quietly subtracted the WIP $200 while its row showed no margin at
+      // all, so the total contradicted the rows above it.
+      expect(t.made).toBe('560.00');
+      // The reconciliation the totals promise.
+      expect(Number(t.billed) - (Number(t.jobCosts) - Number(t.workInProgress))).toBe(
+        Number(t.made),
+      );
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+});
+
 describe('job-margin re-grain', () => {
   beforeEach(resetDb);
 
@@ -1125,7 +1238,7 @@ describe('money on an unsent invoice is reported, not lost', () => {
     return ((await res.json()) as { id: string }).id;
   }
 
-  type Margin = { billed: string; drafted: string; made: string };
+  type Margin = { billed: string; drafted: string; costs: string; made: string | null };
   async function margin(ctx: Ctx, jobId: string): Promise<Margin> {
     const res = await ctx.app.request(`/api/jobs/${jobId}`, { headers: ctx.headers });
     return ((await res.json()) as { margin: Margin }).margin;
@@ -1159,7 +1272,10 @@ describe('money on an unsent invoice is reported, not lost', () => {
       const m = await margin(ctx, jobId);
       expect(m.drafted).toBe('100.00');
       expect(m.billed).toBe('0.00');
-      expect(m.made).toBe('0.00');
+      // Null, not '0.00' — no revenue is recognised yet, so there is no margin
+      // to state (TMC-203). With costs on the job this same expression used to
+      // print their negative as a loss.
+      expect(m.made).toBeNull();
       expect(await readyToBill(ctx, jobId)).toBe('0.00');
     } finally {
       await ctx.handle.close();
@@ -1216,6 +1332,34 @@ describe('money on an unsent invoice is reported, not lost', () => {
       const m = await margin(ctx, jobId);
       expect(m.drafted).toBe('0.00');
       expect(m.billed).toBe('0.00');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  // TMC-203. The costs of a job whose revenue is not yet recognised are WORK IN
+  // PROGRESS, not a loss. Reporting them against $0.00 of revenue breaks the
+  // matching principle and manufactures a loss that never happened.
+  //
+  // `effectiveHourly` already refuses to state a rate with nothing billed
+  // (job-costing.ts: `billedCents <= 0` → null). `made` did not follow the same
+  // rule, so it printed the negative of the costs.
+  it('states no margin on a job whose revenue is not recognised yet', async () => {
+    const ctx = await setup('job-drafted-wip@test.com');
+    try {
+      const contactId = await makeContact(ctx, 'Chen');
+      const jobId = await makeJob(ctx, 'Costs but no recognised revenue', contactId);
+      const entryId = await logTime(ctx, jobId, 120, '50.00');
+      const cost = await makeExpense(ctx, '340.00');
+      await allocate(ctx, cost, [{ jobId, share: '1' }]);
+      await makeDraftInvoice(ctx, contactId, 'INV-WIP', '900.00', jobId, entryId);
+
+      const m = await margin(ctx, jobId);
+      expect(m.costs).toBe('340.00');
+      expect(m.drafted).toBe('900.00');
+      // NOT '-340.00'. The job has not lost $340 — it has spent $340 on work it
+      // has not billed for yet.
+      expect(m.made).toBeNull();
     } finally {
       await ctx.handle.close();
     }
