@@ -118,7 +118,9 @@ export async function reindexEntities(
   }
 }
 
-const COMPANY_SCOPED_SOURCES = {
+// The table each entity type projects from. Exported so the reindex sweep pages
+// the same set this file reconciles — one place to add an eighth entity.
+export const SEARCH_SOURCE_TABLES = {
   invoice: invoices,
   estimate: estimates,
   contact: contacts,
@@ -142,7 +144,7 @@ export async function reindexCompany(
   companyId: string,
 ): Promise<void> {
   for (const entityType of SEARCH_ENTITY_TYPES) {
-    const table = COMPANY_SCOPED_SOURCES[entityType];
+    const table = SEARCH_SOURCE_TABLES[entityType];
     const rows = await handle
       .select({ id: table.id })
       .from(table)

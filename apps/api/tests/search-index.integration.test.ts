@@ -5,6 +5,7 @@ import { createApp } from '../src/app.js';
 import type { Env } from '../src/env.js';
 import { createApiAuth } from '../src/lib/auth.js';
 import { createApiDatabase } from '../src/lib/db.js';
+import { sweepSearchReindex } from '../src/lib/search/sweep.js';
 import { appDatabaseUrl, getTestDb, resetDb } from './test-helper.js';
 
 // The search index is maintained by hanging off the audit writer (TMC-198), so
@@ -471,6 +472,113 @@ describe('search index — the paths that write no audit event', () => {
         'Beta Fencing',
         'Gamma Decking',
       ]);
+    } finally {
+      await handle.close();
+    }
+  });
+});
+
+// The sweep is the safety net under the audit-seam convention. If a mutation
+// path is ever added that forgets to reindex, these behaviours are what turn a
+// permanent invisible bug into a bounded staleness window — so they are worth
+// testing directly rather than trusting.
+describe('search index — the reindex sweep', () => {
+  beforeEach(resetDb);
+
+  it('rebuilds a document that was deleted out from under it', async () => {
+    const { app, handle } = buildApp();
+    try {
+      const ctx = await setup(app, 'sweep-heal@test.dev');
+      const id = await createContact(ctx, 'Johnson Roofing LLC');
+
+      // Simulates the mutation path that forgot to reindex.
+      await getTestDb().delete(searchDocuments).where(eq(searchDocuments.entityId, id));
+      expect(await doc('contact', id)).toBeNull();
+
+      const result = await sweepSearchReindex({
+        bootstrapDb: getTestDb(),
+        tenantDb: handle.db,
+        accountId: ctx.accountId,
+      });
+
+      expect(result.failed).toBe(0);
+      const healed = await doc('contact', id);
+      expect(healed?.title).toBe('Johnson Roofing LLC');
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('reaps a document whose entity no longer exists', async () => {
+    const { app, handle } = buildApp();
+    try {
+      const ctx = await setup(app, 'sweep-reap@test.dev');
+      const realId = await createContact(ctx, 'Real Contact');
+
+      // A document for an entity that was never there — what a missed delete
+      // leaves behind.
+      const orphanId = '00000000-0000-7000-8000-00000000dead';
+      await getTestDb()
+        .insert(searchDocuments)
+        .values({
+          entityType: 'contact',
+          entityId: orphanId,
+          accountId: ctx.accountId,
+          companyId: ctx.companyId,
+          title: 'Ghost Contact',
+          titleNorm: 'ghost contact',
+          entityUpdatedAt: new Date(),
+          // Backdated so it is unambiguously older than the run start, which is
+          // exactly the condition the reap keys on.
+          indexedAt: new Date(Date.now() - 60_000),
+        });
+      expect(await doc('contact', orphanId)).not.toBeNull();
+
+      const result = await sweepSearchReindex({
+        bootstrapDb: getTestDb(),
+        tenantDb: handle.db,
+        accountId: ctx.accountId,
+      });
+
+      expect(result.reaped).toBe(1);
+      expect(await doc('contact', orphanId)).toBeNull();
+      // and it did not take the live document with it
+      expect(await doc('contact', realId)).not.toBeNull();
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('is idempotent — a second run changes nothing', async () => {
+    const { app, handle } = buildApp();
+    try {
+      const ctx = await setup(app, 'sweep-idempotent@test.dev');
+      const contactId = await createContact(ctx, 'Johnson Roofing LLC');
+      await createInvoice(ctx, contactId, 'INV-9001');
+
+      const first = await sweepSearchReindex({
+        bootstrapDb: getTestDb(),
+        tenantDb: handle.db,
+        accountId: ctx.accountId,
+      });
+      const second = await sweepSearchReindex({
+        bootstrapDb: getTestDb(),
+        tenantDb: handle.db,
+        accountId: ctx.accountId,
+      });
+
+      // Nothing reaped on either pass: every document was re-stamped by the
+      // same run that would have reaped it.
+      expect(first.reaped).toBe(0);
+      expect(second.reaped).toBe(0);
+      expect(second.documents).toBe(first.documents);
+      expect(second.failed).toBe(0);
+
+      const rows = await getTestDb()
+        .select()
+        .from(searchDocuments)
+        .where(eq(searchDocuments.accountId, ctx.accountId));
+      expect(rows).toHaveLength(2);
     } finally {
       await handle.close();
     }

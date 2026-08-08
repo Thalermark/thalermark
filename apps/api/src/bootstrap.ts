@@ -19,7 +19,12 @@ import { configureLogger, getLogger } from '@thalermark/logger';
 import { type StorageProvider, createStorageProvider } from '@thalermark/storage';
 import type { PgBoss } from 'pg-boss';
 import type { AppDeps } from './app.js';
-import { DEFAULT_DEPRECIATION_SWEEP_CRON, DEFAULT_REMINDER_SWEEP_CRON, type Env } from './env.js';
+import {
+  DEFAULT_DEPRECIATION_SWEEP_CRON,
+  DEFAULT_REMINDER_SWEEP_CRON,
+  DEFAULT_SEARCH_REINDEX_CRON,
+  type Env,
+} from './env.js';
 import { communityAccountNotices } from './lib/account-notice.js';
 import { createApiAuth, enabledSocialProviders } from './lib/auth.js';
 import { deriveConnectionKey } from './lib/crypto.js';
@@ -37,6 +42,7 @@ import { type Mailer, createConsoleMailer, createResendMailer } from './lib/mail
 import { sweepRecurringInvoices } from './lib/recurring.js';
 import { sweepInvoiceReminders } from './lib/reminders.js';
 import { provisionAppRole, provisionPgBossRole } from './lib/role-provision.js';
+import { sweepSearchReindex } from './lib/search/sweep.js';
 import { createStripeBundle } from './lib/stripe.js';
 
 const log = getLogger(['api', 'bootstrap']);
@@ -300,6 +306,7 @@ export function createDefaultAppDeps(
 const SWEEP_QUEUE = 'recurring-invoice-sweep';
 const DEPRECIATION_QUEUE = 'depreciation-sweep';
 const REMINDER_QUEUE = 'invoice-reminder-sweep';
+const SEARCH_REINDEX_QUEUE = 'search-reindex';
 
 // The per-call inputs the recurring-invoice sweep needs. `entitlement` is passed
 // in (not baked) so a commercial root's plan-aware provider makes the sweep
@@ -370,6 +377,26 @@ export async function registerCoreJobs(boss: PgBoss, deps: SweepJobDeps, env: En
   const reminderCron = env.reminderSweepCron ?? DEFAULT_REMINDER_SWEEP_CRON;
   await boss.schedule(REMINDER_QUEUE, reminderCron, undefined, { tz: 'UTC' });
   log.info('invoice-reminder sweep scheduled ({cron} UTC)', { cron: reminderCron });
+
+  // Search index backfill + reap (TMC-198). Repair, not production: the request
+  // path keeps search_documents current inside each mutation's own transaction,
+  // so this exists to fill a fresh deploy and to reap anything a mutation path
+  // forgot to reindex. Takes no entitlement provider, same reasoning as
+  // depreciation — a stale index is a correctness problem, not a feature.
+  await boss.createQueue(SEARCH_REINDEX_QUEUE);
+  await boss.work(SEARCH_REINDEX_QUEUE, async () => {
+    await sweepSearchReindex({ bootstrapDb: deps.bootstrapDb, tenantDb: deps.tenantDb });
+  });
+  const searchReindexCron = env.searchReindexCron ?? DEFAULT_SEARCH_REINDEX_CRON;
+  await boss.schedule(SEARCH_REINDEX_QUEUE, searchReindexCron, undefined, { tz: 'UTC' });
+
+  // One-shot on boot, so a deploy that introduces the table does not serve an
+  // empty search box until Sunday. singletonKey collapses duplicates, so a crash
+  // loop or a multi-replica rollout enqueues one job rather than one per start.
+  await boss.send(SEARCH_REINDEX_QUEUE, {}, { singletonKey: 'search-reindex-all' });
+  log.info('search reindex scheduled ({cron} UTC), one-shot enqueued', {
+    cron: searchReindexCron,
+  });
 }
 
 // A started server handle with a drain-then-callback close — structurally what

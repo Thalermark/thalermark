@@ -120,6 +120,16 @@ export type Env = {
   // The sweep still decides WHICH DAY per company timezone, so the cron only
   // picks the hour — a company in Auckland gets the right date either way.
   reminderSweepCron?: string;
+  // When the search reindex sweep runs (TMC-198). Optional for the same reason
+  // as the three above.
+  //
+  // Weekly rather than daily, and in the small hours, because this is a repair
+  // job rather than a producer: the request path keeps the index current
+  // synchronously, so this exists to backfill a fresh deploy and to reap
+  // anything a mutation path forgot to reindex. Running it more often would
+  // rewrite every document in every account for almost no benefit. Override via
+  // SEARCH_REINDEX_CRON.
+  searchReindexCron?: string;
   // Run the pg-boss scheduler + worker in this process. Default true, so a
   // single-box install runs the recurring-invoice sweep in the api. For a
   // multi-replica deploy, set JOBS_ENABLED=false on the extra replicas so jobs
@@ -154,6 +164,9 @@ const DEFAULT_PORT = 3000;
 // (tests, embedders) can't drift from what loadEnv resolves.
 export const DEFAULT_DEPRECIATION_SWEEP_CRON = '0 7 * * *';
 export const DEFAULT_REMINDER_SWEEP_CRON = '0 13 * * *';
+// Sunday 03:17 UTC. Off the hour on purpose — every other scheduled thing in
+// the world fires at :00, and this one rewrites every document in every account.
+export const DEFAULT_SEARCH_REINDEX_CRON = '17 3 * * 0';
 const VALID_NODE_ENVS: Env['nodeEnv'][] = ['development', 'test', 'production'];
 const VALID_LOG_LEVELS: LogLevel[] = ['debug', 'info', 'warning', 'error', 'fatal'];
 
@@ -220,6 +233,7 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     recurringSweepCron: source.RECURRING_SWEEP_CRON || '0 6 * * *',
     depreciationSweepCron: source.DEPRECIATION_SWEEP_CRON || DEFAULT_DEPRECIATION_SWEEP_CRON,
     reminderSweepCron: source.REMINDER_SWEEP_CRON || DEFAULT_REMINDER_SWEEP_CRON,
+    searchReindexCron: source.SEARCH_REINDEX_CRON || DEFAULT_SEARCH_REINDEX_CRON,
     // Empty string (a bare JOBS_ENABLED= in compose env_file) → unset → default
     // true, same tri-state trap handled above for the other boolean flags.
     jobsEnabled: source.JOBS_ENABLED ? parseBool(source.JOBS_ENABLED) : true,
