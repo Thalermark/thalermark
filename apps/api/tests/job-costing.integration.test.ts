@@ -881,6 +881,98 @@ describe('billing tracked time onto an invoice', () => {
 // also decided which JOBS appeared — so a job whose only invoice was a draft
 // fell out of the report entirely, taking its costs with it. Those costs were
 // then in no bucket at all: not jobCosts, not shared, not unattributed.
+// TMC-204. The per-invoice block on GET /api/invoices/:id had no notion of
+// status: one $900 invoice with $340 of receipts reported "made $560" whether it
+// was sent, drafted, or voided.
+describe('the invoice job-costing block reads its own status', () => {
+  beforeEach(resetDb);
+
+  type JobCosting = { billed: string; drafted: string; costs: string; made: string | null };
+  async function costingFor(ctx: Ctx, status: 'draft' | 'sent' | 'voided'): Promise<JobCosting> {
+    const contactId = await makeContact(ctx, `Chen ${status}`);
+    const res = await ctx.app.request('/api/invoices', {
+      method: 'POST',
+      headers: ctx.headers,
+      body: JSON.stringify({
+        companyId: ctx.companyId,
+        contactId,
+        number: `INV-${status}`,
+        issueDate: '2026-06-10',
+        dueDate: '2026-07-10',
+        subtotal: '900.00',
+        total: '900.00',
+        lineItems: [
+          {
+            position: 1,
+            description: 'Work',
+            quantity: '1',
+            unitPrice: '900.00',
+            amount: '900.00',
+            type: 'service',
+          },
+        ],
+      }),
+    });
+    const invoiceId = ((await res.json()) as { id: string }).id;
+    const cost = await makeExpense(ctx, '340.00');
+    await allocate(ctx, cost, [{ invoiceId, share: '1' }]);
+    if (status !== 'draft') {
+      await ctx.app.request(`/api/invoices/${invoiceId}/mark-sent`, {
+        method: 'POST',
+        headers: ctx.headers,
+      });
+    }
+    if (status === 'voided') {
+      await ctx.app.request(`/api/invoices/${invoiceId}/void`, {
+        method: 'POST',
+        headers: ctx.headers,
+      });
+    }
+    const detail = await ctx.app.request(`/api/invoices/${invoiceId}`, { headers: ctx.headers });
+    return ((await detail.json()) as { jobCosting: JobCosting }).jobCosting;
+  }
+
+  it('states the margin on a sent invoice', async () => {
+    const ctx = await setup('inv-costing-sent@test.com');
+    try {
+      const c = await costingFor(ctx, 'sent');
+      expect(c.billed).toBe('900.00');
+      expect(c.made).toBe('560.00');
+      expect(c.drafted).toBe('0.00');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('states no margin on a draft, and reports the amount as drafted', async () => {
+    const ctx = await setup('inv-costing-draft@test.com');
+    try {
+      const c = await costingFor(ctx, 'draft');
+      // Was '900.00' — the subtotal counted as billed regardless of status.
+      expect(c.billed).toBe('0.00');
+      expect(c.drafted).toBe('900.00');
+      expect(c.costs).toBe('340.00');
+      expect(c.made).toBeNull();
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('reports a voided invoice as the loss it is, never a profit', async () => {
+    const ctx = await setup('inv-costing-voided@test.com');
+    try {
+      const c = await costingFor(ctx, 'voided');
+      expect(c.billed).toBe('0.00');
+      // Not pending — cancelled. Nothing is coming.
+      expect(c.drafted).toBe('0.00');
+      // Was '560.00': a profit reported on revenue that had been cancelled.
+      expect(c.made).toBe('-340.00');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+});
+
 describe('job-margin and work in progress', () => {
   beforeEach(resetDb);
 
@@ -1359,6 +1451,56 @@ describe('money on an unsent invoice is reported, not lost', () => {
       expect(m.drafted).toBe('900.00');
       // NOT '-340.00'. The job has not lost $340 — it has spent $340 on work it
       // has not billed for yet.
+      expect(m.made).toBeNull();
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  // TMC-204. Pending revenue and cancelled revenue both read billedCents === 0,
+  // so a guard on that number alone cannot tell them apart. TMC-203 shipped
+  // exactly such a guard and suppressed a loss that was real.
+  it('states the loss once the revenue is cancelled, not withheld', async () => {
+    const ctx = await setup('job-voided-loss@test.com');
+    try {
+      const contactId = await makeContact(ctx, 'Chen');
+      const jobId = await makeJob(ctx, 'Cancelled', contactId);
+      const cost = await makeExpense(ctx, '340.00');
+      await allocate(ctx, cost, [{ jobId, share: '1' }]);
+      const invoiceId = await makeInvoice(ctx, contactId, 'INV-V', '900.00', '2026-06-10', jobId);
+
+      expect((await margin(ctx, jobId)).made).toBe('560.00');
+
+      await ctx.app.request(`/api/invoices/${invoiceId}/void`, {
+        method: 'POST',
+        headers: ctx.headers,
+      });
+
+      const m = await margin(ctx, jobId);
+      expect(m.billed).toBe('0.00');
+      expect(m.costs).toBe('340.00');
+      // The money was spent and nobody will ever be billed for it. jobCostCents
+      // says so directly: "voiding cancels the revenue, not the money already
+      // spent... showing a loss is the correct answer, not a glitch."
+      expect(m.made).toBe('-340.00');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  // The other side of the same coin: unbilled priced hours are revenue on the
+  // way, so a job carrying them states no margin even with no invoice at all.
+  it('withholds the margin while priced hours are still unbilled', async () => {
+    const ctx = await setup('job-unbilled-pending@test.com');
+    try {
+      const contactId = await makeContact(ctx, 'Chen');
+      const jobId = await makeJob(ctx, 'Hours not billed', contactId);
+      const cost = await makeExpense(ctx, '340.00');
+      await allocate(ctx, cost, [{ jobId, share: '1' }]);
+      await logTime(ctx, jobId, 120, '50.00');
+
+      const m = await margin(ctx, jobId);
+      expect(m.costs).toBe('340.00');
       expect(m.made).toBeNull();
     } finally {
       await ctx.handle.close();
