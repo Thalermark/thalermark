@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
@@ -233,6 +234,20 @@ export default function Home() {
             </Text>
           </Pressable>
         </View>
+
+        {/* Search (TMC-198). A pressable bar rather than a live input: tapping
+          it opens the search screen with its own autofocused field, so this
+          costs Home nothing but a row and there is no second debounce to keep
+          in sync. */}
+        <Pressable
+          onPress={() => router.push('/search')}
+          accessibilityRole="search"
+          accessibilityLabel="Search"
+          className="mt-6 flex-row items-center gap-2 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2.5 active:bg-gold-deep/10"
+        >
+          <Ionicons name="search-outline" size={16} color="#0f162680" />
+          <Text className="text-ink/50">Search invoices, contacts, expenses…</Text>
+        </Pressable>
 
         {/* Pending workspace invitations → Workspace screen to accept/decline */}
         {pendingInvites > 0 ? (
