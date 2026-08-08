@@ -69,6 +69,11 @@
   // self-host) → never shown. Applies to every role and every sign-up door.
   const showLegalConsent = $derived(!!data?.legal?.required && !data.legal.accepted);
 
+  // Lifted out of GlobalSearch so the nav can get out of the way while the box
+  // is open — the input overlays this row, and a half-covered nav link reads as
+  // a rendering bug.
+  let searchOpen = $state(false);
+
 </script>
 
 <header class="border-b border-fg/10 bg-surface print:hidden">
@@ -78,14 +83,25 @@
       <span class="word">thalermark</span>
     </a>
     {#if session}
-      <nav class="flex items-center gap-6 font-mono text-xs uppercase tracking-widest text-fg/60">
+      <!--
+        Faded out rather than removed while the search box is open: the box is
+        absolutely positioned over this space, and removing the links would let
+        the wordmark and avatar spread into the gap — a layout jump every time
+        someone hits Cmd-K. opacity keeps the space reserved, so nothing moves.
+      -->
+      <nav
+        class="flex items-center gap-6 font-mono text-xs uppercase tracking-widest text-fg/60 transition-opacity duration-150"
+        class:opacity-0={searchOpen}
+        class:pointer-events-none={searchOpen}
+        aria-hidden={searchOpen}
+      >
         <a href="/invoices" class="hover:text-fg">Invoices</a>
         <a href="/estimates" class="hover:text-fg">Estimates</a>
         <a href="/expenses" class="hover:text-fg">Expenses</a>
         <a href="/contacts" class="hover:text-fg">Contacts</a>
         <a href="/reports" class="hover:text-fg">Reports</a>
       </nav>
-      <GlobalSearch />
+      <GlobalSearch bind:open={searchOpen} />
       <UserMenu
         name={session.user.name}
         email={session.user.email}
