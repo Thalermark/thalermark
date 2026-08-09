@@ -131,8 +131,25 @@ const LABELS: Record<SearchEntityType, string> = {
   item: 'Items',
 };
 
-// Grouped in rank order — a type's section appears where its best hit ranked,
-// so the strongest match is always in the first section.
+// THE ORDER SECTIONS APPEAR IN. Change this array to reorder them.
+//
+// Fixed rather than ranked, and kept in step with the web copy in
+// apps/web/src/lib/global-search.ts — the same search returning a differently
+// shaped list on phone and desktop would be worse than either order alone.
+// `item` is listed for completeness even though mobile filters it out of the
+// query (no items screen to navigate to).
+export const SEARCH_GROUP_ORDER: SearchEntityType[] = [
+  'contact',
+  'invoice',
+  'estimate',
+  'expense',
+  'bill',
+  'job',
+  'item',
+];
+
+// Groups results in SEARCH_GROUP_ORDER. Rank order is preserved WITHIN each
+// group, and empty groups are omitted.
 export function groupByType(
   results: SearchResult[],
 ): { type: SearchEntityType; label: string; items: SearchResult[] }[] {
@@ -142,7 +159,11 @@ export function groupByType(
     if (list) list.push(r);
     else groups.set(r.entityType, [r]);
   }
-  return [...groups.entries()].map(([type, items]) => ({ type, label: LABELS[type], items }));
+  return SEARCH_GROUP_ORDER.filter((type) => groups.has(type)).map((type) => ({
+    type,
+    label: LABELS[type],
+    items: groups.get(type) as SearchResult[],
+  }));
 }
 
 export function formatMoney(amount: string): string {

@@ -5,6 +5,7 @@
     formatMoney,
     groupByType,
     hrefFor,
+    indexOfTopHit,
     isWorthSearching,
   } from '$lib/global-search';
   import type { SearchResult } from '@thalermark/validation';
@@ -16,12 +17,16 @@
   // every viewport.
   //
   // Expanded, the input is absolutely positioned against the header's right
-  // edge, so opening it overlays the nav rather than displacing it. Nothing in
-  // the header reflows.
+  // edge so nothing in the header reflows — and `open` is bindable so the
+  // layout can hide the nav underneath it for the duration. The first version
+  // let the input sit ON TOP of the nav links, which cut "Expenses" in half
+  // mid-word and read as a rendering bug rather than an overlay. Hiding the nav
+  // (rather than shrinking the input or reflowing the row) is the only fix that
+  // does not depend on the nav's labels adding up to a particular width.
+  let { open = $bindable(false) } = $props();
 
   const listboxId = $props.id();
 
-  let open = $state(false);
   let query = $state('');
   let results = $state<SearchResult[]>([]);
   let loading = $state(false);
@@ -32,9 +37,10 @@
   const search = createGlobalSearch((state) => {
     results = state.results;
     loading = state.loading;
-    // Pre-seed the first option so Enter takes the top hit without arrowing —
-    // the same affordance the contact picker has.
-    activeIndex = state.results.length > 0 ? 0 : -1;
+    // Pre-seed the best-scoring hit so Enter takes it without arrowing — the
+    // same affordance the contact picker has. NOT index 0: sections render in a
+    // fixed order, so the top scorer is rarely the first row on screen.
+    activeIndex = indexOfTopHit(state.results);
   });
 
   const groups = $derived(groupByType(results));
@@ -170,8 +176,12 @@
       </svg>
     </button>
   {:else}
-    <!-- Absolute so expanding overlays the nav instead of pushing it. -->
-    <div class="absolute right-0 top-1/2 z-50 w-[20rem] -translate-y-1/2">
+    <!--
+      Absolute so expanding overlays the (now hidden) nav instead of pushing it.
+      Wide enough to look deliberate in the space the nav vacated — a narrow box
+      floating in an empty header row reads as an accident.
+    -->
+    <div class="absolute right-0 top-1/2 z-50 w-[28rem] -translate-y-1/2">
       <input
         bind:this={inputEl}
         bind:value={query}
