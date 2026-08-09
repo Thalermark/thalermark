@@ -1192,6 +1192,91 @@ describe('public invoice view', () => {
     }
   });
 
+  // TMC-210. The recipient's page renders what this payload says is owed. It
+  // carried only `total` while the Pay button charged total − paid, so a
+  // customer who had put a deposit down was shown one number and billed
+  // another. These pin the settlement fields that close that gap.
+  it('the public payload reports an untouched invoice as unpaid, owing the full total', async () => {
+    const ctx = buildApp();
+    try {
+      const { cookie, accountId, invoiceId } = await seedDraftInvoice(
+        ctx,
+        'pub-unpaid@example.com',
+      );
+      await ctx.app.request(`/api/invoices/${invoiceId}/mark-sent`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      const db = getTestDb();
+      const [row] = await db.select().from(invoices).where(eq(invoices.id, invoiceId));
+
+      const res = await ctx.app.request(`/api/public/invoices/${row?.publicToken}`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        total: string;
+        paid: string;
+        outstanding: string;
+        settlement: string;
+      };
+      expect(body.total).toBe('108.25');
+      expect(body.paid).toBe('0.00');
+      // Nothing received, so the whole total is still owed — the one case where
+      // the old total-only payload happened to be right.
+      expect(body.outstanding).toBe('108.25');
+      expect(body.settlement).toBe('unpaid');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('the public payload reports a deposit as partial and owes only the remainder', async () => {
+    const ctx = buildApp();
+    try {
+      const { cookie, accountId, invoiceId } = await seedDraftInvoice(
+        ctx,
+        'pub-partial@example.com',
+      );
+      await ctx.app.request(`/api/invoices/${invoiceId}/mark-sent`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId },
+      });
+
+      // A real receipt through the app's own endpoint, not a direct row insert —
+      // the public view has to agree with the books, so the books have to be the
+      // thing that moved.
+      const paid = await ctx.app.request(`/api/invoices/${invoiceId}/payments`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+        body: JSON.stringify({ amount: '50.00', receivedOn: '2026-06-01', method: 'check' }),
+      });
+      expect(paid.status).toBe(201);
+
+      const db = getTestDb();
+      const [row] = await db.select().from(invoices).where(eq(invoices.id, invoiceId));
+
+      const res = await ctx.app.request(`/api/public/invoices/${row?.publicToken}`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        status: string;
+        total: string;
+        paid: string;
+        outstanding: string;
+        settlement: string;
+      };
+      // The total is the document's figure and never moves — the deposit shows
+      // up beside it, not inside it.
+      expect(body.total).toBe('108.25');
+      expect(body.paid).toBe('50.00');
+      expect(body.outstanding).toBe('58.25');
+      expect(body.settlement).toBe('partial');
+      // Still open: a deposit does not settle the invoice, and the page must
+      // keep offering the Pay button for the rest.
+      expect(body.status).toBe('sent');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
   it('from-block contact fields are gated per-invoice by the show flags', async () => {
     const ctx = buildApp();
     try {

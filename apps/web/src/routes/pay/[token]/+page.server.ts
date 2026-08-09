@@ -33,6 +33,8 @@ export const load: PageServerLoad = async (event) => {
     clientSecret: string;
     publishableKey: string;
     stripeAccountId: string | null;
+    amount: string;
+    currency: string;
   };
 
   return {
@@ -41,6 +43,11 @@ export const load: PageServerLoad = async (event) => {
     clientSecret: pi.clientSecret,
     publishableKey: pi.publishableKey,
     stripeAccountId: pi.stripeAccountId,
+    // What the intent will actually charge — the outstanding balance, not the
+    // invoice total. Taken from the mint response so the page can never print a
+    // different number than the one Stripe is about to take (TMC-210).
+    amount: pi.amount,
+    currency: pi.currency,
   };
 };
 
@@ -48,6 +55,8 @@ type PublicInvoice = {
   number: string;
   currency: string;
   total: string;
+  paid: string;
+  outstanding: string;
   companyName: string | null;
   customerName: string | null;
   payable: boolean;

@@ -1,6 +1,7 @@
 import { dev } from '$app/environment';
 import { env as privateEnv } from '$env/dynamic/private';
 import { env as publicEnv } from '$env/dynamic/public';
+import { PUBLIC_PATHS, REDIRECT_IF_AUTHED, isPublicPrefix } from '$lib/public-routes';
 import * as Sentry from '@sentry/sveltekit';
 import { type Handle, error, redirect } from '@sveltejs/kit';
 import { sequence } from '@sveltejs/kit/hooks';
@@ -27,25 +28,8 @@ if (errorTrackingDsn) {
 // `??` so an explicit empty PUBLIC_API_URL falls through to the dev fallback.
 const apiUrl = privateEnv.INTERNAL_API_URL || publicEnv.PUBLIC_API_URL || 'http://localhost:3000';
 
-const REDIRECT_IF_AUTHED = new Set(['/sign-in', '/sign-up']);
-// /monitoring is the client error-tracking tunnel (routes/monitoring): the
-// browser SDK POSTs error envelopes there. It must accept them without a session
-// — client errors happen on public pages and for logged-out visitors too — so it
-// can't be behind the /sign-in redirect.
-const PUBLIC_PATHS = new Set([...REDIRECT_IF_AUTHED, '/accept-invite', '/monitoring']);
-// Parameterized public paths. The public invoice view at /i/[token] needs
-// to render without a session — the recipient of an invoice email has no
-// account here. Prefix-matched so each new public route is visible at this
-// top-level config rather than buried in per-route +layout guards.
-// /legal/ (Terms + Privacy) must be reachable while anonymous: the sign-up
-// legal-consent clickwrap links to them before the visitor has an account.
-const PUBLIC_PREFIXES = ['/i/', '/e/', '/legal/'];
 const SELECT_COMPANY_PATH = '/select-company';
 const ACTIVE_COOKIE = 'active_account_id';
-
-function isPublicPrefix(path: string): boolean {
-  return PUBLIC_PREFIXES.some((p) => path.startsWith(p));
-}
 
 async function loadSession(cookieHeader: string | null): Promise<Session | null> {
   if (!cookieHeader) return null;
