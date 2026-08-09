@@ -7,6 +7,7 @@ import {
 } from '@thalermark/ai';
 import {
   type Transaction,
+  billPayments,
   bills,
   chartOfAccounts,
   companies,
@@ -45,6 +46,7 @@ import {
   lt,
   lte,
   ne,
+  not,
   notInArray,
   sql,
 } from 'drizzle-orm';
@@ -415,6 +417,20 @@ async function buildTaxWorksheet(
   for (const row of expenseRows) addExpense(row);
 
   if (basis === 'cash') {
+    // Two sources, deliberately disjoint (TMC-192).
+    //
+    // A bill settled through the old single-shot mark-paid has header stamps
+    // and no payment rows, and its whole amount belongs to the period it was
+    // paid — the query this has always been. A bill settled through payment
+    // rows is the opposite: the header says nothing useful (a part-paid bill is
+    // still 'open' and would be skipped entirely), and cash basis wants each
+    // payment in the period the money actually left. Half in December and half
+    // in January is two years' deductions, which is the whole point of the
+    // basis.
+    //
+    // The NOT EXISTS is what keeps them from overlapping — without it, a bill
+    // paid in full through rows would be counted by both.
+    const hasPaymentRows = sql`exists (select 1 from ${billPayments} where ${billPayments.billId} = ${bills.id})`;
     const paidBills = await tx
       .select({
         code: chartOfAccounts.code,
@@ -431,11 +447,37 @@ async function buildTaxWorksheet(
           eq(bills.status, 'paid'),
           gte(bills.paidAt, fromInstant),
           lt(bills.paidAt, toExclusiveInstant),
+          not(hasPaymentRows),
         ),
       )
       .groupBy(chartOfAccounts.code, chartOfAccounts.name, chartOfAccounts.taxMapping)
       .orderBy(asc(chartOfAccounts.code));
     for (const row of paidBills) addExpense(row);
+
+    // Bare-date comparison, deliberately NOT dayStartInstant like the GL reads
+    // above — paid_on is a calendar date the payer asserts, not an instant, so
+    // there is no zone to resolve. Same call the mileage block below makes.
+    const billPaymentRows = await tx
+      .select({
+        code: chartOfAccounts.code,
+        name: chartOfAccounts.name,
+        taxMapping: chartOfAccounts.taxMapping,
+        amount: sql<string>`coalesce(sum(${billPayments.amount}), 0)::numeric(15,2)`,
+      })
+      .from(billPayments)
+      .innerJoin(bills, eq(billPayments.billId, bills.id))
+      .innerJoin(chartOfAccounts, eq(bills.categoryAccountId, chartOfAccounts.id))
+      .where(
+        and(
+          eq(billPayments.accountId, accountId),
+          eq(billPayments.companyId, id),
+          gte(billPayments.paidOn, from),
+          lt(billPayments.paidOn, toExclusiveDate),
+        ),
+      )
+      .groupBy(chartOfAccounts.code, chartOfAccounts.name, chartOfAccounts.taxMapping)
+      .orderBy(asc(chartOfAccounts.code));
+    for (const row of billPaymentRows) addExpense(row);
   }
 
   // Standard mileage (TMC-179). Bare-date comparison against the date column —

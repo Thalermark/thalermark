@@ -69,3 +69,45 @@ export function apiErrorMessage(
       return code ?? fallback;
   }
 }
+
+// --- Settlement guards (TMC-187 invoices, TMC-192 bills) --------------------
+// Once a document can be PARTLY settled, several actions that used to be always
+// available start refusing, and each refusal is a rule the user did not know
+// existed. They are shared here rather than per route because invoices and
+// bills raise the identical codes for the identical reasons — the only thing
+// that differs is the noun.
+//
+// Without this they reach the screen as raw codes: apiErrorMessage returns an
+// unrecognised code UNCHANGED, deliberately, so route-specific switches keep
+// matching. That is exactly how a user voiding a part-paid invoice was shown
+// the string "has_payments".
+//
+// Every sentence says what to do next rather than what failed.
+export type SettlementNoun = 'invoice' | 'bill';
+
+const SETTLEMENT_ERRORS: Record<string, (noun: SettlementNoun) => string> = {
+  // Void refuses because its posting reverses the FULL amount, which would
+  // undo relief the payments already gave. Mark-paid refuses because it would
+  // settle the whole amount a second time.
+  has_payments: (noun) =>
+    `This ${noun} has payments recorded against it — remove or refund those first.`,
+  // Settled by the old one-shot path: no payment rows, and the money has
+  // already moved, so another payment would double it.
+  settled_without_payments: (noun) =>
+    `This ${noun} was settled in one go, so there is nothing left to record against it.`,
+  voided: (noun) => `This ${noun} was voided, so no more money can be recorded against it.`,
+  // Invoice-only: a payment pays down a receivable and a draft has posted none.
+  not_issued: () => 'Send this invoice first — there is nothing owed on a draft to pay down.',
+  // Bill-only: the chart marks several things assets that money cannot leave.
+  invalid_payment_account: () => "That account isn't one a bill can be paid from.",
+};
+
+export function settlementErrorMessage(
+  code: string | undefined,
+  noun: SettlementNoun,
+  fallback: string,
+  body?: unknown,
+): string {
+  const build = code ? SETTLEMENT_ERRORS[code] : undefined;
+  return build ? build(noun) : apiErrorMessage(code, fallback, body);
+}

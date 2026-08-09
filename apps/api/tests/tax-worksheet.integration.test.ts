@@ -187,7 +187,7 @@ async function bill(
   ctx: Ctx,
   vendorId: string,
   opts: { categoryCode: string; amount: string; billDate: string; paidOn?: string },
-): Promise<void> {
+): Promise<string> {
   const categoryAccountId = await coaId(ctx.companyId, opts.categoryCode);
   const res = await ctx.app.request('/api/bills', {
     method: 'POST',
@@ -205,6 +205,24 @@ async function bill(
   const id = ((await res.json()) as { id: string }).id;
   if (opts.paidOn) {
     await post(ctx, `/api/bills/${id}/mark-paid`, { method: 'check', paidOn: opts.paidOn });
+  }
+  return id;
+}
+
+// One payment against a bill (TMC-192). Its own helper rather than post()
+// because the payments endpoint answers 201, not 200.
+async function billPayment(
+  ctx: Ctx,
+  billId: string,
+  opts: { amount: string; paidOn: string },
+): Promise<void> {
+  const res = await ctx.app.request(`/api/bills/${billId}/payments`, {
+    method: 'POST',
+    headers: headers(ctx),
+    body: JSON.stringify({ ...opts, method: 'check' }),
+  });
+  if (res.status !== 201) {
+    throw new Error(`bill payment failed: ${res.status} ${await res.text()}`);
   }
 }
 
@@ -385,6 +403,33 @@ describe('GET /api/companies/:id/schedule-c', () => {
       expect(line((await getScheduleC(ctx, '?year=2026&basis=cash')).body, '22')).toBe('0.00');
       expect(line((await getScheduleC(ctx, '?year=2027&basis=cash')).body, '22')).toBe('300.00');
       // Accrual books it when the bill was opened, not paid.
+      expect(line((await getScheduleC(ctx, '?year=2026&basis=accrual')).body, '22')).toBe('300.00');
+      expect(line((await getScheduleC(ctx, '?year=2027&basis=accrual')).body, '22')).toBe('0.00');
+    } finally {
+      await close();
+    }
+  });
+
+  // Partial payments for bills (TMC-192). A bill paid in installments across a
+  // year boundary is two years' deductions on cash basis — the whole point of
+  // the basis. Before payment rows existed, a part-paid bill was still 'open'
+  // and deducted NOTHING, which is a wrong tax number rather than a rounding
+  // difference.
+  it('splits a bill paid in installments across the years the money left', async () => {
+    const { ctx, close } = await setup('sc-bill-split@example.com');
+    try {
+      const vendor = await createContact(ctx, 'Ace Hardware');
+      const id = await bill(ctx, vendor, {
+        categoryCode: '7000',
+        amount: '300.00',
+        billDate: '2026-11-01',
+      });
+      await billPayment(ctx, id, { amount: '100.00', paidOn: '2026-12-15' });
+      await billPayment(ctx, id, { amount: '200.00', paidOn: '2027-01-10' });
+
+      expect(line((await getScheduleC(ctx, '?year=2026&basis=cash')).body, '22')).toBe('100.00');
+      expect(line((await getScheduleC(ctx, '?year=2027&basis=cash')).body, '22')).toBe('200.00');
+      // Accrual is unmoved: it books the whole cost when the bill was opened.
       expect(line((await getScheduleC(ctx, '?year=2026&basis=accrual')).body, '22')).toBe('300.00');
       expect(line((await getScheduleC(ctx, '?year=2027&basis=accrual')).body, '22')).toBe('0.00');
     } finally {

@@ -1,6 +1,7 @@
 export * from './accounts.js';
 export * from './audit_events.js';
 export * from './auth.js';
+export * from './bill_payments.js';
 export * from './bills.js';
 export * from './capital_purchases.js';
 export * from './chart_of_accounts.js';
