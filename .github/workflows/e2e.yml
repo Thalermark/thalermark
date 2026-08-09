@@ -22,9 +22,25 @@ permissions:
 # non-BYPASSRLS `thalermark_app` role — so RLS is actually enforced here in a
 # way the integration suite cannot check.
 #
-# Scope: suites 01-06. 07 and 08 additionally drive the SvelteKit app on
-# TMC_WEB and are not wired up yet; adding them means building and serving the
-# web app in this job.
+# Scope: suites 01-06 and 09. The web-driving suites need the SvelteKit app
+# served on TMC_WEB, which this job now does — `pnpm build` was already
+# building apps/web, so it only had to be started.
+#
+# 07 and 08 also drive the web app and are still excluded, deliberately. They
+# have never run in CI and were written against a dev machine, so switching
+# them on in the same change would mix "the launch-gate regressed" with "suite
+# 08 was always a bit red" in the same signal. Their own ticket.
+#
+# 09 covers the public invoice → pay path with NO session (TMC-209/210/211).
+# It is the only suite here that asserts what a stranger sees, which is the
+# gap that let a guard bug reach an audit: every other helper we own stamps a
+# cookie on every request, and a signed-in session hid the bug completely.
+#
+# No Stripe keys in this job, on purpose — real card calls in CI are flaky and
+# a flaky suite gets ignored. 09 detects that and skips the two assertions
+# that need a payable invoice; the amount arithmetic is pinned by the api
+# integration tests instead. The TMC-209 guard assertion, which is the P0,
+# needs no Stripe and always runs.
 
 jobs:
   e2e:
@@ -65,6 +81,11 @@ jobs:
       BETTER_AUTH_URL: http://localhost:3000
       PUBLIC_APP_URL: http://localhost:5173
       API_PORT: '3000'
+      # Server-side fetches from the SvelteKit app to the api. hooks.server.ts
+      # prefers INTERNAL_API_URL over PUBLIC_API_URL; both default to this same
+      # value, but relying on a default is how the next port change breaks the
+      # job silently.
+      INTERNAL_API_URL: http://localhost:3000
       # The harness signs up a fresh account per suite and hammers the API far
       # harder than a human would; the limiter would throttle it into false
       # failures. It is exercised by app-rate-limit.integration.test.ts instead.
@@ -118,16 +139,46 @@ jobs:
           cat /tmp/api.log
           exit 1
 
+      # adapter-node, so this is the same built artifact the self-host image
+      # serves — `pnpm build` above already produced apps/web/build. PORT is set
+      # here rather than at job level so it cannot be mistaken for the api's
+      # (which reads API_PORT). ORIGIN is what adapter-node checks on form
+      # POSTs; suite 09 is GET-only, but 07/08 are not and this is the value
+      # they will need.
+      - name: Start the web app
+        env:
+          PORT: '5173'
+          ORIGIN: http://localhost:5173
+        run: |
+          pnpm --filter @thalermark/web start > /tmp/web.log 2>&1 &
+          echo $! > /tmp/web.pid
+
+      # /sign-in is public, cheap, and server-rendered, so a 200 here means the
+      # app is genuinely serving pages rather than merely holding the port open.
+      - name: Wait for the web app
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:5173/sign-in > /dev/null 2>&1; then
+              echo "web ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "web app did not become ready — boot log follows:"
+          cat /tmp/web.log
+          exit 1
+
       # TMC_DATABASE_URL routes the harness's psql_q through the runner's psql
       # instead of `docker exec`; there is no container to exec into here.
-      - name: Run the walkthrough (suites 01-06)
+      - name: Run the walkthrough (suites 01-06, 09)
         env:
           TMC_API: http://localhost:3000
+          TMC_WEB: http://localhost:5173
           TMC_DATABASE_URL: postgres://postgres:postgres@localhost:5432/thalermark
         run: |
           set -euo pipefail
           failed=0
-          for suite in e2e/0[1-6]-*.sh; do
+          for suite in e2e/0[1-6]-*.sh e2e/09-*.sh; do
             echo "::group::$suite"
             # Each suite reports its own pass/fail tally and exits non-zero on
             # any failure. Keep going rather than bailing on the first, so one
@@ -144,6 +195,16 @@ jobs:
         if: failure()
         run: cat /tmp/api.log
 
+      # A web suite failing usually means an SSR error, and the assertion text
+      # alone won't say which — the stack trace is only in this log.
+      - name: Web log on failure
+        if: failure()
+        run: cat /tmp/web.log
+
       - name: Stop the API
         if: always()
         run: kill "$(cat /tmp/api.pid)" 2>/dev/null || true
+
+      - name: Stop the web app
+        if: always()
+        run: kill "$(cat /tmp/web.pid)" 2>/dev/null || true

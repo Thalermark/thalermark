@@ -238,7 +238,14 @@ section "TMC-211 — the return banner says what Stripe reported, not what we ho
 FAILED_HTML=$(anon "/i/$TOKEN?paid=1&redirect_status=failed")
 hasnt "a FAILED payment is never called received" "$FAILED_HTML" "Payment received"
 has "…it is called what it is" "$FAILED_HTML" "didn't go through"
-has "…and offers a way to try again" "$FAILED_HTML" "Try again"
+# The retry link is offered only where there is something to retry, so like the
+# Pay button it needs a payable invoice. Same reason as the TMC-210 gate above:
+# on a stack with no Stripe its absence is correct behaviour, not a regression.
+if [ "$(curl -s "$API/api/public/invoices/$TOKEN" | jq -r '.payable')" = "true" ]; then
+  has "…and offers a way to try again" "$FAILED_HTML" "Try again"
+else
+  printf '  · retry link skipped: no Stripe on this stack, so there is nothing to retry\n'
+fi
 
 has "a SUCCEEDED payment is acknowledged" \
   "$(anon "/i/$TOKEN?paid=1&redirect_status=succeeded")" "Payment received"
