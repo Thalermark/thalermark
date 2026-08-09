@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { isoDateString, moneyString } from './money.js';
+import { isoDateString, moneyString, signedMoneyString } from './money.js';
 
 // Vendor bills — accounts payable. A bill is the accrual sibling of an expense:
 // it recognises a cost you owe now (Dr <category> / Cr Accounts Payable) and is
@@ -71,3 +71,31 @@ export const billMarkPaidSchema = z.object({
 });
 
 export type BillMarkPaidInput = z.infer<typeof billMarkPaidSchema>;
+
+// Input schema for POST /api/bills/:id/payments (TMC-192) — one payment against
+// a bill, the accounts-payable mirror of invoicePaymentCreateSchema.
+//
+// mark-paid above is now the special case of this (a payment for the whole
+// balance) rather than the only way money can leave, and is left exactly as it
+// was so the quick path and every existing caller are untouched.
+//
+// amount is SIGNED: positive is money out to the vendor, negative is a refund
+// back from them. paidOn is required here where mark-paid defaults it — a
+// payment list with a blank date is unreadable, and the client always knows.
+//
+// paymentAccountId is the asset this particular payment left from, resolved to
+// the company's Cash (1000) when omitted. It is per-payment rather than
+// per-bill on purpose: paying half from the business account and half in cash
+// is the case partial payments exist for.
+export const billPaymentCreateSchema = z.object({
+  amount: signedMoneyString,
+  paidOn: isoDateString,
+  method: z.enum(BILL_PAYMENT_METHODS),
+  paymentAccountId: z.string().uuid().optional(),
+  reference: z
+    .union([z.string().trim().max(100), z.literal(''), z.null()])
+    .transform((v) => (v ? v : null))
+    .optional(),
+});
+
+export type BillPaymentCreateInput = z.infer<typeof billPaymentCreateSchema>;

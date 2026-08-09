@@ -102,6 +102,18 @@
   function money(value: string): string {
     return `$${formatUnitPrice(Math.abs(Number(value)).toFixed(2))}`;
   }
+
+  // The receipt list's two text runs, built as strings rather than inline {#if}
+  // blocks: Svelte trims the whitespace at a block's edges, which ran the
+  // separator into the previous word ("Check· 1024", "Refund$20.00").
+  const paymentAmount = (amount: string) =>
+    Number(amount) < 0 ? `Refund ${money(amount)}` : money(amount);
+
+  function paymentMeta(p: { receivedOn: string; method: string; reference: string | null }) {
+    const parts = [p.receivedOn, PAYMENT_METHOD_LABELS[p.method] ?? p.method];
+    if (p.reference) parts.push(p.reference);
+    return parts.join(' · ');
+  }
 </script>
 
 <a href="/invoices" class="eyebrow text-fg/60 hover:text-fg">← Invoices</a>
@@ -437,15 +449,13 @@
       <ul class="mt-4 divide-y divide-fg/10 border-y border-fg/10">
         {#each settlement.payments as p (p.id)}
           <li class="flex flex-wrap items-baseline justify-between gap-3 py-2.5 text-sm">
-            <span class="text-fg/70">
-              {p.receivedOn} · {PAYMENT_METHOD_LABELS[p.method] ?? p.method}{#if p.reference}
-                · {p.reference}{/if}
-            </span>
+            <span class="text-fg/70">{paymentMeta(p)}</span>
             <span class="flex items-baseline gap-4">
               <!-- A negative row is a refund or credit note, not a receipt. Say
-                   so in words rather than relying on the minus sign alone. -->
+                   so in words rather than relying on the minus sign alone —
+                   money() is already unsigned, so the word is what carries it. -->
               <span class="tabular-nums {Number(p.amount) < 0 ? 'text-fg/60' : 'text-fg'}">
-                {#if Number(p.amount) < 0}Refund {/if}{money(p.amount)}
+                {paymentAmount(p.amount)}
               </span>
               {#if canRecordPayment}
                 <form method="post" action="?/removePayment">

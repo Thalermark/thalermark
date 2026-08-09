@@ -1,5 +1,5 @@
 import { pickActiveCompany } from '$lib/active-company';
-import { apiErrorMessage } from '$lib/api-errors';
+import { apiErrorMessage, settlementErrorMessage } from '$lib/api-errors';
 import { serverApiClient } from '$lib/api.server';
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
@@ -101,7 +101,7 @@ async function runTransition(
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
     return fail(res.status, {
-      transitionError: apiErrorMessage(body?.error, 'transition_failed', body),
+      transitionError: settlementErrorMessage(body?.error, 'invoice', 'transition_failed', body),
     });
   }
   redirect(303, `/invoices/${id}`);
@@ -139,7 +139,7 @@ async function postPayment(
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
     return fail(res.status, {
-      transitionError: apiErrorMessage(body?.error, `${endpoint}_failed`, body),
+      transitionError: settlementErrorMessage(body?.error, 'invoice', `${endpoint}_failed`, body),
     });
   }
   redirect(303, `/invoices/${id}`);
@@ -247,7 +247,7 @@ async function runRecordPayment(event: Parameters<Actions[string]>[0]) {
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
     return fail(res.status, {
-      transitionError: apiErrorMessage(body?.error, 'payment_failed', body),
+      transitionError: settlementErrorMessage(body?.error, 'invoice', 'payment_failed', body),
     });
   }
   redirect(303, `/invoices/${id}`);
@@ -275,7 +275,7 @@ async function runTakeDeposit(event: Parameters<Actions[string]>[0]) {
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
     return fail(res.status, {
-      transitionError: apiErrorMessage(body?.error, 'deposit_failed', body),
+      transitionError: settlementErrorMessage(body?.error, 'invoice', 'deposit_failed', body),
     });
   }
   redirect(303, `/invoices/${id}`);
@@ -315,7 +315,12 @@ async function runRemovePayment(event: Parameters<Actions[string]>[0]) {
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
     return fail(res.status, {
-      transitionError: apiErrorMessage(body?.error, 'payment_remove_failed', body),
+      transitionError: settlementErrorMessage(
+        body?.error,
+        'invoice',
+        'payment_remove_failed',
+        body,
+      ),
     });
   }
   redirect(303, `/invoices/${id}`);

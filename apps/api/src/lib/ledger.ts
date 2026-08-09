@@ -394,11 +394,19 @@ export function billOpenLines(args: { categoryCode: string; amount: string }): L
   ];
 }
 
+// Signed since TMC-192: a refund back from the vendor is a NEGATIVE payment,
+// and its posting is these same two lines with the sides flipped, so AP nets
+// back up without a second concept. The single-shot mark-paid path passes a
+// bill amount, which moneyString already guarantees is positive, so it is
+// unaffected.
 export function billPaymentLines(args: { paymentCode: string; amount: string }): LedgerLine[] {
-  return [
-    { code: COA_AP, side: 'debit', amount: args.amount },
-    { code: args.paymentCode, side: 'credit', amount: args.amount },
+  const cents = Math.round(Number(args.amount) * 100);
+  const amount = centsToMoney(Math.abs(cents));
+  const lines: LedgerLine[] = [
+    { code: COA_AP, side: 'debit', amount },
+    { code: args.paymentCode, side: 'credit', amount },
   ];
+  return cents < 0 ? reverseLedgerLines(lines) : lines;
 }
 
 // Posts the open (Dr category / Cr AP) entry for a newly recorded bill. `label`
@@ -472,6 +480,63 @@ export async function postBillPayment(
     lines: billPaymentLines({ paymentCode: args.paymentCode, amount: args.bill.amount }),
     // Paying a bill the business had already opened is settlement — a retired
     // company still has to be able to pay what it owed (see company-lock.ts).
+    intent: 'settlement',
+  });
+}
+
+// --- Bill payments (TMC-192) ----------------------------------------------
+// One payment against a bill, the mirror of postInvoicePayment. It differs from
+// postBillPayment above in the one way that matters: the amount is the
+// PAYMENT's, not the bill's. That is the whole point of the table.
+//
+// source_entity_id is the BILL, not the payment, exactly as the invoice side
+// does it: every entry for a bill shares one source group, so cashFlowNet's
+// per-source netting keeps working and a payment plus its later reversal cancel
+// inside that group for free.
+type BillPaymentPosting = {
+  payment: { amount: string; paymentCode: string };
+  bill: { id: string; label: string };
+  accountId: string;
+  companyId: string;
+  postedAt: Date;
+};
+
+export async function postBillPaymentReceipt(
+  tx: Database | Transaction,
+  args: BillPaymentPosting,
+): Promise<string | null> {
+  return postJournalEntry(tx, {
+    accountId: args.accountId,
+    companyId: args.companyId,
+    sourceEntityType: 'bill',
+    sourceEntityId: args.bill.id,
+    postedAt: args.postedAt,
+    memo: `Bill ${args.bill.label} payment`,
+    lines: billPaymentLines(args.payment),
+    // Same reason postBillPayment carries it: paying down a liability the
+    // business already opened is settlement, and a retired company must still
+    // be able to pay what it owed (see company-lock.ts).
+    intent: 'settlement',
+  });
+}
+
+// Undo one payment, dated at the date it was originally posted rather than
+// today — a reversal must land in the same reporting period as the entry it
+// cancels, or removing a mistake would move cash off a closed month and onto
+// this one. The payment's OWN account code feeds both sides, which is why it is
+// persisted on the row rather than re-resolved from the bill header.
+export async function postBillPaymentReceiptReversal(
+  tx: Database | Transaction,
+  args: BillPaymentPosting,
+): Promise<string | null> {
+  return postJournalEntry(tx, {
+    accountId: args.accountId,
+    companyId: args.companyId,
+    sourceEntityType: 'bill',
+    sourceEntityId: args.bill.id,
+    postedAt: args.postedAt,
+    memo: `Bill ${args.bill.label} payment reversal`,
+    lines: reverseLedgerLines(billPaymentLines(args.payment)),
     intent: 'settlement',
   });
 }

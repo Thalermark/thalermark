@@ -232,6 +232,64 @@ describe('billOpenLines / billPaymentLines (accounts payable)', () => {
       { code: '2000', side: 'debit', amount: '320.00' },
     ]);
   });
+
+  // Partial payments for bills (TMC-192).
+  it('a payment carries its OWN asset code — two payments, two accounts', () => {
+    expect(billPaymentLines({ paymentCode: '1010', amount: '160.00' })).toEqual([
+      { code: '2000', side: 'debit', amount: '160.00' },
+      { code: '1010', side: 'credit', amount: '160.00' },
+    ]);
+  });
+
+  it('a negative payment is a vendor refund — the same lines, sides flipped', () => {
+    expect(billPaymentLines({ paymentCode: '1000', amount: '-50.00' })).toEqual([
+      { code: '2000', side: 'credit', amount: '50.00' },
+      { code: '1000', side: 'debit', amount: '50.00' },
+    ]);
+  });
+
+  it('open + two part-payments from different accounts still net AP to zero', () => {
+    const lifecycle = [
+      ...billOpenLines({ categoryCode: '7000', amount: '320.00' }),
+      ...billPaymentLines({ paymentCode: '1000', amount: '160.00' }),
+      ...billPaymentLines({ paymentCode: '1010', amount: '160.00' }),
+    ];
+    const apNet = lifecycle
+      .filter((l) => l.code === '2000')
+      .reduce((sum, l) => sum + (l.side === 'credit' ? Number(l.amount) : -Number(l.amount)), 0);
+    expect(apNet).toBe(0);
+  });
+
+  // Removing a payment reverses it, so the pair must vanish from every account
+  // it touched — not just AP. A residue on the asset side would be a silent
+  // cash error nobody looks for.
+  it('a payment and its reversal cancel on both legs', () => {
+    const payment = billPaymentLines({ paymentCode: '1000', amount: '160.00' });
+    const net = [...payment, ...reverseLedgerLines(payment)].reduce<Record<string, number>>(
+      (acc, l) => {
+        acc[l.code] =
+          (acc[l.code] ?? 0) + (l.side === 'debit' ? Number(l.amount) : -Number(l.amount));
+        return acc;
+      },
+      {},
+    );
+    expect(net).toEqual({ '2000': 0, '1000': 0 });
+  });
+
+  // A refund and its own removal, which is the double-negative case: the
+  // reversal of an already-flipped entry must land back where it started.
+  it('a refund and its reversal also cancel on both legs', () => {
+    const refund = billPaymentLines({ paymentCode: '1000', amount: '-50.00' });
+    const net = [...refund, ...reverseLedgerLines(refund)].reduce<Record<string, number>>(
+      (acc, l) => {
+        acc[l.code] =
+          (acc[l.code] ?? 0) + (l.side === 'debit' ? Number(l.amount) : -Number(l.amount));
+        return acc;
+      },
+      {},
+    );
+    expect(net).toEqual({ '2000': 0, '1000': 0 });
+  });
 });
 
 describe('ownerMoneyEventLines (owner equity / draw)', () => {

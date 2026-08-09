@@ -89,6 +89,14 @@ const TRANSITION_ERRORS: Record<string, string> = {
   invalid_recipient: 'Add a contact email or enter one to send.',
   email_not_configured: "Email isn't configured on this server.",
   contact_not_found: 'The contact for this invoice no longer exists.',
+  // The settlement guards (TMC-187), which had no copy on either client — an
+  // unmapped code reaches the screen unchanged, so voiding a part-paid invoice
+  // showed the string "has_payments". Same sentences the web detail uses.
+  has_payments: 'This invoice has payments recorded against it — remove or refund those first.',
+  settled_without_payments:
+    'This invoice was settled in one go, so there is nothing left to record against it.',
+  voided: 'This invoice was voided, so no more money can be recorded against it.',
+  not_issued: 'Send this invoice first — there is nothing owed on a draft to pay down.',
 };
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
