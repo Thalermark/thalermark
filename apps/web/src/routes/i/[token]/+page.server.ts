@@ -40,6 +40,9 @@ type PublicInvoice = {
   subtotal: string;
   tax: string;
   total: string;
+  paid: string;
+  outstanding: string;
+  settlement: 'unpaid' | 'partial' | 'paid' | 'overpaid';
   notes: string | null;
   sentAt: string | null;
   paidAt: string | null;

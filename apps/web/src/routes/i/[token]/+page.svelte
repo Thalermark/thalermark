@@ -6,13 +6,36 @@
   let { data }: PageProps = $props();
   const inv = $derived(data.invoice);
 
-  // Stripe redirects back here as ?paid=1 after a successful payment on the
-  // /pay route. The webhook usually beats the redirect, so the page typically
-  // already shows status=paid; this query flag is the fallback for the race
-  // where the recipient lands before the webhook commits.
-  const showProcessingBanner = $derived(
-    page.url.searchParams.get('paid') === '1' && inv.status === 'sent',
-  );
+  // Stripe returns the customer here after /pay, appending redirect_status (and
+  // payment_intent*) to our ?paid=1 marker. It appends those on FAILURE too, so
+  // reading ?paid=1 alone told someone whose card was declined "Payment
+  // received" and stopped the business chasing an invoice that was never paid
+  // (TMC-211). The banner now says only what Stripe actually reported.
+  //
+  // The webhook usually beats the redirect, in which case inv.status is already
+  // 'paid' and the settled banner below wins — this is the fallback for the
+  // race, and now also the failure path.
+  type PayOutcome = 'succeeded' | 'processing' | 'failed' | 'unknown';
+  const payOutcome = $derived.by<PayOutcome | null>(() => {
+    if (page.url.searchParams.get('paid') !== '1') return null;
+    switch (page.url.searchParams.get('redirect_status')) {
+      case 'succeeded':
+        return 'succeeded';
+      case 'processing':
+        return 'processing';
+      case 'failed':
+      case 'requires_payment_method':
+        return 'failed';
+      // Stripe always appends redirect_status, so a missing one means the URL
+      // was truncated or hand-edited. Claim nothing in either direction.
+      default:
+        return 'unknown';
+    }
+  });
+
+  // Any money received against this invoice, so the recipient can see their
+  // deposit landed instead of being shown the untouched total (TMC-210).
+  const hasPaid = $derived(Number(inv.paid) > 0);
 
   // Flatten the enabled offline methods into a render-ready list. Empty when
   // none are configured (or the invoice is closed — the API nulls the block
@@ -66,11 +89,27 @@
     <div class="mt-6 rounded-sm border border-fg/20 bg-surface-2 px-4 py-3 text-sm text-fg/70">
       This invoice has been voided.
     </div>
-  {:else if showProcessingBanner}
-    <div
-      class="mt-6 rounded-sm border border-accent/30 bg-accent/5 px-4 py-3 text-sm text-fg"
-    >
+  {:else if payOutcome === 'failed'}
+    <div class="mt-6 rounded-sm border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-fg">
+      That payment didn't go through, so nothing was charged. You can try again below, or pay by
+      another method if one is listed.
+      {#if inv.payable}
+        <a class="link mt-2 block" href="/pay/{page.params.token}">Try again</a>
+      {/if}
+    </div>
+  {:else if payOutcome === 'succeeded'}
+    <div class="mt-6 rounded-sm border border-accent/30 bg-accent/5 px-4 py-3 text-sm text-fg">
       Payment received — finalizing. Refresh in a moment if this banner doesn't update.
+    </div>
+  {:else if payOutcome === 'processing'}
+    <div class="mt-6 rounded-sm border border-accent/30 bg-accent/5 px-4 py-3 text-sm text-fg">
+      Payment submitted and still clearing with your bank. This can take a few minutes — the
+      invoice updates on its own once it settles.
+    </div>
+  {:else if payOutcome === 'unknown'}
+    <div class="mt-6 rounded-sm border border-fg/15 bg-surface-2 px-4 py-3 text-sm text-fg/80">
+      We're still confirming this payment. Refresh in a moment — the invoice shows as paid once
+      it clears.
     </div>
   {:else if inv.connectPending && inv.status === 'sent'}
     <div class="mt-6 rounded-sm border border-fg/15 bg-surface-2 px-4 py-3 text-sm text-fg/80">
@@ -165,6 +204,20 @@
           </td>
           <td class="px-5 py-3 text-right font-mono tabular-nums text-lg text-fg">{inv.total}</td>
         </tr>
+        {#if hasPaid}
+          <tr>
+            <td colspan="3" class="px-5 py-3 text-right label">Paid to date</td>
+            <td class="px-5 py-3 text-right font-mono tabular-nums text-fg/70">−{inv.paid}</td>
+          </tr>
+          <tr>
+            <td colspan="3" class="px-5 py-3 text-right label">
+              {inv.settlement === 'overpaid' ? 'Overpaid by' : 'Balance due'}
+            </td>
+            <td class="px-5 py-3 text-right font-mono tabular-nums text-lg text-fg">
+              {inv.settlement === 'overpaid' ? inv.outstanding.replace('-', '') : inv.outstanding}
+            </td>
+          </tr>
+        {/if}
       </tfoot>
     </table>
   </div>
@@ -186,7 +239,7 @@
             href="/pay/{page.params.token}"
             class="inline-block rounded-sm bg-inverse px-6 py-3 text-sm font-medium uppercase tracking-widest text-on-inverse transition-colors hover:bg-accent"
           >
-            Pay {inv.total} {inv.currency}
+            Pay {inv.outstanding} {inv.currency}
           </a>
           <p class="mt-2 font-mono text-xs uppercase tracking-widest text-fg/40">
             Secure card payment via Stripe

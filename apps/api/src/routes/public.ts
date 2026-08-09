@@ -21,6 +21,7 @@ import {
   checkPaymentEligibility,
   paidCentsForInvoice,
   paymentCountForInvoice,
+  summarizeSettlement,
   syncInvoiceSettlement,
 } from '../lib/invoice-payments.js';
 import { postInvoicePayment } from '../lib/ledger.js';
@@ -225,6 +226,22 @@ export function publicRoutes(deps: AppDeps) {
           zelle: company?.paymentZelleContact || null,
         };
 
+        // What is actually still owed. The PaymentIntent below has charged
+        // total − paid since TMC-187, but this payload only ever carried the
+        // total, so the recipient's page had no number to render but the wrong
+        // one — a customer who paid a deposit saw the full amount back with no
+        // acknowledgement their money landed (TMC-210). Derived here from the
+        // payment rows through the same helper the write paths use, so the
+        // public view cannot drift from the books.
+        const paidCents = await paidCentsForInvoice(bootstrapDb, {
+          accountId: invoice.accountId,
+          invoiceId: invoice.id,
+        });
+        const settlement = summarizeSettlement({
+          totalCents: decimalDollarsToCents(invoice.total),
+          paidCents,
+        });
+
         return c.json({
           number: invoice.number,
           status: invoice.status,
@@ -234,6 +251,12 @@ export function publicRoutes(deps: AppDeps) {
           subtotal: invoice.subtotal,
           tax: invoice.tax,
           total: invoice.total,
+          // Decimal strings, like every money value crossing the API. `paid` is
+          // signed, so a refund nets itself out; `outstanding` is what the Pay
+          // button charges.
+          paid: settlement.paid,
+          outstanding: settlement.outstanding,
+          settlement: settlement.settlement,
           notes: invoice.notes,
           sentAt: invoice.sentAt,
           paidAt: invoice.paidAt,
@@ -346,6 +369,12 @@ export function publicRoutes(deps: AppDeps) {
           return c.json({
             clientSecret: intent.client_secret,
             publishableKey: deps.stripe.publishableKey,
+            // The figure the pay page must print. Returned from the same call
+            // that created the charge rather than left to the client to
+            // re-derive, so the heading, the button and the intent are one
+            // number by construction and cannot disagree again (TMC-210).
+            amount: centsToMoney(amountCents),
+            currency: invoice.currency,
             // Direct charges live on the connected account, so the browser must
             // init stripe.js in that account's context (loadStripe's stripeAccount
             // option) for the Payment Element to resolve this intent. Null on the

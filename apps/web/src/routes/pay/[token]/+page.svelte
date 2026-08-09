@@ -6,6 +6,11 @@
 
   let { data }: PageProps = $props();
   const inv = $derived(data.invoice);
+  // Print what Stripe is charging, which is the outstanding balance — the
+  // heading and the button used to read the invoice total while the intent was
+  // minted for total − paid, so a customer who had already put a deposit down
+  // was shown one number and billed another (TMC-210).
+  const hasPaid = $derived(Number(inv.paid) > 0);
 
   // Stripe.js + the Payment Element live only on the client. Imported lazily so
   // we don't ship stripe.js until the recipient has actually reached /pay.
@@ -87,9 +92,14 @@
       {inv.companyName ?? 'Payment'}
     </p>
     <h1 class="mt-2 font-serif text-4xl font-light leading-none tracking-tight text-fg">
-      Pay {inv.total} {inv.currency}<span class="text-accent">.</span>
+      Pay {data.amount} {data.currency}<span class="text-accent">.</span>
     </h1>
     <p class="mt-2 text-sm text-fg/60">Invoice {inv.number}</p>
+    {#if hasPaid}
+      <p class="mt-1 text-sm text-fg/60">
+        Balance due. Invoice total {inv.total} {inv.currency}, {inv.paid} already received.
+      </p>
+    {/if}
   </header>
 
   <form class="mt-10" onsubmit={handleSubmit}>
@@ -105,7 +115,7 @@
       disabled={!ready || submitting}
       class="mt-6 w-full rounded-sm bg-inverse px-6 py-3 text-sm font-medium uppercase tracking-widest text-on-inverse transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
     >
-      {submitting ? 'Processing…' : `Pay ${inv.total} ${inv.currency}`}
+      {submitting ? 'Processing…' : `Pay ${data.amount} ${data.currency}`}
     </button>
   </form>
 

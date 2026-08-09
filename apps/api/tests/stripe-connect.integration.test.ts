@@ -10,6 +10,7 @@ import {
   memberships,
   seedChartOfAccounts,
 } from '@thalermark/db';
+import { toCents } from '@thalermark/validation';
 import { eq } from 'drizzle-orm';
 import type Stripe from 'stripe';
 import { v7 as uuidv7 } from 'uuid';
@@ -741,6 +742,15 @@ describe('requireConnectedAccount — platform-account fallback gate (TMC-175)',
       const [params] = createPaymentIntent.mock.calls[0] as unknown as [{ amount: number }];
       // $60 remaining, not the $100 total.
       expect(params.amount).toBe(6000);
+
+      // TMC-210. The pay page prints what this response says, so the response
+      // has to carry the charged figure rather than leave the client to
+      // re-derive it from the total — that re-derivation was the overcharge.
+      const body = (await res.json()) as { amount: string; currency: string };
+      expect(body.amount).toBe('60.00');
+      // Same number as the intent, by construction: one mint, one figure.
+      expect(toCents(body.amount)).toBe(params.amount);
+      expect(body.currency).toBe('USD');
     } finally {
       await handle.close();
     }
