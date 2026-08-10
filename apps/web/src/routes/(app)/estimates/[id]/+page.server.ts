@@ -18,6 +18,7 @@ export const load: PageServerLoad = async (event) => {
   // so the success banner survives the post/redirect without a session
   // flash. Same pattern as the invoice detail page (8.5b).
   const sentTo = event.url.searchParams.get('sent');
+  const sendUndelivered = event.url.searchParams.get('undelivered') === '1';
 
   // Audit trail (slice 8.8a). Best-effort: a non-OK response renders an
   // empty history rather than failing the whole page.
@@ -30,7 +31,7 @@ export const load: PageServerLoad = async (event) => {
 
   // origin derives from the incoming request so the share URL works behind
   // any proxy. Same pattern as the invoice detail page (8.5a).
-  return { estimate, contact, origin: event.url.origin, sentTo, auditEvents };
+  return { estimate, contact, origin: event.url.origin, sentTo, sendUndelivered, auditEvents };
 };
 
 type AuditEvent = {
@@ -84,8 +85,12 @@ async function runSend(event: Parameters<Actions[string]>[0]) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
     return fail(res.status, { transitionError: body?.error ?? 'send_failed' });
   }
-  const body = (await res.json()) as { sentTo?: string };
-  const qs = body.sentTo ? `?sent=${encodeURIComponent(body.sentTo)}` : '';
+  const body = (await res.json()) as { sentTo?: string; delivered?: boolean };
+  // Only the negative case rides the URL, so an ordinary send is unchanged.
+  // See the invoice send action for why this exists (TMC-212).
+  const qs = body.sentTo
+    ? `?sent=${encodeURIComponent(body.sentTo)}${body.delivered === false ? '&undelivered=1' : ''}`
+    : '';
   redirect(303, `/estimates/${id}${qs}`);
 }
 

@@ -10,7 +10,11 @@ const APP_ORIGIN = 'thalermark://';
 // same escape hatch web's settings/team server actions use. Same auth contract
 // as api.ts: bearer + Origin + x-account-id from secure-store, read at call
 // time (getServerUrl is a runtime value — see the mobile CLAUDE.md).
-export type TeamMutationResult = { ok: true } | { ok: false; error: string };
+// `delivered` rides on the success case for the routes that send mail: the
+// console mailer logs the message and resolves, so a 201 alone can't tell you
+// whether anyone was actually written to (TMC-212). Optional — an older server
+// omits it, and the callers read that absence as "assume it went out".
+export type TeamMutationResult = { ok: true; delivered?: boolean } | { ok: false; error: string };
 
 async function teamHeaders(): Promise<Record<string, string>> {
   const token = await getAuthToken();
@@ -31,8 +35,11 @@ async function teamPost(path: string, body?: unknown): Promise<TeamMutationResul
       headers: await teamHeaders(),
       body: body === undefined ? undefined : JSON.stringify(body),
     });
-    if (res.ok) return { ok: true };
-    const parsed = (await res.json().catch(() => null)) as { error?: string } | null;
+    const parsed = (await res.json().catch(() => null)) as {
+      error?: string;
+      delivered?: boolean;
+    } | null;
+    if (res.ok) return { ok: true, delivered: parsed?.delivered };
     return { ok: false, error: parsed?.error ?? 'send_failed' };
   } catch {
     return { ok: false, error: 'network' };

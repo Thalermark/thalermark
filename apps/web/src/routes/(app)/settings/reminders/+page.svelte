@@ -28,6 +28,15 @@
   you, and stop as soon as an invoice is paid in full.
 </p>
 
+{#if !data.emailConfigured}
+  <div class="mt-6 max-w-prose rounded-sm border border-warning/40 bg-warning/5 px-4 py-3 text-sm text-fg/80">
+    <span class="font-medium text-fg">No reminders are going out.</span> This server can't send
+    email yet, so due reminders are held rather than sent — nothing is marked as chased, and they
+    resume for real once email works. Set the schedule up now if you like; it takes effect then.
+    <a class="link" href="/settings/email">How to turn email on</a>
+  </div>
+{/if}
+
 <form method="post" action="?/save" class="mt-8 max-w-xl">
   <input type="hidden" name="companyId" value={data.company.id} />
 

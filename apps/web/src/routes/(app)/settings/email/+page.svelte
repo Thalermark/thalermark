@@ -26,6 +26,25 @@
   — you edit the subject and message.
 </p>
 
+{#if !data.emailConfigured}
+  <!-- Mirrors the "Stripe isn't configured" card on /settings/payments. Without
+       it this page invites someone to fine-tune the wording of messages that
+       are being written to the server log and delivered to nobody (TMC-212). -->
+  <div class="mt-6 max-w-prose rounded-sm border border-warning/40 bg-warning/5 px-6 py-5">
+    <p class="font-serif text-lg text-fg">This server can't send email yet.</p>
+    <p class="mt-2 text-sm leading-relaxed text-fg/70">
+      Nothing is being delivered. Invoices and estimates still save, and their share links still
+      work — but when you press Send, the message is written to the server log instead of reaching
+      your customer, and automatic payment reminders are held back rather than marked as sent.
+    </p>
+    <p class="mt-2 text-sm leading-relaxed text-fg/70">
+      Set <span class="font-mono text-xs">RESEND_API_KEY</span> and
+      <span class="font-mono text-xs">EMAIL_FROM</span> on the server to turn email on. The wording below
+      is worth setting up either way — it applies as soon as email starts working.
+    </p>
+  </div>
+{/if}
+
 <section class="mt-8 rounded-sm border border-fg/15 bg-surface-2">
   <ul class="divide-y divide-fg/10">
     {#each data.templates as tpl (tpl.type)}

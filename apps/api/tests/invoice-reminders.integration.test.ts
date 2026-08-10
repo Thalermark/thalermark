@@ -14,6 +14,7 @@ import { createApp } from '../src/app.js';
 import type { Env } from '../src/env.js';
 import { createApiAuth } from '../src/lib/auth.js';
 import { createApiDatabase } from '../src/lib/db.js';
+import { createConsoleMailer } from '../src/lib/mailer.js';
 import { sweepInvoiceReminders } from '../src/lib/reminders.js';
 import { appDatabaseUrl, getTestDb, resetDb } from './test-helper.js';
 
@@ -309,6 +310,12 @@ describe('sweepInvoiceReminders', () => {
     // A self-host without SMTP. Recording the row anyway would burn the stage
     // forever — switching mail on later would find every reminder already
     // "sent" and the customer would never hear anything.
+    //
+    // Counted as SKIPPED, not failed (TMC-212). Nothing went wrong: the sweep
+    // looked at a server that cannot send and left the work for later. It used
+    // to reach the per-item guard and throw, which rolled the row back — right
+    // outcome, wrong signal, and it logged an error per due invoice on every
+    // single sweep of an install that was merely unconfigured.
     const ctx = await setup('no-mailer@test.com');
     try {
       await enableReminders(ctx, [7]);
@@ -319,9 +326,37 @@ describe('sweepInvoiceReminders', () => {
         mail: {},
         now: new Date('2026-06-17T09:00:00Z'),
       });
-      expect(result.failed).toBe(1);
       expect(result.sent).toBe(0);
-      // The row must have rolled back with the failed send.
+      expect(result.failed).toBe(0);
+      expect(result.skipped).toBe(1);
+      // The whole point: nothing banked, so the stage is still owed.
+      expect(await remindersFor(ctx, id)).toHaveLength(0);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('holds reminders when the mailer only logs, rather than burning the stage', async () => {
+    // The case that actually shipped (TMC-212). The guard above tested for a
+    // MISSING mailer, but bootstrap always wires the console driver, so it
+    // never fired on a real deploy: every sweep on a self-host without email
+    // banked a full set of rows for messages written to stdout, and configuring
+    // email later found every stage already "sent".
+    const ctx = await setup('console-mailer@test.com');
+    try {
+      await enableReminders(ctx, [7]);
+      const id = await seedInvoice(ctx, { dueDate: '2026-06-10' });
+      const result = await sweepInvoiceReminders({
+        bootstrapDb: getTestDb(),
+        tenantDb: ctx.handle.db,
+        mail: {
+          mailer: createConsoleMailer({ from: 'Thalermark <hello@thalermark.test>' }),
+          emailFrom: 'Thalermark <hello@thalermark.test>',
+        },
+        now: new Date('2026-06-17T09:00:00Z'),
+      });
+      expect(result.sent).toBe(0);
+      expect(result.skipped).toBe(1);
       expect(await remindersFor(ctx, id)).toHaveLength(0);
     } finally {
       await ctx.handle.close();

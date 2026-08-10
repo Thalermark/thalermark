@@ -11,6 +11,7 @@ import { buildAccountExport } from '../lib/account-export.js';
 import { communityAccountNotices } from '../lib/account-notice.js';
 import { emailFooterText, renderEmailHtml } from '../lib/email-layout.js';
 import { getLegalConsentState, recordLegalAcceptance } from '../lib/legal-consent.js';
+import { mailerDelivers } from '../lib/mailer.js';
 import { EMAIL_RE, UUID_RE } from '../lib/route-helpers.js';
 import { requireCapability } from '../middleware/authz.js';
 import type { RlsVariables } from '../middleware/rls-context.js';
@@ -253,7 +254,19 @@ export function accountRoutes(deps: AppDeps) {
           return c.json({ error: 'mailer_send_failed' }, 502);
         }
 
-        return c.json({ id, email, token, expiresAt: expiresAt.toISOString() }, 201);
+        // The invite row is real and the token works whether or not mail moved;
+        // `delivered` says only whether the invitee will hear about it, so the
+        // UI can offer the link instead of claiming an email arrived (TMC-212).
+        return c.json(
+          {
+            id,
+            email,
+            token,
+            expiresAt: expiresAt.toISOString(),
+            delivered: mailerDelivers(deps.mailer),
+          },
+          201,
+        );
       })
       .post('/api/invitations/:token/accept', async (c) => {
         // Bootstrap path: rls-context set userId from the session but did not

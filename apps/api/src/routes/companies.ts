@@ -38,6 +38,7 @@ import {
 } from '../lib/company-copy.js';
 import { buildEmailPreview } from '../lib/email-preview.js';
 import { DEFAULT_TEMPLATES } from '../lib/email-templates.js';
+import { mailerDelivers } from '../lib/mailer.js';
 import { UUID_RE, mimeForKey } from '../lib/route-helpers.js';
 import { requireCapability } from '../middleware/authz.js';
 import type { RlsVariables } from '../middleware/rls-context.js';
@@ -639,7 +640,13 @@ export function companiesRoutes(deps: AppDeps) {
             defaultTemplate: def,
           };
         });
-        return c.json({ templates });
+        // Whether this deployment can actually deliver any of them. Rides the
+        // email payload for the same reason `stripeConfigured` rides the
+        // payments-status payload: it is the one screen where the answer
+        // changes what the operator should do. Without it, Settings → Email
+        // invites someone to fine-tune the wording of messages that are going
+        // to stdout (TMC-212).
+        return c.json({ templates, emailConfigured: mailerDelivers(deps.mailer) });
       })
       .put(
         '/api/companies/:id/email-templates/:type',

@@ -65,6 +65,7 @@ import {
   receiptCreditForInvoice,
   repostInvoicePaymentDate,
 } from '../lib/ledger.js';
+import { mailerDelivers } from '../lib/mailer.js';
 import { applyCursor, keysetOrderBy, parseLimit, slicePage } from '../lib/pagination.js';
 import {
   EMAIL_RE,
@@ -665,6 +666,11 @@ export function invoicesRoutes(deps: AppDeps) {
       // exclusive → their $ sum to total outstanding with no double count);
       // 'draft' is count-only. One round-trip of COUNT/SUM ... FILTER over the
       // status index. Declared before /:id — Hono is first-match.
+      //
+      // The money here is what is STILL OWED, net of receipts — same figure as
+      // the A/R aging report and the dashboard's ledger-derived arBalance. The
+      // counts are still whole invoices: a part-paid invoice is one invoice
+      // awaiting payment, for less money.
       .get('/api/invoices/summary', async (c) => {
         const tx = c.get('tx');
         const accountId = c.get('accountId');
@@ -674,15 +680,33 @@ export function invoicesRoutes(deps: AppDeps) {
         if (companyId) conditions.push(eq(invoices.companyId, companyId));
         const awaiting = sql`${invoices.status} = 'sent' and ${invoices.dueDate} >= ${today}::date`;
         const overdue = sql`${invoices.status} = 'sent' and ${invoices.dueDate} < ${today}::date`;
+        // Receipts per invoice, grouped once and LEFT JOINed, so the strip
+        // reports what is still owed rather than what was originally billed
+        // (TMC-216). One row per invoice, so the join cannot multiply the
+        // counts. Kept as a join rather than a correlated subquery to preserve
+        // the single round trip this endpoint was written for.
+        const paidPerInvoice = tx
+          .select({
+            invoiceId: invoicePayments.invoiceId,
+            paid: sql<string>`sum(${invoicePayments.amount})`.as('paid'),
+          })
+          .from(invoicePayments)
+          .where(eq(invoicePayments.accountId, accountId))
+          .groupBy(invoicePayments.invoiceId)
+          .as('paid_per_invoice');
+        const owed = sql`${invoices.total} - coalesce(${paidPerInvoice.paid}, 0)`;
         const [row] = await tx
           .select({
             draftCount: sql<number>`(count(*) filter (where ${invoices.status} = 'draft'))::int`,
             awaitingCount: sql<number>`(count(*) filter (where ${awaiting}))::int`,
-            awaitingTotal: sql<string>`coalesce(sum(${invoices.total}) filter (where ${awaiting}), 0)::text`,
+            // ::numeric(15,2) before ::text, so an empty bucket renders '0.00'
+            // like every other money value on the wire rather than a bare '0'.
+            awaitingTotal: sql<string>`coalesce(sum(${owed}) filter (where ${awaiting}), 0)::numeric(15,2)::text`,
             overdueCount: sql<number>`(count(*) filter (where ${overdue}))::int`,
-            overdueTotal: sql<string>`coalesce(sum(${invoices.total}) filter (where ${overdue}), 0)::text`,
+            overdueTotal: sql<string>`coalesce(sum(${owed}) filter (where ${overdue}), 0)::numeric(15,2)::text`,
           })
           .from(invoices)
+          .leftJoin(paidPerInvoice, eq(paidPerInvoice.invoiceId, invoices.id))
           .where(and(...conditions));
         return c.json({
           draft: { count: row?.draftCount ?? 0 },
@@ -1045,6 +1069,9 @@ export function invoicesRoutes(deps: AppDeps) {
             accountId,
             invoiceId: id,
             totalCents: toCents(invoice.total),
+            // Never issued → unwinding the last receipt returns it to draft,
+            // not to a 'sent' it never reached (TMC-215).
+            issued: invoice.sentAt !== null,
           });
           if (!synced) return c.json({ error: 'invoice_not_found' }, 404);
 
@@ -1137,6 +1164,9 @@ export function invoicesRoutes(deps: AppDeps) {
             accountId,
             invoiceId: id,
             totalCents: toCents(invoice.total),
+            // Never issued → unwinding the last receipt returns it to draft,
+            // not to a 'sent' it never reached (TMC-215).
+            issued: invoice.sentAt !== null,
           });
           if (!synced) return c.json({ error: 'invoice_not_found' }, 404);
 
@@ -1360,6 +1390,11 @@ export function invoicesRoutes(deps: AppDeps) {
           const id = c.req.param('id');
           if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
           if (!deps.mailer) return c.json({ error: 'email_not_configured' }, 500);
+          // Whether this send will actually reach anyone. In practice deps.mailer
+          // is never null — bootstrap always wires the console driver — so the
+          // guard above is unreachable on a real deploy and THIS is the question
+          // that matters (TMC-212).
+          const delivered = mailerDelivers(deps.mailer);
 
           const { to: toOverrideRaw } = c.req.valid('json');
           const toOverride = toOverrideRaw?.trim() || null;
@@ -1478,8 +1513,11 @@ export function invoicesRoutes(deps: AppDeps) {
             await audit({
               entityType: 'invoice',
               entityId: id,
+              // Recorded on the row as well as shown in the banner (TMC-212).
+              // The audit trail is permanent, so a console-mailer install was
+              // writing a false "emailed" record that outlived the toast.
               action: 'email-sent',
-              after: { to, subject },
+              after: { to, subject, delivered },
               companyId: invoice.companyId,
             });
             if (wasDraft) {
@@ -1487,7 +1525,11 @@ export function invoicesRoutes(deps: AppDeps) {
             }
           });
 
-          return c.json({ ...invoice, sentTo: to });
+          // `delivered: false` means the invoice IS issued — the status flip and
+          // the ledger posting both happened — but nothing reached the customer.
+          // The two facts are separate and the UI has to be able to tell them
+          // apart, which it could not when the payload only carried `sentTo`.
+          return c.json({ ...invoice, sentTo: to, delivered });
         },
       )
       // --- Payments (TMC-187) ------------------------------------------------
@@ -1510,7 +1552,7 @@ export function invoicesRoutes(deps: AppDeps) {
         const accountId = c.get('accountId');
 
         const [invoice] = await tx
-          .select({ id: invoices.id, total: invoices.total })
+          .select({ id: invoices.id, total: invoices.total, sentAt: invoices.sentAt })
           .from(invoices)
           .where(and(eq(invoices.id, id), eq(invoices.accountId, accountId)))
           .limit(1);
@@ -1525,7 +1567,11 @@ export function invoicesRoutes(deps: AppDeps) {
         const paidCents = payments.reduce((sum, p) => sum + toCents(p.amount), 0);
         return c.json({
           payments,
-          ...summarizeSettlement({ totalCents: toCents(invoice.total), paidCents }),
+          ...summarizeSettlement({
+            totalCents: toCents(invoice.total),
+            paidCents,
+            issued: invoice.sentAt !== null,
+          }),
         });
       })
       .post(
@@ -1599,6 +1645,9 @@ export function invoicesRoutes(deps: AppDeps) {
             accountId,
             invoiceId: id,
             totalCents: toCents(invoice.total),
+            // Never issued → unwinding the last receipt returns it to draft,
+            // not to a 'sent' it never reached (TMC-215).
+            issued: invoice.sentAt !== null,
           });
           if (!synced) return c.json({ error: 'invoice_not_found' }, 404);
 
@@ -1686,6 +1735,9 @@ export function invoicesRoutes(deps: AppDeps) {
             accountId,
             invoiceId: id,
             totalCents: toCents(invoice.total),
+            // Never issued → unwinding the last receipt returns it to draft,
+            // not to a 'sent' it never reached (TMC-215).
+            issued: invoice.sentAt !== null,
           });
           if (!synced) return c.json({ error: 'invoice_not_found' }, 404);
 

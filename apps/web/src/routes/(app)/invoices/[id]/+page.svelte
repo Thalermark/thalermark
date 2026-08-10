@@ -152,7 +152,15 @@
   </div>
 {/if}
 
-{#if data.sentTo}
+{#if data.sentTo && data.sendUndelivered}
+  <div class="mt-6 rounded-sm border border-warning/40 bg-warning/5 px-4 py-3 text-sm text-fg">
+    Marked as sent — but <span class="font-medium">no email was delivered</span>. This server has no
+    email set up, so nothing reached {data.sentTo}. The invoice is issued and its pay link works;
+    send the customer that link yourself, or
+    {#if canManageSettings}<a class="link" href="/settings/email">set up email</a>{:else}ask an
+      owner to set up email{/if}.
+  </div>
+{:else if data.sentTo}
   <div class="mt-6 rounded-sm border border-accent/30 bg-accent/5 px-4 py-3 text-sm text-fg">
     Sent to <span class="font-medium">{data.sentTo}</span>.
   </div>

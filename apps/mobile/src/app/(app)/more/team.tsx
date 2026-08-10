@@ -86,6 +86,12 @@ export default function Team() {
   const [inviteRole, setInviteRole] = useState<InviteRole>('member');
   const [sending, setSending] = useState(false);
   const [sentTo, setSentTo] = useState<string | null>(null);
+  // Whether the invite email actually left the building. The console mailer
+  // logs the message and resolves, which looks exactly like a real send — so
+  // the server says, and this screen stops claiming a delivery it can't vouch
+  // for (TMC-212). Defaults to true: an older API omits `delivered`, and that
+  // silence must not raise a warning.
+  const [inviteDelivered, setInviteDelivered] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyUser, setBusyUser] = useState<string | null>(null);
   const [memberError, setMemberError] = useState<string | null>(null);
@@ -144,6 +150,9 @@ export default function Team() {
     setSending(false);
     if (result.ok) {
       setSentTo(trimmed);
+      // Only an explicit `false` is a non-delivery; undefined is an older
+      // server that never told us, and we don't scare people over that.
+      setInviteDelivered(result.delivered !== false);
       setEmail('');
       load(() => true); // refresh pending list
     } else {
@@ -373,7 +382,20 @@ export default function Team() {
                     )}
                   </Pressable>
                   {sentTo ? (
-                    <Text className="mt-3 text-sm text-ink/60">Invite sent to {sentTo}.</Text>
+                    inviteDelivered ? (
+                      <Text className="mt-3 text-sm text-ink/60">Invite sent to {sentTo}.</Text>
+                    ) : (
+                      <View className="mt-3 rounded-sm border border-copper/40 bg-copper/5 px-4 py-3">
+                        <Text className="text-sm text-ink">
+                          Invite created — but{' '}
+                          <Text className="font-medium">no email was delivered</Text>. This server
+                          has no email set up, so nothing reached {sentTo}. The invite is real and
+                          it's listed under Pending invitations — but they can only join through the
+                          link that email carries. Ask whoever runs this server to set up email,
+                          then invite them again.
+                        </Text>
+                      </View>
+                    )
                   ) : error ? (
                     <Text className="mt-3 text-sm text-oxblood">{error}</Text>
                   ) : null}

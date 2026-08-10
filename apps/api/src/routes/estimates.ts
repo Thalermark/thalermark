@@ -22,6 +22,7 @@ import type { AppDeps } from '../app.js';
 import { resolveEmailTemplate } from '../lib/email-templates.js';
 import { sendEstimateEmail } from '../lib/estimate-email.js';
 import { suggestNextEstimateNumber, suggestNextInvoiceNumber } from '../lib/invoice-number.js';
+import { mailerDelivers } from '../lib/mailer.js';
 import { applyCursor, keysetOrderBy, parseLimit, slicePage } from '../lib/pagination.js';
 import { EMAIL_RE, UUID_RE, escapeLike, isValidDateParam } from '../lib/route-helpers.js';
 import { requireCapability } from '../middleware/authz.js';
@@ -930,12 +931,14 @@ export function estimatesRoutes(deps: AppDeps) {
               entityType: 'estimate',
               entityId: id,
               action: 'email-sent',
-              after: { to, subject },
+              after: { to, subject, delivered: mailerDelivers(deps.mailer) },
               companyId: estimate.companyId,
             });
           });
 
-          return c.json({ ...estimate, sentTo: to });
+          // See the invoice send: `delivered: false` means the estimate was
+          // issued but nothing left the server (TMC-212).
+          return c.json({ ...estimate, sentTo: to, delivered: mailerDelivers(deps.mailer) });
         },
       )
     // Public invoice view — unauthed, gated only by the random token in

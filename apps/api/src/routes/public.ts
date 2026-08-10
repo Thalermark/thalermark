@@ -240,6 +240,7 @@ export function publicRoutes(deps: AppDeps) {
         const settlement = summarizeSettlement({
           totalCents: decimalDollarsToCents(invoice.total),
           paidCents,
+          issued: invoice.sentAt !== null,
         });
 
         return c.json({
@@ -666,6 +667,11 @@ export function publicRoutes(deps: AppDeps) {
               accountId: current.accountId,
               invoiceId,
               totalCents: expectedCents,
+              // Always true on this path — a Stripe charge can only reach an
+              // invoice the customer was sent a link to — but stated rather
+              // than assumed, so the webhook cannot drift from the other four
+              // settlement writers (TMC-215).
+              issued: current.sentAt !== null,
             });
 
             // Search reindex is NOT needed here: syncInvoiceSettlement above

@@ -27,8 +27,32 @@ export type MailMessage = {
 };
 
 export type Mailer = {
+  // Set ONLY by a driver that does not actually deliver anything.
+  //
+  // The console driver resolves successfully having done nothing, which is
+  // indistinguishable from a real send to every caller — so the app told people
+  // "Sent to bob@example.com" when the message went to stdout, and a
+  // self-hoster could fire forty invoices into the void and find out in
+  // September (TMC-212). Refusing to boot without a mailer was considered and
+  // rejected: a self-host install must come up with email unconfigured. So the
+  // fake driver declares itself, and callers stop asserting a delivery they
+  // cannot vouch for.
+  //
+  // Typed `?: true` rather than `: boolean` on purpose. Absent means a real
+  // transport, so every existing implementation — the Resend driver, the
+  // recorders in the integration tests, any mailer a commercial embedder wires
+  // through the public barrel — stays correct and compiles unchanged. There is
+  // no third state to get wrong: it is either present-and-true or absent.
+  readonly logsOnly?: true;
   send(msg: MailMessage): Promise<void>;
 };
+
+// Will a send through this mailer actually reach the recipient? The one place
+// the question is answered, so UI copy, audit rows and the reminder sweep
+// cannot drift apart on it. A missing mailer delivers nothing either.
+export function mailerDelivers(mailer: Mailer | undefined | null): boolean {
+  return mailer != null && mailer.logsOnly !== true;
+}
 
 const RESEND_ENDPOINT = 'https://api.resend.com/emails';
 
@@ -67,6 +91,8 @@ export function createResendMailer(opts: { apiKey: string; from: string }): Mail
 export function createConsoleMailer(opts: { from: string }): Mailer {
   const log = getLogger(['api', 'mailer', 'console']);
   return {
+    // Logs and returns. Nothing is delivered, and the UI must not say it was.
+    logsOnly: true,
     async send(msg) {
       log.info('[email] from={from} replyTo={replyTo} to={to} subject={subject}\n{text}', {
         from: msg.from ?? opts.from,
