@@ -781,22 +781,95 @@ export function billsRoutes() {
           });
           if ('error' in account) return c.json({ error: account.error }, 400);
 
+          // Double-click protection (TMC-218) — the AP mirror of the invoice
+          // payments route, and the only idempotency this table has: there is no
+          // Stripe leg on the paying-out side to inherit one from.
+          //
+          // THE UNIQUE INDEX IS THE GUARD, NOT A SELECT. A "has this key been
+          // used?" read taken before the insert has no lock behind it — two
+          // concurrent requests both read nothing and both insert.
+          // bill_payments_idempotency_uq is the only check that holds, because
+          // the second inserter BLOCKS on the first one's uncommitted row and
+          // then sees DO NOTHING once that commits.
+          //
+          // The conflict target is spelled out rather than left bare so that ONLY
+          // the key dedupes — a bare .onConflictDoNothing() would also swallow a
+          // primary-key collision and drop a real payment. The `where` is
+          // required, not decoration: Postgres will not infer a PARTIAL unique
+          // index without a predicate matching migration 0036's.
+          //
+          // NOTHING BELOW THE REPLAY BRANCH RUNS TWICE. The duplicate row was
+          // never the real damage — the second ledger posting was. Deduplicating
+          // the row while still calling postBillPaymentReceipt would leave the
+          // books more wrong than the bug, because the payment list would then
+          // look right while AP and Cash disagreed with it.
+          const key = data.idempotencyKey;
           const paymentId = uuidv7();
-          const [payment] = await tx
-            .insert(billPayments)
-            .values({
-              id: paymentId,
-              accountId,
-              companyId: current.companyId,
-              billId: id,
-              paymentAccountId: account.id,
-              amount: data.amount,
-              paidOn: data.paidOn,
-              method: data.method,
-              reference: data.reference ?? null,
-            })
-            .returning();
-          if (!payment) return c.json({ error: 'bill_not_found' }, 404);
+          const values = {
+            id: paymentId,
+            accountId,
+            companyId: current.companyId,
+            billId: id,
+            paymentAccountId: account.id,
+            amount: data.amount,
+            paidOn: data.paidOn,
+            method: data.method,
+            reference: data.reference ?? null,
+            idempotencyKey: key ?? null,
+          };
+          const [payment] = key
+            ? await tx
+                .insert(billPayments)
+                .values(values)
+                .onConflictDoNothing({
+                  target: [billPayments.accountId, billPayments.idempotencyKey],
+                  where: sql`${billPayments.idempotencyKey} is not null`,
+                })
+                .returning()
+            : await tx.insert(billPayments).values(values).returning();
+
+          if (!payment) {
+            // An unkeyed insert carries no ON CONFLICT clause, so an empty return
+            // there is the bill vanishing underneath us — this branch's
+            // pre-existing meaning, unchanged.
+            if (!key) return c.json({ error: 'bill_not_found' }, 404);
+
+            const [existing] = await tx
+              .select()
+              .from(billPayments)
+              .where(
+                and(eq(billPayments.accountId, accountId), eq(billPayments.idempotencyKey, key)),
+              )
+              .limit(1);
+            if (!existing) return c.json({ error: 'bill_not_found' }, 404);
+
+            // The index is account-wide, not per bill, so a client that reuses
+            // one key across two bills lands here. Handing back the OTHER bill's
+            // payment would tell the caller their vendor was paid when nothing
+            // was written — an error dressed as success, which is worse than an
+            // error. Nothing has been written yet at this point, so the 409 can
+            // commit an empty transaction safely.
+            if (existing.billId !== id) {
+              return c.json({ error: 'idempotency_key_reused' }, 409);
+            }
+
+            // Recomputed read-only. syncBillSettlement returns the same numbers
+            // but it WRITES the header mirror, and a replay must leave no trace:
+            // no row, no posting, no audit event. `current` was read at the top
+            // of this handler, after the original request committed, so it
+            // already carries the status that request produced.
+            const summary = summarizeBillSettlement({
+              amountCents: toCents(current.amount),
+              paidCents: await paidCentsForBill(tx, { accountId, billId: id }),
+            });
+            // 200, not 201: nothing was created by THIS request, and 201 would
+            // claim otherwise. Still 2xx, so the caller's success branch runs
+            // unchanged and renders the same settled bill the first attempt
+            // would have — the contract that makes a retry safe. `replayed` is on
+            // both responses so callers can tell them apart without reading the
+            // status line.
+            return c.json({ payment: existing, bill: current, ...summary, replayed: true }, 200);
+          }
 
           const vendorName = await vendorNameForBill(tx, {
             accountId,
@@ -836,7 +909,7 @@ export function billsRoutes() {
             companyId: current.companyId,
           });
 
-          return c.json({ payment, bill: synced.bill, ...synced.summary }, 201);
+          return c.json({ payment, bill: synced.bill, ...synced.summary, replayed: false }, 201);
         },
       )
       // Removing a payment is an append-only ledger correction, not a deletion

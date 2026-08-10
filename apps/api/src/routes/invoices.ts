@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import {
+  type InvoicePayment,
   type Transaction,
   companies,
   contacts,
@@ -90,6 +91,37 @@ import type { RlsVariables } from '../middleware/rls-context.js';
 // rides on its own InvoicesAppType instead of bloating AppType past TS7056.
 // Route order is load-bearing: literal /next-number is declared before
 // /:id so Hono's first-match doesn't capture it as an id.
+// The receipt a previous request already wrote under this idempotency key, if
+// there is one (TMC-218).
+//
+// WHY A SELECT IS SAFE HERE AND NOWHERE ELSE. Asking "does this key already
+// exist?" BEFORE inserting is a race with nothing behind it: two concurrent
+// requests both read nothing and both insert. This is only ever called after
+// something else has already refused the write — either
+// invoice_payments_idempotency_uq turned the insert into a no-op, or a status
+// transition refused to re-run. Both mean the winning transaction has committed,
+// so this read is looking at settled history rather than guessing at it.
+//
+// Deliberately NOT scoped to an invoice: the unique index is account-wide, and
+// the callers need to SEE a key that was reused against a different invoice
+// rather than silently miss it.
+async function paymentForIdempotencyKey(
+  tx: Transaction,
+  args: { accountId: string; idempotencyKey: string },
+): Promise<InvoicePayment | undefined> {
+  const [row] = await tx
+    .select()
+    .from(invoicePayments)
+    .where(
+      and(
+        eq(invoicePayments.accountId, args.accountId),
+        eq(invoicePayments.idempotencyKey, args.idempotencyKey),
+      ),
+    )
+    .limit(1);
+  return row;
+}
+
 // Invoice status state machine. Allowed transitions:
 //   draft → sent     (mark-sent)
 //   draft → paid     (mark-paid, manual mark-paid without sending)
@@ -1115,6 +1147,48 @@ export function invoicesRoutes(deps: AppDeps) {
           const tx = c.get('tx');
           const accountId = c.get('accountId');
 
+          const key = data.idempotencyKey;
+
+          // The deposit this key already bought, rendered read-only: no second
+          // issue, no second posting, no second audit event. Returns null if the
+          // invoice has since vanished.
+          const replayOf = async (prior: InvoicePayment) => {
+            const [current] = await tx
+              .select()
+              .from(invoices)
+              .where(and(eq(invoices.id, id), eq(invoices.accountId, accountId)))
+              .limit(1);
+            if (!current) return null;
+            const summary = summarizeSettlement({
+              totalCents: toCents(current.total),
+              paidCents: await paidCentsForInvoice(tx, { accountId, invoiceId: id }),
+              issued: current.sentAt !== null,
+            });
+            return { payment: prior, invoice: current, ...summary, replayed: true };
+          };
+
+          // ASKED BEFORE ISSUING, unlike the payments route (TMC-218).
+          //
+          // This endpoint welds a state transition to the insert, and the two
+          // have to be refused together. Once applyInvoiceTransition has run,
+          // every `return c.json(...)` COMMITS — the tenant tx rolls back only on
+          // a throw — so a duplicate noticed after the issue would leave an
+          // invoice issued with no deposit behind it: exactly the half-done state
+          // this endpoint's atomicity exists to prevent. Refusing before the
+          // first write is what keeps the refusal free.
+          //
+          // A PRE-CHECK, NOT THE GUARD — it cannot be one, because two concurrent
+          // requests both read nothing here. The guards are the compare-and-swap
+          // inside applyInvoiceTransition and the unique index at the insert.
+          if (key) {
+            const prior = await paymentForIdempotencyKey(tx, { accountId, idempotencyKey: key });
+            if (prior && prior.invoiceId !== id) {
+              return c.json({ error: 'idempotency_key_reused' }, 409);
+            }
+            const replayed = prior ? await replayOf(prior) : null;
+            if (replayed) return c.json(replayed, 200);
+          }
+
           // Issue it. Reuses the one path that owns status + ledger together,
           // so the AR posting lands on the ISSUE date exactly as a normal send
           // would — this is not a special kind of issuing.
@@ -1125,6 +1199,24 @@ export function invoicesRoutes(deps: AppDeps) {
             spec: INVOICE_TRANSITIONS['mark-sent'],
           });
           if (!issued.ok) {
+            // A double-click's second request lands here whenever the first one
+            // committed in the window between the pre-check above and this
+            // transition — mark-sent accepts only a draft.
+            //
+            // WORTH BEING PRECISE ABOUT WHAT THIS FIXES. It is not a double-post:
+            // applyInvoiceTransition re-asserts the old status in its UPDATE's
+            // WHERE, so the concurrent pair is compare-and-swapped and the loser
+            // writes nothing. The deposit path never booked the money twice. What
+            // it did was LIE — the user's deposit went through and they were told
+            // 'invalid_transition', which invites the one recovery that really
+            // does double-book it: re-recording the deposit through the payments
+            // route, which had no state guard at all. The key turns that
+            // misleading 409 into the truthful answer.
+            if (key) {
+              const prior = await paymentForIdempotencyKey(tx, { accountId, idempotencyKey: key });
+              const replayed = prior && prior.invoiceId === id ? await replayOf(prior) : null;
+              if (replayed) return c.json(replayed, 200);
+            }
             if (issued.error === 'invoice_not_found') return c.json({ error: issued.error }, 404);
             return c.json({ error: issued.error, from: issued.from, to: issued.to }, 409);
           }
@@ -1137,6 +1229,18 @@ export function invoicesRoutes(deps: AppDeps) {
             .limit(1);
           const receivedOn = data.receivedOn ?? localToday(company?.timezone ?? 'UTC');
 
+          // NO onConflictDoNothing here, deliberately — the one place in this
+          // change where letting the database RAISE is the correct answer.
+          //
+          // The issue transition has already written by the time we get here.
+          // Swallowing a conflicting insert would commit an issued invoice with
+          // no deposit behind it, and returning a 409 would commit the same
+          // thing, because only a throw rolls the tenant tx back. Letting
+          // invoice_payments_idempotency_uq raise takes both halves down
+          // together, which is the only books-safe outcome available after a
+          // write. Reachable only by aiming one key at two different draft
+          // invoices CONCURRENTLY; the pre-check above answers the sequential
+          // form of that with a clean 409 and no writes at all.
           const [payment] = await tx
             .insert(invoicePayments)
             .values({
@@ -1147,6 +1251,7 @@ export function invoicesRoutes(deps: AppDeps) {
               amount: data.amount,
               receivedOn,
               method: data.method ?? 'cash',
+              idempotencyKey: key ?? null,
             })
             .returning();
           if (!payment) return c.json({ error: 'invoice_not_found' }, 404);
@@ -1184,7 +1289,10 @@ export function invoicesRoutes(deps: AppDeps) {
             companyId: invoice.companyId,
           });
 
-          return c.json({ payment, invoice: synced.invoice, ...synced.summary }, 201);
+          return c.json(
+            { payment, invoice: synced.invoice, ...synced.summary, replayed: false },
+            201,
+          );
         },
       )
       // Per-invoice reminder opt-out (TMC-189). "I've spoken to them, don't
@@ -1610,21 +1718,98 @@ export function invoicesRoutes(deps: AppDeps) {
             return c.json({ error: eligible.reason, status: invoice.status }, 409);
           }
 
+          // Double-click protection (TMC-218). The button showed no pending
+          // state, so a slow request read as a dead click and invited a second
+          // one — and two identical receipts is a silent books error: an invoice
+          // reporting itself overpaid with the cash on the books twice.
+          //
+          // THE UNIQUE INDEX IS THE GUARD, NOT A SELECT. A "has this key been
+          // used?" read taken before the insert has no lock behind it — two
+          // concurrent requests both read nothing and both insert.
+          // invoice_payments_idempotency_uq is the only check that holds, and it
+          // holds because the second inserter BLOCKS on the first one's
+          // uncommitted row and then sees DO NOTHING once that commits. Same
+          // shape the Stripe webhook has used since TMC-187.
+          //
+          // WHY THE CONFLICT TARGET IS SPELLED OUT rather than a bare
+          // .onConflictDoNothing(). Bare means "swallow ANY unique violation",
+          // which on this table would also swallow a primary-key collision and
+          // drop a real payment on the floor. Naming the arbiter means only the
+          // key dedupes and everything else still raises. The `where` is not
+          // decoration: Postgres refuses to infer a PARTIAL unique index unless
+          // the predicate matches the one in migration 0036.
+          //
+          // NOTHING BELOW THE REPLAY BRANCH RUNS A SECOND TIME. That is the
+          // whole point. The damage was never the duplicate row on its own, it
+          // was the second ledger posting behind it — deduplicating the row
+          // while still calling postInvoicePayment would leave the books MORE
+          // wrong than the original bug, because the receipt list would then
+          // look correct while AR and Cash quietly disagreed with it.
+          const key = data.idempotencyKey;
           const paymentId = uuidv7();
-          const [payment] = await tx
-            .insert(invoicePayments)
-            .values({
-              id: paymentId,
+          const values = {
+            id: paymentId,
+            accountId,
+            companyId: invoice.companyId,
+            invoiceId: id,
+            amount: data.amount,
+            receivedOn: data.receivedOn,
+            method: data.method,
+            reference: data.reference ?? null,
+            idempotencyKey: key ?? null,
+          };
+          const [payment] = key
+            ? await tx
+                .insert(invoicePayments)
+                .values(values)
+                .onConflictDoNothing({
+                  target: [invoicePayments.accountId, invoicePayments.idempotencyKey],
+                  where: sql`${invoicePayments.idempotencyKey} is not null`,
+                })
+                .returning()
+            : await tx.insert(invoicePayments).values(values).returning();
+
+          if (!payment) {
+            // An unkeyed insert carries no ON CONFLICT clause, so an empty
+            // return there is the invoice vanishing underneath us — the
+            // pre-existing meaning of this branch, unchanged.
+            if (!key) return c.json({ error: 'invoice_not_found' }, 404);
+
+            const existing = await paymentForIdempotencyKey(tx, {
               accountId,
-              companyId: invoice.companyId,
-              invoiceId: id,
-              amount: data.amount,
-              receivedOn: data.receivedOn,
-              method: data.method,
-              reference: data.reference ?? null,
-            })
-            .returning();
-          if (!payment) return c.json({ error: 'invoice_not_found' }, 404);
+              idempotencyKey: key,
+            });
+            if (!existing) return c.json({ error: 'invoice_not_found' }, 404);
+
+            // The index is account-wide, not per invoice, so a client that
+            // reuses one key across two invoices lands here. Handing back the
+            // OTHER invoice's receipt would tell the caller their payment was
+            // recorded when nothing was written — the one outcome worse than an
+            // error, because it is an error that looks like success.
+            if (existing.invoiceId !== id) {
+              return c.json({ error: 'idempotency_key_reused' }, 409);
+            }
+
+            // Recomputed read-only. syncInvoiceSettlement returns the same
+            // numbers but it WRITES — the header mirror plus a search reindex —
+            // and a replay must leave no trace: no row, no posting, no audit
+            // event, no telemetry. `invoice` was read at the top of this handler,
+            // which is after the original request committed, so it already
+            // carries the status that request produced.
+            const summary = summarizeSettlement({
+              totalCents: toCents(invoice.total),
+              paidCents: await paidCentsForInvoice(tx, { accountId, invoiceId: id }),
+              issued: invoice.sentAt !== null,
+            });
+            // 200, not 201. 201 is a claim that THIS request created something,
+            // and on a replay nothing was created; repeating it would erase the
+            // only signal that a duplicate submission happened. Still 2xx, so
+            // every caller's success branch runs unchanged and renders exactly
+            // the settled invoice the first attempt would have — which is the
+            // contract that makes a retry safe. `replayed` is on both responses
+            // so a caller can tell them apart without reading the status line.
+            return c.json({ payment: existing, invoice, ...summary, replayed: true }, 200);
+          }
 
           // Posts inside the tenant tx like every other mutation, so the
           // deferred sum-to-zero trigger fires at commit and a rejected posting
@@ -1671,7 +1856,10 @@ export function invoicesRoutes(deps: AppDeps) {
             await emit(tx, { name: 'invoice_marked_paid' });
           }
 
-          return c.json({ payment, invoice: synced.invoice, ...synced.summary }, 201);
+          return c.json(
+            { payment, invoice: synced.invoice, ...synced.summary, replayed: false },
+            201,
+          );
         },
       )
       // Removing a receipt is an append-only ledger correction, not a deletion

@@ -3,6 +3,7 @@
   import ConfirmSubmit from '$lib/components/ConfirmSubmit.svelte';
   import PaymentFields from '$lib/components/PaymentFields.svelte';
   import SplitButton from '$lib/components/SplitButton.svelte';
+  import SubmitButton from '$lib/components/SubmitButton.svelte';
   import { may } from '$lib/perms';
   import { formatUnitPrice } from '@thalermark/validation';
   import type { PageProps } from './$types';
@@ -135,12 +136,11 @@
          a common template). Posts to ?/duplicate → new draft's edit page. -->
     {#if canWrite}
       <form method="post" action="?/duplicate">
-        <button
-          type="submit"
-          class="rounded-sm border border-fg/20 px-3 py-1 font-mono text-xs uppercase tracking-widest text-fg/70 hover:border-accent hover:text-accent"
-        >
-          Duplicate
-        </button>
+        <SubmitButton
+          label="Duplicate"
+          pendingLabel="Duplicating…"
+          class="rounded-sm border border-fg/20 px-3 py-1 font-mono text-xs uppercase tracking-widest text-fg/70 hover:border-accent hover:text-accent disabled:opacity-60"
+        />
       </form>
     {/if}
     <span class="font-mono text-xs uppercase tracking-widest text-fg/60">{inv.status}</span>
@@ -197,12 +197,7 @@
           class="mt-2 w-full max-w-md rounded-sm border border-fg/20 bg-surface px-3 py-2 text-sm text-fg focus:border-accent focus:outline-none"
         />
       </label>
-      <button
-        type="submit"
-        class="btn"
-      >
-        Save &amp; continue
-      </button>
+      <SubmitButton label="Save &amp; continue" pendingLabel="Saving…" class="btn" />
     </form>
   </details>
 {/if}
@@ -221,12 +216,13 @@
         {/if}
         <SplitButton label="Send options" caretClass="border-l border-surface/20 bg-inverse text-on-inverse hover:bg-accent">
           {#snippet primary()}
-            <button
-              type="submit"
-              class="rounded-l-sm bg-inverse px-4 py-2 text-sm font-medium text-on-inverse transition-colors hover:bg-accent"
-            >
-              {sendLabel}
-            </button>
+            <!-- The slowest button on the page: an SMTP round trip with no
+                 feedback at all until now (TMC-218). -->
+            <SubmitButton
+              label={sendLabel}
+              pendingLabel="Sending…"
+              class="rounded-l-sm bg-inverse px-4 py-2 text-sm font-medium text-on-inverse transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+            />
           {/snippet}
           {#snippet menu(close)}
             <button
@@ -246,15 +242,14 @@
                    dismisses the menu itself, so we must NOT call close() or the
                    form detaches before submit. formnovalidate skips the optional
                    `to` email field's constraint check. -->
-              <button
-                type="submit"
+              <SubmitButton
                 formaction="?/markSent"
                 formnovalidate
                 role="menuitem"
-                class="block w-full border-t border-fg/10 px-4 py-2 text-left text-sm text-fg/80 transition-colors hover:bg-surface-2 hover:text-fg"
-              >
-                Mark sent without email
-              </button>
+                class="block w-full border-t border-fg/10 px-4 py-2 text-left text-sm text-fg/80 transition-colors hover:bg-surface-2 hover:text-fg disabled:opacity-60"
+                pendingLabel="Marking sent…"
+                label="Mark sent without email"
+              />
             {/if}
           {/snippet}
         </SplitButton>
@@ -283,13 +278,12 @@
           {#each PAID_METHOD_CHOICES as choice (choice.value)}
             <form method="post" action="?/markPaid">
               <input type="hidden" name="method" value={choice.value} />
-              <button
-                type="submit"
+              <SubmitButton
                 role="menuitem"
-                class="block w-full px-4 py-2 text-left text-sm text-fg/80 transition-colors hover:bg-surface-2 hover:text-fg"
-              >
-                {choice.label}
-              </button>
+                class="block w-full px-4 py-2 text-left text-sm text-fg/80 transition-colors hover:bg-surface-2 hover:text-fg disabled:opacity-60"
+                label={choice.label}
+                pendingLabel="Marking paid…"
+              />
             </form>
           {/each}
         {/snippet}
@@ -299,6 +293,7 @@
       <ConfirmSubmit
         action="?/void"
         label="Void"
+        pendingLabel="Voiding…"
         title="Void invoice {inv.number}?"
         confirmLabel="Void invoice"
         triggerClass="rounded-sm border border-danger/30 px-4 py-2 text-sm font-medium text-danger transition-colors hover:bg-danger/5"
@@ -320,12 +315,7 @@
     >
       <PaymentFields />
       <div class="mt-5 flex items-center gap-3">
-        <button
-          type="submit"
-          class="btn"
-        >
-          Confirm paid
-        </button>
+        <SubmitButton label="Confirm paid" pendingLabel="Marking paid…" class="btn" />
         <button
           type="button"
           onclick={() => {
@@ -364,12 +354,7 @@
           date={inv.paidAt ? inv.paidAt.slice(0, 10) : undefined}
         />
         <div class="mt-5 flex items-center gap-3">
-          <button
-            type="submit"
-            class="btn"
-          >
-            Update payment
-          </button>
+          <SubmitButton label="Update payment" pendingLabel="Saving…" class="btn" />
           <button
             type="button"
             onclick={() => {
@@ -417,6 +402,7 @@
     </button>
     {#if showDeposit}
       <form method="post" action="?/takeDeposit" class="mt-3 flex flex-wrap items-end gap-3">
+        <input type="hidden" name="idempotencyKey" value={data.paymentKey} />
         <div>
           <label class="label" for="deposit-amount">How much</label>
           <input
@@ -429,7 +415,7 @@
             class="field mt-1 w-32 tabular-nums"
           />
         </div>
-        <button type="submit" class="btn">Record it</button>
+        <SubmitButton label="Record it" pendingLabel="Recording…" class="btn" />
       </form>
       <p class="mt-3 max-w-prose text-sm text-fg/60">
         We'll finish the invoice off and log what they paid. You can still send
@@ -475,6 +461,7 @@
                 <ConfirmSubmit
                   action="?/removePayment"
                   label="Remove"
+                  pendingLabel="Removing…"
                   title="Remove this {Number(p.amount) < 0 ? 'refund' : 'payment'}?"
                   confirmLabel="Remove"
                   hidden={{ paymentId: p.id }}
@@ -506,6 +493,10 @@
         </button>
       {:else}
         <form method="post" action="?/recordPayment" class="mt-4 max-w-md">
+          <!-- Minted once per page render by the loader. Two clicks send the
+               same key, and the server's partial unique index turns the second
+               into a no-op instead of a second receipt (TMC-218). -->
+          <input type="hidden" name="idempotencyKey" value={data.paymentKey} />
           <div class="grid grid-cols-2 gap-4">
             <div>
               <label class="label" for="payment-amount">Amount</label>
@@ -562,7 +553,7 @@
             />
           </div>
           <div class="mt-5 flex items-center gap-3">
-            <button type="submit" class="btn">Record payment</button>
+            <SubmitButton label="Record payment" pendingLabel="Recording…" class="btn" />
             <button
               type="button"
               onclick={() => {
@@ -596,7 +587,7 @@
           <p class="mt-1 text-sm text-fg/70">Paused for this invoice — we won't chase it.</p>
           <form method="post" action="?/setReminders" class="mt-1">
             <input type="hidden" name="optedOut" value="false" />
-            <button type="submit" class="link text-sm">Resume reminders</button>
+            <SubmitButton label="Resume reminders" pendingLabel="Resuming…" class="link text-sm" />
           </form>
         {:else}
           <p class="mt-1 text-sm text-fg/70">
@@ -604,7 +595,7 @@
           </p>
           <form method="post" action="?/setReminders" class="mt-1">
             <input type="hidden" name="optedOut" value="true" />
-            <button type="submit" class="link text-sm">Pause for this invoice</button>
+            <SubmitButton label="Pause for this invoice" pendingLabel="Pausing…" class="link text-sm" />
           </form>
         {/if}
       </div>

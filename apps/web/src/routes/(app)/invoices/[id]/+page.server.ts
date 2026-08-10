@@ -63,6 +63,15 @@ export const load: PageServerLoad = async (event) => {
     origin: event.url.origin,
     sentTo,
     sendUndelivered,
+    // One key per render of the payment forms, so a double-click sends the same
+    // one twice and the server records a single receipt (TMC-218). Minted here
+    // rather than in the component because the value has to survive hydration
+    // unchanged — a client-side crypto.randomUUID() would disagree with the one
+    // already rendered into the HTML. A genuine second payment happens on a
+    // later render and therefore carries a different key, which is the whole
+    // point: two $50 cash instalments on one day are two receipts, not a
+    // mistake.
+    paymentKey: crypto.randomUUID(),
     auditEvents,
     needsBusinessDetails,
     businessCompanyId,
@@ -246,10 +255,15 @@ async function runRecordPayment(event: Parameters<Actions[string]>[0]) {
     typeof referenceRaw === 'string' && referenceRaw.trim() ? referenceRaw.trim() : undefined;
   const receivedOn = String(formData.get('receivedOn') ?? '').trim();
   if (!receivedOn) return fail(400, { transitionError: 'Enter the date the money arrived.' });
+  const keyRaw = formData.get('idempotencyKey');
+  const idempotencyKey = typeof keyRaw === 'string' && keyRaw ? keyRaw : undefined;
 
   const res = await client.api.invoices[':id'].payments.$post({
     param: { id },
-    json: { amount, receivedOn, method, reference },
+    // Forwarded straight through from the hidden field the form rendered with.
+    // The server's partial unique index is what actually prevents the second
+    // receipt; this is the client keeping its half of the bargain (TMC-218).
+    json: { amount, receivedOn, method, reference, idempotencyKey },
   });
   if (res.status === 404) throw error(404, 'invoice not found');
   if (!res.ok) {
@@ -274,10 +288,15 @@ async function runTakeDeposit(event: Parameters<Actions[string]>[0]) {
   const formData = await event.request.formData();
   const amount = String(formData.get('amount') ?? '').trim();
   if (!amount) return fail(400, { transitionError: 'Enter how much they paid.' });
+  const keyRaw = formData.get('idempotencyKey');
+  const idempotencyKey = typeof keyRaw === 'string' && keyRaw ? keyRaw : undefined;
 
+  // This path issues the invoice AND records the deposit in one transaction, so
+  // a double-click books the money twice and re-runs a state transition. Same
+  // key, same guard as the plain payment path (TMC-218).
   const res = await client.api.invoices[':id'].deposit.$post({
     param: { id },
-    json: { amount },
+    json: { amount, idempotencyKey },
   });
   if (res.status === 404) throw error(404, 'invoice not found');
   if (!res.ok) {

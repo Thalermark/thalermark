@@ -96,6 +96,19 @@ export const billPaymentCreateSchema = z.object({
     .union([z.string().trim().max(100), z.literal(''), z.null()])
     .transform((v) => (v ? v : null))
     .optional(),
+  // Double-click protection (TMC-218), the mirror of the field on
+  // invoicePaymentCreateSchema — a bounded opaque string the server never
+  // parses, only compares. See the long note there for why it is not a UUID and
+  // why '' coerces to absent. Optional, so every existing caller is untouched.
+  //
+  // The invoice side inherited an idempotency guarantee from Stripe and only
+  // ever lacked one on the manual path. There is no Stripe leg here at all — a
+  // bill is money you pay OUT — so this field is the only thing standing between
+  // a double-click and paying a vendor twice on the books.
+  idempotencyKey: z
+    .union([z.string().trim().min(8).max(200), z.literal(''), z.null()])
+    .transform((v) => (v ? v : undefined))
+    .optional(),
 });
 
 export type BillPaymentCreateInput = z.infer<typeof billPaymentCreateSchema>;

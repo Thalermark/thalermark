@@ -56,6 +56,10 @@ export const load: PageServerLoad = async (event) => {
 
   return {
     bill,
+    // One key per render, so a double-click on Record payment sends the same
+    // one twice and the server writes a single row (TMC-218). Minted here so it
+    // survives hydration unchanged.
+    paymentKey: crypto.randomUUID(),
     categoryLabel: labelById.get(bill.categoryAccountId) ?? bill.categoryAccountId,
     paymentLabel: bill.paymentAccountId
       ? (labelById.get(bill.paymentAccountId) ?? bill.paymentAccountId)
@@ -124,12 +128,16 @@ export const actions: Actions = {
     const referenceRaw = formData.get('reference');
     const reference =
       typeof referenceRaw === 'string' && referenceRaw.trim() ? referenceRaw.trim() : undefined;
+    const keyRaw = formData.get('idempotencyKey');
+    const idempotencyKey = typeof keyRaw === 'string' && keyRaw ? keyRaw : undefined;
     // paymentAccountId is deliberately not sent — the server resolves Cash,
     // which is the only account a bill can be paid from while the chart is
     // seed-only. The field stays on the API for when that changes.
     const res = await client.api.bills[':id'].payments.$post({
       param: { id },
-      json: { amount, paidOn, method, reference },
+      // Forwarded from the hidden field the form rendered with; the partial
+      // unique index on bill_payments is what actually stops the second row.
+      json: { amount, paidOn, method, reference, idempotencyKey },
     });
     if (res.status === 404) throw error(404, 'bill not found');
     if (!res.ok) {

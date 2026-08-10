@@ -87,6 +87,21 @@ export const invoicePayments = pgTable(
     // webhook can fire more than once for one intent, and the unique index below
     // turns a duplicate delivery into a no-op instead of a double credit.
     stripePaymentIntentId: text('stripe_payment_intent_id'),
+    // The MANUAL path's equivalent of that guarantee (TMC-218).
+    //
+    // Stripe's duplicate delivery had an index; a human's double-click had
+    // nothing. The record-payment button showed no pending state, so a slow
+    // request read as a dead click and invited a second one — and two identical
+    // receipts is a silent books error, an invoice reporting itself overpaid.
+    // Two tabs, a back-button resubmit and a flaky-network retry reach the same
+    // place, which is why disabling the button is not on its own a fix.
+    //
+    // The client mints this per form render, so retrying the SAME submission is
+    // a no-op while a genuine second payment of the same amount on the same day
+    // — a real thing, two $50 cash instalments — carries a different key and is
+    // recorded. Nullable: every receipt written before this column existed, and
+    // every Stripe one, leaves it null.
+    idempotencyKey: text('idempotency_key'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -115,6 +130,13 @@ export const invoicePayments = pgTable(
     stripeIntentUq: uniqueIndex('invoice_payments_stripe_intent_uq')
       .on(table.stripePaymentIntentId)
       .where(sql`${table.stripePaymentIntentId} is not null`),
+    // Manual idempotency, scoped to the account so one tenant's key can never
+    // collide with another's. Partial for the same reason as the Stripe index
+    // above: the column is null on every legacy and Stripe row, and nulls must
+    // not collide with each other.
+    idempotencyUq: uniqueIndex('invoice_payments_idempotency_uq')
+      .on(table.accountId, table.idempotencyKey)
+      .where(sql`${table.idempotencyKey} is not null`),
   }),
 );
 
