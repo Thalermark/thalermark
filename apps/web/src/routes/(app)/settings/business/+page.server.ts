@@ -1,6 +1,6 @@
 import { pickActiveCompany, setActiveCompany } from '$lib/active-company';
 import { apiErrorMessage } from '$lib/api-errors';
-import { apiBaseUrl, serverApiClient, serverApiHeaders } from '$lib/api.server';
+import { apiBaseUrl, apiFetch, serverApiClient, serverApiHeaders } from '$lib/api.server';
 import { error, fail, redirect } from '@sveltejs/kit';
 import { BUSINESS_TYPES } from '@thalermark/validation';
 import type { Actions, PageServerLoad } from './$types';
@@ -302,11 +302,15 @@ export const actions: Actions = {
     }
     const fd = new FormData();
     fd.set('file', file);
-    const res = await event.fetch(`${apiBaseUrl()}/api/companies/${companyId}/logo`, {
-      method: 'POST',
-      headers: serverApiHeaders(event),
-      body: fd,
-    });
+    const res = await apiFetch(
+      `${apiBaseUrl()}/api/companies/${companyId}/logo`,
+      {
+        method: 'POST',
+        headers: serverApiHeaders(event),
+        body: fd,
+      },
+      event.fetch,
+    );
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
       const code = apiErrorMessage(

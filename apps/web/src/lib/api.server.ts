@@ -136,6 +136,60 @@ export type ServerApiClient = {
   };
 };
 
+// A fetch that cannot reject (TMC-248).
+//
+// `if (!res.ok)` is the shape of every call site, and it only runs when the
+// fetch RESOLVED. An unreachable API — a restart, a deploy, a network blip —
+// makes fetch REJECT instead, and none of those call sites had a try/catch: 5
+// of 60 action files did. So the action threw, SvelteKit rendered its error
+// page, and the `values` object every action carefully builds to hand a user's
+// input back was never returned. Someone who had just keyed in twelve invoice
+// lines lost them to a ten-second API restart.
+//
+// Turning the rejection into a 503 whose body is a normal error code means the
+// existing branch handles it, on every screen, without a single call site
+// changing: a load still throws its error page (there is nothing to lose), and
+// an action still `fail()`s with the user's values and a sentence.
+//
+// Deliberately NOT a retry. A retry here would hold the request open and hide
+// the failure; the honest move is to say so immediately and leave the user's
+// work on screen, with the Save button they already know how to press.
+const UNREACHABLE_BODY = JSON.stringify({ error: 'unreachable' });
+
+function unreachable(): Response {
+  // A transport failure, not an HTTP one: DNS, refused connection, reset socket,
+  // TLS. 503 because the service is what is unavailable — the request itself was
+  // fine and is worth repeating.
+  return new Response(UNREACHABLE_BODY, {
+    status: 503,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
+const resilientFetch: typeof fetch = async (input, init) => {
+  try {
+    return await fetch(input, init);
+  } catch {
+    return unreachable();
+  }
+};
+
+// The same guarantee for the handful of routes that cannot use the typed client
+// — a multipart receipt, the invitation endpoints — so a dead API is one shape
+// everywhere rather than two. `impl` keeps SvelteKit's `event.fetch` where a
+// caller was using it, since that carries behaviour a bare fetch does not.
+export async function apiFetch(
+  input: string,
+  init?: RequestInit,
+  impl: typeof fetch = fetch,
+): Promise<Response> {
+  try {
+    return await impl(input, init);
+  } catch {
+    return unreachable();
+  }
+}
+
 // Server-side hc client. Forwards the BA session cookie from the incoming
 // request and stamps x-account-id from locals.activeAccountId (set by
 // hooks.server.ts). The browser client at $lib/api.ts is the cookie-jar
@@ -143,38 +197,49 @@ export type ServerApiClient = {
 export function serverApiClient(event: RequestEvent): ServerApiClient {
   const headers = serverApiHeaders(event);
   const base = baseUrl();
-  const main = hc<AppType>(base, { headers });
-  const accountApi = hc<AccountAppType>(base, { headers }).api;
+  const main = hc<AppType>(base, { headers, fetch: resilientFetch });
+  const accountApi = hc<AccountAppType>(base, { headers, fetch: resilientFetch }).api;
   const overrides: Record<string, unknown> = {
     me: accountApi.me,
     account: accountApi.account,
     team: accountApi.team,
     legal: accountApi.legal,
-    bills: hc<BillsAppType>(base, { headers }).api.bills,
-    'owner-money': hc<OwnerMoneyEventsAppType>(base, { headers }).api['owner-money'],
-    purchases: hc<PurchasesAppType>(base, { headers }).api.purchases,
-    ledger: hc<LedgerAppType>(base, { headers }).api.ledger,
-    items: hc<ItemsAppType>(base, { headers }).api.items,
-    jobs: hc<JobsAppType>(base, { headers }).api.jobs,
+    bills: hc<BillsAppType>(base, { headers, fetch: resilientFetch }).api.bills,
+    'owner-money': hc<OwnerMoneyEventsAppType>(base, { headers, fetch: resilientFetch }).api[
+      'owner-money'
+    ],
+    purchases: hc<PurchasesAppType>(base, { headers, fetch: resilientFetch }).api.purchases,
+    ledger: hc<LedgerAppType>(base, { headers, fetch: resilientFetch }).api.ledger,
+    items: hc<ItemsAppType>(base, { headers, fetch: resilientFetch }).api.items,
+    jobs: hc<JobsAppType>(base, { headers, fetch: resilientFetch }).api.jobs,
     // Time entries hang off /api/time-entries rather than under /api/jobs, so
     // the facade needs both keys from the same sub-app.
-    'time-entries': hc<JobsAppType>(base, { headers }).api['time-entries'],
+    'time-entries': hc<JobsAppType>(base, { headers, fetch: resilientFetch }).api['time-entries'],
     // The running-stopwatch read hangs off its own top-level path, so the
     // facade needs a third key from the same sub-app.
-    timer: hc<JobsAppType>(base, { headers }).api.timer,
-    'mileage-trips': hc<MileageAppType>(base, { headers }).api['mileage-trips'],
-    vehicles: hc<MileageAppType>(base, { headers }).api.vehicles,
-    'tax-policies': hc<TaxPoliciesAppType>(base, { headers }).api['tax-policies'],
-    'audit-events': hc<AuditEventsAppType>(base, { headers }).api['audit-events'],
-    companies: hc<CompaniesAppType>(base, { headers }).api.companies,
-    contacts: hc<ContactsAppType>(base, { headers }).api.contacts,
-    invoices: hc<InvoicesAppType>(base, { headers }).api.invoices,
-    'recurring-invoices': hc<RecurringInvoicesAppType>(base, { headers }).api['recurring-invoices'],
-    estimates: hc<EstimatesAppType>(base, { headers }).api.estimates,
-    expenses: hc<ExpensesAppType>(base, { headers }).api.expenses,
-    search: hc<SearchAppType>(base, { headers }).api.search,
-    settings: hc<SettingsAiAppType>(base, { headers }).api.settings,
-    'entity-transfers': hc<EntityTransferAppType>(base, { headers }).api['entity-transfers'],
+    timer: hc<JobsAppType>(base, { headers, fetch: resilientFetch }).api.timer,
+    'mileage-trips': hc<MileageAppType>(base, { headers, fetch: resilientFetch }).api[
+      'mileage-trips'
+    ],
+    vehicles: hc<MileageAppType>(base, { headers, fetch: resilientFetch }).api.vehicles,
+    'tax-policies': hc<TaxPoliciesAppType>(base, { headers, fetch: resilientFetch }).api[
+      'tax-policies'
+    ],
+    'audit-events': hc<AuditEventsAppType>(base, { headers, fetch: resilientFetch }).api[
+      'audit-events'
+    ],
+    companies: hc<CompaniesAppType>(base, { headers, fetch: resilientFetch }).api.companies,
+    contacts: hc<ContactsAppType>(base, { headers, fetch: resilientFetch }).api.contacts,
+    invoices: hc<InvoicesAppType>(base, { headers, fetch: resilientFetch }).api.invoices,
+    'recurring-invoices': hc<RecurringInvoicesAppType>(base, { headers, fetch: resilientFetch })
+      .api['recurring-invoices'],
+    estimates: hc<EstimatesAppType>(base, { headers, fetch: resilientFetch }).api.estimates,
+    expenses: hc<ExpensesAppType>(base, { headers, fetch: resilientFetch }).api.expenses,
+    search: hc<SearchAppType>(base, { headers, fetch: resilientFetch }).api.search,
+    settings: hc<SettingsAiAppType>(base, { headers, fetch: resilientFetch }).api.settings,
+    'entity-transfers': hc<EntityTransferAppType>(base, { headers, fetch: resilientFetch }).api[
+      'entity-transfers'
+    ],
   };
   const api = new Proxy(main.api, {
     get(target, prop) {

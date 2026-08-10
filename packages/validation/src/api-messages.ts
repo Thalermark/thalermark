@@ -213,6 +213,10 @@ export const API_ERROR_MESSAGES: Record<string, string> = {
 
   // --- The server itself ---------------------------------------------------
   internal_server_error: 'Something went wrong on our side. Try again in a moment.',
+  // Not raised by the API — it is what the web server substitutes when the API
+  // did not answer at all (TMC-248). It travels the same path as a real code so
+  // every screen's existing error branch handles it without knowing.
+  unreachable: 'Could not reach Thalermark. Check your connection and try again.',
   create_failed: 'That could not be saved. Try again.',
 };
 

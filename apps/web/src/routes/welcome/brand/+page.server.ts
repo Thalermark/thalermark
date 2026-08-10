@@ -1,5 +1,5 @@
 import { apiErrorMessage } from '$lib/api-errors';
-import { apiBaseUrl, serverApiClient, serverApiHeaders } from '$lib/api.server';
+import { apiBaseUrl, apiFetch, serverApiClient, serverApiHeaders } from '$lib/api.server';
 import { fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -29,7 +29,7 @@ export const actions: Actions = {
     }
     const fd = new FormData();
     fd.set('file', file);
-    const res = await event.fetch(`${apiBaseUrl()}/api/companies/${companyId}/logo`, {
+    const res = await apiFetch(`${apiBaseUrl()}/api/companies/${companyId}/logo`, {
       method: 'POST',
       headers: serverApiHeaders(event),
       body: fd,
