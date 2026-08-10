@@ -281,9 +281,21 @@ fi
 
 # --- 8. email ----------------------------------------------------------------
 section "Outbound email (invite/verification/password-reset/invoice emails)"
-say "${DIM}1) Resend   2) SMTP   3) None${R}"
+# SMTP was offered here until TMC-238 and it never worked. The installer
+# collected a host, a username and a PASSWORD, wrote all five SMTP_* keys to
+# .env and printed "SMTP configured" — while nothing in the API has ever read
+# them. `grep -rn "SMTP_" apps/ packages/` returns nothing; the only input to
+# the driver choice is RESEND_API_KEY (apps/api/src/bootstrap.ts). An operator
+# who picked it got the console mailer, a green checkmark, and a real password
+# written to disk for a setting no code consumes.
+#
+# Removed rather than fixed here, because implementing SMTP is a feature, not
+# an installer change — it is ticketed separately. Until it lands, the honest
+# menu is two options.
+say "${DIM}1) Resend   2) None${R}"
 say "${YELLOW}Without email, password reset and email verification can't send.${R}"
-ask EMAIL_CHOICE "Choose an email method [1-3]?" "3"
+say "${DIM}SMTP isn't supported yet — Resend is the only transport this build can use.${R}"
+ask EMAIL_CHOICE "Choose an email method [1-2]?" "2"
 case "$EMAIL_CHOICE" in
 	1)
 		ask_secret RESEND_KEY "  Resend API key (re_...):"
@@ -291,20 +303,6 @@ case "$EMAIL_CHOICE" in
 		ask EMAIL_FROM "  From address?" "Thalermark <hello@$THALERMARK_DOMAIN>"
 		kv_set "$ENV_FILE" EMAIL_FROM "$EMAIL_FROM"
 		ok "Resend configured" ;;
-	2)
-		ask SMTP_HOST "  SMTP host?" ""
-		ask SMTP_PORT "  SMTP port?" "587"
-		ask SMTP_USER "  SMTP username?" ""
-		ask_secret SMTP_PASS "  SMTP password:"
-		ask_yn "  Use TLS (SMTPS, usually port 465)?" "n" && SMTP_SECURE=true || SMTP_SECURE=false
-		ask EMAIL_FROM "  From address?" "Thalermark <hello@$THALERMARK_DOMAIN>"
-		kv_set "$ENV_FILE" SMTP_HOST "$SMTP_HOST"
-		kv_set "$ENV_FILE" SMTP_PORT "$SMTP_PORT"
-		kv_set "$ENV_FILE" SMTP_USER "$SMTP_USER"
-		kv_set "$ENV_FILE" SMTP_PASS "$SMTP_PASS"
-		kv_set "$ENV_FILE" SMTP_SECURE "$SMTP_SECURE"
-		kv_set "$ENV_FILE" EMAIL_FROM "$EMAIL_FROM"
-		ok "SMTP configured" ;;
 	*)
 		warn "No mailer configured — email verification is auto-skipped; password reset is unavailable." ;;
 esac
