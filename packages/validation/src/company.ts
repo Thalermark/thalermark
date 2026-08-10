@@ -147,7 +147,7 @@ export const timezoneSchema = z
   .trim()
   .min(1)
   .max(64)
-  .refine(isValidTimeZone, { message: 'invalid_timezone' });
+  .refine(isValidTimeZone, { message: 'That is not a time zone we recognise.' });
 
 // Input schema for PATCH /api/companies/:id. Sparse on purpose — the L3
 // wizard updates name + businessType together, but follow-on flows (rename
@@ -203,7 +203,7 @@ export const reminderOffsetsSchema = z
   // (invoice, offset), so a repeated 7 could only ever send once. Rejecting it
   // at save time says so out loud instead of letting the UI show a stage that
   // never fires.
-  .refine((v) => new Set(v).size === v.length, { message: 'duplicate_reminder_offset' })
+  .refine((v) => new Set(v).size === v.length, { message: 'That reminder is already in the list.' })
   // Stored sorted so the settings screen and the send order agree without the
   // UI having to sort, and so two schedules with the same stages compare equal.
   .transform((v) => [...v].sort((a, b) => a - b));
@@ -261,7 +261,7 @@ export const companyUpdateSchema = z
   // Sparse: at least one field must be present (zod only surfaces keys that
   // were actually sent, so an empty body fails this).
   .refine((v) => Object.keys(v).length > 0, {
-    message: 'at_least_one_field_required',
+    message: 'Change at least one thing before saving.',
   });
 
 export type CompanyUpdateInput = z.infer<typeof companyUpdateSchema>;

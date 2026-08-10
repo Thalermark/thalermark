@@ -184,7 +184,9 @@ export const mileageTripUpdateSchema = z
     vehicleId: z.string().uuid().nullable().optional(),
     jobId: z.string().uuid().nullable().optional(),
   })
-  .refine((v) => Object.keys(v).length > 0, { message: 'no_fields_to_update' });
+  .refine((v) => Object.keys(v).length > 0, {
+    message: 'Change at least one thing before saving.',
+  });
 
 export type MileageTripUpdateInput = z.infer<typeof mileageTripUpdateSchema>;
 
@@ -236,7 +238,9 @@ export const vehicleUpdateSchema = z
     personalUse: z.enum(VEHICLE_PERSONAL_USE).nullable().optional(),
     anotherVehicleAvailable: z.boolean().nullable().optional(),
   })
-  .refine((v) => Object.keys(v).length > 0, { message: 'no_fields_to_update' });
+  .refine((v) => Object.keys(v).length > 0, {
+    message: 'Change at least one thing before saving.',
+  });
 
 export type VehicleUpdateInput = z.infer<typeof vehicleUpdateSchema>;
 

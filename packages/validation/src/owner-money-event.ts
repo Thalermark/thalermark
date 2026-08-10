@@ -37,7 +37,7 @@ export const ownerMoneyEventUpdateSchema = ownerMoneyEventCreateSchema
   .omit({ companyId: true })
   .partial()
   .refine((v) => Object.values(v).some((x) => x !== undefined), {
-    message: 'at_least_one_field_required',
+    message: 'Change at least one thing before saving.',
   });
 
 export type OwnerMoneyEventUpdateInput = z.infer<typeof ownerMoneyEventUpdateSchema>;

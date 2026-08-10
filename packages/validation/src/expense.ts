@@ -50,7 +50,7 @@ export const expenseUpdateSchema = expenseCreateSchema
   .omit({ companyId: true })
   .partial()
   .refine((v) => Object.values(v).some((x) => x !== undefined), {
-    message: 'at_least_one_field_required',
+    message: 'Change at least one thing before saving.',
   });
 
 export type ExpenseUpdateInput = z.infer<typeof expenseUpdateSchema>;
@@ -95,10 +95,13 @@ export const expenseAllocationSchema = z
     jobId: z.string().uuid().nullable().default(null),
     share: z
       .string()
-      .regex(/^\d+(\.\d{1,6})?$/, 'share must be a decimal fraction')
-      .refine((s) => Number(s) > 0 && Number(s) <= 1, 'share must be in (0, 1]'),
+      .regex(/^\d+(\.\d{1,6})?$/, 'Enter a share like 0.5 for half.')
+      .refine(
+        (s) => Number(s) > 0 && Number(s) <= 1,
+        'A share has to be more than zero and no more than the whole.',
+      ),
   })
-  .refine((a) => !(a.invoiceId && a.jobId), { message: 'allocation_names_both_grains' });
+  .refine((a) => !(a.invoiceId && a.jobId), { message: 'Pick a job or an invoice, not both.' });
 
 // Which bucket a row targets, for the duplicate check below. Namespaced so an
 // invoice id and a job id can never collide, and 'shared' stays the single
@@ -120,12 +123,12 @@ export const expenseAllocationsSchema = z
     (v) =>
       v.allocations.length === 0 ||
       Math.abs(v.allocations.reduce((t, a) => t + Number(a.share), 0) - 1) < 0.0001,
-    { message: 'shares_must_sum_to_one' },
+    { message: 'The shares have to add up to the whole expense.' },
   )
   // The DB has partial uniques for this; catching it here turns a 500 into a
   // 400 with a usable message.
   .refine((v) => new Set(v.allocations.map(allocationTarget)).size === v.allocations.length, {
-    message: 'duplicate_allocation_target',
+    message: 'That job or invoice is already on the list.',
   });
 
 export type ExpenseAllocationsInput = z.infer<typeof expenseAllocationsSchema>;

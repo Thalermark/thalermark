@@ -20,7 +20,7 @@ function datesInOrder(v: { startedOn?: string | null; endedOn?: string | null })
   return v.startedOn <= v.endedOn;
 }
 
-const DATE_ORDER_ERROR = { message: 'ended_before_started' } as const;
+const DATE_ORDER_ERROR = { message: 'The end date is before the start date.' } as const;
 
 export const jobCreateSchema = z
   .object({
@@ -49,7 +49,7 @@ export const jobUpdateSchema = z
     startedOn: isoDateString.nullable().optional(),
     endedOn: isoDateString.nullable().optional(),
   })
-  .refine((v) => Object.keys(v).length > 0, { message: 'no_fields_to_update' })
+  .refine((v) => Object.keys(v).length > 0, { message: 'Change at least one thing before saving.' })
   .refine(datesInOrder, DATE_ORDER_ERROR);
 
 export type JobUpdateInput = z.infer<typeof jobUpdateSchema>;

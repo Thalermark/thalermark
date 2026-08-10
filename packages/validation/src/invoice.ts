@@ -16,7 +16,9 @@ import {
 // the server records that exact value; the schema does not re-derive.
 export const invoiceLineItemInputSchema = z.object({
   position: z.number().int().min(1).max(10_000),
-  description: z.string().min(1).max(500),
+  // Overrides the global map's "This can't be blank." — naming the thing beats
+  // naming the rule when the field sits in a row of several (TMC-221).
+  description: z.string().min(1, 'Give this line a description.').max(500),
   quantity: quantityString,
   unitPrice: priceString,
   amount: moneyString,
@@ -68,8 +70,8 @@ export type InvoiceLineItemInput = z.infer<typeof invoiceLineItemInputSchema>;
 // drift between client display and DB-stored values.
 export const invoiceCreateSchema = z.object({
   companyId: z.string().uuid(),
-  contactId: z.string().uuid(),
-  number: z.string().min(1).max(50),
+  contactId: z.string().uuid('Choose a customer.'),
+  number: z.string().min(1, 'Give this invoice a number.').max(50),
   issueDate: isoDateString,
   dueDate: isoDateString,
   currency: z.string().length(3).optional(), // server defaults to 'USD'
@@ -85,7 +87,7 @@ export const invoiceCreateSchema = z.object({
   showAddress: z.boolean().optional(),
   showPhone: z.boolean().optional(),
   showEmail: z.boolean().optional(),
-  lineItems: z.array(invoiceLineItemInputSchema).min(1).max(200),
+  lineItems: z.array(invoiceLineItemInputSchema).min(1, 'Add at least one line.').max(200),
   // Optional membership in a job (TMC-181). Null detaches.
   //
   // Which tracked hours this invoice bills is NOT a field here — it is derived
@@ -178,7 +180,9 @@ export const invoiceDepositSchema = z.object({
   // which is exactly the half-done state this endpoint exists to prevent.
   // Caught by the atomicity test, which failed for this reason rather than the
   // one it was written for.
-  amount: moneyString.refine((v) => Number(v) > 0, { message: 'amount_must_be_positive' }),
+  amount: moneyString.refine((v) => Number(v) > 0, {
+    message: 'Enter an amount greater than zero.',
+  }),
   receivedOn: isoDateString.optional(),
   method: z.enum(INVOICE_PAYMENT_METHODS).optional(),
   // Same double-click guard as invoicePaymentCreateSchema below, and it matters

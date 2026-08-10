@@ -43,7 +43,7 @@ export const billUpdateSchema = billCreateSchema
   .omit({ companyId: true })
   .partial()
   .refine((v) => Object.values(v).some((x) => x !== undefined), {
-    message: 'at_least_one_field_required',
+    message: 'Change at least one thing before saving.',
   });
 
 export type BillUpdateInput = z.infer<typeof billUpdateSchema>;

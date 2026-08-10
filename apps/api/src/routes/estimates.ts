@@ -411,6 +411,14 @@ export function estimatesRoutes(deps: AppDeps) {
             openTotal: sql<string>`coalesce(sum(${estimates.total}) filter (where ${estimates.status} = 'sent'), 0)::text`,
             acceptedCount: sql<number>`(count(*) filter (where ${estimates.status} = 'accepted'))::int`,
             acceptedTotal: sql<string>`coalesce(sum(${estimates.total}) filter (where ${estimates.status} = 'accepted'), 0)::text`,
+            // Accepted and not yet billed (TMC-230). Distinct from `accepted`,
+            // which is an all-time metric on the estimates page and must keep
+            // counting work that has since been invoiced. Convert deliberately
+            // leaves the status alone and only sets converted_invoice_id, so
+            // that column is the only thing separating "they said yes" from
+            // "they said yes and I did something about it".
+            unbilledCount: sql<number>`(count(*) filter (where ${estimates.status} = 'accepted' and ${estimates.convertedInvoiceId} is null))::int`,
+            unbilledTotal: sql<string>`coalesce(sum(${estimates.total}) filter (where ${estimates.status} = 'accepted' and ${estimates.convertedInvoiceId} is null), 0)::text`,
           })
           .from(estimates)
           .where(and(...conditions));
@@ -418,6 +426,10 @@ export function estimatesRoutes(deps: AppDeps) {
           draft: { count: row?.draftCount ?? 0 },
           open: { count: row?.openCount ?? 0, total: row?.openTotal ?? '0' },
           accepted: { count: row?.acceptedCount ?? 0, total: row?.acceptedTotal ?? '0' },
+          acceptedUnbilled: {
+            count: row?.unbilledCount ?? 0,
+            total: row?.unbilledTotal ?? '0',
+          },
         });
       })
       .get('/api/estimates/next-number', async (c) => {

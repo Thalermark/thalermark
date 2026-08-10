@@ -12,10 +12,16 @@ import { z } from 'zod';
 // line, a subtotal or an expense is never negative. The dedicated
 // representation this used to promise for credits/refunds is signedMoneyString
 // below, which landed with partial payments (TMC-187).
+// The messages are the ones a user reads under the field, not a note to the
+// developer about the wire format (TMC-221). They name an example rather than a
+// rule, because "up to 2 fractional digits" is not how anyone thinks about a
+// price. The negative case is called out explicitly: the regex rejects a minus
+// sign, and "enter an amount like 125.00" would otherwise leave someone typing
+// a refund with no idea what is wrong.
 export const moneyString = z
   .string()
-  .regex(/^\d+(\.\d{1,2})?$/, 'money must be a decimal string with up to 2 fractional digits')
-  .refine((s) => s.length <= 18, 'money exceeds 15-digit precision');
+  .regex(/^\d+(\.\d{1,2})?$/, 'Enter an amount like 125.00, with no minus sign.')
+  .refine((s) => s.length <= 18, 'That amount is too large.');
 
 // Money that may be negative — the representation for a refund or a credit
 // note, which are recorded as negative payments rather than as a second entity
@@ -29,10 +35,10 @@ export const signedMoneyString = z
   .string()
   .regex(
     /^-?\d+(\.\d{1,2})?$/,
-    'money must be a decimal string with up to 2 fractional digits, optionally negative',
+    'Enter an amount like 125.00, or -125.00 to record money going back.',
   )
-  .refine((s) => s.length <= 19, 'money exceeds 15-digit precision')
-  .refine((s) => Number(s) !== 0, 'amount must not be zero');
+  .refine((s) => s.length <= 19, 'That amount is too large.')
+  .refine((s) => Number(s) !== 0, 'Enter an amount other than zero.');
 
 // Unit price allows up to 4 fractional digits (numeric(15,4)) — finer than a
 // money amount so a line total that doesn't divide evenly by the quantity can
@@ -41,13 +47,13 @@ export const signedMoneyString = z
 // (moneyString); only the per-unit price carries the extra precision.
 export const priceString = z
   .string()
-  .regex(/^\d+(\.\d{1,4})?$/, 'unit price must be a decimal string with up to 4 fractional digits')
-  .refine((s) => s.length <= 20, 'unit price exceeds 15-digit precision');
+  .regex(/^\d+(\.\d{1,4})?$/, 'Enter a price like 92.50, with no minus sign.')
+  .refine((s) => s.length <= 20, 'That price is too large.');
 
 export const quantityString = z
   .string()
-  .regex(/^\d+(\.\d{1,4})?$/, 'quantity must be a decimal string with up to 4 fractional digits')
-  .refine((s) => s.length <= 20, 'quantity exceeds 15-digit precision');
+  .regex(/^\d+(\.\d{1,4})?$/, 'Enter a quantity like 3 or 1.5, with no minus sign.')
+  .refine((s) => s.length <= 20, 'That quantity is too large.');
 
 // Tax rate as a percent decimal string, up to 4 fractional digits ("8.25",
 // "8.8750"). Mirrors tax_policies.rate_pct numeric(7,4). Capped at 100 so a
@@ -55,12 +61,14 @@ export const quantityString = z
 // 825% tax.
 export const taxRateString = z
   .string()
-  .regex(/^\d+(\.\d{1,4})?$/, 'tax rate must be a decimal string with up to 4 fractional digits')
-  .refine((s) => Number(s) <= 100, 'tax rate must not exceed 100');
+  .regex(/^\d+(\.\d{1,4})?$/, 'Enter a rate like 8.25 — the number only, without a percent sign.')
+  .refine((s) => Number(s) <= 100, "A tax rate can't be more than 100%.");
 
 // ISO 8601 calendar date (YYYY-MM-DD), no time, no zone. Mirrors the
 // drizzle `date({ mode: 'string' })` column type for invoice issue/due dates.
-export const isoDateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date must be YYYY-MM-DD');
+export const isoDateString = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Enter a date like 2026-08-10.');
 
 // Decimal-string math. The invoice schema is locked on "client computes,
 // server stores as-sent" — both the SvelteKit action and the Svelte page
