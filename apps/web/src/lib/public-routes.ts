@@ -49,3 +49,25 @@ export const PUBLIC_PREFIXES = ['/i/', '/e/', '/legal/', '/pay/'];
 export function isPublicPrefix(path: string): boolean {
   return PUBLIC_PREFIXES.some((p) => path.startsWith(p));
 }
+
+// Routes outside the (app) group that require a session ON PURPOSE.
+//
+// Its only job is to be a place where "this one is private" has to be written
+// down. The lists above can only be wrong by omission, and an omission is
+// invisible: the guard's default is private, and a developer is always signed
+// in, so a route that should be public looks fine to the person who added it.
+// That is not hypothetical — /pay/ (TMC-209), /forgot-password and
+// /reset-password (TMC-239) all shipped that way, in three separate features.
+//
+// The test beside this file walks the routes directory and fails on anything
+// that appears in neither this list nor the public ones, so the next such route
+// is a red PR rather than a bug report from someone who cannot pay or cannot
+// get back into their account.
+//
+// Being in this list is a claim, not a formality: it says someone looked at the
+// route and decided a stranger has no business reaching it.
+export const PRIVATE_ON_PURPOSE = new Set([
+  // First-run wizard. Nothing to show a visitor who has no account yet, and it
+  // writes to one — sign-up is the way in.
+  '/welcome',
+]);
