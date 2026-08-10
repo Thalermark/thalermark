@@ -373,6 +373,89 @@ describe('capital purchases — log a big purchase', () => {
     }
   });
 
+  // TMC-240. The loan leg is the interesting part: "still owed" is derived from
+  // the ledger, so if the restore didn't repost, a restored financed purchase
+  // would come back showing nothing owed on a loan the user still has.
+  it('restore puts the purchase, its cost and its loan back', async () => {
+    const { app, handle } = buildApp();
+    try {
+      const cookie = await signUp(app, 'cp-restore@example.com');
+      const { accountId, companyId } = await ownerContext('cp-restore@example.com');
+
+      const created = (await (
+        await send(app, 'POST', '/api/purchases', cookie, accountId, {
+          companyId,
+          description: 'Mower',
+          amount: '1000.00',
+          purchaseDate: '2026-04-01',
+          funding: 'financed',
+          downPayment: '200.00',
+          taxTreatment: 'spread',
+        })
+      ).json()) as { id: string };
+
+      expect(
+        (await send(app, 'DELETE', `/api/purchases/${created.id}`, cookie, accountId)).status,
+      ).toBe(200);
+
+      // Reachable only from the show-deleted list, which is what the restore
+      // button is rendered from.
+      const hidden = (await (await get(app, '/api/purchases', cookie, accountId)).json()) as {
+        purchases: unknown[];
+      };
+      expect(hidden.purchases).toHaveLength(0);
+      const shown = (await (
+        await get(app, '/api/purchases?includeDeleted=true', cookie, accountId)
+      ).json()) as { purchases: { id: string; deletedAt: string | null }[] };
+      expect(shown.purchases).toHaveLength(1);
+      expect(shown.purchases[0]?.deletedAt).not.toBeNull();
+
+      const res = await send(
+        app,
+        'POST',
+        `/api/purchases/${created.id}/restore`,
+        cookie,
+        accountId,
+      );
+      expect(res.status).toBe(200);
+
+      const detail = (await (
+        await get(app, `/api/purchases/${created.id}`, cookie, accountId)
+      ).json()) as { owing: string };
+      // 1000 − 200 down = 800 financed, exactly as before the delete.
+      expect(detail.owing).toBe('800.00');
+      expect(await tenantBalanced(accountId)).toBe(true);
+
+      const bs = (await (
+        await get(
+          app,
+          `/api/companies/${companyId}/balance-sheet?asOf=2026-04-30`,
+          cookie,
+          accountId,
+        )
+      ).json()) as { balanced: boolean; assets: { code: string; amount: string }[] };
+      expect(bs.balanced).toBe(true);
+      expect(bs.assets.find((a) => a.code === '1500')?.amount).toBe('1000.00');
+
+      // Back on the ordinary list, and a second restore is a no-op rather than a
+      // second capitalization.
+      const list = (await (await get(app, '/api/purchases', cookie, accountId)).json()) as {
+        purchases: unknown[];
+      };
+      expect(list.purchases).toHaveLength(1);
+      expect(
+        (await send(app, 'POST', `/api/purchases/${created.id}/restore`, cookie, accountId)).status,
+      ).toBe(200);
+      const after = (await (
+        await get(app, `/api/purchases/${created.id}`, cookie, accountId)
+      ).json()) as { owing: string };
+      expect(after.owing).toBe('800.00');
+      expect(await tenantBalanced(accountId)).toBe(true);
+    } finally {
+      await handle.close();
+    }
+  });
+
   it('a viewer is gated out of logging a purchase (403)', async () => {
     const { app, handle } = buildApp();
     try {

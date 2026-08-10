@@ -17,6 +17,7 @@ export const GET: RequestHandler = async (event) => {
   if (cursor) query.cursor = cursor;
   const kind = p.get('kind');
   if (kind) query.kind = kind;
+  if (p.get('deleted') === '1') query.includeDeleted = 'true';
 
   const res = await client.api['owner-money'].$get({ query });
   if (!res.ok) return json({ rows: [], nextCursor: null }, { status: res.status });

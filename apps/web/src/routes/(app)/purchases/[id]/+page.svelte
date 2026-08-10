@@ -182,7 +182,8 @@
 
   <!-- The API soft-deletes the row, reverses the purchase posting, AND reverses
        every year of depreciation already swept in — so the deduction figures for
-       closed years move. There is no restore route. -->
+       closed years move. Restore puts all of it back, from the list's "Show
+       deleted" view (TMC-240). -->
   <ConfirmDialog
     bind:open={confirmingDelete}
     title="Remove this purchase?"
@@ -195,7 +196,8 @@
       {#if financed}
         The loan we're tracking against it goes too.
       {/if}
-      There is no undo in the app: you would have to enter it again.
+      You can put it back: removed purchases stay on the list behind "Show deleted", and restoring
+      one puts the write-offs back too.
     {/snippet}
   </ConfirmDialog>
 {/if}

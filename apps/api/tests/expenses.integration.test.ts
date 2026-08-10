@@ -439,6 +439,91 @@ describe('expenses — CRUD + ledger', () => {
     }
   });
 
+  // TMC-240: the round trip. The delete above proves the books survive a delete;
+  // this proves they survive the undo, which is what makes the soft delete worth
+  // keeping the row for.
+  it('restore reposts the expense and the GL returns to where it started', async () => {
+    const ctx = buildApp();
+    try {
+      const cookie = await signUp(ctx.app, 'exp-restore@example.com');
+      const { accountId, companyId } = await userContext('exp-restore@example.com');
+      const advertising = await coaId(companyId, '6000');
+      const payment = await coaId(companyId, '1000');
+
+      const created = await createExpense(
+        ctx.app,
+        cookie,
+        accountId,
+        expenseBody({
+          companyId,
+          categoryAccountId: advertising,
+          paymentAccountId: payment,
+          amount: '80.00',
+        }),
+      );
+      const id = ((await created.json()) as { id: string }).id;
+
+      await ctx.app.request(`/api/expenses/${id}`, {
+        method: 'DELETE',
+        headers: { cookie, 'x-account-id': accountId },
+      });
+
+      // The show-deleted list is the only place the row is reachable from.
+      const hidden = (await (
+        await ctx.app.request(`/api/expenses?companyId=${companyId}`, {
+          headers: { cookie, 'x-account-id': accountId },
+        })
+      ).json()) as { expenses: unknown[] };
+      expect(hidden.expenses).toHaveLength(0);
+      const shown = (await (
+        await ctx.app.request(`/api/expenses?companyId=${companyId}&includeDeleted=true`, {
+          headers: { cookie, 'x-account-id': accountId },
+        })
+      ).json()) as { expenses: { id: string; deletedAt: string | null }[] };
+      expect(shown.expenses).toHaveLength(1);
+      expect(shown.expenses[0]?.deletedAt).not.toBeNull();
+
+      const res = await ctx.app.request(`/api/expenses/${id}/restore`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(res.status).toBe(200);
+
+      const db = getTestDb();
+      const [row] = await db.select().from(expenses).where(eq(expenses.id, id));
+      expect(row?.deletedAt).toBeNull();
+
+      // Create + reversal + repost = three entries netting to one expense: the
+      // same balances as before the delete, reached without rewriting history.
+      const entries = await entriesFor(id);
+      expect(entries).toHaveLength(3);
+      const allLines = (await Promise.all(entries.map((e) => linesFor(e.id)))).flat();
+      const net = new Map<string, number>();
+      for (const l of allLines) {
+        const signed = (l.side === 'debit' ? 1 : -1) * Number(l.amount);
+        net.set(l.code as string, (net.get(l.code as string) ?? 0) + signed);
+      }
+      expect(net.get('6000')).toBe(80);
+      expect(net.get('1000')).toBe(-80);
+
+      // Reachable again through the ordinary reads.
+      const getOne = await ctx.app.request(`/api/expenses/${id}`, {
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(getOne.status).toBe(200);
+
+      // Restoring a live expense is a no-op, not a second posting.
+      const noop = await ctx.app.request(`/api/expenses/${id}/restore`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(noop.status).toBe(200);
+      expect(await entriesFor(id)).toHaveLength(3);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
   it('isolates expenses across accounts', async () => {
     const ctx = buildApp();
     try {

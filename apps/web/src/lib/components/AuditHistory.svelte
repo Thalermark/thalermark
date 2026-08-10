@@ -49,6 +49,7 @@
     end: 'ended',
     archive: 'archived',
     restore: 'restored',
+    delete: 'deleted',
   };
 
   // Entity-type → display singular for the feed prefix and the link path.
@@ -59,6 +60,7 @@
     expense: 'Expense',
     bill: 'Bill',
     owner_money_event: 'Investment or withdrawal',
+    capital_purchase: 'Big purchase',
     company: 'Company',
     recurring_invoice: 'Repeating invoice',
     item: 'Item',
@@ -70,6 +72,7 @@
     expense: '/expenses',
     bill: '/bills',
     owner_money_event: '/owner-money',
+    capital_purchase: '/purchases',
     company: '/settings/payments',
     recurring_invoice: '/recurring',
     item: '/items',
@@ -78,6 +81,20 @@
   function actionLabel(action: string): string {
     return ACTION_LABELS[action] ?? action;
   }
+
+  // Timestamps whose row already says what they mean: "marked sent" makes
+  // "sentAt: ∅ → 2026-05-27T…" clutter. Each one here has an ACTION_LABELS
+  // entry above that conveys it. Anything not on this list is shown, so a
+  // stamp nothing else explains can't disappear from the diff.
+  const IMPLIED_STAMPS = new Set([
+    'sentAt',
+    'paidAt',
+    'acceptedAt',
+    'declinedAt',
+    'voidedAt',
+    'archivedAt',
+    'receiptUploadedAt',
+  ]);
 
   // Compute a small line of changed key fields between before and after.
   // Skips entries where both sides are equal, and where keys aren't in
@@ -116,10 +133,11 @@
       const bv = b[k];
       const av = a[k];
       if (sameDeep(bv, av)) continue;
-      // Skip noise: timestamps in transition payloads are implied by the
-      // action label; rendering "sentAt: ∅ → 2026-05-27..." next to
-      // "marked sent" adds clutter without information.
-      if (/At$/.test(k) && bv == null) continue;
+      // Skip noise: a stamp the action label already carries. Named one by one
+      // rather than matched on /At$/, because that pattern swallowed deletedAt
+      // too — and a delete row that reads "1 change: updatedAt" hides the only
+      // field that says what happened (TMC-240).
+      if (IMPLIED_STAMPS.has(k) && bv == null) continue;
       lines.push(`${k}: ${shortValue(bv)} → ${shortValue(av)}`);
     }
     return lines;

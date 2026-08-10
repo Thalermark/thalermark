@@ -378,6 +378,57 @@ describe('depreciation auto-posting', () => {
     }
   });
 
+  // TMC-240. The delete reverses each closed year in its own tax year; restore
+  // has to put every one of them back, or a restored purchase silently loses
+  // years of write-offs that the user never chose to give up.
+  //
+  // Dated relative to the real current year because the restore route reads the
+  // real clock (unlike sweep(), which takes an injected `now`) — a hard-coded
+  // year would stop testing anything once it passed.
+  it('restore puts back every year of depreciation the delete reversed', async () => {
+    const { app, handle } = buildApp();
+    try {
+      const cookie = await signUp(app, 'dep-restore@example.com');
+      const { accountId, companyId } = await ownerContext('dep-restore@example.com');
+      const thisYear = new Date().getUTCFullYear();
+      const firstYear = thisYear - 3;
+      const id = await seedSpreadPurchase(app, cookie, accountId, companyId, {
+        purchaseDate: `${firstYear}-06-15`,
+        amount: '3600.00',
+      });
+
+      // Half-year convention: half a chunk in the purchase year, full ones after.
+      await sweep(new Date());
+      expect(await line13(app, companyId, cookie, accountId, firstYear)).toBe('360.00');
+      expect(await line13(app, companyId, cookie, accountId, firstYear + 1)).toBe('720.00');
+
+      expect((await send(app, 'DELETE', `/api/purchases/${id}`, cookie, accountId)).status).toBe(
+        200,
+      );
+      expect(await line13(app, companyId, cookie, accountId, firstYear)).toBe('0.00');
+      expect(await line13(app, companyId, cookie, accountId, firstYear + 1)).toBe('0.00');
+
+      const res = await send(app, 'POST', `/api/purchases/${id}/restore`, cookie, accountId);
+      expect(res.status).toBe(200);
+
+      // Every closed year is back on the same tax year it was filed against —
+      // not bunched onto today, which is what dating the repost to the purchase
+      // would otherwise risk.
+      expect(await line13(app, companyId, cookie, accountId, firstYear)).toBe('360.00');
+      expect(await line13(app, companyId, cookie, accountId, firstYear + 1)).toBe('720.00');
+      expect(await line13(app, companyId, cookie, accountId, firstYear + 2)).toBe('720.00');
+      expect(await tenantBalanced(accountId)).toBe(true);
+
+      // The next sweep finds nothing owing — restore already caught it up, and
+      // the reversed-year check nets to zero rather than double-posting.
+      const after = await sweep(new Date());
+      expect(after.entriesPosted).toBe(0);
+      expect(await line13(app, companyId, cookie, accountId, firstYear)).toBe('360.00');
+    } finally {
+      await handle.close();
+    }
+  });
+
   it('does not post a year the company has not finished living through', async () => {
     const { app, handle } = buildApp();
     try {

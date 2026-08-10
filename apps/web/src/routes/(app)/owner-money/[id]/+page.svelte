@@ -27,9 +27,9 @@
       >
         Edit
       </a>
-      <!-- The API soft-deletes the row and posts a reversal, and there is no
-           restore route — the detail page 404s afterwards. So this is a one-way
-           door for the user even though the row survives in the database. -->
+      <!-- The API soft-deletes the row and posts a reversal. The detail page
+           404s afterwards, so the way back is the list's "Show deleted" view,
+           which is where the Restore button lives (TMC-240). -->
       <ConfirmSubmit
         action="?/delete"
         label="Delete"
@@ -40,8 +40,8 @@
         {#snippet body()}
           It comes off your books and the money it moved is put back, so your balances read as if
           you had never recorded it. Your income, your expenses and your tax worksheet don't change
-          — money between you and the business isn't business earnings. There is no undo in the app:
-          you would have to record it again.
+          — money between you and the business isn't business earnings. You can put it back: deleted
+          records stay on this list behind "Show deleted".
         {/snippet}
       </ConfirmSubmit>
     </div>

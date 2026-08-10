@@ -10,6 +10,7 @@ type ApiExpense = {
   categoryAccountId: string | null;
   receiptStorageKey: string | null;
   vendorReview: string | null;
+  deletedAt: string | null;
 };
 
 export type ExpenseRow = {
@@ -20,6 +21,10 @@ export type ExpenseRow = {
   categoryName: string;
   hasReceipt: boolean;
   needsReview: boolean;
+  // Only ever true in the show-deleted view — the list hides deleted rows
+  // otherwise. Carries the Restore button and suppresses the detail link, which
+  // 404s while the row is deleted.
+  deleted: boolean;
 };
 
 export function mapExpenseRows(
@@ -34,5 +39,6 @@ export function mapExpenseRows(
     categoryName: (e.categoryAccountId && categoryNameById.get(e.categoryAccountId)) || '—',
     hasReceipt: e.receiptStorageKey != null,
     needsReview: e.vendorReview === 'needs_review',
+    deleted: e.deletedAt != null,
   }));
 }

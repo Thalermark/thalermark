@@ -322,6 +322,96 @@ describe('owner money events — CRUD + ledger (equity/draw)', () => {
     }
   });
 
+  // TMC-240: the soft delete's other half. Without this the surviving row was
+  // unreachable, which made the soft delete a permanent one that also used disk.
+  it('restore puts the event and its posting back where they were', async () => {
+    const ctx = buildApp();
+    try {
+      const cookie = await signUp(ctx.app, 'ome-restore@example.com');
+      const { accountId, companyId } = await userContext('ome-restore@example.com');
+
+      const created = (await (
+        await createEvent(ctx.app, cookie, accountId, {
+          companyId,
+          kind: 'contribution',
+          amount: '400.00',
+        })
+      ).json()) as { id: string };
+
+      await ctx.app.request(`/api/owner-money/${created.id}`, {
+        method: 'DELETE',
+        headers: { cookie, 'x-account-id': accountId },
+      });
+
+      // The deleted row is reachable again only when asked for — this is the
+      // list the restore button is rendered from.
+      const deletedList = (await (
+        await ctx.app.request(`/api/owner-money?companyId=${companyId}&includeDeleted=true`, {
+          headers: { cookie, 'x-account-id': accountId },
+        })
+      ).json()) as { events: { id: string; deletedAt: string | null }[] };
+      expect(deletedList.events).toHaveLength(1);
+      expect(deletedList.events[0]?.deletedAt).not.toBeNull();
+
+      const res = await ctx.app.request(`/api/owner-money/${created.id}/restore`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as { deletedAt: string | null }).deletedAt).toBeNull();
+
+      // create + reversal + repost = 3 entries, and the money is back where it
+      // started — the ledger is append-only, so undo is another entry.
+      expect(await entriesFor(created.id)).toHaveLength(3);
+      const flow = await dashboardFlow(ctx.app, cookie, accountId, companyId, TODAY);
+      expect(flow.moneyIn).toBe('400.00');
+
+      // And it reads like an ordinary live event again.
+      const get = await ctx.app.request(`/api/owner-money/${created.id}`, {
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(get.status).toBe(200);
+      const list = (await (
+        await ctx.app.request(`/api/owner-money?companyId=${companyId}`, {
+          headers: { cookie, 'x-account-id': accountId },
+        })
+      ).json()) as { events: unknown[] };
+      expect(list.events).toHaveLength(1);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  // Idempotence matters more here than for the items archive pair: a second
+  // POST that posted again would double the contribution.
+  it('restoring a live event posts nothing', async () => {
+    const ctx = buildApp();
+    try {
+      const cookie = await signUp(ctx.app, 'ome-restore-live@example.com');
+      const { accountId, companyId } = await userContext('ome-restore-live@example.com');
+
+      const created = (await (
+        await createEvent(ctx.app, cookie, accountId, {
+          companyId,
+          kind: 'contribution',
+          amount: '400.00',
+        })
+      ).json()) as { id: string };
+
+      const res = await ctx.app.request(`/api/owner-money/${created.id}/restore`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(res.status).toBe(200);
+
+      expect(await entriesFor(created.id)).toHaveLength(1);
+      const flow = await dashboardFlow(ctx.app, cookie, accountId, companyId, TODAY);
+      expect(flow.moneyIn).toBe('400.00');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
   it('rejects an invalid kind', async () => {
     const ctx = buildApp();
     try {
