@@ -81,6 +81,19 @@ export const invoices = pgTable(
     paidAt: timestamp('paid_at', { withTimezone: true }),
     voidedAt: timestamp('voided_at', { withTimezone: true }),
     publicToken: text('public_token'),
+    // Whether the email ARRIVED, which sent_at has never answered (TMC-226).
+    // sent_at is stamped by the status transition and the send route commits
+    // that flip even when the mailer throws, so the two facts have to be stored
+    // apart: 'sent' | 'failed' now, plus 'delivered' | 'bounced' | 'complained'
+    // once a provider webhook can report them.
+    deliveryStatus: text('delivery_status'),
+    // Why, in the provider's words. Shown to the operator because "it bounced"
+    // without "mailbox full" or "no such user" leaves them nothing to act on.
+    deliveryDetail: text('delivery_detail'),
+    deliveryUpdatedAt: timestamp('delivery_updated_at', { withTimezone: true }),
+    // First time the customer opened the public link (TMC-230). Answers the
+    // other half of "I sent it, I swear".
+    viewedAt: timestamp('viewed_at', { withTimezone: true }),
     // How a paid invoice was settled, recorded on the mark-paid transition.
     // payment_method is the channel: 'cash' | 'check' | 'venmo' | 'zelle' |
     // 'other' from the manual picker, or 'stripe' stamped automatically by the

@@ -31,6 +31,7 @@ import {
   getTableColumns,
   gte,
   ilike,
+  inArray,
   isNull,
   lt,
   lte,
@@ -42,6 +43,7 @@ import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 import { v7 as uuidv7 } from 'uuid';
 import type { AppDeps } from '../app.js';
+import { recordSendAccepted, recordSendFailed } from '../lib/delivery.js';
 import { resolveEmailTemplate } from '../lib/email-templates.js';
 import { sendInvoiceEmail } from '../lib/invoice-email.js';
 import { suggestNextInvoiceNumber } from '../lib/invoice-number.js';
@@ -657,6 +659,10 @@ export function invoicesRoutes(deps: AppDeps) {
         if (companyId) conditions.push(eq(invoices.companyId, companyId));
         if (status) conditions.push(eq(invoices.status, status));
         if (contactId) conditions.push(eq(invoices.contactId, contactId));
+        // The list behind the dashboard's "Not delivered" tile (TMC-226).
+        if (c.req.query('undelivered') === 'true') {
+          conditions.push(inArray(invoices.deliveryStatus, ['failed', 'bounced', 'complained']));
+        }
         if (from) conditions.push(gte(invoices.issueDate, from));
         if (to) conditions.push(lte(invoices.issueDate, to));
         // Derived date-partition filters over the sent-but-unpaid pool (no such
@@ -736,6 +742,11 @@ export function invoicesRoutes(deps: AppDeps) {
             awaitingTotal: sql<string>`coalesce(sum(${owed}) filter (where ${awaiting}), 0)::numeric(15,2)::text`,
             overdueCount: sql<number>`(count(*) filter (where ${overdue}))::int`,
             overdueTotal: sql<string>`coalesce(sum(${owed}) filter (where ${overdue}), 0)::numeric(15,2)::text`,
+            // Invoices whose email did not arrive (TMC-226). Counted here so a
+            // failed send is visible from the dashboard without opening a
+            // record — the whole failure mode is that nobody goes looking.
+            // Matches the partial index in migration 0037.
+            undeliveredCount: sql<number>`(count(*) filter (where ${invoices.deliveryStatus} in ('failed','bounced','complained')))::int`,
           })
           .from(invoices)
           .leftJoin(paidPerInvoice, eq(paidPerInvoice.invoiceId, invoices.id))
@@ -744,6 +755,7 @@ export function invoicesRoutes(deps: AppDeps) {
           draft: { count: row?.draftCount ?? 0 },
           awaiting: { count: row?.awaitingCount ?? 0, total: row?.awaitingTotal ?? '0' },
           overdue: { count: row?.overdueCount ?? 0, total: row?.overdueTotal ?? '0' },
+          undelivered: { count: row?.undeliveredCount ?? 0 },
         });
       })
       .get('/api/invoices/next-number', async (c) => {
@@ -1609,6 +1621,13 @@ export function invoicesRoutes(deps: AppDeps) {
               template,
             }));
           } catch (err) {
+            // Record the failure on the row before answering (TMC-226). The 502
+            // tells whoever is looking at the screen right now; the row is what
+            // tells them in three weeks when they are wondering why this one
+            // never got paid. Its own tx because the send tx is already closed.
+            await c.var.runInTx(async (tx) => {
+              await recordSendFailed(tx, { accountId, documentId: id, kind: 'invoice' }, err);
+            });
             const message = err instanceof Error ? err.message : String(err);
             return c.json({ error: 'email_failed', detail: message }, 502);
           }
@@ -1618,6 +1637,12 @@ export function invoicesRoutes(deps: AppDeps) {
           // re-emit, so each invoice yields one invoice_sent tagged with the
           // method that first delivered it (TELEMETRY.md).
           await c.var.runInTx(async (tx, audit) => {
+            // `delivered` is false when the mailer is the console driver, so a
+            // self-host without email does not get told its post arrived
+            // (TMC-212). Only a real handoff clears a previous failure.
+            if (delivered) {
+              await recordSendAccepted(tx, { accountId, documentId: id, kind: 'invoice' });
+            }
             await audit({
               entityType: 'invoice',
               entityId: id,

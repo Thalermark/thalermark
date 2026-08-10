@@ -37,6 +37,20 @@
       href: '/estimates?status=accepted',
       alert: counts.acceptedEstimates > 0,
     },
+    // Only shown when something is wrong. A permanent "0 undelivered" tile
+    // would be one more number to ignore; a tile that appears only when an
+    // email did not arrive is the whole point (TMC-226).
+    ...(counts.undelivered > 0
+      ? [
+          {
+            label: 'Not delivered',
+            count: counts.undelivered,
+            hint: 'email did not arrive',
+            href: '/invoices?undelivered=true',
+            alert: true,
+          },
+        ]
+      : []),
   ]);
 
   // Display formatting only — the authoritative value is the decimal string

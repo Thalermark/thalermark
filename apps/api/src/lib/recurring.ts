@@ -17,6 +17,7 @@ import type { RecurringFrequency } from '@thalermark/validation';
 import { and, asc, eq, isNull, lte } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
 import { type AuditWriter, createAuditWriter } from '../middleware/audit.js';
+import { recordSendAccepted, recordSendFailed } from './delivery.js';
 import { resolveEmailTemplate } from './email-templates.js';
 import { type EntitlementProvider, communityEntitlements } from './entitlement.js';
 import { sendInvoiceEmail } from './invoice-email.js';
@@ -270,6 +271,7 @@ export async function generateOnce(
           template,
         });
         emailed = true;
+        await recordSendAccepted(tx, { accountId, documentId: invoiceId, kind: 'invoice' });
         await audit({
           entityType: 'invoice',
           entityId: invoiceId,
@@ -278,6 +280,11 @@ export async function generateOnce(
           companyId: schedule.companyId,
         });
       } catch (err) {
+        // Record it where the operator will see it, not only in the log
+        // (TMC-226). This sweep is the worst place for a silent failure: nobody
+        // is watching when it runs, so a month of auto-billing could deliver
+        // nothing at all while the dashboard looked perfectly healthy.
+        await recordSendFailed(tx, { accountId, documentId: invoiceId, kind: 'invoice' }, err);
         // Don't roll back a generated+sent invoice over a mailer hiccup; the
         // invoice is payable from its public link regardless and the operator
         // can re-send from the UI.

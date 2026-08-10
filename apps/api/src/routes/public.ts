@@ -25,6 +25,8 @@ import {
   syncInvoiceSettlement,
 } from '../lib/invoice-payments.js';
 import { postInvoicePayment } from '../lib/ledger.js';
+import type { Mailer } from '../lib/mailer.js';
+import { estimateAcceptedNotice, invoicePaidNotice, notifyOwner } from '../lib/owner-notify.js';
 import { UUID_RE } from '../lib/route-helpers.js';
 import { reindexEntities } from '../lib/search/reindex.js';
 import {
@@ -64,6 +66,7 @@ async function publicEstimateRespond(
   c: Context,
   bootstrapDb: Database,
   decision: 'accept' | 'decline',
+  mail?: { mailer?: Mailer; emailFrom?: string },
 ) {
   const token = c.req.param('token');
   if (!token) return c.json({ error: 'estimate_not_found' }, 404);
@@ -117,6 +120,30 @@ async function publicEstimateRespond(
     { entityType: 'estimate', entityId: current.id },
   ]);
 
+  // Tell the owner (TMC-230). Acceptance is the highest-value event in the
+  // product and it used to notify nobody — while simultaneously dropping the
+  // estimate out of the dashboard tile that tracks 'sent'. A decline is
+  // deliberately quiet: it needs no action, and a mail saying "you lost that
+  // one" the moment it happens is not a kindness.
+  if (decision === 'accept') {
+    const [customer] = await bootstrapDb
+      .select({ name: contacts.name })
+      .from(contacts)
+      .where(eq(contacts.id, current.contactId))
+      .limit(1);
+    await notifyOwner(bootstrapDb, {
+      accountId: current.accountId,
+      mailer: mail?.mailer,
+      emailFrom: mail?.emailFrom,
+      notice: estimateAcceptedNotice({
+        customerName: customer?.name ?? 'A customer',
+        number: current.number,
+        total: current.total,
+        currency: current.currency,
+      }),
+    });
+  }
+
   return c.json({
     status: updated.status,
     acceptedAt: updated.acceptedAt,
@@ -136,6 +163,20 @@ export function publicRoutes(deps: AppDeps) {
           .where(eq(invoices.publicToken, token))
           .limit(1);
         if (!invoice) return c.json({ error: 'invoice_not_found' }, 404);
+
+        // First open only (TMC-230). "Did they even see it?" is the question an
+        // unpaid invoice raises after a fortnight, and until now nothing
+        // recorded the answer. Stamped once so it stays the FIRST view rather
+        // than drifting to the most recent refresh, and left as a fire-and-
+        // forget write: a customer looking at their bill must never be shown an
+        // error because a bookkeeping stamp failed.
+        if (!invoice.viewedAt) {
+          await bootstrapDb
+            .update(invoices)
+            .set({ viewedAt: new Date() })
+            .where(eq(invoices.id, invoice.id))
+            .catch(() => {});
+        }
 
         const [company] = await bootstrapDb
           .select({
@@ -479,10 +520,10 @@ export function publicRoutes(deps: AppDeps) {
       // bootstrapDb because RLS would otherwise hide the audit row from
       // the tenant role without app.current_account_id set.
       .post('/api/public/estimates/:token/accept', async (c) =>
-        publicEstimateRespond(c, bootstrapDb, 'accept'),
+        publicEstimateRespond(c, bootstrapDb, 'accept', deps),
       )
       .post('/api/public/estimates/:token/decline', async (c) =>
-        publicEstimateRespond(c, bootstrapDb, 'decline'),
+        publicEstimateRespond(c, bootstrapDb, 'decline', deps),
       )
       // Stripe webhook. Signature-verified against the raw body — the JSON
       // parse must come from the SDK, not Hono's, so we read text() and
@@ -700,6 +741,31 @@ export function publicRoutes(deps: AppDeps) {
                 amount: payment.amount,
               },
             });
+          });
+
+          // Tell the owner the money landed (TMC-230). Until now this handler
+          // posted the ledger, wrote an audit row and returned — the operator
+          // found out by opening the app and noticing. Best-effort and after
+          // the ledger work: a notification must never be the reason Stripe
+          // gets a non-200 and retries a payment we have already recorded.
+          const [payer] = await bootstrapDb
+            .select({ name: contacts.name })
+            .from(contacts)
+            .where(eq(contacts.id, current.contactId))
+            .limit(1);
+          await notifyOwner(bootstrapDb, {
+            accountId: current.accountId,
+            mailer: deps.mailer,
+            emailFrom: deps.emailFrom,
+            notice: invoicePaidNotice({
+              customerName: payer?.name ?? 'A customer',
+              number: current.number,
+              // What Stripe actually captured, which is not always the invoice
+              // total — a short capture is a partial payment, and the note has
+              // to say the amount that arrived rather than the amount owed.
+              amount: centsToMoney(receivedCents),
+              currency: current.currency,
+            }),
           });
 
           return c.json({ received: true });
