@@ -1,6 +1,7 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
   import AuditHistory from '$lib/components/AuditHistory.svelte';
+  import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
   import { may } from '$lib/perms';
   import type { PageProps } from './$types';
 
@@ -22,6 +23,32 @@
   // A year's share posts once that year has closed, so a purchase made this year
   // shows nothing deducted yet. Saying so beats letting it read as a bug.
   const nothingDeductedYet = $derived(!!spread && Number(spread.postedToDate) === 0);
+
+  // Confirmation for the delete (TMC-217). ConfirmSubmit renders its own <form>,
+  // which would drop this one's use:enhance — so the dialog is wired by hand.
+  //
+  // The interception rides enhance's own cancel() rather than a preventDefault
+  // in an onsubmit handler: enhance never checks event.defaultPrevented, so a
+  // plain preventDefault would open the dialog AND still fire the POST. Either
+  // way the no-JS path is untouched — with scripting off there is no enhance and
+  // no interception, and the trigger is still a real type="submit".
+  let deleteForm: HTMLFormElement | null = $state(null);
+  let confirmingDelete = $state(false);
+  // Plain let, not $state: it gates one synchronous re-submit and nothing
+  // renders from it.
+  let deleteConfirmed = false;
+
+  function runDelete() {
+    deleteConfirmed = true;
+    // requestSubmit re-fires this form's submit event (unlike submit()), which
+    // is why the guard above exists rather than a detached handler.
+    deleteForm?.requestSubmit();
+    // enhance reads the guard synchronously inside requestSubmit, so clearing it
+    // here re-arms the confirmation for a second attempt. It matters: on
+    // has_payments the POST fails, enhance keeps this page mounted, and nothing
+    // else would ever reset the flag.
+    deleteConfirmed = false;
+  }
 </script>
 
 <a href="/purchases" class="eyebrow text-fg/60 hover:text-fg">← Big purchases</a>
@@ -133,7 +160,17 @@
 {/if}
 
 {#if canWrite}
-  <form method="post" action="?/delete" class="mt-8 border-t border-fg/10 pt-6" use:enhance>
+  <form
+    method="post"
+    action="?/delete"
+    class="mt-8 border-t border-fg/10 pt-6"
+    bind:this={deleteForm}
+    use:enhance={({ cancel }) => {
+      if (deleteConfirmed) return; // second pass, post-confirmation — let it fly
+      cancel();
+      confirmingDelete = true;
+    }}
+  >
     <p class="text-sm text-fg/60">Logged this by mistake? Remove it from your books.</p>
     <button
       type="submit"
@@ -142,6 +179,25 @@
       Remove this purchase
     </button>
   </form>
+
+  <!-- The API soft-deletes the row, reverses the purchase posting, AND reverses
+       every year of depreciation already swept in — so the deduction figures for
+       closed years move. There is no restore route. -->
+  <ConfirmDialog
+    bind:open={confirmingDelete}
+    title="Remove this purchase?"
+    confirmLabel="Remove purchase"
+    onconfirm={runDelete}
+  >
+    {#snippet body()}
+      It comes off your books, along with anything you have already written off for it on your taxes
+      — so those totals change.
+      {#if financed}
+        The loan we're tracking against it goes too.
+      {/if}
+      There is no undo in the app: you would have to enter it again.
+    {/snippet}
+  </ConfirmDialog>
 {/if}
 
 <AuditHistory events={data.auditEvents} />

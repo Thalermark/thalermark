@@ -1,5 +1,6 @@
 <script lang="ts">
   import AuditHistory from '$lib/components/AuditHistory.svelte';
+  import ConfirmSubmit from '$lib/components/ConfirmSubmit.svelte';
   import SplitButton from '$lib/components/SplitButton.svelte';
   import { may } from '$lib/perms';
   import { formatUnitPrice } from '@thalermark/validation';
@@ -178,14 +179,26 @@
       </form>
     {/if}
     {#if canMarkDeclined}
-      <form method="post" action="?/markDeclined">
-        <button
-          type="submit"
-          class="rounded-sm border border-danger/30 px-4 py-2 text-sm font-medium text-danger transition-colors hover:bg-danger/5"
-        >
-          Mark declined
-        </button>
-      </form>
+      <!-- `declined` is terminal in MVP: nothing transitions out of it, edit
+           returns not_editable, send returns invalid_transition, and convert
+           only runs from `accepted`. Duplicate is the only way back, and it
+           works from any status — so the dialog names it. -->
+      <ConfirmSubmit
+        action="?/markDeclined"
+        label="Mark declined"
+        title="Mark this estimate declined?"
+        confirmLabel="Mark declined"
+        triggerClass="rounded-sm border border-danger/30 px-4 py-2 text-sm font-medium text-danger transition-colors hover:bg-danger/5"
+      >
+        {#snippet body()}
+          It closes the estimate out — you can't undo it, edit it, send it again, or turn it into an
+          invoice.
+          {#if est.status === 'sent'}
+            The Accept button on the customer's copy stops working too.
+          {/if}
+          If they come back, duplicate it into a fresh estimate.
+        {/snippet}
+      </ConfirmSubmit>
     {/if}
     {#if canConvert}
       <form method="post" action="?/convert">

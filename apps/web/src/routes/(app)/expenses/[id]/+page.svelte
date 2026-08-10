@@ -1,5 +1,6 @@
 <script lang="ts">
   import AuditHistory from '$lib/components/AuditHistory.svelte';
+  import ConfirmSubmit from '$lib/components/ConfirmSubmit.svelte';
   import { may } from '$lib/perms';
   import type { PageProps } from './$types';
 
@@ -54,14 +55,19 @@
       >
         Duplicate
       </a>
-      <form method="post" action="?/delete">
-        <button
-          type="submit"
-          class="rounded-sm border border-danger/30 px-3 py-1 font-mono text-xs uppercase tracking-widest text-danger/80 hover:border-danger hover:text-danger"
-        >
-          Delete
-        </button>
-      </form>
+      <ConfirmSubmit
+        action="?/delete"
+        label="Delete"
+        title="Delete this expense?"
+        confirmLabel="Delete expense"
+        triggerClass="rounded-sm border border-danger/30 px-3 py-1 font-mono text-xs uppercase tracking-widest text-danger/80 hover:border-danger hover:text-danger"
+      >
+        {#snippet body()}
+          It comes off your books and its ledger entry is reversed, so your totals and any tax
+          worksheet change. There is no undo in the app — you would have to enter it again. The
+          receipt image, if there is one, is kept.
+        {/snippet}
+      </ConfirmSubmit>
     </div>
   {/if}
 </div>
@@ -238,14 +244,24 @@
               Auto-fill from receipt
             </button>
           </form>
-          <form method="post" action="?/deleteReceipt">
-            <button
-              type="submit"
-              class="text-xs uppercase tracking-widest text-danger/70 hover:text-danger"
-            >
-              Remove receipt
-            </button>
-          </form>
+          <!-- The most destructive control in the app: the API deletes the
+               stored object outright, and receipt images are not in the account
+               export. A tradesperson who photographed the receipt and binned the
+               paper loses their substantiation to one misclick (TMC-217). -->
+          <ConfirmSubmit
+            action="?/deleteReceipt"
+            label="Remove receipt"
+            title="Delete this receipt image?"
+            confirmLabel="Delete receipt"
+            triggerClass="text-xs uppercase tracking-widest text-danger/70 hover:text-danger"
+          >
+            {#snippet body()}
+              <strong class="font-medium text-fg">This cannot be undone.</strong> The image file is
+              deleted for good — it is not in your account export and support cannot recover it. If
+              this is your only copy of the receipt, you lose the proof of the purchase. The expense
+              itself stays exactly as it is.
+            {/snippet}
+          </ConfirmSubmit>
         </div>
       {/if}
     </div>

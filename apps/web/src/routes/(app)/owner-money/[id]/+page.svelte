@@ -1,5 +1,6 @@
 <script lang="ts">
   import AuditHistory from '$lib/components/AuditHistory.svelte';
+  import ConfirmSubmit from '$lib/components/ConfirmSubmit.svelte';
   import { may } from '$lib/perms';
   import type { PageProps } from './$types';
   import { kindLabel } from '../owner-money-rows';
@@ -26,14 +27,23 @@
       >
         Edit
       </a>
-      <form method="post" action="?/delete">
-        <button
-          type="submit"
-          class="rounded-sm border border-danger/30 px-3 py-1 font-mono text-xs uppercase tracking-widest text-danger/80 hover:border-danger hover:text-danger"
-        >
-          Delete
-        </button>
-      </form>
+      <!-- The API soft-deletes the row and posts a reversal, and there is no
+           restore route — the detail page 404s afterwards. So this is a one-way
+           door for the user even though the row survives in the database. -->
+      <ConfirmSubmit
+        action="?/delete"
+        label="Delete"
+        title="Delete this {kindLabel(e.kind).toLowerCase()}?"
+        confirmLabel="Delete {kindLabel(e.kind).toLowerCase()}"
+        triggerClass="rounded-sm border border-danger/30 px-3 py-1 font-mono text-xs uppercase tracking-widest text-danger/80 hover:border-danger hover:text-danger"
+      >
+        {#snippet body()}
+          It comes off your books and the money it moved is put back, so your balances read as if
+          you had never recorded it. Your income, your expenses and your tax worksheet don't change
+          — money between you and the business isn't business earnings. There is no undo in the app:
+          you would have to record it again.
+        {/snippet}
+      </ConfirmSubmit>
     </div>
   {/if}
 </div>

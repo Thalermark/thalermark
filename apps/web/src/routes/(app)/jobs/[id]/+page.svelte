@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ConfirmSubmit from '$lib/components/ConfirmSubmit.svelte';
   import { may } from '$lib/perms';
   import { formatUnitPrice, hoursFromMinutes, multiplyMoney, sumMoney } from '@thalermark/validation';
   import type { PageProps } from './$types';
@@ -444,10 +445,25 @@
         {#if entry.billedInvoiceId}
           <span class="label text-fg/40">Billed</span>
         {:else if canWrite}
-          <form method="post" action="?/deleteTime">
-            <input type="hidden" name="id" value={entry.id} />
-            <button type="submit" class="link text-xs">Remove</button>
-          </form>
+          <!--
+            Only ever rendered for unbilled hours — the API 409s on a billed
+            entry — so the confirmation can promise the books are untouched.
+          -->
+          <ConfirmSubmit
+            action="?/deleteTime"
+            label="Remove"
+            title="Remove these hours?"
+            confirmLabel="Remove hours"
+            hidden={{ id: entry.id }}
+            triggerClass="link text-xs"
+          >
+            {#snippet body()}
+              The {hours(entry.minutes)} h logged on {entry.entryDate} is deleted for good — there is
+              no undo, so you would be typing the date, the hours, the rate and the note in again. It
+              comes off this job's hours{entry.rate ? " and off what's ready to bill" : ''}. These
+              hours aren't on an invoice, so nothing changes on your books.
+            {/snippet}
+          </ConfirmSubmit>
         {/if}
       </li>
     {/each}
@@ -545,10 +561,31 @@
 {/if}
 
 {#if canWrite && job.invoices.length === 0 && time.timeEntries.length === 0}
-  <form method="post" action="?/delete" class="mt-10">
-    <button type="submit" class="link text-xs text-danger">Delete this job</button>
-    <p class="mt-1 text-xs text-fg/50">
-      Only while it's empty. Once it has hours or invoices, close it instead.
-    </p>
-  </form>
+  <!--
+    A hard delete of the row (TMC-217). Reachable only for an empty job, but
+    "empty" is checked on invoices and hours alone — receipt tags cascade away
+    with it and trips are detached, so the confirmation names both.
+  -->
+  <ConfirmSubmit
+    action="?/delete"
+    label="Delete this job"
+    title="Delete this job?"
+    confirmLabel="Delete job"
+    triggerClass="link text-xs text-danger"
+    formClass="mt-10"
+  >
+    {#snippet body()}
+      The job is gone for good — there is no undo, and you would have to set it up again. Receipts
+      you tagged to it go back to untagged, and miles you logged against it stay in your mileage log
+      and still count toward your deduction; they just stop being attached to a job. Nothing changes
+      on your books.
+      {#if timerOnThisJob}
+        The stopwatch you have running on this job goes with it, and those minutes aren't logged
+        anywhere.
+      {/if}
+    {/snippet}
+  </ConfirmSubmit>
+  <p class="mt-1 text-xs text-fg/50">
+    Only while it's empty. Once it has hours or invoices, close it instead.
+  </p>
 {/if}

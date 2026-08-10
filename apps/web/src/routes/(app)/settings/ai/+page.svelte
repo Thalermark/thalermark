@@ -1,7 +1,14 @@
 <script lang="ts">
+  import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
   import type { PageProps } from './$types';
 
   let { data, form }: PageProps = $props();
+
+  // Removing the stored credential asks first (TMC-217). The trigger is a
+  // formaction button on the save form, so the dialog drives it by submitter
+  // rather than owning a form of its own.
+  let removeOpen = $state(false);
+  let removeBtn: HTMLButtonElement | null = $state(null);
 
   // Local form state, seeded from the stored connection. Driving the provider
   // picker in the client decides which fields show (key / endpoint / models).
@@ -198,14 +205,38 @@
       <button type="submit" class="btn">Save</button>
       {#if connection}
         <button type="submit" formaction="?/verify" class="btn-ghost">Verify</button>
+        <!-- formaction inside the ?/save form, so this cannot be wrapped in a
+             ConfirmSubmit without changing what gets posted. Intercept on the
+             button and re-submit with requestSubmit(submitter), which honours
+             formaction and does not re-fire this click handler (TMC-217).
+             type="submit" is kept so the no-JS path still removes. -->
         <button
+          bind:this={removeBtn}
           type="submit"
           formaction="?/remove"
           class="btn-ghost btn-sm text-danger hover:border-danger hover:text-danger"
+          onclick={(e) => {
+            e.preventDefault();
+            removeOpen = true;
+          }}
         >
           Remove
         </button>
       {/if}
     </div>
   </form>
+
+  <ConfirmDialog
+    bind:open={removeOpen}
+    title="Remove this AI connection?"
+    confirmLabel="Remove connection"
+    onconfirm={() => removeBtn?.form?.requestSubmit(removeBtn)}
+  >
+    {#snippet body()}
+      AI features switch off for everyone in this workspace — receipt auto-fill, expense
+      categories, cash-flow nudges and late-payer flags all stop. Your stored key is deleted and is
+      not shown again anywhere, so you would need to paste it in fresh to turn AI back on. Nothing
+      already saved to your books changes.
+    {/snippet}
+  </ConfirmDialog>
 {/if}

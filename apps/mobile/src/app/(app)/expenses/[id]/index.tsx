@@ -280,7 +280,11 @@ export default function ExpenseDetail() {
   }
 
   function onRemoveReceipt() {
-    Alert.alert('Remove receipt?', 'This detaches the receipt from the expense.', [
+    // "Detaches" understated it: the API deletes the stored object outright
+    // (expenses.ts, DELETE /:id/receipt → storage.deleteObject), and receipt
+    // images are not in the account export. If the paper is gone, so is the
+    // substantiation (TMC-217).
+    Alert.alert('Delete this receipt?', 'The image is deleted for good — this cannot be undone.', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Remove',

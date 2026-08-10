@@ -1,5 +1,6 @@
 <script lang="ts">
   import AuditHistory from '$lib/components/AuditHistory.svelte';
+  import ConfirmSubmit from '$lib/components/ConfirmSubmit.svelte';
   import { may } from '$lib/perms';
   import { cadenceLabel } from '$lib/recurring';
   import { formatUnitPrice } from '@thalermark/validation';
@@ -98,14 +99,25 @@
       </form>
     {/if}
     {#if canEnd}
-      <form method="post" action="?/end">
-        <button
-          type="submit"
-          class="rounded-sm border border-danger/30 px-4 py-2 text-sm font-medium text-danger transition-colors hover:bg-danger/5"
-        >
-          End
-        </button>
-      </form>
+      <!-- `ended` is terminal in RECURRING_TRANSITIONS — nothing transitions out
+           of it, and the API refuses an edit with not_editable. Pause is the
+           reversible one, so the dialog points at it while it's still on offer. -->
+      <ConfirmSubmit
+        action="?/end"
+        label="End"
+        title="End this repeating invoice?"
+        confirmLabel="End it"
+        triggerClass="rounded-sm border border-danger/30 px-4 py-2 text-sm font-medium text-danger transition-colors hover:bg-danger/5"
+      >
+        {#snippet body()}
+          No more invoices go out on this schedule, and afterwards you can't restart it or change it
+          — you would have to set up a new repeating invoice. The invoices it has already created
+          aren't touched.
+          {#if canPause}
+            If you just want a break, pause it instead — that one you can undo.
+          {/if}
+        {/snippet}
+      </ConfirmSubmit>
     {/if}
   </div>
 {/if}
