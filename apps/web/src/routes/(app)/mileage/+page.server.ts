@@ -1,4 +1,5 @@
 import { pickActiveCompany } from '$lib/active-company';
+import { apiErrorMessage } from '$lib/api-errors';
 import { serverApiClient } from '$lib/api.server';
 import { PAGE_SIZE } from '$lib/load-more';
 import { error, fail } from '@sveltejs/kit';
@@ -56,7 +57,17 @@ export const actions: Actions = {
     };
 
     const companiesRes = await client.api.companies.$get();
-    if (!companiesRes.ok) throw error(companiesRes.status, 'failed to load companies');
+    // A lookup this action needs, not the thing the user asked for. Throwing
+    // here renders the error page and discards the form, which is the very
+    // loss TMC-248 is about — so it fails the action instead, keeping the
+    // values on screen with a sentence saying why.
+    if (!companiesRes.ok) {
+      const body = (await companiesRes.json().catch(() => null)) as { error?: string } | null;
+      return fail(companiesRes.status, {
+        values,
+        formError: apiErrorMessage(body?.error, 'That could not be saved. Try again.', body),
+      });
+    }
     const { companies } = await companiesRes.json();
     const company = pickActiveCompany(event.cookies, companies);
     if (!company) return fail(400, { values, formError: 'No company in this workspace.' });
@@ -96,7 +107,17 @@ export const actions: Actions = {
     if (!label) return fail(400, { vehicleError: 'Give the vehicle a name.' });
 
     const companiesRes = await client.api.companies.$get();
-    if (!companiesRes.ok) throw error(companiesRes.status, 'failed to load companies');
+    // A lookup this action needs, not the thing the user asked for. Throwing
+    // here renders the error page and discards the form, which is the very
+    // loss TMC-248 is about — so it fails the action instead, keeping the
+    // values on screen with a sentence saying why.
+    if (!companiesRes.ok) {
+      const body = (await companiesRes.json().catch(() => null)) as { error?: string } | null;
+      // This form reports through `vehicleError`, not the shared formError.
+      return fail(companiesRes.status, {
+        vehicleError: apiErrorMessage(body?.error, 'That could not be saved. Try again.', body),
+      });
+    }
     const { companies } = await companiesRes.json();
     const company = pickActiveCompany(event.cookies, companies);
     if (!company) return fail(400, { vehicleError: 'No company in this workspace.' });
