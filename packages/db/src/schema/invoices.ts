@@ -91,6 +91,10 @@ export const invoices = pgTable(
     // without "mailbox full" or "no such user" leaves them nothing to act on.
     deliveryDetail: text('delivery_detail'),
     deliveryUpdatedAt: timestamp('delivery_updated_at', { withTimezone: true }),
+    // The provider's id for the message, and the only thing a delivery webhook
+    // carries that can find this row. Overwritten by each send, so it always
+    // names the newest attempt.
+    deliveryMessageId: text('delivery_message_id'),
     // First time the customer opened the public link (TMC-230). Answers the
     // other half of "I sent it, I swear".
     viewedAt: timestamp('viewed_at', { withTimezone: true }),

@@ -126,6 +126,14 @@ Optional integrations, each disabled-but-safe when blank:
   logs outgoing mail to stdout — fine for testing, but customers receive
   nothing, and the app says so in Settings → Email rather than reporting a
   delivery it did not make.
+- **Delivery reports** — `RESEND_WEBHOOK_SECRET`, and only alongside a Resend
+  key. Without it the app knows whether Resend *accepted* an invoice email, which
+  misses the failure that costs you money: a message accepted, then rejected by
+  the recipient's server a minute later. Create a webhook in the Resend dashboard
+  pointing at `https://<your-domain>/api/webhooks/resend`, subscribe to
+  `email.sent`, `email.delivered`, `email.bounced`, `email.complained` and
+  `email.failed`, and paste its signing secret (`whsec_…`, not the API key) here.
+  Blank ⇒ the endpoint answers 503 and nothing else changes.
 - **AI** (receipt auto-fill, expense categorization, cash-flow nudges) —
   configured in-app under **Settings → AI**, not by env. Until a connection is
   saved and verified, the AI endpoints return 503 and the rest of the app runs.

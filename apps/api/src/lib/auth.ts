@@ -149,9 +149,12 @@ export function createApiAuth(
           // Land the post-verify redirect on the web app, not the API origin.
           const link = env.publicAppUrl ? verifyUrlWithAppCallback(url, env.publicAppUrl) : url;
           const { subject, html, text } = verificationEmail({ name: user.name, url: link });
-          await reportingSendFailures('verification', user.email, () =>
-            deliveringMailer.send({ to: user.email, subject, html, text }),
-          );
+          // The send receipt is discarded here on purpose: a verification mail
+          // is not a document, so there is no row for a delivery webhook to
+          // find and nothing to correlate its id with (TMC-226).
+          await reportingSendFailures('verification', user.email, async () => {
+            await deliveringMailer.send({ to: user.email, subject, html, text });
+          });
         }
       : undefined,
     // Password-reset email through the same mailer. Better Auth gives us the
@@ -171,9 +174,9 @@ export function createApiAuth(
           }
           const url = `${env.publicAppUrl}/reset-password?token=${encodeURIComponent(token)}`;
           const { subject, html, text } = resetPasswordEmail({ name: user.name, url });
-          await reportingSendFailures('password-reset', user.email, () =>
-            deliveringMailer.send({ to: user.email, subject, html, text }),
-          );
+          await reportingSendFailures('password-reset', user.email, async () => {
+            await deliveringMailer.send({ to: user.email, subject, html, text });
+          });
         }
       : undefined,
   });

@@ -72,9 +72,9 @@ export async function sendEstimateEmail(
   mailer: Mailer,
   to: string,
   input: EstimateEmailInput,
-): Promise<{ subject: string }> {
+): Promise<{ subject: string; messageId: string | null }> {
   const { subject, text, html } = buildEstimateEmail(input);
-  await mailer.send({
+  const receipt = await mailer.send({
     to,
     subject,
     html,
@@ -82,5 +82,7 @@ export async function sendEstimateEmail(
     from: input.emailFrom ? formatSender(input.emailFrom, input.companyName) : undefined,
     replyTo: input.replyToEmail ?? undefined,
   });
-  return { subject };
+  // Same as the invoice path — the provider's id for this message, so a later
+  // delivery report can find the estimate again (TMC-226).
+  return { subject, messageId: receipt?.id ?? null };
 }

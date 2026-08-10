@@ -17,6 +17,7 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { v7 as uuidv7 } from 'uuid';
 import type { AppDeps } from '../app.js';
+import { applyProviderEvent } from '../lib/delivery.js';
 import {
   checkPaymentEligibility,
   paidCentsForInvoice,
@@ -27,6 +28,7 @@ import {
 import { postInvoicePayment } from '../lib/ledger.js';
 import type { Mailer } from '../lib/mailer.js';
 import { estimateAcceptedNotice, invoicePaidNotice, notifyOwner } from '../lib/owner-notify.js';
+import { mapResendEvent, verifyResendSignature } from '../lib/resend-webhook.js';
 import { UUID_RE } from '../lib/route-helpers.js';
 import { reindexEntities } from '../lib/search/reindex.js';
 import {
@@ -843,6 +845,65 @@ export function publicRoutes(deps: AppDeps) {
           return c.json({ received: true });
         }
 
+        return c.json({ received: true });
+      })
+      // Resend delivery webhook (TMC-226). Tells us what happened to an email
+      // AFTER the send call returned 200 — delivered, bounced, marked as spam.
+      //
+      // Same posture as the Stripe webhook above: no tenant context, the
+      // signature is the authorization, and every outcome that needs no action
+      // still answers 200 so the provider stops retrying. The one difference is
+      // that this endpoint is optional infrastructure — without the secret it
+      // refuses rather than degrades, because an unverified delivery report is
+      // an open door to writing "bounced" onto any document whose message id
+      // someone can guess.
+      .post('/api/webhooks/resend', async (c) => {
+        if (!deps.resendWebhookSecret) return c.json({ error: 'resend_not_configured' }, 503);
+
+        // Raw bytes: the signature covers exactly what was sent, so re-parsing
+        // and re-serialising would break verification on any payload whose key
+        // order or whitespace we did not reproduce.
+        const rawBody = await c.req.text();
+        const verified = verifyResendSignature({
+          secret: deps.resendWebhookSecret,
+          headers: {
+            id: c.req.header('svix-id'),
+            timestamp: c.req.header('svix-timestamp'),
+            signature: c.req.header('svix-signature'),
+          },
+          rawBody,
+        });
+        if (!verified.ok) {
+          // Logged for the same reason the Stripe branch logs: a delivery we
+          // cannot verify looks exactly like no delivery at all, and that is
+          // how an endpoint silently stops working after a secret rotation.
+          log.error('resend webhook signature verification failed: {reason}', {
+            reason: verified.reason,
+          });
+          return c.json({ error: 'invalid_signature' }, 400);
+        }
+
+        let payload: unknown;
+        try {
+          payload = JSON.parse(rawBody);
+        } catch {
+          return c.json({ error: 'invalid_payload' }, 400);
+        }
+
+        const event = mapResendEvent(payload);
+        // Nothing to apply: an event type we do not act on, a soft bounce, or a
+        // delay. Acknowledged, not an error.
+        if (!event) return c.json({ received: true });
+
+        const outcome = await applyProviderEvent(bootstrapDb, event);
+        if (outcome === 'unknown_message') {
+          // The ordinary case for the account's non-document mail —
+          // verification, password resets, statements. Debug, not error: at
+          // Resend's volume an error line here would bury the ones that matter.
+          log.debug('resend webhook for a message that is not a document: {messageId}', {
+            messageId: event.messageId,
+          });
+        }
         return c.json({ received: true });
       })
   );

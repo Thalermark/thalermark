@@ -255,7 +255,7 @@ export async function generateOnce(
         // Same per-company override resolution as the hand-send route, so an
         // auto-generated invoice matches a hand-sent one.
         const template = await resolveEmailTemplate(tx, accountId, schedule.companyId, 'invoice');
-        const { subject } = await sendInvoiceEmail(mail.mailer, to, {
+        const { subject, messageId } = await sendInvoiceEmail(mail.mailer, to, {
           invoice: {
             number,
             total: schedule.total,
@@ -271,7 +271,11 @@ export async function generateOnce(
           template,
         });
         emailed = true;
-        await recordSendAccepted(tx, { accountId, documentId: invoiceId, kind: 'invoice' });
+        await recordSendAccepted(
+          tx,
+          { accountId, documentId: invoiceId, kind: 'invoice' },
+          messageId,
+        );
         await audit({
           entityType: 'invoice',
           entityId: invoiceId,

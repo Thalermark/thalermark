@@ -923,8 +923,9 @@ export function estimatesRoutes(deps: AppDeps) {
           // rolled back to draft) — recoverable via an idempotent resend, and
           // consistent with the mark-sent path.
           let subject: string;
+          let messageId: string | null = null;
           try {
-            ({ subject } = await sendEstimateEmail(deps.mailer, to, {
+            ({ subject, messageId } = await sendEstimateEmail(deps.mailer, to, {
               estimate,
               customerName,
               companyName,
@@ -951,11 +952,15 @@ export function estimatesRoutes(deps: AppDeps) {
           // tx2: record the delivery.
           await c.var.runInTx(async (tx, audit) => {
             if (mailerDelivers(deps.mailer)) {
-              await recordSendAccepted(tx, {
-                accountId: c.get('accountId'),
-                documentId: id,
-                kind: 'estimate',
-              });
+              await recordSendAccepted(
+                tx,
+                {
+                  accountId: c.get('accountId'),
+                  documentId: id,
+                  kind: 'estimate',
+                },
+                messageId,
+              );
             }
             await audit({
               entityType: 'estimate',

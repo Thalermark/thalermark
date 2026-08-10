@@ -74,6 +74,7 @@ export const estimates = pgTable(
     deliveryStatus: text('delivery_status'),
     deliveryDetail: text('delivery_detail'),
     deliveryUpdatedAt: timestamp('delivery_updated_at', { withTimezone: true }),
+    deliveryMessageId: text('delivery_message_id'),
     viewedAt: timestamp('viewed_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

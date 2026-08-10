@@ -267,6 +267,13 @@
       "when": 1786328000548,
       "tag": "0037_delivery_state",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1786328100548,
+      "tag": "0038_delivery_message_id",
+      "breakpoints": true
     }
   ]
 }

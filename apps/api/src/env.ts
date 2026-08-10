@@ -79,6 +79,17 @@ export type Env = {
   // — fine for dev / self-host without SMTP). emailFrom is the From header
   // on every outbound message.
   resendApiKey: string | undefined;
+  // Signs Resend's delivery webhooks (TMC-226). Separate from the API key and
+  // not derivable from it: the key authenticates us TO Resend, this is what
+  // Resend signs its callbacks WITH. Unset — the ordinary case on self-host —
+  // leaves /api/webhooks/resend answering 503 and every document's delivery
+  // state resting on what the send call returned, which is the behaviour that
+  // shipped before this endpoint existed.
+  // Optional rather than `string | undefined`, unlike its siblings here: every
+  // integration test builds an Env literal by hand, and a required key — even a
+  // required-and-undefined one — would make adding an optional endpoint a
+  // fifty-file edit.
+  resendWebhookSecret?: string;
   emailFrom: string;
   // Stripe credentials for the pay-link flow. All three must be set for
   // Stripe to be wired in — server.ts builds the bundle lazily and the
@@ -227,6 +238,7 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     trustedOrigins: parseOrigins(source.TRUSTED_ORIGINS),
     publicAppUrl: source.PUBLIC_APP_URL ?? '',
     resendApiKey: source.RESEND_API_KEY || undefined,
+    resendWebhookSecret: source.RESEND_WEBHOOK_SECRET || undefined,
     emailFrom: source.EMAIL_FROM ?? 'Thalermark <hello@thalermark.com>',
     stripeSecretKey: source.STRIPE_SECRET_KEY || undefined,
     stripePublishableKey: source.STRIPE_PUBLISHABLE_KEY || undefined,
