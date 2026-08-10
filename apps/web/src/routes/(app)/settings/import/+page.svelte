@@ -208,7 +208,7 @@
   </div>
 {:else}
   {#if form?.error}
-    <div class="mt-8 rounded-sm border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
+    <div class="mt-8 rounded-sm border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger" data-form-error role="alert" tabindex="-1">
       {form.error}
     </div>
   {/if}

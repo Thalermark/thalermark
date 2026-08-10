@@ -5,6 +5,7 @@ import { PUBLIC_PATHS, REDIRECT_IF_AUTHED, isPublicPrefix } from '$lib/public-ro
 import * as Sentry from '@sentry/sveltekit';
 import { type Handle, error, redirect } from '@sveltejs/kit';
 import { sequence } from '@sveltejs/kit/hooks';
+import { stringify } from 'devalue';
 import type { Session } from './app.d.ts';
 
 // SSR-side error tracking. Inert unless PUBLIC_ERROR_TRACKING_DSN is set — same
@@ -52,8 +53,42 @@ async function loadSession(cookieHeader: string | null): Promise<Session | null>
   return (await res.json()) as Session;
 }
 
+// A form submitted with use:enhance expects a serialised ActionResult back, and
+// nothing else will do (TMC-248). If the hook throws — which is what an
+// unreachable API does, below — SvelteKit answers with its HttpError shape,
+// `{"message":"…"}`. The client's `deserialize` finds no `type` on that, every
+// branch of its handler misses, and the submit ends in complete silence: no
+// navigation, no banner, a Save button that appears to do nothing.
+//
+// So the session probe failing during an action is answered in the shape the
+// client understands. The action did NOT run and nothing was saved — that is
+// exactly what the message says — but the user's work stays on screen and the
+// Save button is still there for when the server comes back.
+//
+// `data` is devalue-encoded because that is what `deserialize` parses it with.
+function actionUnavailable(status: number, formError: string): Response {
+  return new Response(JSON.stringify({ type: 'failure', status, data: stringify({ formError }) }), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
+const isEnhancedAction = (event: { request: Request }) =>
+  event.request.method === 'POST' && event.request.headers.get('x-sveltekit-action') === 'true';
+
 const appHandle: Handle = async ({ event, resolve }) => {
-  event.locals.session = await loadSession(event.request.headers.get('cookie'));
+  try {
+    event.locals.session = await loadSession(event.request.headers.get('cookie'));
+  } catch (err) {
+    // Page loads keep the error page: there is no work to protect and nothing
+    // to type into, so failing hard is the honest answer there.
+    if (!isEnhancedAction(event)) throw err;
+    const message =
+      err instanceof Error && 'body' in err
+        ? (err as unknown as { body: { message: string } }).body.message
+        : 'Could not reach Thalermark. Check your connection and try again.';
+    return actionUnavailable(503, message);
+  }
 
   const path = event.url.pathname;
 

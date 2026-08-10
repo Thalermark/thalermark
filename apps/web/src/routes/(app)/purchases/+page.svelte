@@ -77,7 +77,7 @@
 </div>
 
 {#if form?.restoreError}
-  <div class="mt-4 rounded-sm border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
+  <div class="mt-4 rounded-sm border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger" data-form-error role="alert" tabindex="-1">
     Could not restore that purchase: {form.restoreError}
   </div>
 {/if}

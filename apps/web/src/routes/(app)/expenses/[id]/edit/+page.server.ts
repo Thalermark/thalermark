@@ -137,7 +137,17 @@ export const actions: Actions = {
 
     const expenseRes = await client.api.expenses[':id'].$get({ param: { id: event.params.id } });
     if (expenseRes.status === 404) throw error(404, 'expense not found');
-    if (!expenseRes.ok) throw error(expenseRes.status, 'failed to load expense');
+    // A lookup this action needs, not the thing the user asked for. Throwing
+    // here renders the error page and discards the form, which is the very
+    // loss TMC-248 is about — so it fails the action instead, keeping the
+    // values on screen with a sentence saying why.
+    if (!expenseRes.ok) {
+      const body = (await expenseRes.json().catch(() => null)) as { error?: string } | null;
+      return fail(expenseRes.status, {
+        values,
+        formError: apiErrorMessage(body?.error, 'That could not be saved. Try again.', body),
+      });
+    }
     const companyId = (await expenseRes.json()).companyId;
 
     const res = await client.api.expenses.categorize.$post({
@@ -176,7 +186,17 @@ export const actions: Actions = {
     // right tenant scope (an expense can't move companies).
     const expRes = await client.api.expenses[':id'].$get({ param: { id: event.params.id } });
     if (expRes.status === 404) throw error(404, 'expense not found');
-    if (!expRes.ok) throw error(expRes.status, 'failed to load expense');
+    // A lookup this action needs, not the thing the user asked for. Throwing
+    // here renders the error page and discards the form, which is the very
+    // loss TMC-248 is about — so it fails the action instead, keeping the
+    // values on screen with a sentence saying why.
+    if (!expRes.ok) {
+      const body = (await expRes.json().catch(() => null)) as { error?: string } | null;
+      return fail(expRes.status, {
+        values,
+        formError: apiErrorMessage(body?.error, 'That could not be saved. Try again.', body),
+      });
+    }
     const companyId = (await expRes.json()).companyId;
 
     // Resolve the Vendor field. undefined → leave the link + needs-review flag

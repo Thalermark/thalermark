@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { page } from '$app/state';
+  import { enhance } from '$app/forms';
+  import { enhanceForm } from '$lib/form-enhance';
+    import { page } from '$app/state';
   import type { PageProps } from './$types';
 
   let { data, form }: PageProps = $props();
@@ -67,7 +69,7 @@
     </span>
   </header>
 
-  <form method="POST" class="px-6 py-6">
+  <form method="POST" class="px-6 py-6" use:enhance={enhanceForm}>
     <input type="hidden" name="companyId" value={data.company.id} />
 
     <label class="block">
