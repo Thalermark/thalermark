@@ -1,3 +1,4 @@
+import { apiErrorMessage } from '$lib/api-errors';
 import { serverApiClient } from '$lib/api.server';
 import { PAGE_SIZE } from '$lib/load-more';
 import { error, fail, redirect } from '@sveltejs/kit';
@@ -28,7 +29,10 @@ async function setArchived(event: Parameters<Actions[string]>[0], archived: bool
   const client = serverApiClient(event);
   const data = await event.request.formData();
   const id = String(data.get('id') ?? '');
-  if (!id) return fail(400, { actionError: 'missing_id' });
+  if (!id)
+    return fail(400, {
+      actionError: 'Could not tell which record that was — reload the page and try again.',
+    });
 
   const res = archived
     ? await client.api.items[':id'].archive.$post({ param: { id } })
@@ -36,7 +40,9 @@ async function setArchived(event: Parameters<Actions[string]>[0], archived: bool
   if (res.status === 404) throw error(404, 'item not found');
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
-    return fail(res.status, { actionError: body?.error ?? 'action_failed' });
+    return fail(res.status, {
+      actionError: apiErrorMessage(body?.error, 'That did not work. Try again.', body),
+    });
   }
   redirect(303, `/items${event.url.search}`);
 }

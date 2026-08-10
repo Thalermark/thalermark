@@ -9,6 +9,7 @@ import {
   type ItemFormValues,
 } from '../../../../../components/ItemForm';
 import { api } from '../../../../../lib/api';
+import { apiErrorMessage } from '../../../../../lib/api-errors';
 import { type TaxPolicyLite, resolvePolicyId } from '../../../../../lib/line-tax';
 
 // Mirror of apps/web's /settings/items/[id]/edit. Seeds from the loaded item,
@@ -43,7 +44,7 @@ export default function EditItem() {
         .then(async (res) => {
           if (!active) return;
           if (!res.ok) {
-            setFormError('load_failed');
+            setFormError('That could not be loaded. Try again.');
             return;
           }
           const i = await res.json();
@@ -71,7 +72,7 @@ export default function EditItem() {
           }
         })
         .catch(() => {
-          if (active) setFormError('load_failed');
+          if (active) setFormError('That could not be loaded. Try again.');
         });
       return () => {
         active = false;
@@ -119,12 +120,12 @@ export default function EditItem() {
       const res = await api.api.items[':id'].$patch({ param: { id }, json: parsed.data });
       if (!res.ok) {
         const errBody = (await res.json().catch(() => null)) as { error?: string } | null;
-        setFormError(errBody?.error ?? 'save_failed');
+        setFormError(apiErrorMessage(errBody?.error, 'That could not be saved. Try again.'));
         return;
       }
       router.replace(`/more/items/${id}`);
     } catch {
-      setFormError('save_failed');
+      setFormError('That could not be saved. Try again.');
     } finally {
       setSubmitting(false);
     }

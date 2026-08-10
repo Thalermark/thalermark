@@ -242,7 +242,7 @@ export const actions: Actions = {
     if (res.status === 404) throw error(404, 'invoice not found');
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      const code = apiErrorMessage(body?.error, 'update_failed', body);
+      const code = apiErrorMessage(body?.error, 'That could not be saved. Try again.', body);
       const formError =
         code === 'invoice_number_taken'
           ? 'Invoice number already used for this company. Try another.'

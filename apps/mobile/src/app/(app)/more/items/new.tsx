@@ -4,6 +4,7 @@ import { useCallback, useState } from 'react';
 import { type ItemFieldKey, ItemForm, type ItemFormValues } from '../../../../components/ItemForm';
 import { pickActiveCompany } from '../../../../lib/active-company';
 import { api } from '../../../../lib/api';
+import { apiErrorMessage } from '../../../../lib/api-errors';
 import { type TaxPolicyLite, resolvePolicyId } from '../../../../lib/line-tax';
 
 // Mirror of apps/web's /settings/items/new. The API doesn't auto-pick a company,
@@ -118,13 +119,13 @@ export default function NewItem() {
       const res = await api.api.items.$post({ json: parsed.data });
       if (!res.ok) {
         const errBody = (await res.json().catch(() => null)) as { error?: string } | null;
-        setFormError(errBody?.error ?? 'create_failed');
+        setFormError(apiErrorMessage(errBody?.error, 'That could not be created. Try again.'));
         return;
       }
       const created = await res.json();
       router.replace(`/more/items/${created.id}`);
     } catch {
-      setFormError('create_failed');
+      setFormError('That could not be created. Try again.');
     } finally {
       setSubmitting(false);
     }

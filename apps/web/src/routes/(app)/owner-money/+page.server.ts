@@ -60,7 +60,7 @@ export const actions: Actions = {
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
       return fail(res.status, {
-        restoreError: apiErrorMessage(body?.error, 'restore_failed', body),
+        restoreError: apiErrorMessage(body?.error, 'That could not be restored. Try again.', body),
       });
     }
     redirect(303, `/owner-money${event.url.search}`);

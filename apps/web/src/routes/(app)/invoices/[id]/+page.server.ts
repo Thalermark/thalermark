@@ -112,7 +112,12 @@ async function runTransition(
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
     return fail(res.status, {
-      transitionError: settlementErrorMessage(body?.error, 'invoice', 'transition_failed', body),
+      transitionError: settlementErrorMessage(
+        body?.error,
+        'invoice',
+        'That could not be changed. Try again.',
+        body,
+      ),
     });
   }
   redirect(303, `/invoices/${id}`);
@@ -175,7 +180,9 @@ async function runSend(event: Parameters<Actions[string]>[0]) {
   if (res.status === 404) throw error(404, 'invoice not found');
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
-    return fail(res.status, { transitionError: apiErrorMessage(body?.error, 'send_failed', body) });
+    return fail(res.status, {
+      transitionError: apiErrorMessage(body?.error, 'That could not be sent. Try again.', body),
+    });
   }
   const body = (await res.json()) as { sentTo?: string; delivered?: boolean };
   // `undelivered` rides along because the server may have logged the message
@@ -197,7 +204,11 @@ async function runDuplicate(event: Parameters<Actions[string]>[0]) {
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
     return fail(res.status, {
-      transitionError: apiErrorMessage(body?.error, 'duplicate_failed', body),
+      transitionError: apiErrorMessage(
+        body?.error,
+        'That could not be duplicated. Try again.',
+        body,
+      ),
     });
   }
   const { id } = (await res.json()) as { id: string };
@@ -223,7 +234,9 @@ async function runAddBusinessDetails(event: Parameters<Actions[string]>[0]) {
   });
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
-    return fail(res.status, { transitionError: apiErrorMessage(body?.error, 'save_failed', body) });
+    return fail(res.status, {
+      transitionError: apiErrorMessage(body?.error, 'That could not be saved. Try again.', body),
+    });
   }
   redirect(303, `/invoices/${id}`);
 }
@@ -269,7 +282,12 @@ async function runRecordPayment(event: Parameters<Actions[string]>[0]) {
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
     return fail(res.status, {
-      transitionError: settlementErrorMessage(body?.error, 'invoice', 'payment_failed', body),
+      transitionError: settlementErrorMessage(
+        body?.error,
+        'invoice',
+        'That payment could not be recorded. Try again.',
+        body,
+      ),
     });
   }
   redirect(303, `/invoices/${id}`);
@@ -302,7 +320,12 @@ async function runTakeDeposit(event: Parameters<Actions[string]>[0]) {
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
     return fail(res.status, {
-      transitionError: settlementErrorMessage(body?.error, 'invoice', 'deposit_failed', body),
+      transitionError: settlementErrorMessage(
+        body?.error,
+        'invoice',
+        'That deposit could not be recorded. Try again.',
+        body,
+      ),
     });
   }
   redirect(303, `/invoices/${id}`);
@@ -322,7 +345,11 @@ async function runSetReminders(event: Parameters<Actions[string]>[0]) {
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
     return fail(res.status, {
-      transitionError: apiErrorMessage(body?.error, 'reminders_update_failed', body),
+      transitionError: apiErrorMessage(
+        body?.error,
+        'Those reminder settings could not be saved. Try again.',
+        body,
+      ),
     });
   }
   redirect(303, `/invoices/${id}`);
@@ -345,7 +372,7 @@ async function runRemovePayment(event: Parameters<Actions[string]>[0]) {
       transitionError: settlementErrorMessage(
         body?.error,
         'invoice',
-        'payment_remove_failed',
+        'That payment could not be removed. Try again.',
         body,
       ),
     });

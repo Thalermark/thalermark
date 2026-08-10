@@ -115,7 +115,7 @@ export default function EditInvoice() {
         const invRes = await api.api.invoices[':id'].$get({ param: { id } });
         if (!active) return;
         if (!invRes.ok) {
-          setFormError('load_failed');
+          setFormError('That could not be loaded. Try again.');
           return;
         }
         const inv = await invRes.json();
@@ -183,7 +183,7 @@ export default function EditInvoice() {
           );
         }
       })().catch(() => {
-        if (active) setFormError('load_failed');
+        if (active) setFormError('That could not be loaded. Try again.');
       });
       return () => {
         active = false;
@@ -344,13 +344,15 @@ export default function EditInvoice() {
       const res = await api.api.invoices[':id'].$patch({ param: { id }, json: parsed.data });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
-        const code = apiErrorMessage(body?.error, 'save_failed', body);
-        setFormError(FRIENDLY[code] ?? code);
+        const code = apiErrorMessage(body?.error, 'That could not be saved. Try again.', body);
+        setFormError(
+          FRIENDLY[code] ?? apiErrorMessage(code, 'That could not be saved. Try again.'),
+        );
         return;
       }
       router.replace(`/invoices/${id}`);
     } catch {
-      setFormError('save_failed');
+      setFormError('That could not be saved. Try again.');
     } finally {
       setSubmitting(false);
     }

@@ -16,6 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { DateField } from '../../../components/DateField';
 import { pickActiveCompany } from '../../../lib/active-company';
 import { api } from '../../../lib/api';
+import { apiErrorMessage } from '../../../lib/api-errors';
 
 // Mirror of apps/web's /owner-money/opening-balance. "Starting balances" — what
 // the business already had when it started. One per company (upsert); the
@@ -105,12 +106,12 @@ export default function OpeningBalanceScreen() {
       const res = await api.api['owner-money']['opening-balance'].$put({ json: parsed.data });
       if (!res.ok) {
         const b = (await res.json().catch(() => null)) as { error?: string } | null;
-        setFormError(b?.error ?? 'save_failed');
+        setFormError(apiErrorMessage(b?.error, 'That could not be saved. Try again.'));
         return;
       }
       router.replace('/owner-money');
     } catch {
-      setFormError('save_failed');
+      setFormError('That could not be saved. Try again.');
     } finally {
       setSubmitting(false);
     }

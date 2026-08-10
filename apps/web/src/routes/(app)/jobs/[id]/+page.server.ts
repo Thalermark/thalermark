@@ -1,3 +1,4 @@
+import { apiErrorMessage } from '$lib/api-errors';
 import { serverApiClient } from '$lib/api.server';
 import { error, fail, redirect } from '@sveltejs/kit';
 import { minutesFromDuration } from '@thalermark/validation';
@@ -64,7 +65,7 @@ export const actions: Actions = {
         timerError:
           body?.error === 'timer_already_running'
             ? `A timer is already running on "${body.jobName}". Stop it there first.`
-            : (body?.error ?? 'could_not_start'),
+            : apiErrorMessage(body?.error, 'The timer could not be started. Try again.', body),
         runningJobId: body?.jobId,
       });
     }
@@ -79,7 +80,13 @@ export const actions: Actions = {
     const res = await client.api.jobs[':id'].timer.$delete({ param: { id: event.params.id } });
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      return fail(res.status, { timerError: body?.error ?? 'could_not_stop' });
+      return fail(res.status, {
+        timerError: apiErrorMessage(
+          body?.error,
+          'The timer could not be stopped. Try again.',
+          body,
+        ),
+      });
     }
     const { minutes, note } = await res.json();
     return { stoppedMinutes: minutes, stoppedNote: note };
@@ -108,7 +115,9 @@ export const actions: Actions = {
     });
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      return fail(res.status, { timeError: body?.error ?? 'log_failed' });
+      return fail(res.status, {
+        timeError: apiErrorMessage(body?.error, 'That could not be recorded. Try again.', body),
+      });
     }
     redirect(303, `/jobs/${event.params.id}`);
   },
@@ -168,7 +177,7 @@ export const actions: Actions = {
         timeError:
           body?.error === 'time_entry_billed'
             ? 'Those hours are already on an invoice. Take them off it first.'
-            : (body?.error ?? 'delete_failed'),
+            : apiErrorMessage(body?.error, 'That could not be deleted. Try again.', body),
       });
     }
     redirect(303, `/jobs/${event.params.id}`);
@@ -178,7 +187,8 @@ export const actions: Actions = {
     const client = serverApiClient(event);
     const data = await event.request.formData();
     const status = String(data.get('status') ?? '');
-    if (status !== 'open' && status !== 'closed') return fail(400, { actionError: 'bad_status' });
+    if (status !== 'open' && status !== 'closed')
+      return fail(400, { actionError: 'Choose a status from the list.' });
     // A deliberate close carries confirm=true; the first attempt does not, so
     // the API can refuse and tell us how much is still waiting.
     const confirmed = String(data.get('confirm') ?? '') === 'true';
@@ -197,7 +207,9 @@ export const actions: Actions = {
         // the default list and take its unbilled work with it.
         return fail(409, { confirmClose: body.readyToBill ?? '0.00' });
       }
-      return fail(res.status, { actionError: body?.error ?? 'update_failed' });
+      return fail(res.status, {
+        actionError: apiErrorMessage(body?.error, 'That could not be saved. Try again.', body),
+      });
     }
     redirect(303, `/jobs/${event.params.id}`);
   },
@@ -214,7 +226,7 @@ export const actions: Actions = {
           ? 'This job has hours logged against it. Close it instead — deleting would throw the hours away.'
           : body?.error === 'job_has_invoices'
             ? 'This job has invoices. Close it instead.'
-            : (body?.error ?? 'delete_failed');
+            : apiErrorMessage(body?.error, 'That could not be deleted. Try again.', body);
       return fail(res.status, { actionError: message });
     }
     redirect(303, '/jobs');

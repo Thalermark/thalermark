@@ -1,4 +1,5 @@
 import { pickActiveCompany } from '$lib/active-company';
+import { apiErrorMessage } from '$lib/api-errors';
 import { serverApiClient } from '$lib/api.server';
 import { NEW_CONTACT_SENTINEL, findEmailDupe } from '$lib/contact-dupes';
 import { lineTax, policyRate } from '$lib/line-tax';
@@ -196,7 +197,9 @@ export const actions: Actions = {
         const body = (await custRes.json().catch(() => null)) as { error?: string } | null;
         return fail(custRes.status, {
           values,
-          contactErrors: { _: body?.error ?? 'contact_create_failed' },
+          contactErrors: {
+            _: apiErrorMessage(body?.error, 'That customer could not be created. Try again.', body),
+          },
         });
       }
       const createdContact = await custRes.json();
@@ -268,7 +271,7 @@ export const actions: Actions = {
     const res = await client.api.estimates.$post({ json: parsed.data });
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      const code = body?.error ?? 'create_failed';
+      const code = apiErrorMessage(body?.error, 'That could not be created. Try again.', body);
       const formError =
         code === 'estimate_number_taken'
           ? 'Estimate number already used for this company. Try another.'

@@ -63,7 +63,7 @@ export const actions: Actions = {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
       return fail(res.status, {
         values,
-        formError: apiErrorMessage(body?.error, 'create_failed', body),
+        formError: apiErrorMessage(body?.error, 'That could not be created. Try again.', body),
       });
     }
     const created = await res.json();

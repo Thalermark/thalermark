@@ -15,6 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { AddressField, type AddressSuggestion } from '../../../components/AddressField';
 import { pickActiveCompany } from '../../../lib/active-company';
 import { api } from '../../../lib/api';
+import { apiErrorMessage } from '../../../lib/api-errors';
 import { type DupeCandidate, findEmailDupe, findNameDupes } from '../../../lib/contact-dupes';
 
 // Mirror of apps/web's /contacts/new (+page.svelte + its server action),
@@ -149,13 +150,13 @@ export default function NewContact() {
       const res = await api.api.contacts.$post({ json: parsed.data });
       if (!res.ok) {
         const errBody = (await res.json().catch(() => null)) as { error?: string } | null;
-        setFormError(errBody?.error ?? 'create_failed');
+        setFormError(apiErrorMessage(errBody?.error, 'That could not be created. Try again.'));
         return;
       }
       const created = await res.json();
       router.replace(`/contacts/${created.id}`);
     } catch {
-      setFormError('create_failed');
+      setFormError('That could not be created. Try again.');
     } finally {
       setSubmitting(false);
     }

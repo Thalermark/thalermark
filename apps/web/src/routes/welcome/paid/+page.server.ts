@@ -1,3 +1,4 @@
+import { apiErrorMessage } from '$lib/api-errors';
 import { serverApiClient } from '$lib/api.server';
 import { fail, redirect } from '@sveltejs/kit';
 import { companyUpdateSchema } from '@thalermark/validation';
@@ -12,7 +13,7 @@ export const actions: Actions = {
   default: async (event) => {
     const data = await event.request.formData();
     const companyId = String(data.get('companyId') ?? '');
-    if (!companyId) return fail(400, { formError: 'company_required' });
+    if (!companyId) return fail(400, { formError: 'Choose a business first.' });
 
     // Checkboxes arrive as 'on' / absent → coerce to real booleans. The text
     // fields go through as '' when blank so the schema clears them to null.
@@ -35,7 +36,9 @@ export const actions: Actions = {
     });
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      return fail(res.status, { formError: body?.error ?? 'update_failed' });
+      return fail(res.status, {
+        formError: apiErrorMessage(body?.error, 'That could not be saved. Try again.', body),
+      });
     }
     throw redirect(303, '/welcome/brand');
   },

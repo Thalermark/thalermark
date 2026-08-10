@@ -44,7 +44,11 @@ export const actions: Actions = {
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
       return fail(res.status, {
-        reverseError: apiErrorMessage(body?.error, 'reverse_failed', body),
+        reverseError: apiErrorMessage(
+          body?.error,
+          'That entry could not be reversed. Try again.',
+          body,
+        ),
       });
     }
     redirect(303, `/ledger/${event.params.id}`);

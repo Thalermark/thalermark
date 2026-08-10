@@ -5,6 +5,7 @@ import { ActivityIndicator, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { TaxPolicyForm, type TaxPolicyFormValues } from '../../../../../components/TaxPolicyForm';
 import { api } from '../../../../../lib/api';
+import { apiErrorMessage } from '../../../../../lib/api-errors';
 
 // Mirror of apps/web's /settings/tax-policies/[id]/edit. Seeds from the loaded
 // policy (rate normalised "8.2500" → "8.25"), then PATCHes with full-replacement
@@ -26,7 +27,7 @@ export default function EditTaxPolicy() {
         .then(async (res) => {
           if (!active) return;
           if (!res.ok) {
-            setFormError('load_failed');
+            setFormError('That could not be loaded. Try again.');
             return;
           }
           const p = await res.json();
@@ -37,7 +38,7 @@ export default function EditTaxPolicy() {
           });
         })
         .catch(() => {
-          if (active) setFormError('load_failed');
+          if (active) setFormError('That could not be loaded. Try again.');
         });
       return () => {
         active = false;
@@ -70,12 +71,12 @@ export default function EditTaxPolicy() {
       const res = await api.api['tax-policies'][':id'].$patch({ param: { id }, json: parsed.data });
       if (!res.ok) {
         const errBody = (await res.json().catch(() => null)) as { error?: string } | null;
-        setFormError(errBody?.error ?? 'save_failed');
+        setFormError(apiErrorMessage(errBody?.error, 'That could not be saved. Try again.'));
         return;
       }
       router.replace(`/more/tax-policies/${id}`);
     } catch {
-      setFormError('save_failed');
+      setFormError('That could not be saved. Try again.');
     } finally {
       setSubmitting(false);
     }

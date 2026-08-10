@@ -136,7 +136,7 @@ export const actions: Actions = {
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
       return fail(res.status, {
-        allocationError: apiErrorMessage(body?.error, 'save_failed', body),
+        allocationError: apiErrorMessage(body?.error, 'That could not be saved. Try again.', body),
       });
     }
     return { allocationSaved: true };
@@ -150,7 +150,9 @@ export const actions: Actions = {
     if (res.status === 404) throw error(404, 'expense not found');
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      return fail(res.status, { deleteError: apiErrorMessage(body?.error, 'delete_failed', body) });
+      return fail(res.status, {
+        deleteError: apiErrorMessage(body?.error, 'That could not be deleted. Try again.', body),
+      });
     }
     redirect(303, '/expenses');
   },
@@ -175,7 +177,11 @@ export const actions: Actions = {
     if (res.status === 404) throw error(404, 'expense not found');
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      const code = apiErrorMessage(body?.error, 'upload_failed', body);
+      const code = apiErrorMessage(
+        body?.error,
+        'That file could not be uploaded. Try again.',
+        body,
+      );
       const msg =
         code === 'unsupported_media_type'
           ? 'Receipts must be a JPEG, PNG, or PDF.'
@@ -198,7 +204,7 @@ export const actions: Actions = {
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
       return fail(res.status, {
-        receiptError: apiErrorMessage(body?.error, 'delete_failed', body),
+        receiptError: apiErrorMessage(body?.error, 'That could not be deleted. Try again.', body),
       });
     }
     redirect(303, `/expenses/${event.params.id}`);
@@ -215,7 +221,7 @@ export const actions: Actions = {
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
       return fail(res.status, {
-        reviewError: apiErrorMessage(body?.error, 'dismiss_failed', body),
+        reviewError: apiErrorMessage(body?.error, 'That could not be dismissed. Try again.', body),
       });
     }
     redirect(303, `/expenses/${event.params.id}`);
@@ -232,7 +238,11 @@ export const actions: Actions = {
     if (res.status === 404) throw error(404, 'expense not found');
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      const code = apiErrorMessage(body?.error, 'extract_failed', body);
+      const code = apiErrorMessage(
+        body?.error,
+        'The receipt could not be read. Fill the details in by hand.',
+        body,
+      );
       const msg =
         code === 'ai_not_configured'
           ? 'AI receipt extraction is not configured on this server.'

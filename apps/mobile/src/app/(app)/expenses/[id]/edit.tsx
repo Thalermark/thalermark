@@ -64,7 +64,7 @@ export default function EditExpense() {
         const res = await api.api.expenses[':id'].$get({ param: { id } });
         if (!active) return;
         if (!res.ok) {
-          setFormError('load_failed');
+          setFormError('That could not be loaded. Try again.');
           return;
         }
         const e = await res.json();
@@ -92,7 +92,7 @@ export default function EditExpense() {
           paymentId: e.paymentAccountId,
         });
       })().catch(() => {
-        if (active) setFormError('load_failed');
+        if (active) setFormError('That could not be loaded. Try again.');
       });
       return () => {
         active = false;
@@ -156,7 +156,7 @@ export default function EditExpense() {
       if (vendorTouched) {
         const vendor = await resolveVendor(seed.companyId, seed.vendorContactId, seed.merchant);
         if (!vendor.ok) {
-          setFormError('vendor_create_failed');
+          setFormError('That vendor could not be created. Try again.');
           return;
         }
         json = { ...parsed.data, vendorContactId: vendor.value };
@@ -164,12 +164,12 @@ export default function EditExpense() {
       const res = await api.api.expenses[':id'].$patch({ param: { id }, json });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
-        setFormError(apiErrorMessage(body?.error, 'save_failed', body));
+        setFormError(apiErrorMessage(body?.error, 'That could not be saved. Try again.', body));
         return;
       }
       router.replace(`/expenses/${id}`);
     } catch {
-      setFormError('save_failed');
+      setFormError('That could not be saved. Try again.');
     } finally {
       setSubmitting(false);
     }

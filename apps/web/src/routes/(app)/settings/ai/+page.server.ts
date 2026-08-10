@@ -1,3 +1,4 @@
+import { apiErrorMessage } from '$lib/api-errors';
 import { serverApiClient } from '$lib/api.server';
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
@@ -62,7 +63,7 @@ export const actions: Actions = {
         error?: string;
         reason?: string;
       } | null;
-      const code = body?.error ?? 'save_failed';
+      const code = apiErrorMessage(body?.error, 'That could not be saved. Try again.', body);
       const message =
         code === 'endpoint_rejected'
           ? endpointMessage(body?.reason ?? '')

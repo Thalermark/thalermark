@@ -14,6 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AddressField, type AddressSuggestion } from '../../../../components/AddressField';
 import { api } from '../../../../lib/api';
+import { apiErrorMessage } from '../../../../lib/api-errors';
 
 // Edit half of apps/web's /contacts/[id]/edit. Seeds from the loaded contact,
 // then PATCHes with full-replacement semantics — undefined optionals clear the
@@ -63,7 +64,7 @@ export default function EditContact() {
         .then(async (res) => {
           if (!active) return;
           if (!res.ok) {
-            setFormError('load_failed');
+            setFormError('That could not be loaded. Try again.');
             return;
           }
           const c = await res.json();
@@ -81,7 +82,7 @@ export default function EditContact() {
           });
         })
         .catch(() => {
-          if (active) setFormError('load_failed');
+          if (active) setFormError('That could not be loaded. Try again.');
         });
       return () => {
         active = false;
@@ -136,12 +137,12 @@ export default function EditContact() {
       const res = await api.api.contacts[':id'].$patch({ param: { id }, json: parsed.data });
       if (!res.ok) {
         const errBody = (await res.json().catch(() => null)) as { error?: string } | null;
-        setFormError(errBody?.error ?? 'save_failed');
+        setFormError(apiErrorMessage(errBody?.error, 'That could not be saved. Try again.'));
         return;
       }
       router.replace(`/contacts/${id}`);
     } catch {
-      setFormError('save_failed');
+      setFormError('That could not be saved. Try again.');
     } finally {
       setSubmitting(false);
     }

@@ -100,7 +100,8 @@
         status = 'declined';
       }
     } catch (err) {
-      errorMsg = err instanceof Error ? err.message : 'network error';
+      // Whatever the runtime threw is not user copy — see the mobile twin.
+      errorMsg = 'Could not reach Thalermark. Check your connection and try again.';
       status = 'error';
     }
   }

@@ -40,16 +40,28 @@ describe('apiErrorMessage', () => {
     expect(msg).not.toMatch(/\d{4}/);
   });
 
-  it('passes an unrecognised code through untouched', () => {
-    // This is what keeps `formErrorFor(apiErrorMessage(...))` working: the inner
-    // call must not swallow the code the outer switch is about to match on.
-    expect(apiErrorMessage('invalid_category_account', 'create_failed')).toBe(
-      'invalid_category_account',
-    );
-    expect(apiErrorMessage('bill_not_editable', 'update_failed')).toBe('bill_not_editable');
+  it('translates a code from the shared catalogue', () => {
+    expect(apiErrorMessage('invalid_recipient', 'Could not send.')).toMatch(/email address/i);
+    expect(apiErrorMessage('has_payments', 'Could not void.')).toMatch(/payments/i);
   });
 
-  it('uses the fallback only when there is no code at all', () => {
-    expect(apiErrorMessage(undefined, 'create_failed')).toBe('create_failed');
+  // The behaviour this file used to assert the opposite of. Returning the code
+  // was deliberate — it let a route's own switch match on it — and it is how
+  // `invalid_recipient` reached a user's screen, because every switch ended in
+  // `default: return code` (TMC-219).
+  it('never returns a code, however unrecognised', () => {
+    const msg = apiErrorMessage('some_future_code_nobody_mapped', 'That did not work. Try again.');
+    expect(msg).toBe('That did not work. Try again.');
+  });
+
+  // Route-specific copy still wins: the switch runs first and this only sees
+  // what it did not handle. A value that is already a sentence has to survive.
+  it('passes an already-translated sentence through untouched', () => {
+    const sentence = 'That category is no longer a valid expense account. Pick another.';
+    expect(apiErrorMessage(sentence, 'unused fallback')).toBe(sentence);
+  });
+
+  it('uses the fallback when there is no code at all', () => {
+    expect(apiErrorMessage(undefined, 'That could not be saved.')).toBe('That could not be saved.');
   });
 });

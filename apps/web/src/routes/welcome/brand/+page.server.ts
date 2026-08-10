@@ -1,3 +1,4 @@
+import { apiErrorMessage } from '$lib/api-errors';
 import { apiBaseUrl, serverApiClient, serverApiHeaders } from '$lib/api.server';
 import { fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
@@ -35,7 +36,11 @@ export const actions: Actions = {
     });
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      const code = body?.error ?? 'upload_failed';
+      const code = apiErrorMessage(
+        body?.error,
+        'That file could not be uploaded. Try again.',
+        body,
+      );
       const msg =
         code === 'unsupported_media_type'
           ? 'Logo must be a PNG, JPEG, or WebP.'

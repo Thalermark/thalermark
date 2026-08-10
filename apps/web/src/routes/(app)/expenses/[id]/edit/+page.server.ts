@@ -84,14 +84,19 @@ function readForm(data: FormData): FormValues {
   };
 }
 
-function formErrorFor(code: string): string {
+// Returns undefined for anything it does not handle, so the caller falls
+// through to the shared catalogue: `formErrorFor(x) ?? apiErrorMessage(x, …)`.
+// This used to end in `default: return code`, which is how an unmapped code
+// reached a user's screen (TMC-219). Route-specific copy still wins — it is
+// just no longer the only thing standing between them and an identifier.
+function formErrorFor(code: string | undefined): string | undefined {
   switch (code) {
     case 'invalid_category_account':
       return 'That category is no longer a valid expense account. Pick another.';
     case 'invalid_payment_account':
       return 'That payment account is no longer valid. Pick another.';
     default:
-      return code;
+      return undefined;
   }
 }
 
@@ -99,14 +104,19 @@ function formErrorFor(code: string): string {
 // money schema will accept (merchant alone is enough signal otherwise).
 const CLEAN_AMOUNT = /^\d+(\.\d{1,2})?$/;
 
-function suggestErrorFor(code: string): string {
+// Returns undefined for anything it does not handle, so the caller falls
+// through to the shared catalogue: `formErrorFor(x) ?? apiErrorMessage(x, …)`.
+// This used to end in `default: return code`, which is how an unmapped code
+// reached a user's screen (TMC-219). Route-specific copy still wins — it is
+// just no longer the only thing standing between them and an identifier.
+function suggestErrorFor(code: string | undefined): string | undefined {
   switch (code) {
     case 'ai_not_configured':
       return 'AI categorization is not configured on this server.';
     case 'categorization_failed':
       return 'Could not suggest a category. Pick the best fit by hand.';
     default:
-      return code;
+      return undefined;
   }
 }
 
@@ -140,7 +150,12 @@ export const actions: Actions = {
     });
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      return fail(res.status, { values, suggestError: suggestErrorFor(body?.error ?? 'failed') });
+      return fail(res.status, {
+        values,
+        suggestError:
+          suggestErrorFor(body?.error) ??
+          apiErrorMessage(body?.error, 'No suggestion right now — pick a category by hand.'),
+      });
     }
     const { suggestedCategoryAccountId } = await res.json();
     if (!suggestedCategoryAccountId) {
@@ -207,7 +222,9 @@ export const actions: Actions = {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
       return fail(res.status, {
         values,
-        formError: formErrorFor(apiErrorMessage(body?.error, 'update_failed', body)),
+        formError:
+          formErrorFor(body?.error) ??
+          apiErrorMessage(body?.error, 'That could not be saved. Try again.', body),
       });
     }
     redirect(303, `/expenses/${event.params.id}`);

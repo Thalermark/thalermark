@@ -1,3 +1,4 @@
+import { apiErrorMessage } from '$lib/api-errors';
 import { serverApiClient } from '$lib/api.server';
 import { fail, redirect } from '@sveltejs/kit';
 import { companyUpdateSchema } from '@thalermark/validation';
@@ -17,7 +18,7 @@ export const actions: Actions = {
     const businessPhone = String(data.get('businessPhone') ?? '').trim();
 
     const values = { name, businessType, businessAddress, businessPhone };
-    if (!companyId) return fail(400, { values, formError: 'company_required' });
+    if (!companyId) return fail(400, { values, formError: 'Choose a business first.' });
 
     // Sparse payload, same idiom as the settings PATCH: only send keys we mean
     // to set. name + businessType are always present (required); the optional
@@ -41,7 +42,10 @@ export const actions: Actions = {
     });
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      return fail(res.status, { values, formError: body?.error ?? 'update_failed' });
+      return fail(res.status, {
+        values,
+        formError: apiErrorMessage(body?.error, 'That could not be saved. Try again.', body),
+      });
     }
     throw redirect(303, '/welcome/paid');
   },

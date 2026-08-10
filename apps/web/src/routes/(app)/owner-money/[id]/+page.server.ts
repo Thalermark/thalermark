@@ -40,7 +40,9 @@ export const actions: Actions = {
     if (res.status === 404) throw error(404, 'not found');
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      return fail(res.status, { deleteError: apiErrorMessage(body?.error, 'delete_failed', body) });
+      return fail(res.status, {
+        deleteError: apiErrorMessage(body?.error, 'That could not be deleted. Try again.', body),
+      });
     }
     redirect(303, '/owner-money');
   },

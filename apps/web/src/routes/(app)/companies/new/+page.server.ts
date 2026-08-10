@@ -1,4 +1,5 @@
 import { setActiveCompany } from '$lib/active-company';
+import { apiErrorMessage } from '$lib/api-errors';
 import { serverApiClient } from '$lib/api.server';
 import { may } from '$lib/perms';
 import { fail, redirect } from '@sveltejs/kit';
@@ -34,7 +35,10 @@ export const actions: Actions = {
     const res = await client.api.companies.$post({ json: parsed.data });
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      return fail(res.status, { values, formError: body?.error ?? 'create_failed' });
+      return fail(res.status, {
+        values,
+        formError: apiErrorMessage(body?.error, 'That could not be created. Try again.', body),
+      });
     }
     // Switch to the new company so the user lands inside it.
     const created = (await res.json()) as { id: string };

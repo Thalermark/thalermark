@@ -61,7 +61,12 @@ function readForm(data: FormData): FormValues {
   };
 }
 
-function formErrorFor(code: string): string {
+// Returns undefined for anything it does not handle, so the caller falls
+// through to the shared catalogue: `formErrorFor(x) ?? apiErrorMessage(x, …)`.
+// This used to end in `default: return code`, which is how an unmapped code
+// reached a user's screen (TMC-219). Route-specific copy still wins — it is
+// just no longer the only thing standing between them and an identifier.
+function formErrorFor(code: string | undefined): string | undefined {
   switch (code) {
     case 'invalid_category_account':
       return 'That category is no longer a valid expense account. Pick another.';
@@ -70,7 +75,7 @@ function formErrorFor(code: string): string {
     case 'company_not_found':
       return 'No company in this workspace.';
     default:
-      return code;
+      return undefined;
   }
 }
 
@@ -129,7 +134,9 @@ export const actions: Actions = {
         const body = (await custRes.json().catch(() => null)) as { error?: string } | null;
         return fail(custRes.status, {
           values,
-          contactErrors: { _: apiErrorMessage(body?.error, 'contact_create_failed', body) },
+          contactErrors: {
+            _: apiErrorMessage(body?.error, 'That customer could not be created. Try again.', body),
+          },
         });
       }
       const created = await custRes.json();
@@ -170,7 +177,9 @@ export const actions: Actions = {
         values: createdName
           ? { ...values, contactId: resolvedContactId, contactName: createdName }
           : values,
-        formError: formErrorFor(apiErrorMessage(body?.error, 'create_failed', body)),
+        formError:
+          formErrorFor(body?.error) ??
+          apiErrorMessage(body?.error, 'That could not be created. Try again.', body),
       });
     }
     const created = await res.json();

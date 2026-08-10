@@ -61,7 +61,7 @@ export const actions: Actions = {
     const client = serverApiClient(event);
     const form = await event.request.formData();
     const companyId = String(form.get('companyId') ?? '');
-    if (!companyId) return fail(400, { saveError: 'missing_company_id' });
+    if (!companyId) return fail(400, { saveError: 'Choose a business first.' });
 
     const res = await client.api.companies[':id'].$patch({
       param: { id: companyId },
@@ -74,7 +74,7 @@ export const actions: Actions = {
       // The API is the authority on the caps — a duplicate day, too many
       // stages, or one out of range all land here rather than being
       // re-validated in two places that can disagree.
-      return fail(res.status, { saveError: 'save_failed' });
+      return fail(res.status, { saveError: 'That could not be saved. Try again.' });
     }
     return { saved: true };
   },

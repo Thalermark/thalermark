@@ -97,13 +97,13 @@ export default function NewOwnerMoney() {
       const res = await api.api['owner-money'].$post({ json: parsed.data });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
-        setFormError(apiErrorMessage(body?.error, 'create_failed', body));
+        setFormError(apiErrorMessage(body?.error, 'That could not be created. Try again.', body));
         return;
       }
       const created = await res.json();
       router.replace(`/owner-money/${created.id}`);
     } catch {
-      setFormError('create_failed');
+      setFormError('That could not be created. Try again.');
     } finally {
       setSubmitting(false);
     }
