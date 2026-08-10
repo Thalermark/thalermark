@@ -44,8 +44,14 @@ async function write(
   scope: Scope,
   status: DeliveryStatus,
   detail: string | null,
+  extra: { deliveryMessageId?: string | null; deliveryUpdatedAt?: Date } = {},
 ): Promise<void> {
-  const patch = { deliveryStatus: status, deliveryDetail: detail, deliveryUpdatedAt: new Date() };
+  const patch = {
+    deliveryStatus: status,
+    deliveryDetail: detail,
+    deliveryUpdatedAt: new Date(),
+    ...extra,
+  };
   if (scope.kind === 'invoice') {
     await tx
       .update(invoices)
@@ -62,8 +68,19 @@ async function write(
 // The provider took it. Not proof it arrived — that needs a webhook — but it
 // clears any failure from a previous attempt, which is what makes a re-send
 // meaningful.
-export function recordSendAccepted(tx: Database | Transaction, scope: Scope): Promise<void> {
-  return write(tx, scope, 'sent', null);
+// `messageId` is the provider's id for the mail, kept because it is the only
+// thing a later webhook carries that can find this row again. Optional: the
+// console driver reports none, and SMTP will not either, so the whole webhook
+// half of this feature is simply inert on those installs rather than broken.
+export function recordSendAccepted(
+  tx: Database | Transaction,
+  scope: Scope,
+  messageId?: string | null,
+): Promise<void> {
+  // Written even when absent, so a re-send through a driver that reports no id
+  // clears the previous attempt's id rather than leaving a stale one pointed at
+  // a message this row is no longer waiting on.
+  return write(tx, scope, 'sent', null, { deliveryMessageId: messageId ?? null });
 }
 
 // The provider refused it. Known immediately, no webhook involved, and true on
@@ -75,4 +92,82 @@ export function recordSendFailed(
   err: unknown,
 ): Promise<void> {
   return write(tx, scope, 'failed', detailOf(err));
+}
+
+// What the far end did with it, reported later by the provider.
+export type ProviderDeliveryEvent = {
+  messageId: string;
+  status: DeliveryStatus;
+  detail: string | null;
+  // When it happened at the PROVIDER, not when we received it. Load-bearing —
+  // see the ordering guard below.
+  occurredAt: Date;
+};
+
+export type ApplyOutcome = 'applied' | 'unknown_message' | 'stale';
+
+// Apply a provider's delivery report to whichever document it belongs to.
+//
+// Runs with no tenant context: a webhook arrives from the internet carrying a
+// verified signature and a message id, and nothing else. So the lookup is by
+// message id alone, against a db handle that can see across accounts, and the
+// account is discovered rather than supplied.
+export async function applyProviderEvent(
+  db: Database,
+  event: ProviderDeliveryEvent,
+): Promise<ApplyOutcome> {
+  const [invoice] = await db
+    .select({
+      id: invoices.id,
+      accountId: invoices.accountId,
+      deliveryUpdatedAt: invoices.deliveryUpdatedAt,
+    })
+    .from(invoices)
+    .where(eq(invoices.deliveryMessageId, event.messageId))
+    .limit(1);
+
+  const [estimate] = invoice
+    ? []
+    : await db
+        .select({
+          id: estimates.id,
+          accountId: estimates.accountId,
+          deliveryUpdatedAt: estimates.deliveryUpdatedAt,
+        })
+        .from(estimates)
+        .where(eq(estimates.deliveryMessageId, event.messageId))
+        .limit(1);
+
+  const row = invoice ?? estimate;
+  // Not ours to act on, and that is the ordinary case rather than an error: the
+  // same provider account sends verification mail, password resets and
+  // statements, none of which are documents with a delivery state. Acknowledged
+  // by the caller so the provider stops retrying.
+  if (!row) return 'unknown_message';
+
+  // ORDERING GUARD. Webhook delivery is not ordered, and this is not
+  // theoretical — while capturing fixtures for this work, `email.delivered`
+  // for one message arrived before that message's own `email.sent`. Without
+  // this, the late `sent` would overwrite `delivered` and the document would
+  // report less than we actually know.
+  //
+  // `<` rather than `<=`: the send-time write and a provider event can land on
+  // the same millisecond, and in that case the provider's word is the newer
+  // fact.
+  if (row.deliveryUpdatedAt && event.occurredAt < row.deliveryUpdatedAt) return 'stale';
+
+  await write(
+    db,
+    {
+      accountId: row.accountId,
+      documentId: row.id,
+      kind: invoice ? 'invoice' : 'estimate',
+    },
+    event.status,
+    event.detail,
+    // Stamped with the provider's clock, so the comparison above is between two
+    // values from the same timeline on every subsequent event.
+    { deliveryUpdatedAt: event.occurredAt },
+  );
+  return 'applied';
 }

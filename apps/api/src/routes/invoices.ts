@@ -1610,8 +1610,9 @@ export function invoicesRoutes(deps: AppDeps) {
           // recoverable — a retry is an idempotent resend — and consistent with
           // the mark-sent-without-email ("share a link") path.
           let subject: string;
+          let messageId: string | null = null;
           try {
-            ({ subject } = await sendInvoiceEmail(deps.mailer, to, {
+            ({ subject, messageId } = await sendInvoiceEmail(deps.mailer, to, {
               invoice,
               customerName,
               companyName,
@@ -1641,7 +1642,11 @@ export function invoicesRoutes(deps: AppDeps) {
             // self-host without email does not get told its post arrived
             // (TMC-212). Only a real handoff clears a previous failure.
             if (delivered) {
-              await recordSendAccepted(tx, { accountId, documentId: id, kind: 'invoice' });
+              await recordSendAccepted(
+                tx,
+                { accountId, documentId: id, kind: 'invoice' },
+                messageId,
+              );
             }
             await audit({
               entityType: 'invoice',

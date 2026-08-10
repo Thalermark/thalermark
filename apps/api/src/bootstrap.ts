@@ -279,6 +279,7 @@ export function createDefaultAppDeps(
     publicAppUrl: env.publicAppUrl,
     socialProviders: enabledSocialProviders(env),
     mailer,
+    resendWebhookSecret: env.resendWebhookSecret,
     emailFrom: env.emailFrom,
     stripe,
     requireConnectedAccount: env.stripeRequireConnectedAccount ?? false,

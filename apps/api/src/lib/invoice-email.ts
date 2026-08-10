@@ -91,9 +91,9 @@ export async function sendInvoiceEmail(
   mailer: Mailer,
   to: string,
   input: InvoiceEmailInput,
-): Promise<{ subject: string }> {
+): Promise<{ subject: string; messageId: string | null }> {
   const { subject, text, html } = buildInvoiceEmail(input);
-  await mailer.send({
+  const receipt = await mailer.send({
     to,
     subject,
     html,
@@ -101,5 +101,8 @@ export async function sendInvoiceEmail(
     from: input.emailFrom ? formatSender(input.emailFrom, input.companyName) : undefined,
     replyTo: input.replyToEmail ?? undefined,
   });
-  return { subject };
+  // Passed back so the caller can store it against the invoice — it is what a
+  // later delivery webhook quotes to identify this message. Null on any driver
+  // that reports no id (TMC-226).
+  return { subject, messageId: receipt?.id ?? null };
 }

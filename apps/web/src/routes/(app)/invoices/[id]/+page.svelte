@@ -36,6 +36,22 @@
         ? 'The customer marked it as spam, so further email to them may not arrive.'
         : 'The mail server refused to send it.',
   );
+  // What to DO about it, which is not the same sentence for all three.
+  //
+  // Until the delivery webhook landed, only 'failed' was reachable — a mailer
+  // that threw during the send — so a single "fix the address and resend" line
+  // covered every case anyone could actually see. Now that bounces and
+  // complaints arrive too, that advice is wrong in two different directions:
+  // re-sending after a spam complaint damages the sender reputation the rest of
+  // the account's mail depends on, and a refused send is usually nothing to do
+  // with the customer's address at all.
+  const deliveryRemedy = $derived(
+    inv.deliveryStatus === 'bounced'
+      ? 'Fix the address on the customer, then send it again — nothing about the invoice itself changed.'
+      : inv.deliveryStatus === 'complained'
+        ? 'Do not send it again — reach them another way. Repeated email after a spam report puts the rest of your mail at risk.'
+        : 'The invoice itself is fine. Try sending it again, and check Settings → Email if it keeps happening.',
+  );
 
   // Mirrors the API state machine: draft can be sent / paid / voided;
   // sent can be paid / voided; paid and voided are terminal. The buttons
@@ -192,7 +208,7 @@
   <div class="mt-6 rounded-sm border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
     <span class="font-medium">This never reached them.</span>
     {deliveryReason}
-    Fix the address on the customer, then send it again — nothing about the invoice itself changed.
+    {deliveryRemedy}
     {#if inv.deliveryDetail}
       <span class="mt-2 block font-mono text-xs text-danger/70">{inv.deliveryDetail}</span>
     {/if}

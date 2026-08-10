@@ -104,6 +104,11 @@ export type AppDeps = {
   // integration tests that don't exercise either can omit it; routes that
   // need it fail fast with 500 when called without a mailer wired in.
   mailer?: Mailer;
+  // Verifies Resend's delivery webhooks (TMC-226). Omitted everywhere the
+  // provider isn't Resend — self-host, tests, any embedder on another
+  // transport — and /api/webhooks/resend answers 503 in that case rather than
+  // trusting an unsigned request.
+  resendWebhookSecret?: string;
   emailFrom?: string;
   // Stripe SDK bundle (client + publishable key + webhook secret). Null
   // when the operator hasn't configured STRIPE_* env vars — the public-

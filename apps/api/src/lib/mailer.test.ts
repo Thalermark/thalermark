@@ -71,4 +71,43 @@ describe('createResendMailer', () => {
     vi.stubGlobal('fetch', async () => ({ ok: false, status: 422, text: async () => 'bad' }));
     await expect(createResendMailer(base).send(msg)).rejects.toThrow('resend_send_failed: 422');
   });
+
+  // The join key for the delivery webhook (TMC-226). Resend answers a send with
+  // `{ id }`, and that same value arrives later as `data.email_id` on every
+  // event about the message — so without it, a bounce is something we can
+  // verify and then cannot attach to any document.
+  describe('the send receipt', () => {
+    it('returns the id Resend assigned the message', async () => {
+      vi.stubGlobal('fetch', async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ id: '38bc46e6-12d0-4d26-9a58-36f35c52a283' }),
+      }));
+      const receipt = await createResendMailer(base).send(msg);
+      expect(receipt?.id).toBe('38bc46e6-12d0-4d26-9a58-36f35c52a283');
+    });
+
+    it('still resolves when the body cannot be read', async () => {
+      // The mail is already sent by the time the body is parsed. Losing the id
+      // costs delivery tracking; throwing here would cost the invoice — the
+      // route would answer 502 and the caller would mark a delivered message
+      // as failed. Note the SYNCHRONOUS throw: a response with no json method
+      // is what the other stubs in this file are, and a trailing .catch()
+      // never sees it.
+      vi.stubGlobal('fetch', async () => ({ ok: true, status: 200 }));
+      await expect(createResendMailer(base).send(msg)).resolves.toEqual({});
+    });
+
+    it('ignores a body with no usable id', async () => {
+      vi.stubGlobal('fetch', async () => ({ ok: true, status: 200, json: async () => ({}) }));
+      await expect(createResendMailer(base).send(msg)).resolves.toEqual({});
+    });
+  });
+
+  it('reports nothing from the console driver, which has no provider id', async () => {
+    // Which is why the whole webhook half is inert on a self-host with no
+    // email provider, rather than half-wired.
+    const receipt = await createConsoleMailer({ from: base.from }).send(msg);
+    expect(receipt).toBeUndefined();
+  });
 });

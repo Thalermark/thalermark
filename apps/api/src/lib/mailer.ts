@@ -26,6 +26,15 @@ export type MailMessage = {
   replyTo?: string;
 };
 
+// What the provider called the message it just accepted (TMC-226).
+//
+// Handed back so the send can be recorded against the document, because a
+// delivery webhook arrives with nothing else that could identify it — no
+// tenant, no invoice id, just the provider's own id for the mail. Storing it at
+// send time is what makes `email.bounced` actionable rather than merely
+// verifiable.
+export type SendReceipt = { id?: string };
+
 export type Mailer = {
   // Set ONLY by a driver that does not actually deliver anything.
   //
@@ -44,7 +53,22 @@ export type Mailer = {
   // through the public barrel — stays correct and compiles unchanged. There is
   // no third state to get wrong: it is either present-and-true or absent.
   readonly logsOnly?: true;
-  send(msg: MailMessage): Promise<void>;
+  // `| void` rather than a plain `SendReceipt`, for the same reason logsOnly is
+  // optional above: every existing implementation — the console driver, the
+  // recorders in the integration tests, any mailer a commercial embedder wires
+  // through the public barrel — resolves with nothing, and `Promise<void>` is
+  // not assignable to `Promise<SendReceipt>`. Widening the return type instead
+  // of tightening it keeps all of them compiling untouched, and callers read
+  // the id with `?.` because a driver that cannot report one is the normal
+  // case, not a defect.
+  //
+  // Biome offers to rewrite this as `| undefined`. Do not take it: that fix
+  // turns an additive change into a breaking one. `Promise<void>` — what every
+  // `async send() {}` implementation returns — is assignable to
+  // `Promise<SendReceipt | void>` but NOT to `Promise<SendReceipt |
+  // undefined>`, because void is only assignable to void.
+  // biome-ignore lint/suspicious/noConfusingVoidType: see above — `| void` is what keeps every existing Mailer compiling.
+  send(msg: MailMessage): Promise<SendReceipt | void>;
 };
 
 // Will a send through this mailer actually reach the recipient? The one place
@@ -83,6 +107,22 @@ export function createResendMailer(opts: { apiKey: string; from: string }): Mail
         const detail = await res.text().catch(() => '');
         log.error('resend send failed', { status: res.status, detail });
         throw new Error(`resend_send_failed: ${res.status}`);
+      }
+      // `{ id }` — the same value that comes back as `data.email_id` on every
+      // webhook for this message, which is what makes the two halves join.
+      //
+      // Wrapped in try/catch rather than `.catch()`: reading the body can fail
+      // SYNCHRONOUSLY (a response object without a json method — a stub, a
+      // fetch polyfill), and a trailing .catch() never sees that. The mail is
+      // already sent by this point, so nothing here may turn a successful send
+      // into a thrown failure; the worst case is losing the ability to
+      // correlate a later webhook, which costs delivery status and not the
+      // invoice.
+      try {
+        const body = (await res.json()) as { id?: unknown } | null;
+        return typeof body?.id === 'string' ? { id: body.id } : {};
+      } catch {
+        return {};
       }
     },
   };
