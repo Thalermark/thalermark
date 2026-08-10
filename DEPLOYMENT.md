@@ -366,7 +366,9 @@ bundled compose these currently need a passthrough edit (see [Footguns](#footgun
 
 1. Point the URLs at **real** terms. The bundled `/legal/*` pages are
    clearly-marked placeholder boilerplate ("not legal advice") — review them
-   with counsel or repoint the vars before walling real users.
+   with counsel or repoint the vars before walling real users. If you turn
+   consent on while the URLs still point at the bundled pages, **Settings →
+   About** says so, so you find out from the app rather than from a customer.
 2. Apply the migration that creates `legal_acceptances` (`MIGRATE_ON_BOOT=true`
    does this on deploy; otherwise run the migrate step). **Do this before
    step 3** — consent required with the table missing makes `/api/legal` error.
