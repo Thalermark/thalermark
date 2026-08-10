@@ -1,5 +1,5 @@
 import { apiErrorMessage } from '$lib/api-errors';
-import { apiBaseUrl, serverApiClient, serverApiHeaders } from '$lib/api.server';
+import { apiBaseUrl, apiFetch, serverApiClient, serverApiHeaders } from '$lib/api.server';
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -40,7 +40,7 @@ export const actions: Actions = {
     const role = String(formData.get('role') ?? '').trim();
     if (!email) return fail(400, { error: 'invalid_email', email });
 
-    const res = await fetch(`${apiBaseUrl()}/api/invitations`, {
+    const res = await apiFetch(`${apiBaseUrl()}/api/invitations`, {
       method: 'POST',
       headers: { ...serverApiHeaders(event), 'content-type': 'application/json' },
       body: JSON.stringify(role ? { email, role } : { email }),
@@ -78,7 +78,7 @@ export const actions: Actions = {
     const userId = String((await event.request.formData()).get('userId') ?? '');
     if (!userId) return fail(400, { memberError: 'Missing member.' });
 
-    const res = await fetch(`${apiBaseUrl()}/api/team/${userId}`, {
+    const res = await apiFetch(`${apiBaseUrl()}/api/team/${userId}`, {
       method: 'DELETE',
       headers: serverApiHeaders(event),
     });
@@ -99,7 +99,7 @@ export const actions: Actions = {
     const role = String(fd.get('role') ?? '');
     if (!userId || !role) return fail(400, { memberError: 'Missing member or role.' });
 
-    const res = await fetch(`${apiBaseUrl()}/api/team/${userId}/role`, {
+    const res = await apiFetch(`${apiBaseUrl()}/api/team/${userId}/role`, {
       method: 'PATCH',
       headers: { ...serverApiHeaders(event), 'content-type': 'application/json' },
       body: JSON.stringify({ role }),
@@ -119,7 +119,7 @@ export const actions: Actions = {
     const userId = String((await event.request.formData()).get('userId') ?? '');
     if (!userId) return fail(400, { memberError: 'Missing member.' });
 
-    const res = await fetch(`${apiBaseUrl()}/api/team/${userId}/transfer-ownership`, {
+    const res = await apiFetch(`${apiBaseUrl()}/api/team/${userId}/transfer-ownership`, {
       method: 'POST',
       headers: serverApiHeaders(event),
     });
@@ -139,7 +139,7 @@ export const actions: Actions = {
     const userId = event.locals.session?.user.id;
     if (!userId) return fail(401, { memberError: 'You are not signed in.' });
 
-    const res = await fetch(`${apiBaseUrl()}/api/team/${userId}`, {
+    const res = await apiFetch(`${apiBaseUrl()}/api/team/${userId}`, {
       method: 'DELETE',
       headers: serverApiHeaders(event),
     });

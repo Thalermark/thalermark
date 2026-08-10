@@ -1,5 +1,5 @@
 import { apiErrorMessage } from '$lib/api-errors';
-import { apiBaseUrl, serverApiClient, serverApiHeaders } from '$lib/api.server';
+import { apiBaseUrl, apiFetch, serverApiClient, serverApiHeaders } from '$lib/api.server';
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -169,11 +169,15 @@ export const actions: Actions = {
     }
     const fd = new FormData();
     fd.set('file', file);
-    const res = await event.fetch(`${apiBaseUrl()}/api/expenses/${event.params.id}/receipt`, {
-      method: 'POST',
-      headers: serverApiHeaders(event),
-      body: fd,
-    });
+    const res = await apiFetch(
+      `${apiBaseUrl()}/api/expenses/${event.params.id}/receipt`,
+      {
+        method: 'POST',
+        headers: serverApiHeaders(event),
+        body: fd,
+      },
+      event.fetch,
+    );
     if (res.status === 404) throw error(404, 'expense not found');
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;

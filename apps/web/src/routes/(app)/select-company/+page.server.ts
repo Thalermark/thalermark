@@ -1,4 +1,4 @@
-import { apiBaseUrl, serverApiClient, serverApiHeaders } from '$lib/api.server';
+import { apiBaseUrl, apiFetch, serverApiClient, serverApiHeaders } from '$lib/api.server';
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -54,7 +54,7 @@ export const actions: Actions = {
     const token = String((await event.request.formData()).get('token') ?? '');
     if (!token) return fail(400, { error: 'That invitation is no longer valid.' });
 
-    const res = await fetch(`${apiBaseUrl()}/api/invitations/${token}/accept`, {
+    const res = await apiFetch(`${apiBaseUrl()}/api/invitations/${token}/accept`, {
       method: 'POST',
       headers: serverApiHeaders(event),
     });
@@ -79,7 +79,7 @@ export const actions: Actions = {
     const token = String((await event.request.formData()).get('token') ?? '');
     if (!token) return fail(400, { error: 'That invitation is no longer valid.' });
 
-    const res = await fetch(`${apiBaseUrl()}/api/invitations/${token}/decline`, {
+    const res = await apiFetch(`${apiBaseUrl()}/api/invitations/${token}/decline`, {
       method: 'POST',
       headers: serverApiHeaders(event),
     });

@@ -1,4 +1,4 @@
-import { apiBaseUrl, serverApiHeaders } from '$lib/api.server';
+import { apiBaseUrl, apiFetch, serverApiHeaders } from '$lib/api.server';
 import type { RequestHandler } from './$types';
 
 // Same-origin proxy for the client telemetry emitter ($lib/telemetry). The
@@ -9,11 +9,15 @@ import type { RequestHandler } from './$types';
 export const POST: RequestHandler = async (event) => {
   const body = await event.request.text();
   try {
-    const res = await event.fetch(`${apiBaseUrl()}/api/telemetry/ingest`, {
-      method: 'POST',
-      headers: { ...serverApiHeaders(event), 'content-type': 'application/json' },
-      body,
-    });
+    const res = await apiFetch(
+      `${apiBaseUrl()}/api/telemetry/ingest`,
+      {
+        method: 'POST',
+        headers: { ...serverApiHeaders(event), 'content-type': 'application/json' },
+        body,
+      },
+      event.fetch,
+    );
     return new Response(await res.text(), {
       status: res.status,
       headers: { 'content-type': 'application/json' },
