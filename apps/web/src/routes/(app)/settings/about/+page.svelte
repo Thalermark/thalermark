@@ -1,5 +1,8 @@
 <script lang="ts">
   import { DOMAIN, PRODUCT_NAME, TAGLINE } from '@thalermark/brand';
+  import type { PageProps } from './$types';
+
+  let { data }: PageProps = $props();
 
   // Compiled in at build time (Vite `define`, fed by the git tag / APP_VERSION
   // build-arg). No runtime env, no API call — it's the version of this build.
@@ -12,6 +15,35 @@
 <h1 class="font-serif text-4xl font-light leading-none tracking-tight text-fg">
   About<span class="text-accent">.</span>
 </h1>
+
+{#if data.usingBundledTemplates}
+  <!-- Shows only when consent is REQUIRED and the URLs still point at the
+       bundled pages. Leaving consent off is a legitimate choice and warns
+       about nothing; turning it on and forgetting the documents is the case
+       worth interrupting someone for (TMC-214). Not a boot failure, and the
+       example pages stay in the repo — both deliberate. -->
+  <div class="mt-6 max-w-prose rounded-sm border border-warning/40 bg-warning/5 px-6 py-5">
+    <p class="font-serif text-lg text-fg">Your users are agreeing to example documents.</p>
+    <p class="mt-2 text-sm leading-relaxed text-fg/70">
+      Everyone signing in here has to accept your Terms and Privacy Policy before they can use the
+      app — but this installation is still pointing at the sample pages that ship with
+      {PRODUCT_NAME}. They read <span class="font-mono text-xs">[Operator legal name]</span> and
+      <span class="font-mono text-xs">[jurisdiction]</span>, because they are a starting point for
+      you to rewrite, not a licence to use.
+    </p>
+    <p class="mt-2 text-sm leading-relaxed text-fg/70">
+      Replace them with your own, then point
+      <span class="font-mono text-xs">LEGAL_TERMS_URL</span> and
+      <span class="font-mono text-xs">LEGAL_PRIVACY_URL</span> at them and bump
+      <span class="font-mono text-xs">LEGAL_TERMS_VERSION</span> so everyone is asked again. If you
+      did not mean to collect consent at all, unset
+      <span class="font-mono text-xs">LEGAL_CONSENT_REQUIRED</span>.
+    </p>
+    <p class="mt-2 text-sm leading-relaxed text-fg/60">
+      This notice is for whoever runs this server. Nothing is broken and nobody is blocked.
+    </p>
+  </div>
+{/if}
 
 <section class="mt-8 rounded-sm border border-fg/15 bg-surface-2">
   <header class="border-b border-fg/10 px-6 py-5">

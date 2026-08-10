@@ -6,7 +6,11 @@
 // Add fields here as upstream slices need them (DB, auth, telemetry, etc.).
 // The skeleton only needs PORT + NODE_ENV.
 
-import type { LegalConsentConfig } from './lib/legal-consent.js';
+import {
+  BUNDLED_PRIVACY_URL,
+  BUNDLED_TERMS_URL,
+  type LegalConsentConfig,
+} from './lib/legal-consent.js';
 
 export type LogLevel = 'debug' | 'info' | 'warning' | 'error' | 'fatal';
 
@@ -254,8 +258,8 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     // and versions to '1'.
     legalConsent: parseBool(source.LEGAL_CONSENT_REQUIRED)
       ? {
-          termsUrl: source.LEGAL_TERMS_URL || '/legal/terms',
-          privacyUrl: source.LEGAL_PRIVACY_URL || '/legal/privacy',
+          termsUrl: source.LEGAL_TERMS_URL || BUNDLED_TERMS_URL,
+          privacyUrl: source.LEGAL_PRIVACY_URL || BUNDLED_PRIVACY_URL,
           termsVersion: source.LEGAL_TERMS_VERSION || '1',
           privacyVersion: source.LEGAL_PRIVACY_VERSION || '1',
         }

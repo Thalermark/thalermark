@@ -14,6 +14,14 @@ import { v7 as uuidv7 } from 'uuid';
 // record) lives. The versions let the operator re-prompt everyone when the terms
 // change — bumping either version makes previously-accepted users unaccepted
 // against the new version, so the wall reappears once and a fresh row is written.
+// The bundled example pages this repo ships, and the fallback when the operator
+// sets LEGAL_CONSENT_REQUIRED without pointing at their own documents. Defined
+// here rather than inline in env.ts so the "still on the templates?" check below
+// compares against the same two strings the default is built from — a second
+// copy would go stale the first time either path moved (TMC-214).
+export const BUNDLED_TERMS_URL = '/legal/terms';
+export const BUNDLED_PRIVACY_URL = '/legal/privacy';
+
 export type LegalConsentConfig = {
   termsUrl: string;
   privacyUrl: string;
@@ -31,6 +39,16 @@ export type LegalConsentState = {
   accepted: boolean;
   termsUrl: string | null;
   privacyUrl: string | null;
+  // Consent is being collected against the EXAMPLE documents this repo ships
+  // (TMC-214). Those pages are deliberate templates — they read "operated by
+  // [Operator legal name]", "[jurisdiction]", "Last updated: [DATE]" — and they
+  // are also the default the consent gate points at, so an operator who turns
+  // consent on without setting LEGAL_TERMS_URL / LEGAL_PRIVACY_URL ships a
+  // blocking clickwrap over placeholder text and is never told.
+  //
+  // The pages already carry a "Template — customize before launch" callout. The
+  // gap this closes is that nobody has to look at them.
+  usingBundledTemplates: boolean;
 };
 
 const NOT_REQUIRED: LegalConsentState = {
@@ -39,6 +57,9 @@ const NOT_REQUIRED: LegalConsentState = {
   accepted: false,
   termsUrl: null,
   privacyUrl: null,
+  // Nothing is being collected, so there is nothing to warn about — an operator
+  // who leaves consent off is not agreeing anyone to anything.
+  usingBundledTemplates: false,
 };
 
 // Has this user accepted the CURRENT terms+privacy version? Read via the
@@ -67,6 +88,10 @@ export async function getLegalConsentState(
     accepted: row !== undefined,
     termsUrl: config.termsUrl,
     privacyUrl: config.privacyUrl,
+    // Either one still pointing at a bundled page is enough: agreeing people to
+    // a real Terms and a placeholder Privacy is not half a problem.
+    usingBundledTemplates:
+      config.termsUrl === BUNDLED_TERMS_URL || config.privacyUrl === BUNDLED_PRIVACY_URL,
   };
 }
 

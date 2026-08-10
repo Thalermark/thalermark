@@ -49,6 +49,7 @@ type LegalState = {
   accepted: boolean;
   termsUrl: string | null;
   privacyUrl: string | null;
+  usingBundledTemplates: boolean;
 };
 
 function extractSessionCookie(res: Response): string {
@@ -208,5 +209,70 @@ describe('legal consent — /api/legal + /api/legal/accept', () => {
     } finally {
       await handle.close();
     }
+  });
+
+  // TMC-214. The bundled /legal/* pages are deliberate examples AND the default
+  // the consent gate points at, so an operator can turn consent on and wall
+  // every user behind "[Operator legal name]" without ever being told. The flag
+  // is what Settings → About renders the warning from.
+  describe('warns when consent is collected against the bundled example pages', () => {
+    it('flags the default URLs', async () => {
+      const { app, handle } = buildApp({ legalConsent: V1 });
+      try {
+        const cookie = await signUp(app, 'templates@example.com');
+        expect(await getLegal(app, cookie)).toMatchObject({
+          required: true,
+          usingBundledTemplates: true,
+        });
+      } finally {
+        await handle.close();
+      }
+    });
+
+    it('does not flag an operator who pointed at their own documents', async () => {
+      const { app, handle } = buildApp({
+        legalConsent: {
+          ...V1,
+          termsUrl: 'https://acme.example/terms',
+          privacyUrl: 'https://acme.example/privacy',
+        },
+      });
+      try {
+        const cookie = await signUp(app, 'own-docs@example.com');
+        expect(await getLegal(app, cookie)).toMatchObject({
+          required: true,
+          usingBundledTemplates: false,
+        });
+      } finally {
+        await handle.close();
+      }
+    });
+
+    it('flags a HALF-replaced pair — a real Terms with a placeholder Privacy still counts', async () => {
+      // The case a boolean on "both" would miss. Agreeing people to a genuine
+      // Terms and a template Privacy is not half a problem.
+      const { app, handle } = buildApp({
+        legalConsent: { ...V1, termsUrl: 'https://acme.example/terms' },
+      });
+      try {
+        const cookie = await signUp(app, 'half@example.com');
+        expect((await getLegal(app, cookie)).usingBundledTemplates).toBe(true);
+      } finally {
+        await handle.close();
+      }
+    });
+
+    it('says nothing when consent is off — nobody is agreeing to anything', async () => {
+      const { app, handle } = buildApp();
+      try {
+        const cookie = await signUp(app, 'consent-off@example.com');
+        expect(await getLegal(app, cookie)).toMatchObject({
+          required: false,
+          usingBundledTemplates: false,
+        });
+      } finally {
+        await handle.close();
+      }
+    });
   });
 });
