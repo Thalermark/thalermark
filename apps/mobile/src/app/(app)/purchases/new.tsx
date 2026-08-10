@@ -124,7 +124,9 @@ export default function NewPurchase() {
         const cres = await api.api.contacts.$post({ json: parsedContact.data });
         if (!cres.ok) {
           const body = (await cres.json().catch(() => null)) as { error?: string } | null;
-          setFormError(apiErrorMessage(body?.error, 'contact_create_failed', body));
+          setFormError(
+            apiErrorMessage(body?.error, 'That customer could not be created. Try again.', body),
+          );
           setSubmitting(false);
           return;
         }
@@ -135,7 +137,7 @@ export default function NewPurchase() {
         setNewName('');
         setNewEmail('');
       } catch {
-        setFormError('contact_create_failed');
+        setFormError('That customer could not be created. Try again.');
         setSubmitting(false);
         return;
       }
@@ -170,13 +172,13 @@ export default function NewPurchase() {
       const res = await api.api.purchases.$post({ json: parsed.data });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
-        setFormError(apiErrorMessage(body?.error, 'save_failed', body));
+        setFormError(apiErrorMessage(body?.error, 'That could not be saved. Try again.', body));
         return;
       }
       const created = await res.json();
       router.replace(`/purchases/${created.id}`);
     } catch {
-      setFormError('save_failed');
+      setFormError('That could not be saved. Try again.');
     } finally {
       setSubmitting(false);
     }

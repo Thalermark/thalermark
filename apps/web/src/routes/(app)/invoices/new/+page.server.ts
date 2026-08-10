@@ -288,7 +288,9 @@ export const actions: Actions = {
         const body = (await custRes.json().catch(() => null)) as { error?: string } | null;
         return fail(custRes.status, {
           values,
-          contactErrors: { _: apiErrorMessage(body?.error, 'contact_create_failed', body) },
+          contactErrors: {
+            _: apiErrorMessage(body?.error, 'That customer could not be created. Try again.', body),
+          },
         });
       }
       const createdContact = await custRes.json();
@@ -352,7 +354,7 @@ export const actions: Actions = {
     const res = await client.api.invoices.$post({ json: parsed.data });
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      const code = apiErrorMessage(body?.error, 'create_failed', body);
+      const code = apiErrorMessage(body?.error, 'That could not be created. Try again.', body);
       const formError =
         code === 'invoice_number_taken'
           ? 'Invoice number already used for this company. Try another.'

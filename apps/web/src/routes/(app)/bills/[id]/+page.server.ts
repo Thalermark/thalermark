@@ -97,7 +97,12 @@ export const actions: Actions = {
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
       return fail(res.status, {
-        transitionError: settlementErrorMessage(body?.error, 'bill', 'mark_paid_failed', body),
+        transitionError: settlementErrorMessage(
+          body?.error,
+          'bill',
+          'That could not be marked paid. Try again.',
+          body,
+        ),
       });
     }
     redirect(303, `/bills/${id}`);
@@ -143,7 +148,12 @@ export const actions: Actions = {
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
       return fail(res.status, {
-        transitionError: settlementErrorMessage(body?.error, 'bill', 'payment_failed', body),
+        transitionError: settlementErrorMessage(
+          body?.error,
+          'bill',
+          'That payment could not be recorded. Try again.',
+          body,
+        ),
       });
     }
     redirect(303, `/bills/${id}`);
@@ -165,7 +175,12 @@ export const actions: Actions = {
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
       return fail(res.status, {
-        transitionError: settlementErrorMessage(body?.error, 'bill', 'payment_remove_failed', body),
+        transitionError: settlementErrorMessage(
+          body?.error,
+          'bill',
+          'That payment could not be removed. Try again.',
+          body,
+        ),
       });
     }
     redirect(303, `/bills/${id}`);
@@ -180,7 +195,12 @@ export const actions: Actions = {
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
       return fail(res.status, {
-        transitionError: settlementErrorMessage(body?.error, 'bill', 'void_failed', body),
+        transitionError: settlementErrorMessage(
+          body?.error,
+          'bill',
+          'That could not be voided. Try again.',
+          body,
+        ),
       });
     }
     redirect(303, `/bills/${id}`);

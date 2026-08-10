@@ -1,3 +1,4 @@
+import { apiErrorMessage } from '$lib/api-errors';
 import { serverApiClient } from '$lib/api.server';
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
@@ -51,7 +52,9 @@ async function setArchived(event: Parameters<Actions[string]>[0], archived: bool
   if (res.status === 404) throw error(404, 'item not found');
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
-    return fail(res.status, { actionError: body?.error ?? 'action_failed' });
+    return fail(res.status, {
+      actionError: apiErrorMessage(body?.error, 'That did not work. Try again.', body),
+    });
   }
   redirect(303, `/items/${id}`);
 }

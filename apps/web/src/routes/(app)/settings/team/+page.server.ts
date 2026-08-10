@@ -1,3 +1,4 @@
+import { apiErrorMessage } from '$lib/api-errors';
 import { apiBaseUrl, serverApiClient, serverApiHeaders } from '$lib/api.server';
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
@@ -46,7 +47,7 @@ export const actions: Actions = {
     });
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      const code = body?.error ?? 'send_failed';
+      const code = apiErrorMessage(body?.error, 'That could not be sent. Try again.', body);
       return fail(res.status, {
         error: INVITE_ERRORS[code] ?? 'Could not send the invite.',
         email,

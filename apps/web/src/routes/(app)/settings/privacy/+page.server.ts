@@ -1,3 +1,4 @@
+import { apiErrorMessage } from '$lib/api-errors';
 import { serverApiClient } from '$lib/api.server';
 import { error, fail } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
@@ -24,7 +25,9 @@ export const actions: Actions = {
     });
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      return fail(res.status, { saveError: body?.error ?? 'save_failed' });
+      return fail(res.status, {
+        saveError: apiErrorMessage(body?.error, 'That could not be saved. Try again.', body),
+      });
     }
     return { telemetry: await res.json(), saved: true };
   },

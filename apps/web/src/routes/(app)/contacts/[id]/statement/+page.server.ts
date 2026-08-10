@@ -1,3 +1,4 @@
+import { apiErrorMessage } from '$lib/api-errors';
 import { serverApiClient } from '$lib/api.server';
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
@@ -28,7 +29,9 @@ export const actions: Actions = {
     if (res.status === 404) throw error(404, 'contact not found');
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      return fail(res.status, { emailError: body?.error ?? 'send_failed' });
+      return fail(res.status, {
+        emailError: apiErrorMessage(body?.error, 'That could not be sent. Try again.', body),
+      });
     }
     const body = (await res.json()) as { sentTo?: string; delivered?: boolean };
     // See the invoice send action (TMC-212) — only the undelivered case is

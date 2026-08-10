@@ -1,4 +1,5 @@
 import { pickActiveCompany } from '$lib/active-company';
+import { apiErrorMessage } from '$lib/api-errors';
 import { serverApiClient } from '$lib/api.server';
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
@@ -50,7 +51,13 @@ export const actions: Actions = {
     });
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      return fail(res.status, { onboardError: body?.error ?? 'onboard_failed' });
+      return fail(res.status, {
+        onboardError: apiErrorMessage(
+          body?.error,
+          'Stripe could not be set up right now. Try again.',
+          body,
+        ),
+      });
     }
     const { url } = await res.json();
     redirect(303, url);
@@ -80,7 +87,9 @@ export const actions: Actions = {
     });
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      return fail(res.status, { paymentError: body?.error ?? 'save_failed' });
+      return fail(res.status, {
+        paymentError: apiErrorMessage(body?.error, 'That could not be saved. Try again.', body),
+      });
     }
     return { paymentSaved: true };
   },

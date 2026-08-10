@@ -56,7 +56,7 @@ export default function EditBill() {
         const res = await api.api.bills[':id'].$get({ param: { id } });
         if (!active) return;
         if (!res.ok) {
-          setFormError('load_failed');
+          setFormError('That could not be loaded. Try again.');
           return;
         }
         const b = await res.json();
@@ -83,7 +83,7 @@ export default function EditBill() {
           memo: b.memo ?? '',
         });
       })().catch(() => {
-        if (active) setFormError('load_failed');
+        if (active) setFormError('That could not be loaded. Try again.');
       });
       return () => {
         active = false;
@@ -130,7 +130,7 @@ export default function EditBill() {
       const res = await api.api.bills[':id'].$patch({ param: { id }, json: parsed.data });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
-        const code = apiErrorMessage(body?.error, 'save_failed', body);
+        const code = apiErrorMessage(body?.error, 'That could not be saved. Try again.', body);
         const msg =
           code === 'bill_not_editable'
             ? 'This bill can no longer be edited.'
@@ -142,7 +142,7 @@ export default function EditBill() {
       }
       router.replace(`/bills/${id}`);
     } catch {
-      setFormError('save_failed');
+      setFormError('That could not be saved. Try again.');
     } finally {
       setSubmitting(false);
     }

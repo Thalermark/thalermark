@@ -4,6 +4,7 @@ import { useCallback, useState } from 'react';
 import { TaxPolicyForm, type TaxPolicyFormValues } from '../../../../components/TaxPolicyForm';
 import { pickActiveCompany } from '../../../../lib/active-company';
 import { api } from '../../../../lib/api';
+import { apiErrorMessage } from '../../../../lib/api-errors';
 
 // Mirror of apps/web's /settings/tax-policies/new. Resolves the active company
 // for the required companyId. A blank rate is omitted so the API defaults
@@ -73,13 +74,13 @@ export default function NewTaxPolicy() {
       const res = await api.api['tax-policies'].$post({ json: parsed.data });
       if (!res.ok) {
         const errBody = (await res.json().catch(() => null)) as { error?: string } | null;
-        setFormError(errBody?.error ?? 'create_failed');
+        setFormError(apiErrorMessage(errBody?.error, 'That could not be created. Try again.'));
         return;
       }
       const created = await res.json();
       router.replace(`/more/tax-policies/${created.id}`);
     } catch {
-      setFormError('create_failed');
+      setFormError('That could not be created. Try again.');
     } finally {
       setSubmitting(false);
     }

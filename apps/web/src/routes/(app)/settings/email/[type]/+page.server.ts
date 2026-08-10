@@ -1,4 +1,5 @@
 import { pickActiveCompany } from '$lib/active-company';
+import { apiErrorMessage } from '$lib/api-errors';
 import { serverApiClient } from '$lib/api.server';
 import { error, fail, redirect } from '@sveltejs/kit';
 import {
@@ -74,7 +75,10 @@ export const actions: Actions = {
     });
     if (!res.ok) {
       const b = (await res.json().catch(() => null)) as { error?: string } | null;
-      return fail(res.status, { ...parsed.data, error: b?.error ?? 'save_failed' });
+      return fail(res.status, {
+        ...parsed.data,
+        error: apiErrorMessage(b?.error, 'That could not be saved. Try again.', b),
+      });
     }
     // Re-run load so the Customized badge + stored values refresh.
     redirect(303, `/settings/email/${type}?saved=1`);
@@ -91,7 +95,9 @@ export const actions: Actions = {
     });
     if (!res.ok) {
       const b = (await res.json().catch(() => null)) as { error?: string } | null;
-      return fail(res.status, { error: b?.error ?? 'reset_failed' });
+      return fail(res.status, {
+        error: apiErrorMessage(b?.error, 'That could not be reset. Try again.', b),
+      });
     }
     redirect(303, `/settings/email/${type}?reset=1`);
   },
@@ -109,7 +115,10 @@ export const actions: Actions = {
     });
     if (!res.ok) {
       const b = (await res.json().catch(() => null)) as { error?: string } | null;
-      return fail(res.status, { ...parsed.data, error: b?.error ?? 'preview_failed' });
+      return fail(res.status, {
+        ...parsed.data,
+        error: apiErrorMessage(b?.error, 'That preview could not be built. Try again.', b),
+      });
     }
     const preview = await res.json();
     return { ...parsed.data, preview };

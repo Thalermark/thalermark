@@ -27,6 +27,7 @@ import { type ItemPatch, ItemPickerField } from '../../../../../components/ItemP
 import { TaxRow } from '../../../../../components/TaxRow';
 import { TypeRow } from '../../../../../components/TypeRow';
 import { api } from '../../../../../lib/api';
+import { apiErrorMessage } from '../../../../../lib/api-errors';
 import {
   type TaxPolicyLite,
   lineTax,
@@ -109,7 +110,7 @@ export default function EditRecurring() {
         const schedRes = await api.api['recurring-invoices'][':id'].$get({ param: { id } });
         if (!active) return;
         if (!schedRes.ok) {
-          setFormError('load_failed');
+          setFormError('That could not be loaded. Try again.');
           return;
         }
         const s = await schedRes.json();
@@ -156,7 +157,7 @@ export default function EditRecurring() {
           );
         }
       })().catch(() => {
-        if (active) setFormError('load_failed');
+        if (active) setFormError('That could not be loaded. Try again.');
       });
       return () => {
         active = false;
@@ -296,13 +297,15 @@ export default function EditRecurring() {
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
-        const code = body?.error ?? 'save_failed';
-        setFormError(FRIENDLY[code] ?? code);
+        const code = apiErrorMessage(body?.error, 'That could not be saved. Try again.');
+        setFormError(
+          FRIENDLY[code] ?? apiErrorMessage(code, 'That could not be saved. Try again.'),
+        );
         return;
       }
       router.replace(`/invoices/recurring/${id}`);
     } catch {
-      setFormError('save_failed');
+      setFormError('That could not be saved. Try again.');
     } finally {
       setSubmitting(false);
     }

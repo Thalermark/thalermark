@@ -1,3 +1,4 @@
+import { apiErrorMessage } from '$lib/api-errors';
 import { serverApiClient } from '$lib/api.server';
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
@@ -58,7 +59,9 @@ async function runTransition(
   if (res.status === 404) throw error(404, 'recurring schedule not found');
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
-    return fail(res.status, { transitionError: body?.error ?? 'transition_failed' });
+    return fail(res.status, {
+      transitionError: apiErrorMessage(body?.error, 'That could not be changed. Try again.', body),
+    });
   }
   redirect(303, `/recurring/${id}`);
 }
@@ -72,7 +75,9 @@ async function runNow(event: Parameters<Actions[string]>[0]) {
   if (res.status === 404) throw error(404, 'recurring schedule not found');
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
-    return fail(res.status, { transitionError: body?.error ?? 'run_failed' });
+    return fail(res.status, {
+      transitionError: apiErrorMessage(body?.error, 'That could not be run. Try again.', body),
+    });
   }
   const { invoiceId } = (await res.json()) as { invoiceId: string };
   redirect(303, `/recurring/${id}?ran=${encodeURIComponent(invoiceId)}`);

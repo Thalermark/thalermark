@@ -1,4 +1,5 @@
 import { pickActiveCompany, setActiveCompany } from '$lib/active-company';
+import { apiErrorMessage } from '$lib/api-errors';
 import { apiBaseUrl, serverApiClient, serverApiHeaders } from '$lib/api.server';
 import { error, fail, redirect } from '@sveltejs/kit';
 import { BUSINESS_TYPES } from '@thalermark/validation';
@@ -87,7 +88,7 @@ export const actions: Actions = {
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
       return fail(res.status, {
-        error: body?.error ?? 'save_failed',
+        error: apiErrorMessage(body?.error, 'That could not be saved. Try again.', body),
         businessAddress,
         businessPhone,
         businessEmail,
@@ -134,7 +135,13 @@ export const actions: Actions = {
     });
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      return fail(res.status, { businessTypeError: body?.error ?? 'save_failed' });
+      return fail(res.status, {
+        businessTypeError: apiErrorMessage(
+          body?.error,
+          'That could not be saved. Try again.',
+          body,
+        ),
+      });
     }
     return { businessTypeSaved: true };
   },
@@ -165,7 +172,9 @@ export const actions: Actions = {
     });
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      return fail(res.status, { accountingError: body?.error ?? 'save_failed' });
+      return fail(res.status, {
+        accountingError: apiErrorMessage(body?.error, 'That could not be saved. Try again.', body),
+      });
     }
     return { accountingSaved: true };
   },
@@ -192,7 +201,13 @@ export const actions: Actions = {
     });
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      return fail(res.status, { depreciationError: body?.error ?? 'save_failed' });
+      return fail(res.status, {
+        depreciationError: apiErrorMessage(
+          body?.error,
+          'That could not be saved. Try again.',
+          body,
+        ),
+      });
     }
     return { depreciationSaved: true };
   },
@@ -216,7 +231,13 @@ export const actions: Actions = {
     });
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      return fail(res.status, { vehicleMethodError: body?.error ?? 'save_failed' });
+      return fail(res.status, {
+        vehicleMethodError: apiErrorMessage(
+          body?.error,
+          'That could not be saved. Try again.',
+          body,
+        ),
+      });
     }
     return { vehicleMethodSaved: true };
   },
@@ -240,7 +261,9 @@ export const actions: Actions = {
     });
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      return fail(res.status, { timezoneError: body?.error ?? 'save_failed' });
+      return fail(res.status, {
+        timezoneError: apiErrorMessage(body?.error, 'That could not be saved. Try again.', body),
+      });
     }
     return { timezoneSaved: true };
   },
@@ -258,7 +281,10 @@ export const actions: Actions = {
     });
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      return fail(res.status, { replyToError: body?.error ?? 'save_failed', replyToEmail });
+      return fail(res.status, {
+        replyToError: apiErrorMessage(body?.error, 'That could not be saved. Try again.', body),
+        replyToEmail,
+      });
     }
     return { replyToSaved: true, replyToEmail };
   },
@@ -283,7 +309,11 @@ export const actions: Actions = {
     });
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      const code = body?.error ?? 'upload_failed';
+      const code = apiErrorMessage(
+        body?.error,
+        'That file could not be uploaded. Try again.',
+        body,
+      );
       const msg =
         code === 'unsupported_media_type'
           ? 'Logo must be a PNG, JPEG, or WebP.'
@@ -305,7 +335,9 @@ export const actions: Actions = {
     const res = await client.api.companies[':id'].logo.$delete({ param: { id: companyId } });
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      return fail(res.status, { logoError: body?.error ?? 'remove_failed' });
+      return fail(res.status, {
+        logoError: apiErrorMessage(body?.error, 'That could not be removed. Try again.', body),
+      });
     }
     redirect(303, '/settings/business');
   },

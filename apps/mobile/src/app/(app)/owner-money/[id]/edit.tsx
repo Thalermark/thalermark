@@ -93,12 +93,12 @@ export default function EditOwnerMoney() {
       const res = await api.api['owner-money'][':id'].$patch({ param: { id }, json: parsed.data });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
-        setFormError(apiErrorMessage(body?.error, 'update_failed', body));
+        setFormError(apiErrorMessage(body?.error, 'That could not be saved. Try again.', body));
         return;
       }
       router.replace(`/owner-money/${id}`);
     } catch {
-      setFormError('update_failed');
+      setFormError('That could not be saved. Try again.');
     } finally {
       setSubmitting(false);
     }

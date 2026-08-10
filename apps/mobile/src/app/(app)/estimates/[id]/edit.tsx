@@ -28,6 +28,7 @@ import { type ItemPatch, ItemPickerField } from '../../../../components/ItemPick
 import { TaxRow } from '../../../../components/TaxRow';
 import { TypeRow } from '../../../../components/TypeRow';
 import { api } from '../../../../lib/api';
+import { apiErrorMessage } from '../../../../lib/api-errors';
 import { type TaxPolicyLite, lineTax, policyRate, resolvePolicyId } from '../../../../lib/line-tax';
 
 // Edit half of apps/web's /estimates/[id]/edit — the invoice-edit twin, minus
@@ -96,7 +97,7 @@ export default function EditEstimate() {
         const estRes = await api.api.estimates[':id'].$get({ param: { id } });
         if (!active) return;
         if (!estRes.ok) {
-          setFormError('load_failed');
+          setFormError('That could not be loaded. Try again.');
           return;
         }
         const est = await estRes.json();
@@ -139,7 +140,7 @@ export default function EditEstimate() {
           );
         }
       })().catch(() => {
-        if (active) setFormError('load_failed');
+        if (active) setFormError('That could not be loaded. Try again.');
       });
       return () => {
         active = false;
@@ -270,13 +271,15 @@ export default function EditEstimate() {
       const res = await api.api.estimates[':id'].$patch({ param: { id }, json: parsed.data });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
-        const code = body?.error ?? 'save_failed';
-        setFormError(FRIENDLY[code] ?? code);
+        const code = apiErrorMessage(body?.error, 'That could not be saved. Try again.');
+        setFormError(
+          FRIENDLY[code] ?? apiErrorMessage(code, 'That could not be saved. Try again.'),
+        );
         return;
       }
       router.replace(`/estimates/${id}`);
     } catch {
-      setFormError('save_failed');
+      setFormError('That could not be saved. Try again.');
     } finally {
       setSubmitting(false);
     }

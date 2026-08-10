@@ -1,4 +1,5 @@
 import { pickActiveCompany } from '$lib/active-company';
+import { apiErrorMessage } from '$lib/api-errors';
 import { serverApiClient } from '$lib/api.server';
 import { error, fail, redirect } from '@sveltejs/kit';
 import { itemCreateSchema } from '@thalermark/validation';
@@ -67,7 +68,10 @@ export const actions: Actions = {
     const res = await client.api.items.$post({ json: parsed.data });
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      return fail(res.status, { values, formError: body?.error ?? 'create_failed' });
+      return fail(res.status, {
+        values,
+        formError: apiErrorMessage(body?.error, 'That could not be created. Try again.', body),
+      });
     }
     const created = await res.json();
     redirect(303, `/items/${created.id}`);

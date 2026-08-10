@@ -105,7 +105,12 @@ function readForm(data: FormData): FormValues {
 // Map an API error code to a human banner. The COA-account codes are the only
 // ones the user can realistically trigger from the form (a stale account that
 // was deactivated between load and submit).
-function formErrorFor(code: string): string {
+// Returns undefined for anything it does not handle, so the caller falls
+// through to the shared catalogue: `formErrorFor(x) ?? apiErrorMessage(x, …)`.
+// This used to end in `default: return code`, which is how an unmapped code
+// reached a user's screen (TMC-219). Route-specific copy still wins — it is
+// just no longer the only thing standing between them and an identifier.
+function formErrorFor(code: string | undefined): string | undefined {
   switch (code) {
     case 'invalid_category_account':
       return 'That category is no longer a valid expense account. Pick another.';
@@ -114,7 +119,7 @@ function formErrorFor(code: string): string {
     case 'company_not_found':
       return 'No company in this workspace.';
     default:
-      return code;
+      return undefined;
   }
 }
 
@@ -125,14 +130,19 @@ const CLEAN_AMOUNT = /^\d+(\.\d{1,2})?$/;
 
 // Map a categorize error code to a soft, non-blocking message. The suggestion
 // is optional help — a failure never stops the user filling the form by hand.
-function suggestErrorFor(code: string): string {
+// Returns undefined for anything it does not handle, so the caller falls
+// through to the shared catalogue: `formErrorFor(x) ?? apiErrorMessage(x, …)`.
+// This used to end in `default: return code`, which is how an unmapped code
+// reached a user's screen (TMC-219). Route-specific copy still wins — it is
+// just no longer the only thing standing between them and an identifier.
+function suggestErrorFor(code: string | undefined): string | undefined {
   switch (code) {
     case 'ai_not_configured':
       return 'AI categorization is not configured on this server.';
     case 'categorization_failed':
       return 'Could not suggest a category. Pick the best fit by hand.';
     default:
-      return code;
+      return undefined;
   }
 }
 
@@ -168,7 +178,12 @@ export const actions: Actions = {
     });
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      return fail(res.status, { values, suggestError: suggestErrorFor(body?.error ?? 'failed') });
+      return fail(res.status, {
+        values,
+        suggestError:
+          suggestErrorFor(body?.error) ??
+          apiErrorMessage(body?.error, 'No suggestion right now — pick a category by hand.'),
+      });
     }
     const { suggestedCategoryAccountId } = await res.json();
     if (!suggestedCategoryAccountId) {
@@ -232,7 +247,9 @@ export const actions: Actions = {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
       return fail(res.status, {
         values,
-        formError: formErrorFor(apiErrorMessage(body?.error, 'create_failed', body)),
+        formError:
+          formErrorFor(body?.error) ??
+          apiErrorMessage(body?.error, 'That could not be created. Try again.', body),
       });
     }
     const created = await res.json();

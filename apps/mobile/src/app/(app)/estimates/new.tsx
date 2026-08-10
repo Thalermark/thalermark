@@ -30,6 +30,7 @@ import { TaxRow } from '../../../components/TaxRow';
 import { TypeRow } from '../../../components/TypeRow';
 import { pickActiveCompany } from '../../../lib/active-company';
 import { api } from '../../../lib/api';
+import { apiErrorMessage } from '../../../lib/api-errors';
 import { NEW_CONTACT, findEmailDupe } from '../../../lib/contact-dupes';
 import { type TaxPolicyLite, lineTax, policyRate, resolvePolicyId } from '../../../lib/line-tax';
 
@@ -275,7 +276,9 @@ export default function NewEstimate() {
         const custRes = await api.api.contacts.$post({ json: parsedCust.data });
         if (!custRes.ok) {
           const body = (await custRes.json().catch(() => null)) as { error?: string } | null;
-          setFormError(body?.error ?? 'contact_create_failed');
+          setFormError(
+            apiErrorMessage(body?.error, 'That customer could not be created. Try again.'),
+          );
           return;
         }
         const created = await custRes.json();
@@ -285,7 +288,7 @@ export default function NewEstimate() {
         setNewName('');
         setNewEmail('');
       } catch {
-        setFormError('contact_create_failed');
+        setFormError('That customer could not be created. Try again.');
         setSubmitting(false);
         return;
       }
@@ -345,14 +348,16 @@ export default function NewEstimate() {
       const res = await api.api.estimates.$post({ json: parsed.data });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
-        const code = body?.error ?? 'create_failed';
-        setFormError(FRIENDLY[code] ?? code);
+        const code = apiErrorMessage(body?.error, 'That could not be created. Try again.');
+        setFormError(
+          FRIENDLY[code] ?? apiErrorMessage(code, 'That could not be saved. Try again.'),
+        );
         return;
       }
       const created = await res.json();
       router.replace(`/estimates/${created.id}`);
     } catch {
-      setFormError('create_failed');
+      setFormError('That could not be created. Try again.');
     } finally {
       setSubmitting(false);
     }

@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from '../../lib/api';
+import { apiErrorMessage } from '../../lib/api-errors';
 import { authClient } from '../../lib/auth-client';
 
 // Mirror of apps/web's accept-invite. Lives outside (app) so unauthed users can
@@ -76,7 +77,11 @@ export default function AcceptInvite() {
           : await api.api.invitations[':token'].decline.$post({ param: { token } });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
-        setError(body.error ?? `Request failed (${res.status})`);
+        // The first screen a new team member ever sees. A raw code or an HTTP
+        // status here is the product's first impression (TMC-220).
+        setError(
+          apiErrorMessage(body.error, 'That invitation could not be accepted. Ask for a new one.'),
+        );
         setStatus('error');
         return;
       }
@@ -86,7 +91,9 @@ export default function AcceptInvite() {
         setStatus('declined');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'network error');
+      // `err.message` is whatever the runtime threw — "Network request failed"
+      // is the common one, and it is not copy.
+      setError('Could not reach Thalermark. Check your connection and try again.');
       setStatus('error');
     }
   }

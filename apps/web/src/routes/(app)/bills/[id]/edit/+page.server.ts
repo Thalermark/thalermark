@@ -67,7 +67,7 @@ export const actions: Actions = {
     if (res.status === 404) throw error(404, 'bill not found');
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      const code = apiErrorMessage(body?.error, 'update_failed', body);
+      const code = apiErrorMessage(body?.error, 'That could not be saved. Try again.', body);
       const msg =
         code === 'bill_not_editable'
           ? 'This bill can no longer be edited.'

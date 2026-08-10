@@ -19,6 +19,13 @@ import { z } from 'zod';
 //
 // Register by importing this module — index.ts re-exports it, so any consumer of
 // @thalermark/validation gets the map installed before it parses anything.
+//
+// The `z.config` call at the bottom is a real module side effect, and the
+// package used to declare `"sideEffects": false`. That is a promise to bundlers
+// that dropping an unused module is safe — so a production web or mobile build
+// was entitled to tree-shake this file away and silently fall back to Zod's
+// developer wording, while every test stayed green because tests import it by
+// name. package.json now lists this module as the one exception.
 
 // The scale of a field the user is filling in. Zod reports the runtime type it
 // was checking, which is close enough to choose a noun.

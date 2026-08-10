@@ -71,7 +71,7 @@ export const actions: Actions = {
       const message =
         body?.error === 'has_payments'
           ? "You've already recorded payments on this, so it can't be removed."
-          : apiErrorMessage(body?.error, 'delete_failed', body);
+          : apiErrorMessage(body?.error, 'That could not be deleted. Try again.', body);
       return fail(res.status, { deleteError: message });
     }
     redirect(303, '/purchases');

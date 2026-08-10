@@ -271,7 +271,9 @@ export default function NewRecurring() {
         const custRes = await api.api.contacts.$post({ json: parsedCust.data });
         if (!custRes.ok) {
           const body = (await custRes.json().catch(() => null)) as { error?: string } | null;
-          setFormError(apiErrorMessage(body?.error, 'contact_create_failed', body));
+          setFormError(
+            apiErrorMessage(body?.error, 'That customer could not be created. Try again.', body),
+          );
           return;
         }
         const created = await custRes.json();
@@ -281,7 +283,7 @@ export default function NewRecurring() {
         setNewName('');
         setNewEmail('');
       } catch {
-        setFormError('contact_create_failed');
+        setFormError('That customer could not be created. Try again.');
         setSubmitting(false);
         return;
       }
@@ -341,14 +343,16 @@ export default function NewRecurring() {
       const res = await api.api['recurring-invoices'].$post({ json: parsed.data });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
-        const code = apiErrorMessage(body?.error, 'create_failed', body);
-        setFormError(FRIENDLY[code] ?? code);
+        const code = apiErrorMessage(body?.error, 'That could not be created. Try again.', body);
+        setFormError(
+          FRIENDLY[code] ?? apiErrorMessage(code, 'That could not be saved. Try again.'),
+        );
         return;
       }
       const created = await res.json();
       router.replace(`/invoices/recurring/${created.id}`);
     } catch {
-      setFormError('create_failed');
+      setFormError('That could not be created. Try again.');
     } finally {
       setSubmitting(false);
     }

@@ -1,5 +1,9 @@
-// Mirror of apps/web/src/lib/api-errors.ts — shared translation for API error
-// codes that any posting route can return.
+import { isCodeShaped, messageForApiError } from '@thalermark/validation';
+
+// The mobile half of the shared error vocabulary (TMC-220). The catalogue itself
+// lives in @thalermark/validation so this file and its web twin cannot drift —
+// they were byte-identical copies covering two codes between them, and every
+// other code reached the screen as a raw string.
 //
 // Most error codes belong to one route and are handled where they're raised.
 // This is for the CROSS-CUTTING ones — raised deep in the ledger rather than by
@@ -43,20 +47,22 @@ function closedThroughOf(body: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 
-// An unrecognised code is returned UNCHANGED (falling back only when there was no
-// code at all), so this is safe to drop in ahead of a screen's own code switch
-// without collapsing its route-specific messages into a generic one.
+// A code NEVER comes back out. It used to, so that a screen's own switch could
+// match on it — and screens rendered the result directly, which is how a user
+// who lost signal mid-save was shown the word `create_failed`.
 export function apiErrorMessage(
   code: string | undefined,
   fallback: string,
   body?: unknown,
 ): string {
-  switch (code) {
-    case 'period_closed':
-      return periodClosedMessage(closedThroughOf(body));
-    case 'company_retired':
-      return COMPANY_RETIRED_MESSAGE;
-    default:
-      return code ?? fallback;
-  }
+  // These two need a value out of the body, so they cannot live in the shared
+  // catalogue with the rest.
+  if (code === 'period_closed') return periodClosedMessage(closedThroughOf(body));
+  if (code === 'company_retired') return COMPANY_RETIRED_MESSAGE;
+
+  const known = messageForApiError(code);
+  if (known) return known;
+  // Already a sentence — a caller translated it before handing it on.
+  if (code && !isCodeShaped(code)) return code;
+  return fallback;
 }

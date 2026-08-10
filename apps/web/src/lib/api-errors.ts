@@ -1,3 +1,5 @@
+import { isCodeShaped, messageForApiError } from '@thalermark/validation';
+
 // Shared translation for API error codes that any posting route can return.
 //
 // Most error codes belong to one route and are handled by that route's own
@@ -50,24 +52,33 @@ function closedThroughOf(body: unknown): string | undefined {
 // Translate an API error code to a sentence. `body` is the parsed error response
 // when available — some codes carry detail worth naming.
 //
-// An unrecognised code is returned UNCHANGED (falling back only when there was no
-// code at all), which is what makes this safe to drop in anywhere. Several routes
-// feed this straight into their own `formErrorFor` switch; if unknown codes
-// collapsed to the fallback, those switches would stop matching and every
-// route-specific message would regress to a generic one.
+// A code NEVER comes back out (TMC-219). It used to: unrecognised codes were
+// returned unchanged so a route's own `formErrorFor` switch could match on them,
+// and every switch ended in `default: return code`, so anything neither layer
+// knew about landed on a user's screen as `invalid_recipient`.
+//
+// The composition was inverted to fix it rather than deleted. A route switch now
+// returns `undefined` for codes it does not handle and the call site reads
+// `formErrorFor(code) ?? apiErrorMessage(code, 'A sentence.', body)`, so
+// route-specific copy still wins where it exists — it just is not load-bearing
+// for correctness any more.
 export function apiErrorMessage(
   code: string | undefined,
   fallback: string,
   body?: unknown,
 ): string {
-  switch (code) {
-    case 'period_closed':
-      return periodClosedMessage(closedThroughOf(body));
-    case 'company_retired':
-      return COMPANY_RETIRED_MESSAGE;
-    default:
-      return code ?? fallback;
-  }
+  // These two need a value out of the body, so they cannot live in the shared
+  // catalogue with the rest.
+  if (code === 'period_closed') return periodClosedMessage(closedThroughOf(body));
+  if (code === 'company_retired') return COMPANY_RETIRED_MESSAGE;
+
+  const known = messageForApiError(code);
+  if (known) return known;
+  // Already a sentence — a caller translated it before handing it on. Passing it
+  // through is what keeps a better, more specific message from being replaced by
+  // a generic fallback.
+  if (code && !isCodeShaped(code)) return code;
+  return fallback;
 }
 
 // --- Settlement guards (TMC-187 invoices, TMC-192 bills) --------------------

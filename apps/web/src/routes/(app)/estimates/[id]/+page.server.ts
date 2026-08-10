@@ -1,3 +1,4 @@
+import { apiErrorMessage } from '$lib/api-errors';
 import { serverApiClient } from '$lib/api.server';
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
@@ -61,7 +62,9 @@ async function runTransition(
   if (res.status === 404) throw error(404, 'estimate not found');
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
-    return fail(res.status, { transitionError: body?.error ?? 'transition_failed' });
+    return fail(res.status, {
+      transitionError: apiErrorMessage(body?.error, 'That could not be changed. Try again.', body),
+    });
   }
   redirect(303, `/estimates/${id}`);
 }
@@ -83,7 +86,9 @@ async function runSend(event: Parameters<Actions[string]>[0]) {
   if (res.status === 404) throw error(404, 'estimate not found');
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
-    return fail(res.status, { transitionError: body?.error ?? 'send_failed' });
+    return fail(res.status, {
+      transitionError: apiErrorMessage(body?.error, 'That could not be sent. Try again.', body),
+    });
   }
   const body = (await res.json()) as { sentTo?: string; delivered?: boolean };
   // Only the negative case rides the URL, so an ordinary send is unchanged.
@@ -105,7 +110,13 @@ async function runConvert(event: Parameters<Actions[string]>[0]) {
   if (res.status === 404) throw error(404, 'estimate not found');
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
-    return fail(res.status, { transitionError: body?.error ?? 'convert_failed' });
+    return fail(res.status, {
+      transitionError: apiErrorMessage(
+        body?.error,
+        'That could not be turned into an invoice. Try again.',
+        body,
+      ),
+    });
   }
   const { id: invoiceId } = (await res.json()) as { id: string };
   redirect(303, `/invoices/${invoiceId}`);
@@ -119,7 +130,13 @@ async function runDuplicate(event: Parameters<Actions[string]>[0]) {
   if (res.status === 404) throw error(404, 'estimate not found');
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
-    return fail(res.status, { transitionError: body?.error ?? 'duplicate_failed' });
+    return fail(res.status, {
+      transitionError: apiErrorMessage(
+        body?.error,
+        'That could not be duplicated. Try again.',
+        body,
+      ),
+    });
   }
   const { id } = (await res.json()) as { id: string };
   redirect(303, `/estimates/${id}/edit`);
