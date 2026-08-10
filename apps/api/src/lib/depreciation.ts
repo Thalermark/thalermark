@@ -105,7 +105,12 @@ export async function depreciateOnce(
     // back-post the asset's entire prior history into a company that never
     // owned it during those years.
     if (row.year < startYear) continue;
-    if (postedByYear.has(row.year)) continue;
+    // Years already on the books. "On the books" is the year's NET, not whether
+    // it has entries: a purchase that was deleted and then restored (TMC-240)
+    // has last year's depreciation AND its reversal, which sum to zero. Nothing
+    // is deducted for that year, so it has to post again — which is what
+    // depreciationPostedByYear has always documented it returns 0.00 for.
+    if (Math.round(Number(postedByYear.get(row.year) ?? '0') * 100) !== 0) continue;
 
     let cents = Math.round(Number(row.amount) * 100);
     // An accountant flipping the convention mid-life leaves years already posted

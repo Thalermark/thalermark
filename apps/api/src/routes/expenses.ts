@@ -19,7 +19,7 @@ import {
   expenseCreateSchema,
   expenseUpdateSchema,
 } from '@thalermark/validation';
-import { and, asc, eq, gte, ilike, inArray, isNull, lte } from 'drizzle-orm';
+import { and, asc, eq, gte, ilike, inArray, isNotNull, isNull, lte } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 import { v7 as uuidv7 } from 'uuid';
@@ -343,7 +343,14 @@ export function expensesRoutes(deps: AppDeps) {
         const keyset = applyCursor(c.req.query('cursor'), keys, 'desc');
         if (keyset === 'invalid') return c.json({ error: 'invalid_cursor' }, 400);
 
-        const conditions = [eq(expenses.accountId, accountId), isNull(expenses.deletedAt)];
+        const conditions = [eq(expenses.accountId, accountId)];
+        // Deleted rows are hidden unless asked for — the same shape as the items
+        // catalog's includeArchived, and for the same reason: the list is the
+        // only place a user can find a deleted row again and restore it, so it
+        // has to be able to show them.
+        if (c.req.query('includeDeleted') !== 'true') {
+          conditions.push(isNull(expenses.deletedAt));
+        }
         if (companyId) conditions.push(eq(expenses.companyId, companyId));
         if (from) conditions.push(gte(expenses.expenseDate, from));
         if (to) conditions.push(lte(expenses.expenseDate, to));
@@ -681,10 +688,18 @@ export function expensesRoutes(deps: AppDeps) {
         }
 
         const now = new Date();
+        // The UPDATE is the guard, not the SELECT above it. Two deletes racing
+        // (a double-click on a slow connection) both read a live row, and
+        // without isNull the second one re-stamps an already-deleted row and
+        // posts the reversal a SECOND time — leaving the expense counted at
+        // minus one on the books. Re-checked under the row lock, the loser
+        // matches nothing and returns without posting.
         const [deleted] = await tx
           .update(expenses)
           .set({ deletedAt: now, updatedAt: now })
-          .where(and(eq(expenses.id, id), eq(expenses.accountId, accountId)))
+          .where(
+            and(eq(expenses.id, id), eq(expenses.accountId, accountId), isNull(expenses.deletedAt)),
+          )
           .returning();
         if (!deleted) return c.json({ error: 'expense_not_found' }, 404);
 
@@ -709,6 +724,82 @@ export function expensesRoutes(deps: AppDeps) {
         });
 
         return c.json(deleted);
+      })
+      // The other half of the soft delete (TMC-240). Without this the row's
+      // survival bought the user nothing: deleted_at was a one-way door with a
+      // database row behind it.
+      //
+      // Restore is the delete run backwards — clear the stamp, post the original
+      // lines again — so the GL lands exactly where it was before the delete.
+      // Append-only means three entries (create, reversal, re-create) net to one
+      // expense, which is the honest record of what happened.
+      .post('/api/expenses/:id/restore', requireCapability('expenses:write'), async (c) => {
+        const id = c.req.param('id');
+        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+
+        const [current] = await tx
+          .select()
+          .from(expenses)
+          .where(and(eq(expenses.id, id), eq(expenses.accountId, accountId)))
+          .limit(1);
+        if (!current) return c.json({ error: 'expense_not_found' }, 404);
+        // Restoring a live row is a no-op, not a second posting. The idempotence
+        // matters more here than it does for the items archive pair: a double
+        // POST there flips a flag twice, here it would double the expense.
+        if (!current.deletedAt) return c.json(current);
+
+        const coa = await resolveCoaAccounts(tx, accountId, current.companyId, [
+          current.categoryAccountId,
+          current.paymentAccountId,
+        ]);
+        const category = coa.get(current.categoryAccountId);
+        const payment = coa.get(current.paymentAccountId);
+        if (!category || !payment) {
+          throw new Error(`expense ${id}: stored COA accounts missing`);
+        }
+
+        const now = new Date();
+        // Same compare-and-swap as the delete above, mirrored: only the
+        // transaction that actually clears the stamp is allowed to repost, so a
+        // double-submitted restore cannot count the expense twice.
+        const [restored] = await tx
+          .update(expenses)
+          .set({ deletedAt: null, updatedAt: now })
+          .where(
+            and(
+              eq(expenses.id, id),
+              eq(expenses.accountId, accountId),
+              isNotNull(expenses.deletedAt),
+            ),
+          )
+          .returning();
+        if (!restored) return c.json(current);
+
+        await c.var.audit({
+          entityType: 'expense',
+          entityId: id,
+          action: 'restore',
+          before: current,
+          after: restored,
+          companyId: current.companyId,
+        });
+
+        // Dated to the expense, not to today, so a restore puts the deduction
+        // back on the tax year it belonged to. That also means the period lock
+        // refuses a restore into a closed year (409) — correct: reopening the
+        // period is the deliberate act that should precede it.
+        await postExpenseCreate(tx, {
+          expense: { id, merchant: restored.merchant, amount: restored.amount },
+          categoryCode: category.code,
+          paymentCode: payment.code,
+          accountId,
+          companyId: current.companyId,
+          postedAt: expenseDateToPostedAt(restored.expenseDate),
+        });
+
+        return c.json(restored);
       })
       // ---- Receipt capture (slice 8.9g) ---------------------------------
       // All-tier: the image is always saved (extraction in 8.9h is the gated

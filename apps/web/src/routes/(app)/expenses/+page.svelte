@@ -6,10 +6,25 @@
   import type { PageProps } from './$types';
   import type { ExpenseRow } from './expense-rows';
 
-  let { data }: PageProps = $props();
+  let { data, form }: PageProps = $props();
 
   const { filters } = $derived(data);
   const companyId = $derived(data.companyId);
+  const showDeleted = $derived(data.showDeleted);
+  const canWrite = $derived(may(data.role, 'expenses:write'));
+
+  // The show-deleted toggle keeps whatever filters are applied, so a user who
+  // narrowed to one vendor and deleted the wrong row finds it in the same view.
+  const toggleHref = $derived.by(() => {
+    const params = new URLSearchParams(filters.from ? { from: filters.from } : {});
+    if (filters.to) params.set('to', filters.to);
+    if (filters.category) params.set('category', filters.category);
+    if (filters.q) params.set('q', filters.q);
+    if (filters.needsReview) params.set('needsReview', 'true');
+    if (!showDeleted) params.set('deleted', '1');
+    const qs = params.toString();
+    return qs ? `/expenses?${qs}` : '/expenses';
+  });
   const hasFilters = $derived(
     !!(filters.from || filters.to || filters.category || filters.q || filters.needsReview),
   );
@@ -31,6 +46,12 @@
     });
   });
 
+  // Gated on there being something to restore, not merely on the view being
+  // open. A table column reserves its width whether or not any cell in it has
+  // content, so an unconditional action column made every row jump sideways on
+  // a toggle that had found nothing.
+  const showRestore = $derived(showDeleted && canWrite && rows.some((r) => r.deleted));
+
   async function more() {
     if (loading || cursor === null) return;
     loading = true;
@@ -43,6 +64,7 @@
         category: filters.category,
         q: filters.q,
         needsReview: filters.needsReview ? 'true' : '',
+        deleted: showDeleted ? '1' : '',
       });
       rows = [...rows, ...page.rows];
       cursor = page.nextCursor;
@@ -77,6 +99,11 @@
   method="GET"
   class="mt-8 grid grid-cols-1 gap-3 rounded-sm border border-fg/10 bg-surface-2 p-4 sm:grid-cols-5"
 >
+  <!-- Carried through the GET so filtering from the show-deleted view doesn't
+       silently drop the user back into the live list. -->
+  {#if showDeleted}
+    <input type="hidden" name="deleted" value="1" />
+  {/if}
   <label class="flex flex-col gap-1 text-xs uppercase tracking-widest text-fg/50">
     From
     <input
@@ -142,6 +169,18 @@
   </label>
 </form>
 
+<div class="mt-6">
+  <a href={toggleHref} class="label hover:text-accent">
+    {showDeleted ? '← Hide deleted' : 'Show deleted'}
+  </a>
+</div>
+
+{#if form?.restoreError}
+  <div class="mt-4 rounded-sm border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
+    Could not restore that expense: {form.restoreError}
+  </div>
+{/if}
+
 {#if rows.length === 0}
   <p class="mt-8 text-fg/70">
     {hasFilters ? 'No expenses match these filters.' : 'No expenses yet.'}
@@ -155,6 +194,9 @@
           <th class="px-5 py-3">Vendor</th>
           <th class="px-5 py-3">Category</th>
           <th class="px-5 py-3 text-right">Amount</th>
+          {#if showRestore}
+            <th class="px-5 py-3"><span class="sr-only">Restore</span></th>
+          {/if}
         </tr>
       </thead>
       <tbody class="divide-y divide-fg/10">
@@ -162,9 +204,20 @@
           <tr class="hover:bg-surface">
             <td class="px-5 py-4 font-mono tabular-nums text-fg/80">{exp.expenseDate}</td>
             <td class="px-5 py-4">
-              <a href="/expenses/{exp.id}" class="font-serif text-fg hover:text-accent">
-                {exp.merchant}
-              </a>
+              <!-- A deleted expense has no page to link to — the detail route
+                   404s while deleted_at is set — so its name is plain text. -->
+              {#if exp.deleted}
+                <span class="font-serif text-fg/60">{exp.merchant}</span>
+                <span
+                  class="ml-2 rounded-sm border border-fg/15 px-1.5 py-0.5 align-middle font-mono text-[10px] uppercase tracking-widest text-fg/50"
+                >
+                  Deleted
+                </span>
+              {:else}
+                <a href="/expenses/{exp.id}" class="font-serif text-fg hover:text-accent">
+                  {exp.merchant}
+                </a>
+              {/if}
               {#if exp.hasReceipt}
                 <span class="ml-2 align-middle text-xs text-fg/40" title="Receipt attached">▣</span>
               {/if}
@@ -179,6 +232,21 @@
             </td>
             <td class="px-5 py-4 text-fg/80">{exp.categoryName}</td>
             <td class="px-5 py-4 text-right font-mono tabular-nums text-fg">{exp.amount}</td>
+            {#if showRestore}
+              <td class="px-5 py-4 text-right">
+                {#if exp.deleted}
+                  <form method="post" action="?/restore">
+                    <input type="hidden" name="id" value={exp.id} />
+                    <button
+                      type="submit"
+                      class="rounded-sm border border-fg/15 px-2 py-1 font-mono text-xs uppercase tracking-widest text-fg/60 transition-colors hover:border-accent hover:text-accent"
+                    >
+                      Restore
+                    </button>
+                  </form>
+                {/if}
+              </td>
+            {/if}
           </tr>
         {/each}
       </tbody>

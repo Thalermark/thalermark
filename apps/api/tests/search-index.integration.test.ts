@@ -318,6 +318,16 @@ describe('search index — projection', () => {
       // Deletion is deletion.
       expect(await doc('expense', expenseId)).toBeNull();
 
+      // …until it is undone (TMC-240). Restore writes an audit row like any
+      // other mutation, so the projector runs again and finds a live expense —
+      // the index needs no delete-aware special case of its own.
+      const restored = await ctx.app.request(`/api/expenses/${expenseId}/restore`, {
+        method: 'POST',
+        headers: headers(ctx),
+      });
+      expect(restored.status).toBe(200);
+      expect((await doc('expense', expenseId))?.title).toBe('Home Depot');
+
       const itemId = await createItem(ctx, 'Gutter cleaning');
       const arch = await ctx.app.request(`/api/items/${itemId}/archive`, {
         method: 'POST',

@@ -6,12 +6,21 @@
   import type { PageProps } from './$types';
   import type { OwnerMoneyRow } from './owner-money-rows';
 
-  let { data }: PageProps = $props();
+  let { data, form }: PageProps = $props();
 
   const { filters } = $derived(data);
   const companyId = $derived(data.companyId);
   const hasFilters = $derived(!!filters.kind);
   const canWrite = $derived(may(data.role, 'expenses:write'));
+  const showDeleted = $derived(data.showDeleted);
+
+  // The toggle keeps the kind filter, so the user stays where they were.
+  const toggleHref = $derived.by(() => {
+    const params = new URLSearchParams(filters.kind ? { kind: filters.kind } : {});
+    if (!showDeleted) params.set('deleted', '1');
+    const qs = params.toString();
+    return qs ? `/owner-money?${qs}` : '/owner-money';
+  });
 
   const money = (s: string) =>
     Number(s).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
@@ -33,6 +42,12 @@
     });
   });
 
+  // Gated on there being something to restore, not merely on the view being
+  // open. A table column reserves its width whether or not any cell in it has
+  // content, so an unconditional action column made every row jump sideways on
+  // a toggle that had found nothing.
+  const showRestore = $derived(showDeleted && canWrite && rows.some((r) => r.deleted));
+
   async function more() {
     if (loading || cursor === null) return;
     loading = true;
@@ -41,6 +56,7 @@
       const page = await fetchMore<OwnerMoneyRow>('/owner-money/more', cursor, {
         companyId,
         kind: filters.kind,
+        deleted: showDeleted ? '1' : '',
       });
       rows = [...rows, ...page.rows];
       cursor = page.nextCursor;
@@ -80,6 +96,11 @@
 <!-- Filter bar. Plain GET form so the filter lives in the URL (shareable, back-
      button friendly) and the page works without JS. -->
 <form method="GET" class="mt-8 flex flex-wrap items-end gap-3 rounded-sm border border-fg/10 bg-surface-2 p-4">
+  <!-- Carried through the GET so changing the filter from the show-deleted view
+       doesn't silently drop the user back into the live list. -->
+  {#if showDeleted}
+    <input type="hidden" name="deleted" value="1" />
+  {/if}
   <label class="flex flex-col gap-1 text-xs uppercase tracking-widest text-fg/50">
     Show
     <select
@@ -97,6 +118,18 @@
   {/if}
 </form>
 
+<div class="mt-6">
+  <a href={toggleHref} class="label hover:text-accent">
+    {showDeleted ? '← Hide deleted' : 'Show deleted'}
+  </a>
+</div>
+
+{#if form?.restoreError}
+  <div class="mt-4 rounded-sm border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
+    Could not restore that record: {form.restoreError}
+  </div>
+{/if}
+
 {#if rows.length === 0}
   <p class="mt-8 text-fg/70">
     {hasFilters ? 'Nothing matches this filter.' : 'Nothing recorded yet.'}
@@ -110,6 +143,9 @@
           <th class="px-5 py-3">Type</th>
           <th class="px-5 py-3">Note</th>
           <th class="px-5 py-3 text-right">Amount</th>
+          {#if showRestore}
+            <th class="px-5 py-3"><span class="sr-only">Restore</span></th>
+          {/if}
         </tr>
       </thead>
       <tbody class="divide-y divide-fg/10">
@@ -117,9 +153,20 @@
           <tr class="hover:bg-surface">
             <td class="px-5 py-4 font-mono tabular-nums text-fg/80">{ev.occurredOn}</td>
             <td class="px-5 py-4">
-              <a href="/owner-money/{ev.id}" class="font-serif text-fg hover:text-accent">
-                {ev.kindLabel}
-              </a>
+              <!-- A deleted row has no page to link to — the detail route 404s
+                   while deleted_at is set — so its label is plain text. -->
+              {#if ev.deleted}
+                <span class="font-serif text-fg/60">{ev.kindLabel}</span>
+                <span
+                  class="ml-2 rounded-sm border border-fg/15 px-1.5 py-0.5 align-middle font-mono text-[10px] uppercase tracking-widest text-fg/50"
+                >
+                  Deleted
+                </span>
+              {:else}
+                <a href="/owner-money/{ev.id}" class="font-serif text-fg hover:text-accent">
+                  {ev.kindLabel}
+                </a>
+              {/if}
             </td>
             <td class="px-5 py-4 text-fg/70">{ev.memo ?? '—'}</td>
             <td
@@ -129,6 +176,21 @@
             >
               {ev.direction === 'in' ? '+' : '−'}{ev.amount}
             </td>
+            {#if showRestore}
+              <td class="px-5 py-4 text-right">
+                {#if ev.deleted}
+                  <form method="post" action="?/restore">
+                    <input type="hidden" name="id" value={ev.id} />
+                    <button
+                      type="submit"
+                      class="rounded-sm border border-fg/15 px-2 py-1 font-mono text-xs uppercase tracking-widest text-fg/60 transition-colors hover:border-accent hover:text-accent"
+                    >
+                      Restore
+                    </button>
+                  </form>
+                {/if}
+              </td>
+            {/if}
           </tr>
         {/each}
       </tbody>

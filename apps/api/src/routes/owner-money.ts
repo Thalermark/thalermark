@@ -12,7 +12,7 @@ import {
   ownerMoneyEventCreateSchema,
   ownerMoneyEventUpdateSchema,
 } from '@thalermark/validation';
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 import { v7 as uuidv7 } from 'uuid';
@@ -115,10 +115,11 @@ export function ownerMoneyRoutes() {
         const keyset = applyCursor(c.req.query('cursor'), keys, 'desc');
         if (keyset === 'invalid') return c.json({ error: 'invalid_cursor' }, 400);
 
-        const conditions = [
-          eq(ownerMoneyEvents.accountId, accountId),
-          isNull(ownerMoneyEvents.deletedAt),
-        ];
+        const conditions = [eq(ownerMoneyEvents.accountId, accountId)];
+        // Hidden unless asked for — see the same flag on GET /api/expenses.
+        if (c.req.query('includeDeleted') !== 'true') {
+          conditions.push(isNull(ownerMoneyEvents.deletedAt));
+        }
         if (companyId) conditions.push(eq(ownerMoneyEvents.companyId, companyId));
         if (kind) conditions.push(eq(ownerMoneyEvents.kind, kind));
 
@@ -402,13 +403,20 @@ export function ownerMoneyRoutes() {
           if (!current) return c.json({ error: 'opening_balance_not_found' }, 404);
 
           const now = new Date();
+          // isNull makes the UPDATE the guard: a racing second clear re-stamps
+          // an already-cleared row otherwise, and posts the reversal twice.
           const [deleted] = await tx
             .update(openingBalances)
             .set({ deletedAt: now, updatedAt: now })
             .where(
-              and(eq(openingBalances.id, current.id), eq(openingBalances.accountId, accountId)),
+              and(
+                eq(openingBalances.id, current.id),
+                eq(openingBalances.accountId, accountId),
+                isNull(openingBalances.deletedAt),
+              ),
             )
             .returning();
+          if (!deleted) return c.json({ error: 'opening_balance_not_found' }, 404);
           await c.var.audit({
             entityType: 'opening_balance',
             entityId: current.id,
@@ -553,10 +561,19 @@ export function ownerMoneyRoutes() {
         }
 
         const now = new Date();
+        // isNull makes the UPDATE the guard — see the expenses delete. Two
+        // racing deletes would otherwise each post a reversal, moving equity
+        // the wrong way by the amount of the event.
         const [deleted] = await tx
           .update(ownerMoneyEvents)
           .set({ deletedAt: now, updatedAt: now })
-          .where(and(eq(ownerMoneyEvents.id, id), eq(ownerMoneyEvents.accountId, accountId)))
+          .where(
+            and(
+              eq(ownerMoneyEvents.id, id),
+              eq(ownerMoneyEvents.accountId, accountId),
+              isNull(ownerMoneyEvents.deletedAt),
+            ),
+          )
           .returning();
         if (!deleted) return c.json({ error: 'owner_money_event_not_found' }, 404);
 
@@ -579,6 +596,58 @@ export function ownerMoneyRoutes() {
         });
 
         return c.json(deleted);
+      })
+      // Undo the delete (TMC-240): clear the stamp and post the original entry
+      // again, so the GL lands where it was. See the expenses restore for the
+      // full rationale — this is the same route with a different posting helper.
+      .post('/api/owner-money/:id/restore', requireCapability('expenses:write'), async (c) => {
+        const id = c.req.param('id');
+        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+
+        const [current] = await tx
+          .select()
+          .from(ownerMoneyEvents)
+          .where(and(eq(ownerMoneyEvents.id, id), eq(ownerMoneyEvents.accountId, accountId)))
+          .limit(1);
+        if (!current) return c.json({ error: 'owner_money_event_not_found' }, 404);
+        // A live row is left alone rather than posted a second time.
+        if (!current.deletedAt) return c.json(current);
+
+        const now = new Date();
+        // Mirror of the delete's compare-and-swap: only the transaction that
+        // clears the stamp reposts.
+        const [restored] = await tx
+          .update(ownerMoneyEvents)
+          .set({ deletedAt: null, updatedAt: now })
+          .where(
+            and(
+              eq(ownerMoneyEvents.id, id),
+              eq(ownerMoneyEvents.accountId, accountId),
+              isNotNull(ownerMoneyEvents.deletedAt),
+            ),
+          )
+          .returning();
+        if (!restored) return c.json(current);
+
+        await c.var.audit({
+          entityType: 'owner_money_event',
+          entityId: id,
+          action: 'restore',
+          before: current,
+          after: restored,
+          companyId: current.companyId,
+        });
+
+        await postOwnerMoneyEvent(tx, {
+          event: { id, kind: restored.kind as OwnerMoneyEventKind, amount: restored.amount },
+          accountId,
+          companyId: current.companyId,
+          postedAt: expenseDateToPostedAt(restored.occurredOn),
+        });
+
+        return c.json(restored);
       })
   );
 }

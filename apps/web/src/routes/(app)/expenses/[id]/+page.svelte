@@ -66,8 +66,8 @@
       >
         {#snippet body()}
           It comes off your books and its ledger entry is reversed, so your totals and any tax
-          worksheet change. There is no undo in the app — you would have to enter it again. The
-          receipt image, if there is one, is kept.
+          worksheet change. You can put it back: deleted expenses stay on the Expenses list behind
+          "Show deleted". The receipt image, if there is one, is kept.
         {/snippet}
       </ConfirmSubmit>
     </div>

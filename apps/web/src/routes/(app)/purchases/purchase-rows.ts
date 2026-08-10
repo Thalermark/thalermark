@@ -11,6 +11,7 @@ type ApiPurchase = {
   funding: string;
   owing: string;
   vendorName: string | null;
+  deletedAt: string | null;
 };
 
 export type PurchaseRow = {
@@ -22,6 +23,8 @@ export type PurchaseRow = {
   owing: string;
   stillOwes: boolean;
   vendorName: string | null;
+  // Only ever true in the show-deleted view — see the expenses list row.
+  deleted: boolean;
 };
 
 export function mapPurchaseRows(purchases: ApiPurchase[]): PurchaseRow[] {
@@ -34,5 +37,6 @@ export function mapPurchaseRows(purchases: ApiPurchase[]): PurchaseRow[] {
     owing: p.owing,
     stillOwes: Number(p.owing) > 0,
     vendorName: p.vendorName,
+    deleted: p.deletedAt != null,
   }));
 }

@@ -13,6 +13,7 @@ type ApiOwnerMoneyEvent = {
   amount: string;
   occurredOn: string;
   memo: string | null;
+  deletedAt: string | null;
 };
 
 export type OwnerMoneyRow = {
@@ -23,6 +24,8 @@ export type OwnerMoneyRow = {
   direction: 'in' | 'out';
   amount: string;
   memo: string | null;
+  // Only ever true in the show-deleted view — see the expenses list row.
+  deleted: boolean;
 };
 
 export function kindLabel(kind: string): string {
@@ -38,5 +41,6 @@ export function mapOwnerMoneyRows(events: ApiOwnerMoneyEvent[]): OwnerMoneyRow[]
     direction: e.kind === 'contribution' ? 'in' : 'out',
     amount: e.amount,
     memo: e.memo,
+    deleted: e.deletedAt != null,
   }));
 }

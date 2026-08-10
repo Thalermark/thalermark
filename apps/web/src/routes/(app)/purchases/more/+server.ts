@@ -14,6 +14,7 @@ export const GET: RequestHandler = async (event) => {
   const client = serverApiClient(event);
   const query: Record<string, string> = { companyId, limit: String(PAGE_SIZE) };
   if (cursor) query.cursor = cursor;
+  if (p.get('deleted') === '1') query.includeDeleted = 'true';
 
   const res = await client.api.purchases.$get({ query });
   if (!res.ok) return json({ rows: [], nextCursor: null }, { status: res.status });
