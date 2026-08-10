@@ -71,8 +71,13 @@ jobs:
       - name: Install Chromium for Playwright
         run: pnpm --filter @thalermark/web test:browser:install
 
+      # --wait, not a bare `up -d`. Compose returns as soon as the container is
+      # STARTED, which is several seconds before Postgres accepts connections —
+      # and drizzle-kit's spinner swallows the connection error, so the failure
+      # reads as "applying migrations... exit 1" with no cause. The service
+      # already declares a healthcheck; --wait is what honours it.
       - name: Start Postgres
-        run: docker compose -f docker/docker-compose.dev.yml up -d postgres
+        run: docker compose -f docker/docker-compose.dev.yml up -d --wait postgres
 
       - name: Migrate
         run: pnpm drizzle:migrate
