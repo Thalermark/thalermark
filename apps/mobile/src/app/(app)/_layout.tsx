@@ -258,6 +258,14 @@ export default function AppLayout() {
           tab bar. */}
         <Tabs.Screen name="ledger" options={{ href: null }} />
         <Tabs.Screen name="select-company" options={{ href: null }} />
+        {/* Jobs and mileage are reached from the More hub's Work section.
+          EVERY route folder under (app) becomes a tab unless it is named here —
+          so these two shipped as a sixth and seventh tab, labelled with their
+          folder names in lower case and drawn with a placeholder glyph, which is
+          how the five-tab consolidation quietly came undone. Adding a route
+          folder here is adding a tab; that is the thing to remember. */}
+        <Tabs.Screen name="jobs" options={{ href: null }} />
+        <Tabs.Screen name="mileage" options={{ href: null }} />
       </Tabs>
     </RoleProvider>
   );
