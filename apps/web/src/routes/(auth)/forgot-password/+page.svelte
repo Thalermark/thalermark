@@ -5,6 +5,7 @@
   let email = $state('');
   let submitting = $state(false);
   let submitted = $state(false);
+  let unavailable = $state(false);
   let error = $state<string | null>(null);
 
   async function onSubmit(event: SubmitEvent) {
@@ -17,7 +18,26 @@
     // A thrown request is a transport failure (not a signal about the account),
     // so surfacing it leaks nothing — and beats a silently stuck button.
     try {
-      await authClient.requestPasswordReset({ email });
+      // requestPasswordReset resolves with { data, error } — it does not throw
+      // on an API error, so the returned error has to be read explicitly or a
+      // refusal sails straight into the "check your inbox" confirmation.
+      const result = await authClient.requestPasswordReset({ email });
+      // Exactly one refusal is worth telling the truth about. RESET_PASSWORD_DISABLED
+      // (HTTP 400) means this install has no mailer that delivers, so Better Auth
+      // rejects the request *before* it looks the address up — the answer is a
+      // fact about the server, byte-identical for every address, so showing it
+      // enumerates nothing.
+      //
+      // KEEP THIS BRANCH NARROW: match the code and nothing else. Every other
+      // error — unknown address, rate limit, validation, anything — must keep
+      // falling through to the neutral confirmation below. Widening this to
+      // `result.error.status === 400`, or to any truthy error, turns the page
+      // into an oracle for "does this account exist", which is precisely what
+      // the neutral wording exists to prevent.
+      if (result.error?.code === 'RESET_PASSWORD_DISABLED') {
+        unavailable = true;
+        return;
+      }
       submitted = true;
     } catch (e) {
       // Report the transport failure (TMCLD-100). Capturing a network exception
@@ -35,7 +55,16 @@
   Reset your password
 </h1>
 
-{#if submitted}
+{#if unavailable}
+  <div class="mt-8 rounded-sm border border-warning/40 bg-warning/5 px-5 py-4">
+    <p class="font-serif text-lg text-fg">Reset by email isn't available here.</p>
+    <p class="mt-2 text-sm leading-relaxed text-fg/75">
+      Nothing was sent, and your password is unchanged. This Thalermark server has no email set up,
+      so a reset link can't reach you. Ask whoever set it up to turn email on — then come back and
+      try again.
+    </p>
+  </div>
+{:else if submitted}
   <div class="callout mt-8 px-5 py-4">
     <p class="font-serif text-lg text-fg">Check your inbox.</p>
     <p class="mt-2 text-sm text-fg/75">
