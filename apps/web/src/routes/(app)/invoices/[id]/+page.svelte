@@ -19,6 +19,24 @@
   const canWrite = $derived(may(data.role, 'sales:write'));
   const canManageSettings = $derived(may(data.role, 'settings:manage'));
 
+  // The three states that mean a human should look. Kept in step with the API's
+  // DELIVERY_TROUBLE and the partial index in migration 0037.
+  const deliveryTrouble = $derived(
+    inv.deliveryStatus === 'failed' ||
+      inv.deliveryStatus === 'bounced' ||
+      inv.deliveryStatus === 'complained',
+  );
+  // Said in the user's terms rather than the provider's. "Bounced" is jargon to
+  // someone who has never run a mail server; what they need is whether the
+  // address is wrong or the customer pressed a button.
+  const deliveryReason = $derived(
+    inv.deliveryStatus === 'bounced'
+      ? 'The address rejected it — it is probably wrong or no longer in use.'
+      : inv.deliveryStatus === 'complained'
+        ? 'The customer marked it as spam, so further email to them may not arrive.'
+        : 'The mail server refused to send it.',
+  );
+
   // Mirrors the API state machine: draft can be sent / paid / voided;
   // sent can be paid / voided; paid and voided are terminal. The buttons
   // disappear on terminal states so the UI doesn't tempt a 409 round-trip.
@@ -165,6 +183,24 @@
   <div class="mt-6 rounded-sm border border-accent/30 bg-accent/5 px-4 py-3 text-sm text-fg">
     Sent to <span class="font-medium">{data.sentTo}</span>.
   </div>
+{/if}
+
+<!-- Whether it ARRIVED, which "sent" has never meant (TMC-226). Only rendered
+     when there is something to say: a delivery that went fine is the silent
+     case, and the whole failure mode is a bad send that looks like a good one. -->
+{#if deliveryTrouble}
+  <div class="mt-6 rounded-sm border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
+    <span class="font-medium">This never reached them.</span>
+    {deliveryReason}
+    Fix the address on the customer, then send it again — nothing about the invoice itself changed.
+    {#if inv.deliveryDetail}
+      <span class="mt-2 block font-mono text-xs text-danger/70">{inv.deliveryDetail}</span>
+    {/if}
+  </div>
+{:else if inv.viewedAt}
+  <!-- The answer to "did they even see it?", which an unpaid invoice raises
+       after a fortnight (TMC-230). -->
+  <p class="mt-3 text-sm text-fg/60">Opened by the customer on {inv.viewedAt.slice(0, 10)}.</p>
 {/if}
 
 {#if data.needsBusinessDetails && inv.status === 'draft' && data.businessCompanyId && canManageSettings}
