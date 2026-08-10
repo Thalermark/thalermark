@@ -69,6 +69,12 @@ export const estimates = pgTable(
       onDelete: 'set null',
     }),
     publicToken: text('public_token'),
+    // Same three as invoices — an estimate that never arrived is a job that
+    // never got quoted, and it failed just as silently (TMC-226).
+    deliveryStatus: text('delivery_status'),
+    deliveryDetail: text('delivery_detail'),
+    deliveryUpdatedAt: timestamp('delivery_updated_at', { withTimezone: true }),
+    viewedAt: timestamp('viewed_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

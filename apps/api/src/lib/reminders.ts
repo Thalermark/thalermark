@@ -8,6 +8,7 @@ import { getLogger } from '@thalermark/logger';
 import { centsToMoney, toCents } from '@thalermark/validation';
 import { sql } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
+import { recordSendFailed } from './delivery.js';
 import { renderTemplate, resolveEmailTemplate } from './email-templates.js';
 import { type EntitlementProvider, communityEntitlements } from './entitlement.js';
 import { type Mailer, mailerDelivers } from './mailer.js';
@@ -296,6 +297,24 @@ export async function sweepInvoiceReminders(args: {
       sent += 1;
     } catch (err) {
       failed += 1;
+      // The reminder row rolled back with the transaction above, so the stage
+      // will be retried — but the operator still needs to know the chase email
+      // is not landing (TMC-226). Its own tx precisely because the one that
+      // failed is gone; without this the only trace is a log line nobody reads.
+      await withAccountContext(
+        args.tenantDb,
+        { accountId: item.accountId },
+        async (tx: Transaction) => {
+          await recordSendFailed(
+            tx,
+            { accountId: item.accountId, documentId: item.invoiceId, kind: 'invoice' },
+            err,
+          );
+        },
+      ).catch(() => {
+        // A failure recording a failure is not worth losing the sweep over —
+        // the remaining invoices still deserve their reminders.
+      });
       log.error('reminder failed for invoice {number}: {err}', {
         number: item.number,
         err: String(err),

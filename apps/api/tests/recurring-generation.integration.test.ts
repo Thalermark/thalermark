@@ -218,6 +218,43 @@ function sweep(ctx: Ctx, mailer?: Mailer) {
 describe('sweepRecurringInvoices', () => {
   beforeEach(resetDb);
 
+  // TMC-226. The sweep already swallowed a mailer failure on purpose — a
+  // generated invoice must not roll back over a mail hiccup, it is payable from
+  // its public link either way. What was missing is that the ONLY trace was a
+  // log line, so a month of auto-billing could deliver nothing while the
+  // dashboard looked healthy. The row now says so.
+  it('records the delivery failure on the invoice when the mailer throws', async () => {
+    const mailer: Mailer = {
+      async send() {
+        throw new Error('550 5.1.1 no such user here');
+      },
+    };
+    const ctx = buildApp(mailer);
+    try {
+      const cookie = await signUp(ctx.app, 'gen-bounce@example.com');
+      const { accountId, companyId } = await userContext('gen-bounce@example.com');
+      const contactId = await createContact(ctx, cookie, accountId, companyId, 'gone@example.com');
+      const id = await createSchedule(ctx, cookie, accountId, companyId, contactId);
+      await makeDue(id, todayIso());
+
+      // Still counted as generated — the invoice exists and is owed.
+      const result = await sweep(ctx, mailer);
+      expect(result.generated).toBe(1);
+      expect(result.failed).toBe(0);
+
+      const db = getTestDb();
+      const [inv] = await db.select().from(invoices).where(eq(invoices.recurringInvoiceId, id));
+      expect(inv?.status).toBe('sent');
+      // The two facts are now separate: issued, but not delivered.
+      expect(inv?.sentAt).toBeInstanceOf(Date);
+      expect(inv?.deliveryStatus).toBe('failed');
+      expect(inv?.deliveryDetail).toContain('no such user');
+      expect(inv?.deliveryUpdatedAt).toBeInstanceOf(Date);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
   it('generates a sent invoice from a due schedule: clones lines, posts ledger, emails, advances', async () => {
     const mailer = stubMailer();
     const ctx = buildApp(mailer);

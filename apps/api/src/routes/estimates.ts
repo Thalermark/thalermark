@@ -19,6 +19,7 @@ import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 import { v7 as uuidv7 } from 'uuid';
 import type { AppDeps } from '../app.js';
+import { recordSendAccepted, recordSendFailed } from '../lib/delivery.js';
 import { resolveEmailTemplate } from '../lib/email-templates.js';
 import { sendEstimateEmail } from '../lib/estimate-email.js';
 import { suggestNextEstimateNumber, suggestNextInvoiceNumber } from '../lib/invoice-number.js';
@@ -933,12 +934,29 @@ export function estimatesRoutes(deps: AppDeps) {
               template,
             }));
           } catch (err) {
+            // On the row, not only in the response (TMC-226). An estimate that
+            // never arrived is a job that never got quoted, and the operator
+            // finds out by wondering why nobody replied.
+            await c.var.runInTx(async (tx) => {
+              await recordSendFailed(
+                tx,
+                { accountId: c.get('accountId'), documentId: id, kind: 'estimate' },
+                err,
+              );
+            });
             const message = err instanceof Error ? err.message : String(err);
             return c.json({ error: 'email_failed', detail: message }, 502);
           }
 
           // tx2: record the delivery.
-          await c.var.runInTx(async (_tx, audit) => {
+          await c.var.runInTx(async (tx, audit) => {
+            if (mailerDelivers(deps.mailer)) {
+              await recordSendAccepted(tx, {
+                accountId: c.get('accountId'),
+                documentId: id,
+                kind: 'estimate',
+              });
+            }
             await audit({
               entityType: 'estimate',
               entityId: id,

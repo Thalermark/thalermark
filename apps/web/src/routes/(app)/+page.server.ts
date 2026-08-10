@@ -61,6 +61,10 @@ export const load: PageServerLoad = async (event) => {
     // one surface that tracked it stopped showing it at the exact moment it
     // became actionable.
     acceptedEstimates: estSummary?.acceptedUnbilled.count ?? 0,
+    // Invoices whose email did not arrive (TMC-226). Before this the only trace
+    // of a bounced or refused send was a log line on the server, so an invoice
+    // that never reached anyone looked exactly like one being ignored.
+    undelivered: invSummary?.undelivered.count ?? 0,
   };
 
   // Cash-flow nudges (AI) stream in separately: the position tiles render
