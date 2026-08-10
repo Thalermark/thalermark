@@ -19,7 +19,21 @@ export const REDIRECT_IF_AUTHED = new Set(['/sign-in', '/sign-up']);
 // (routes/monitoring): the browser SDK POSTs error envelopes there. It must
 // accept them without a session — client errors happen on public pages and for
 // logged-out visitors too — so it can't be behind the /sign-in redirect.
-export const PUBLIC_PATHS = new Set([...REDIRECT_IF_AUTHED, '/accept-invite', '/monitoring']);
+//
+// /forgot-password and /reset-password are here for the reason that should have
+// been obvious and wasn't: the entire audience for password recovery is people
+// who cannot sign in. Both were missing, so both 303'd to /sign-in — the form
+// was unreachable, AND the emailed reset link bounced, on every install
+// including SaaS. Same shape as the /pay/ omission in TMC-209: a route that
+// works perfectly while you happen to hold a session, so it passes every hand
+// test by the person who built it.
+export const PUBLIC_PATHS = new Set([
+  ...REDIRECT_IF_AUTHED,
+  '/accept-invite',
+  '/monitoring',
+  '/forgot-password',
+  '/reset-password',
+]);
 
 // Parameterized public paths, prefix-matched so each new public route is
 // visible at this top-level config rather than buried in per-route guards.

@@ -35,6 +35,19 @@ describe('public route guard', () => {
     expect(isPublicPrefix('/admin/pay/123')).toBe(false);
   });
 
+  it('lets someone who cannot sign in reach password recovery', () => {
+    // TMC-239. Both were missing from the list, so both 303'd to /sign-in —
+    // the recovery form was unreachable and the emailed reset link bounced,
+    // for the one group of people who by definition cannot sign in. Same
+    // shape as the /pay/ omission: fine while you hold a session, broken for
+    // everyone who doesn't.
+    expect(PUBLIC_PATHS.has('/forgot-password')).toBe(true);
+    expect(PUBLIC_PATHS.has('/reset-password')).toBe(true);
+    // The reset link carries ?token=…; the guard matches on pathname, so the
+    // exact-match entry is enough and no prefix is needed.
+    expect(REDIRECT_IF_AUTHED.has('/reset-password')).toBe(false);
+  });
+
   it('exempts the exact-match public paths, and marks the signed-out-only ones', () => {
     expect(PUBLIC_PATHS.has('/accept-invite')).toBe(true);
     // The error-tracking tunnel: client errors happen to logged-out visitors.

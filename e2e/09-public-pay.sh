@@ -21,6 +21,11 @@
 # The rule this encodes: a page authorized by a URL token must be asserted
 # WITHOUT a cookie, or it is not being asserted at all.
 #
+# It has since caught the same bug a second time. /forgot-password and
+# /reset-password were behind the guard too (TMC-239) — password recovery
+# unreachable by the only people who need it — so this suite covers every route
+# a stranger is supposed to reach, not just the pay path its name describes.
+#
 # Point at a throwaway stack with TMC_API / TMC_PG / TMC_WEB (see lib.sh). Like
 # 07 and 08, this suite drives the SvelteKit app over TMC_WEB and is NOT wired
 # into CI — .github/workflows/e2e.yml runs only e2e/0[1-6]-*.sh, because that
@@ -259,5 +264,32 @@ has "…it is still clearing" "$PROC_HTML" "still clearing"
 BARE_HTML=$(anon "/i/$TOKEN?paid=1")
 hasnt "a bare ?paid=1 claims nothing" "$BARE_HTML" "Payment received"
 has "…and says so honestly" "$BARE_HTML" "still confirming"
+
+# ---------------------------------------------------------------------------
+section "TMC-239 — password recovery is reachable by people who cannot sign in"
+
+# The same bug as TMC-209, found a second time on different routes, which is why
+# it lives in this suite. /forgot-password and /reset-password were both missing
+# from PUBLIC_PATHS, so both answered 303 → /sign-in for anyone without a
+# session — i.e. for the entire audience for password recovery. The form was
+# unreachable AND the link in the reset email bounced, on every install.
+#
+# Nothing caught it for the same reason nothing caught /pay/: a developer is
+# always signed in, and a signed-in visitor sails straight through the guard.
+#
+# Asserting the RAW status, not the followed one. A 303 to /sign-in followed one
+# hop is a 200 full of the wrong page, which is exactly how this hid.
+check "/forgot-password renders for a stranger" "$(anon_code /forgot-password)" "200"
+isnt "…and is NOT bounced to sign-in" "$(anon_to /forgot-password)" "$WEB/sign-in"
+
+# The destination of the emailed reset link. The token is nonsense on purpose:
+# whether it is valid is the page's business, but the page has to be able to
+# TELL you it is invalid, and it cannot do that from behind the guard.
+check "/reset-password renders for a stranger" "$(anon_code '/reset-password?token=not-a-real-token')" "200"
+isnt "…and is NOT bounced to sign-in" "$(anon_to '/reset-password?token=not-a-real-token')" "$WEB/sign-in"
+
+RECOVER=$(anon /forgot-password)
+has "…the recovery form is what actually rendered" "$RECOVER" "Reset your password"
+hasnt "…not the sign-in form wearing its URL" "$RECOVER" "Sign in to Thalermark"
 
 summary "public pay path"
