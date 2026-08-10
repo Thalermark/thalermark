@@ -1,3 +1,7 @@
+// First, so the global error map is installed before any schema below is
+// parsed. Exported rather than side-effect-imported so a bundler cannot decide
+// it is dead weight and drop it (TMC-221).
+export * from './messages.js';
 export * from './bill.js';
 export * from './capital-purchase.js';
 export * from './company.js';

@@ -46,7 +46,9 @@ export const timeEntryUpdateSchema = z
     sourceItemId: z.string().uuid().nullable().optional(),
     membershipId: z.string().uuid().nullable().optional(),
   })
-  .refine((v) => Object.keys(v).length > 0, { message: 'no_fields_to_update' });
+  .refine((v) => Object.keys(v).length > 0, {
+    message: 'Change at least one thing before saving.',
+  });
 
 export type TimeEntryUpdateInput = z.infer<typeof timeEntryUpdateSchema>;
 

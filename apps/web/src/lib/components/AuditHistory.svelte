@@ -23,8 +23,12 @@
   type Props = { events: AuditEvent[]; showEntity?: boolean };
   let { events, showEntity = false }: Props = $props();
 
-  // Action → display verb. Unmapped actions render as the raw string so a
-  // new label shows up in the UI without needing a code change here.
+  // Action → display verb.
+  //
+  // Every action the API can raise has an entry (TMC-245). The lookup still
+  // falls back to the raw string, but that is now a bug rather than a feature:
+  // an unmapped action means a new one shipped without copy, and it will read
+  // as `payment-recorded` on a screen where everything else is English.
   const ACTION_LABELS: Record<string, string> = {
     create: 'created',
     update: 'edited',
@@ -50,9 +54,43 @@
     archive: 'archived',
     restore: 'restored',
     delete: 'deleted',
+    // Money moving against an invoice or a bill.
+    'payment-recorded': 'recorded a payment',
+    'payment-removed': 'removed a payment',
+    'edit-payment': 'changed a payment',
+    'deposit-taken': 'took a deposit',
+    'reminders-opt-out': 'turned off reminders',
+    // A capital purchase: its loan repayments, and the yearly write-off. The
+    // write-off deliberately avoids the word "depreciation" — the purchase page
+    // already says "about $600 in 2024", and that is the voice to match.
+    payment: 'recorded a loan payment',
+    depreciation: 'counted a year of this on taxes',
+    // The business itself.
+    retire: 'closed this business',
+    unretire: 'reopened this business',
+    'copy-from': 'copied settings from another business',
+    'logo-upload': 'added a logo',
+    'logo-remove': 'removed the logo',
+    // The incorporation handoff. Direction is the whole point of the pair, so
+    // it is named rather than left to the row's context.
+    'handoff-out': 'handed the books to the new business',
+    'handoff-in': 'took the books from the old business',
+    'handoff-out-reversed': 'undid the handoff out',
+    'handoff-in-reversed': 'undid the handoff in',
+    // People and customers.
+    'transfer-ownership': 'transferred ownership',
+    'statement-emailed': 'emailed a statement',
+    reset: 'reset to the default wording',
+    // The accountant portal. "Reversed this entry" keeps the accounting word on
+    // purpose: this action only ever appears inside The Ledger, whose audience
+    // is the one that wants the term.
+    reverse: 'reversed this entry',
+    reopen: 'reopened the year',
   };
 
-  // Entity-type → display singular for the feed prefix and the link path.
+  // Entity-type → display singular for the feed prefix. Covers every type the
+  // API's feed will return (routes/audit-events.ts ALLOWED_TYPES), so none of
+  // them renders as raw snake_case.
   const ENTITY_LABELS: Record<string, string> = {
     contact: 'Contact',
     invoice: 'Invoice',
@@ -64,7 +102,16 @@
     company: 'Company',
     recurring_invoice: 'Repeating invoice',
     item: 'Item',
+    opening_balance: 'Starting balances',
+    manual_adjustment: 'Ledger entry',
+    period_close: 'Closed year',
+    mileage_trip: 'Trip',
+    vehicle: 'Vehicle',
   };
+  // Only the types with a per-id page. A type missing here still gets its label
+  // — it just renders as text rather than a link, because "Starting balances"
+  // and a closed year have no page of their own and linking them would build a
+  // dead URL out of the entity id (TMC-245).
   const ENTITY_PATHS: Record<string, string> = {
     contact: '/contacts',
     invoice: '/invoices',
@@ -76,6 +123,7 @@
     company: '/settings/payments',
     recurring_invoice: '/recurring',
     item: '/items',
+    manual_adjustment: '/ledger',
   };
 
   function actionLabel(action: string): string {
@@ -96,14 +144,53 @@
     'receiptUploadedAt',
   ]);
 
+  // Column name → what the user calls it (TMC-245). Expanding a row used to
+  // print the schema: "deletedAt: ∅ → 2026-08-10T13:11:06.943Z". Anything not
+  // named here falls back to splitting the camelCase, which turns `unitPrice`
+  // into "unit price" — imperfect for a word we never thought about, but never
+  // an identifier.
+  const FIELD_LABELS: Record<string, string> = {
+    deletedAt: 'deleted',
+    archivedAt: 'archived',
+    expenseDate: 'date',
+    occurredOn: 'date',
+    purchaseDate: 'date',
+    issueDate: 'issued',
+    dueDate: 'due',
+    categoryAccountId: 'category',
+    paymentAccountId: 'paid from',
+    contactId: 'customer',
+    vendorContactId: 'vendor',
+    taxPolicyId: 'tax',
+    businessType: 'business type',
+    usefulLifeYears: 'spread over',
+    taxTreatment: 'on taxes',
+    downPayment: 'down payment',
+    unitPrice: 'price',
+    memo: 'note',
+  };
+
+  function fieldLabel(key: string): string {
+    const known = FIELD_LABELS[key];
+    if (known) return known;
+    // camelCase → spaced words, lowercased. `vendorReview` reads as "vendor
+    // review" rather than as a column.
+    return key.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase();
+  }
+
+  // A stored timestamp is an ISO string over the wire. Showing the date is what
+  // the reader wants; the millisecond precision was never for them.
+  const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T[\d:.]+Z?$/;
+
   // Compute a small line of changed key fields between before and after.
   // Skips entries where both sides are equal, and where keys aren't in
   // both objects (a creation only has `after` — handled separately). Values
   // are stringified with a short truncation so long ids/tokens stay
   // readable in the row.
   function shortValue(v: unknown): string {
-    if (v === null || v === undefined) return '∅';
+    if (v === null || v === undefined) return 'empty';
     if (typeof v === 'string') {
+      if (ISO_TIMESTAMP.test(v)) return v.slice(0, 10);
       if (v.length > 24) return `${v.slice(0, 12)}…${v.slice(-4)}`;
       return v;
     }
@@ -129,6 +216,12 @@
     // JSON-stringifies into an unreadable wall next to "businessType:
     // sole_prop → s_corp". The full payload stays in the audit row.
     keys.delete('chartOfAccounts');
+    // Bookkeeping columns the row itself already answers. `updatedAt` changes on
+    // every single write, duplicates the timestamp shown at the end of the row,
+    // and was the reason a delete used to render as "1 change: updatedAt" — a
+    // line that says nothing while implying that is all that happened (TMC-245).
+    keys.delete('updatedAt');
+    keys.delete('createdAt');
     for (const k of keys) {
       const bv = b[k];
       const av = a[k];
@@ -138,7 +231,7 @@
       // too — and a delete row that reads "1 change: updatedAt" hides the only
       // field that says what happened (TMC-240).
       if (IMPLIED_STAMPS.has(k) && bv == null) continue;
-      lines.push(`${k}: ${shortValue(bv)} → ${shortValue(av)}`);
+      lines.push(`${fieldLabel(k)}: ${shortValue(bv)} → ${shortValue(av)}`);
     }
     return lines;
   }
@@ -198,13 +291,23 @@
           <div class="flex flex-wrap items-baseline justify-between gap-x-4">
             <p class="text-sm text-fg">
               {#if showEntity && ev.entityType && ev.entityId}
-                <a
-                  href="{ENTITY_PATHS[ev.entityType] ?? '/'}/{ev.entityId}"
-                  class="font-medium text-fg hover:text-accent"
-                >
-                  {ENTITY_LABELS[ev.entityType] ?? ev.entityType}
-                  {ev.entityLabel ?? ''}
-                </a>
+                <!-- Linked only when the type has a page to land on. Without the
+                     guard, a starting-balance or closed-year row built a URL out
+                     of the entity id and 404'd (TMC-245). -->
+                {#if ENTITY_PATHS[ev.entityType]}
+                  <a
+                    href="{ENTITY_PATHS[ev.entityType]}/{ev.entityId}"
+                    class="font-medium text-fg hover:text-accent"
+                  >
+                    {ENTITY_LABELS[ev.entityType] ?? ev.entityType}
+                    {ev.entityLabel ?? ''}
+                  </a>
+                {:else}
+                  <span class="font-medium text-fg">
+                    {ENTITY_LABELS[ev.entityType] ?? ev.entityType}
+                    {ev.entityLabel ?? ''}
+                  </span>
+                {/if}
                 —
               {/if}
               <span class="font-medium">{ev.actorName}</span>

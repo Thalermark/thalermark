@@ -633,6 +633,60 @@ describe('Estimate transitions', () => {
     }
   });
 
+  // TMC-230. Accepting is the highest-value event in the product, and it used to
+  // make the estimate vanish from the only dashboard tile that tracked it — the
+  // tile counts 'sent'. This is the bucket that keeps it visible, and it has to
+  // empty on conversion rather than on acceptance, or it becomes a nag.
+  it('summary tracks accepted-but-unbilled separately from accepted', async () => {
+    const ctx = buildApp();
+    try {
+      const email = 'est-unbilled@example.com';
+      const { cookie, accountId, estimateId } = await seedDraft(ctx, email);
+      const { companyId } = await userContext(email);
+      const summary = async () =>
+        (await (
+          await ctx.app.request(`/api/estimates/summary?companyId=${companyId}`, {
+            headers: { cookie, 'x-account-id': accountId },
+          })
+        ).json()) as {
+          open: { count: number };
+          accepted: { count: number; total: string };
+          acceptedUnbilled: { count: number; total: string };
+        };
+
+      await ctx.app.request(`/api/estimates/${estimateId}/mark-sent`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect((await summary()).acceptedUnbilled.count).toBe(0);
+
+      await ctx.app.request(`/api/estimates/${estimateId}/mark-accepted`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      const accepted = await summary();
+      // It has left 'open' — which is exactly why it needed somewhere else to be.
+      expect(accepted.open.count).toBe(0);
+      expect(accepted.acceptedUnbilled.count).toBe(1);
+      expect(Number(accepted.acceptedUnbilled.total)).toBeGreaterThan(0);
+
+      const convert = await ctx.app.request(`/api/estimates/${estimateId}/convert`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      // 201 the first time; the idempotent re-call returns 200.
+      expect(convert.status).toBe(201);
+
+      const billed = await summary();
+      expect(billed.acceptedUnbilled.count).toBe(0);
+      // The all-time metric on the estimates page still counts it — converting
+      // is not un-accepting, and that strip means something different.
+      expect(billed.accepted.count).toBe(1);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
   it('mark-declined from accepted → 409 invalid_transition', async () => {
     const ctx = buildApp();
     try {

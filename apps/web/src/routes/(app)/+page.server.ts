@@ -55,6 +55,12 @@ export const load: PageServerLoad = async (event) => {
     awaiting: invSummary?.awaiting.count ?? 0,
     drafts: invSummary?.draft.count ?? 0,
     openEstimates: estSummary?.open.count ?? 0,
+    // The customer said yes and nothing has been billed for it (TMC-230).
+    // Accepting is the highest-value event in the product and it notified
+    // nobody; worse, the estimate left the "open" tile on acceptance, so the
+    // one surface that tracked it stopped showing it at the exact moment it
+    // became actionable.
+    acceptedEstimates: estSummary?.acceptedUnbilled.count ?? 0,
   };
 
   // Cash-flow nudges (AI) stream in separately: the position tiles render

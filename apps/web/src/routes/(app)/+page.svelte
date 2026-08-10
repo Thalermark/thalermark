@@ -27,6 +27,16 @@
       hint: 'awaiting reply',
       href: '/estimates?status=sent',
     },
+    // Flagged like an overdue invoice, because it is the same kind of fact: the
+    // customer has acted and the business has not. Before this the estimate
+    // simply left the tile row when it was accepted (TMC-230).
+    {
+      label: 'Accepted',
+      count: counts.acceptedEstimates,
+      hint: 'ready to invoice',
+      href: '/estimates?status=accepted',
+      alert: counts.acceptedEstimates > 0,
+    },
   ]);
 
   // Display formatting only — the authoritative value is the decimal string
