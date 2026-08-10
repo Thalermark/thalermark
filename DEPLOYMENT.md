@@ -41,7 +41,7 @@ api container is light.
   real domain + automatic TLS). Localhost works with no public ports.
 - A **domain name** pointed at the host (for production TLS).
 - Optional, depending on which integrations you enable: an Anthropic/OpenAI key
-  (AI), a Resend key or SMTP server (email), Stripe keys (card payments).
+  (AI), a Resend key (email), Stripe keys (card payments).
 
 Everything else (Postgres, object storage, TLS) is provided by the compose
 bundle out of the box.
@@ -120,9 +120,12 @@ docker compose -f docker/docker-compose.yml logs api | grep -E "transport|storag
 
 Optional integrations, each disabled-but-safe when blank:
 
-- **Email** — `RESEND_API_KEY` (Resend) **or** `SMTP_*`. With neither, the
-  console driver logs outgoing mail to stdout (fine for testing; customers won't
-  receive invoices).
+- **Email** — `RESEND_API_KEY` (Resend). That is the only transport this build
+  can send through; SMTP is not supported yet, and the `SMTP_*` keys this page
+  used to list were read by nothing (TMC-238). Without a key the console driver
+  logs outgoing mail to stdout — fine for testing, but customers receive
+  nothing, and the app says so in Settings → Email rather than reporting a
+  delivery it did not make.
 - **AI** (receipt auto-fill, expense categorization, cash-flow nudges) —
   configured in-app under **Settings → AI**, not by env. Until a connection is
   saved and verified, the AI endpoints return 503 and the rest of the app runs.
