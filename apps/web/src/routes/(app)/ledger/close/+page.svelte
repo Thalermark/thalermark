@@ -46,7 +46,7 @@
 {/if}
 
 {#if form?.formError}
-  <div class="callout mt-6 border-danger/40 text-danger">{form.formError}</div>
+  <div class="callout mt-6 border-danger/40 text-danger" data-form-error role="alert" tabindex="-1">{form.formError}</div>
 {/if}
 {#if form?.closedYear}
   <div class="callout mt-6">{form.closedYear} is closed.</div>

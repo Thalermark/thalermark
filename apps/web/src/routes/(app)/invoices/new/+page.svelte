@@ -1,6 +1,7 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
-  import { untrack } from 'svelte';
+  import { enhanceForm } from '$lib/form-enhance';
+    import { untrack } from 'svelte';
   import ContactPicker from '$lib/components/ContactPicker.svelte';
   import ItemPicker from '$lib/components/ItemPicker.svelte';
   import { trackFlowAbandonment } from '$lib/flow-abandonment';
@@ -209,12 +210,12 @@
 </h1>
 
 {#if form?.formError}
-  <div class="mt-6 rounded-sm border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
+  <div class="mt-6 rounded-sm border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger" data-form-error role="alert" tabindex="-1">
     {form.formError}
   </div>
 {/if}
 
-<form method="post" class="mt-8 space-y-8" onsubmit={() => flow.markSubmitted()} use:enhance>
+<form method="post" class="mt-8 space-y-8" onsubmit={() => flow.markSubmitted()} use:enhance={enhanceForm}>
   <div class="grid grid-cols-1 gap-6 sm:grid-cols-2" onfocusin={() => flow.reach('details')}>
     <div>
       <label for="contactName" class="label">

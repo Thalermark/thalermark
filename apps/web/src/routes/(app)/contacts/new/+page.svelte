@@ -1,6 +1,7 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
-  import { untrack } from 'svelte';
+  import { enhanceForm } from '$lib/form-enhance';
+    import { untrack } from 'svelte';
   import AddressLookup from '$lib/components/AddressLookup.svelte';
   import { findEmailDupe, findNameDupes } from '$lib/contact-dupes';
   import type { PageProps } from './$types';
@@ -57,12 +58,12 @@
 </h1>
 
 {#if form?.formError}
-  <div class="mt-6 rounded-sm border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
+  <div class="mt-6 rounded-sm border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger" data-form-error role="alert" tabindex="-1">
     {form.formError}
   </div>
 {/if}
 
-<form method="post" class="mt-8 space-y-6" use:enhance>
+<form method="post" class="mt-8 space-y-6" use:enhance={enhanceForm}>
   <div>
     <label for="name" class="label">
       Name<span class="text-accent">*</span>
