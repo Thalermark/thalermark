@@ -59,3 +59,59 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+      # The layer nothing above can see (TMC-249). Everything before this runs
+      # below the browser, which is how four consecutive commits once passed the
+      # whole suite while the bug was still on the screen.
+      #
+      # Needs a real stack: postgres, migrations, the api, and the web server
+      # (Playwright starts the last one itself). The api is started with
+      # REQUIRE_EMAIL_VERIFICATION=false so the setup project can sign up and
+      # reach an in-app page without a mailbox.
+      - name: Install Chromium for Playwright
+        run: pnpm --filter @thalermark/web test:browser:install
+
+      - name: Start Postgres
+        run: docker compose -f docker/docker-compose.dev.yml up -d postgres
+
+      - name: Migrate
+        run: pnpm drizzle:migrate
+        env:
+          DATABASE_URL: postgres://thalermark:thalermark@localhost:5432/thalermark
+
+      - name: Start the API
+        run: |
+          pnpm --filter @thalermark/api dev > /tmp/api.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -sf http://localhost:3000/health && break
+            sleep 1
+          done
+          curl -sf http://localhost:3000/health || { echo '--- api failed to start ---'; cat /tmp/api.log; exit 1; }
+        env:
+          DATABASE_URL: postgres://thalermark:thalermark@localhost:5432/thalermark
+          APP_DATABASE_URL: postgres://thalermark:thalermark@localhost:5432/thalermark
+          BETTER_AUTH_SECRET: ci-secret-at-least-32-characters-long
+          BETTER_AUTH_URL: http://localhost:3000
+          PUBLIC_APP_URL: http://localhost:5173
+          TRUSTED_ORIGINS: http://localhost:5173,http://localhost:4173
+          REQUIRE_EMAIL_VERIFICATION: 'false'
+          MIGRATE_ON_BOOT: 'false'
+          JOBS_ENABLED: 'false'
+          NODE_ENV: development
+
+      - name: Browser tests
+        run: pnpm --filter @thalermark/web test:browser
+        env:
+          CI: 'true'
+          PLAYWRIGHT_API_URL: http://localhost:3000
+          PLAYWRIGHT_ORIGIN: http://localhost:5173
+          INTERNAL_API_URL: http://localhost:3000
+          PUBLIC_API_URL: http://localhost:3000
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report/
+          retention-days: 7
