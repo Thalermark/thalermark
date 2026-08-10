@@ -181,6 +181,16 @@ export const invoiceDepositSchema = z.object({
   amount: moneyString.refine((v) => Number(v) > 0, { message: 'amount_must_be_positive' }),
   receivedOn: isoDateString.optional(),
   method: z.enum(INVOICE_PAYMENT_METHODS).optional(),
+  // Same double-click guard as invoicePaymentCreateSchema below, and it matters
+  // MORE here (TMC-218). This endpoint welds a state transition to the insert —
+  // it issues the invoice as well as banking the money — so a second click does
+  // not merely duplicate a receipt, it re-runs the issue. Constrained
+  // identically; see the long note on the payment schema for why it is a
+  // bounded opaque string rather than a UUID.
+  idempotencyKey: z
+    .union([z.string().trim().min(8).max(200), z.literal(''), z.null()])
+    .transform((v) => (v ? v : undefined))
+    .optional(),
 });
 export type InvoiceDepositInput = z.infer<typeof invoiceDepositSchema>;
 
@@ -196,6 +206,32 @@ export const invoicePaymentCreateSchema = z.object({
   reference: z
     .union([z.string().trim().max(100), z.literal(''), z.null()])
     .transform((v) => (v ? v : null))
+    .optional(),
+  // Double-click protection for the manual path (TMC-218). The client mints one
+  // per form render; resubmitting the SAME render is a no-op, while two genuine
+  // $50 cash instalments on the same day carry different keys and are both
+  // recorded. Optional, so every existing caller — and mobile until it ships
+  // its half — behaves exactly as it does today.
+  //
+  // A BOUNDED OPAQUE STRING, deliberately not z.string().uuid(). The server
+  // never parses this: it is an equality key in a unique index, so demanding
+  // one particular 36-character shape buys nothing at the database while
+  // rejecting perfectly good keys a client already has to hand — a ULID, a
+  // nanoid, a per-render token. What DOES have to be enforced is the bound. An
+  // unbounded string overflows the btree index key and turns a payment into a
+  // 500 at insert time instead of a 400 at the door.
+  //
+  // min(8) because a key short enough to be guessable is a key two unrelated
+  // forms can collide on, and a collision here silently swallows a REAL second
+  // payment — this guard's own failure mode, inverted and worse than the bug.
+  //
+  // '' and null coerce to absent rather than 400, matching `reference` above: a
+  // form that renders an empty hidden input must not have its payment rejected
+  // over a field the user never sees. The cost is that a client which forgets
+  // to mint a key gets no protection, which is exactly where it started.
+  idempotencyKey: z
+    .union([z.string().trim().min(8).max(200), z.literal(''), z.null()])
+    .transform((v) => (v ? v : undefined))
     .optional(),
 });
 

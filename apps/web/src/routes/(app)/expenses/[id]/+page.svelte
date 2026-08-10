@@ -1,6 +1,7 @@
 <script lang="ts">
   import AuditHistory from '$lib/components/AuditHistory.svelte';
   import ConfirmSubmit from '$lib/components/ConfirmSubmit.svelte';
+  import SubmitButton from '$lib/components/SubmitButton.svelte';
   import { may } from '$lib/perms';
   import type { PageProps } from './$types';
 
@@ -58,6 +59,7 @@
       <ConfirmSubmit
         action="?/delete"
         label="Delete"
+        pendingLabel="Deleting…"
         title="Delete this expense?"
         confirmLabel="Delete expense"
         triggerClass="rounded-sm border border-danger/30 px-3 py-1 font-mono text-xs uppercase tracking-widest text-danger/80 hover:border-danger hover:text-danger"
@@ -108,12 +110,11 @@
         Link a vendor
       </a>
       <form method="post" action="?/dismissReview">
-        <button
-          type="submit"
+        <SubmitButton
+          label="Dismiss"
+          pendingLabel="Dismissing…"
           class="font-mono text-xs uppercase tracking-widest text-fg/50 hover:text-fg"
-        >
-          Dismiss
-        </button>
+        />
       </form>
     </div>
   </div>
@@ -182,12 +183,11 @@
           {/each}
         </optgroup>
       </select>
-      <button
-        type="submit"
+      <SubmitButton
+        label="Save"
+        pendingLabel="Saving…"
         class="rounded-sm border border-fg/20 px-3 py-1.5 text-sm text-fg hover:border-accent hover:text-accent"
-      >
-        Save
-      </button>
+      />
       {#if form?.allocationSaved}
         <span class="text-sm text-fg/60">Saved.</span>
       {/if}
@@ -236,13 +236,15 @@
       {/if}
       {#if canWrite}
         <div class="flex flex-wrap items-center gap-4">
+          <!-- The slowest control on the page: a vision-model round trip, several
+               seconds on a good day. Without a pending label it is the likeliest
+               dead click in the app (TMC-218). -->
           <form method="post" action="?/extract">
-            <button
-              type="submit"
+            <SubmitButton
+              label="Auto-fill from receipt"
+              pendingLabel="Reading receipt…"
               class="rounded-sm border border-accent/40 px-3 py-1.5 text-sm text-accent hover:border-accent hover:bg-accent/5"
-            >
-              Auto-fill from receipt
-            </button>
+            />
           </form>
           <!-- The most destructive control in the app: the API deletes the
                stored object outright, and receipt images are not in the account
@@ -251,6 +253,7 @@
           <ConfirmSubmit
             action="?/deleteReceipt"
             label="Remove receipt"
+            pendingLabel="Deleting…"
             title="Delete this receipt image?"
             confirmLabel="Delete receipt"
             triggerClass="text-xs uppercase tracking-widest text-danger/70 hover:text-danger"
@@ -274,12 +277,11 @@
         required
         class="text-sm text-fg/80 file:mr-3 file:rounded-sm file:border-0 file:bg-inverse file:px-3 file:py-1.5 file:text-sm file:text-on-inverse hover:file:bg-accent"
       />
-      <button
-        type="submit"
+      <SubmitButton
+        label="Upload"
+        pendingLabel="Uploading…"
         class="rounded-sm border border-fg/20 px-3 py-1.5 text-sm text-fg hover:border-accent hover:text-accent"
-      >
-        Upload
-      </button>
+      />
       <span class="text-xs text-fg/50">JPEG, PNG, or PDF · up to 10 MB</span>
     </form>
   {:else}

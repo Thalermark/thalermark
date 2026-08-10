@@ -1,4 +1,14 @@
-import { date, index, numeric, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import {
+  date,
+  index,
+  numeric,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core';
 import { accounts } from './accounts.js';
 import { bills } from './bills.js';
 import { chartOfAccounts } from './chart_of_accounts.js';
@@ -75,6 +85,12 @@ export const billPayments = pgTable(
     method: text('method').notNull(),
     // Optional free text: a check number, a confirmation code.
     reference: text('reference'),
+    // Double-click protection for the manual path, mirroring the invoice side
+    // (TMC-218). There is no Stripe leg here — a bill is money you pay out — so
+    // this is the only idempotency this table has. Client-minted per form
+    // render: a retried submission is a no-op, a genuinely repeated payment of
+    // the same amount on the same day carries a different key and is recorded.
+    idempotencyKey: text('idempotency_key'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -91,6 +107,11 @@ export const billPayments = pgTable(
       table.companyId,
       table.paidOn,
     ),
+    // Account-scoped and partial, matching invoice_payments_idempotency_uq:
+    // nulls (every row written before this column existed) must not collide.
+    idempotencyUq: uniqueIndex('bill_payments_idempotency_uq')
+      .on(table.accountId, table.idempotencyKey)
+      .where(sql`${table.idempotencyKey} is not null`),
   }),
 );
 

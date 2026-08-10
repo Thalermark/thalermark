@@ -1,6 +1,7 @@
 <script lang="ts">
   import AuditHistory from '$lib/components/AuditHistory.svelte';
   import ConfirmSubmit from '$lib/components/ConfirmSubmit.svelte';
+  import SubmitButton from '$lib/components/SubmitButton.svelte';
   import PaymentFields from '$lib/components/PaymentFields.svelte';
   import { may } from '$lib/perms';
   import type { PageProps } from './$types';
@@ -165,6 +166,7 @@
     <ConfirmSubmit
       action="?/void"
       label="Void"
+      pendingLabel="Voiding…"
       title="Void this bill?"
       confirmLabel="Void bill"
       triggerClass="text-sm text-fg/50 hover:text-danger"
@@ -180,7 +182,7 @@
     <form method="POST" action="?/markPaid" class="mt-6 max-w-xl rounded-sm border border-fg/10 bg-surface-2 p-5">
       <PaymentFields />
       <div class="mt-5 flex items-center gap-4">
-        <button type="submit" class="btn">Pay in full</button>
+        <SubmitButton label="Pay in full" pendingLabel="Recording…" class="btn" />
         <button type="button" class="text-sm text-fg/60 hover:text-fg" onclick={() => (showPay = false)}>
           Cancel
         </button>
@@ -224,6 +226,7 @@
                 <ConfirmSubmit
                   action="?/removePayment"
                   label="Remove"
+                  pendingLabel="Removing…"
                   title="Remove this {Number(p.amount) < 0 ? 'refund' : 'payment'}?"
                   confirmLabel="Remove"
                   hidden={{ paymentId: p.id }}
@@ -253,6 +256,9 @@
         </button>
       {:else}
         <form method="POST" action="?/recordPayment" class="mt-4 max-w-md">
+          <!-- Same key on both clicks of a double-click; the server keeps one
+               (TMC-218). -->
+          <input type="hidden" name="idempotencyKey" value={data.paymentKey} />
           <div class="grid grid-cols-2 gap-4">
             <div>
               <label class="label" for="payment-amount">Amount</label>
@@ -317,7 +323,7 @@
             />
           </div>
           <div class="mt-5 flex items-center gap-3">
-            <button type="submit" class="btn">Record payment</button>
+            <SubmitButton label="Record payment" pendingLabel="Recording…" class="btn" />
             <button
               type="button"
               onclick={() => (showPaymentPanel = false)}

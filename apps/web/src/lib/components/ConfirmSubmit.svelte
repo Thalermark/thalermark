@@ -33,6 +33,9 @@
     confirmLabel: string;
     /** The trigger's visible text. */
     label: string;
+    /** Shown on the trigger once confirmed and the POST is in flight (TMC-218).
+     *  Several of these actions move money and take a server round trip. */
+    pendingLabel?: string;
     /** Trigger classes. Defaults to the quiet outline — a destructive control
      *  should not be the loudest thing on the page. */
     triggerClass?: string;
@@ -49,6 +52,7 @@
     body,
     confirmLabel,
     label,
+    pendingLabel = 'Working…',
     triggerClass = 'btn-ghost btn-sm',
     hidden,
     formClass,
@@ -61,8 +65,16 @@
   // renders from it.
   let confirmed = false;
 
+  // The POST is away and the browser is navigating. Locks the trigger and says
+  // so, for the same reason SubmitButton exists (TMC-218) — several of these
+  // are money moves, and a silent button invites a second press.
+  let submitting = $state(false);
+
   function intercept(e: SubmitEvent) {
-    if (confirmed) return; // second pass, post-confirmation — let it fly
+    if (confirmed) {
+      submitting = true; // second pass, post-confirmation — let it fly
+      return;
+    }
     e.preventDefault();
     open = true;
   }
@@ -79,7 +91,9 @@
   {#each Object.entries(hidden ?? {}) as [name, value] (name)}
     <input type="hidden" {name} {value} />
   {/each}
-  <button type="submit" class={triggerClass} {disabled}>{label}</button>
+  <button type="submit" class={triggerClass} disabled={disabled || submitting} aria-busy={submitting}>
+    {submitting ? pendingLabel : label}
+  </button>
 </form>
 
 <ConfirmDialog bind:open {title} {body} {confirmLabel} onconfirm={go} />

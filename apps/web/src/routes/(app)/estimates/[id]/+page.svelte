@@ -2,6 +2,7 @@
   import AuditHistory from '$lib/components/AuditHistory.svelte';
   import ConfirmSubmit from '$lib/components/ConfirmSubmit.svelte';
   import SplitButton from '$lib/components/SplitButton.svelte';
+  import SubmitButton from '$lib/components/SubmitButton.svelte';
   import { may } from '$lib/perms';
   import { formatUnitPrice } from '@thalermark/validation';
   import type { PageProps } from './$types';
@@ -75,12 +76,11 @@
     <!-- Duplicate-as-template: any status. Posts to ?/duplicate → new draft's edit page. -->
     {#if canWrite}
       <form method="post" action="?/duplicate">
-        <button
-          type="submit"
+        <SubmitButton
+          label="Duplicate"
+          pendingLabel="Duplicating…"
           class="rounded-sm border border-fg/20 px-3 py-1 font-mono text-xs uppercase tracking-widest text-fg/70 hover:border-accent hover:text-accent"
-        >
-          Duplicate
-        </button>
+        />
       </form>
     {/if}
     <span class="font-mono text-xs uppercase tracking-widest text-fg/60">{est.status}</span>
@@ -129,12 +129,11 @@
           caretClass="border-l border-surface/20 bg-inverse text-on-inverse hover:bg-accent"
         >
           {#snippet primary()}
-            <button
-              type="submit"
+            <SubmitButton
+              label={sendLabel}
+              pendingLabel="Sending…"
               class="rounded-l-sm bg-inverse px-4 py-2 text-sm font-medium text-on-inverse transition-colors hover:bg-accent"
-            >
-              {sendLabel}
-            </button>
+            />
           {/snippet}
           {#snippet menu(close)}
             <button
@@ -154,15 +153,14 @@
                    dismisses the menu itself, so we must NOT call close() or the
                    form detaches before submit. formnovalidate skips the optional
                    `to` email field's constraint check. -->
-              <button
-                type="submit"
+              <SubmitButton
                 formaction="?/markSent"
                 formnovalidate
                 role="menuitem"
-                class="block w-full border-t border-fg/10 px-4 py-2 text-left text-sm text-fg/80 transition-colors hover:bg-surface-2 hover:text-fg"
-              >
-                Mark sent without email
-              </button>
+                class="block w-full border-t border-fg/10 px-4 py-2 text-left text-sm text-fg/80 transition-colors hover:bg-surface-2 hover:text-fg disabled:opacity-60"
+                label="Mark sent without email"
+                pendingLabel="Marking sent…"
+              />
             {/if}
           {/snippet}
         </SplitButton>
@@ -170,12 +168,11 @@
     {/if}
     {#if canMarkAccepted}
       <form method="post" action="?/markAccepted">
-        <button
-          type="submit"
+        <SubmitButton
+          label="Mark accepted"
+          pendingLabel="Marking accepted…"
           class="btn-ghost bg-surface-2"
-        >
-          Mark accepted
-        </button>
+        />
       </form>
     {/if}
     {#if canMarkDeclined}
@@ -186,6 +183,7 @@
       <ConfirmSubmit
         action="?/markDeclined"
         label="Mark declined"
+        pendingLabel="Marking declined…"
         title="Mark this estimate declined?"
         confirmLabel="Mark declined"
         triggerClass="rounded-sm border border-danger/30 px-4 py-2 text-sm font-medium text-danger transition-colors hover:bg-danger/5"
@@ -202,12 +200,7 @@
     {/if}
     {#if canConvert}
       <form method="post" action="?/convert">
-        <button
-          type="submit"
-          class="btn"
-        >
-          Convert to invoice
-        </button>
+        <SubmitButton label="Convert to invoice" pendingLabel="Converting…" class="btn" />
       </form>
     {/if}
   </div>
