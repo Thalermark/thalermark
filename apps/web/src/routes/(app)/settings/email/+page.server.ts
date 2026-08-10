@@ -25,9 +25,14 @@ export const load: PageServerLoad = async (event) => {
   const tplRes = await client.api.companies[':id']['email-templates'].$get({
     param: { id: company.id },
   });
-  const templates = tplRes.ok ? (await tplRes.json()).templates : [];
+  const tplBody = tplRes.ok ? await tplRes.json() : null;
+  const templates = tplBody?.templates ?? [];
+  // Whether this server can deliver at all. Defaults to true when the read
+  // fails so a transient error never accuses a working install of being
+  // misconfigured (TMC-212).
+  const emailConfigured = tplBody?.emailConfigured ?? true;
 
-  return { company, templates };
+  return { company, templates, emailConfigured };
 };
 
 export const actions: Actions = {

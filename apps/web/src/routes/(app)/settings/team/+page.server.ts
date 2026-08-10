@@ -52,6 +52,20 @@ export const actions: Actions = {
         email,
       });
     }
+    // The invite row and its token are real whether or not mail moved. When
+    // nothing was delivered, hand the inviter the link so they can pass it on
+    // themselves rather than waiting on an email that will never arrive
+    // (TMC-212).
+    const body = (await res.json().catch(() => null)) as {
+      token?: string;
+      delivered?: boolean;
+    } | null;
+    if (body?.delivered === false && body.token) {
+      return {
+        invited: email,
+        inviteLink: `${event.url.origin}/accept-invite?token=${body.token}`,
+      };
+    }
     return { invited: email };
   },
 

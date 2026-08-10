@@ -65,6 +65,12 @@ export default function EstimateDetail() {
   const [duplicating, setDuplicating] = useState(false);
   const [transitionError, setTransitionError] = useState<string | null>(null);
   const [sentTo, setSentTo] = useState<string | null>(null);
+  // Whether the email actually left the building. The console mailer logs the
+  // message and resolves, which is indistinguishable from a real send — so the
+  // server says, and this screen stops claiming a delivery it can't vouch for
+  // (TMC-212). Defaults to true: an older API omits `delivered`, and that
+  // silence must not raise a warning.
+  const [sendDelivered, setSendDelivered] = useState(true);
   const [showOverride, setShowOverride] = useState(false);
   const [overrideEmail, setOverrideEmail] = useState('');
 
@@ -171,8 +177,12 @@ export default function EstimateDetail() {
     const recipient = to || (detail.state === 'ready' ? detail.contactEmail : null);
     act(
       () => api.api.estimates[':id'].send.$post({ param: { id }, json: to ? { to } : {} }),
-      () => {
-        setSentTo(recipient);
+      (body) => {
+        const sent = body as { sentTo?: string; delivered?: boolean } | null;
+        setSentTo(sent?.sentTo ?? recipient);
+        // Only an explicit `false` is a non-delivery; undefined is an older
+        // server that never told us, and we don't scare people over that.
+        setSendDelivered(sent?.delivered !== false);
         setShowOverride(false);
       },
     );
@@ -264,11 +274,21 @@ export default function EstimateDetail() {
               </View>
             ) : null}
             {sentTo ? (
-              <View className="mt-4 rounded-sm border border-gold-deep/30 bg-gold-deep/5 px-4 py-3">
-                <Text className="text-sm text-ink">
-                  Sent to <Text className="font-medium">{sentTo}</Text>.
-                </Text>
-              </View>
+              sendDelivered ? (
+                <View className="mt-4 rounded-sm border border-gold-deep/30 bg-gold-deep/5 px-4 py-3">
+                  <Text className="text-sm text-ink">
+                    Sent to <Text className="font-medium">{sentTo}</Text>.
+                  </Text>
+                </View>
+              ) : (
+                <View className="mt-4 rounded-sm border border-copper/40 bg-copper/5 px-4 py-3">
+                  <Text className="text-sm text-ink">
+                    Marked as sent — but <Text className="font-medium">no email was delivered</Text>
+                    . This server has no email set up, so nothing reached {sentTo}. The estimate is
+                    saved and its share link works; send the customer that link yourself.
+                  </Text>
+                </View>
+              )
             ) : null}
             {expiredNotice ? (
               <View className="mt-4 rounded-sm border border-oxblood/30 bg-oxblood/5 px-4 py-3">

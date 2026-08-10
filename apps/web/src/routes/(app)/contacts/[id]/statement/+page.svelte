@@ -6,6 +6,8 @@
   const s = $derived(data.statement);
 
   const sentTo = $derived(page.url.searchParams.get('sent'));
+  // The send action flags a send that never left the server (TMC-212).
+  const undelivered = $derived(page.url.searchParams.get('undelivered') === '1');
   const emailError = $derived(form?.emailError ?? null);
 
   const fmt = (v: string) =>
@@ -49,7 +51,13 @@
   </div>
 </div>
 
-{#if sentTo}
+{#if sentTo && undelivered}
+  <p class="mt-3 rounded-sm border border-warning/40 bg-warning/5 px-4 py-2 text-sm text-fg/80 print:hidden">
+    No email was delivered — this server has no email set up, so nothing reached {sentTo}. Print or
+    save the statement below and send it yourself, or
+    <a class="link" href="/settings/email">set up email</a>.
+  </p>
+{:else if sentTo}
   <p class="mt-3 rounded-sm border border-accent/30 bg-accent/5 px-4 py-2 text-sm text-fg/80 print:hidden">
     Statement emailed to {sentTo}.
   </p>

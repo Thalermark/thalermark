@@ -10,7 +10,7 @@ import { sql } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
 import { renderTemplate, resolveEmailTemplate } from './email-templates.js';
 import { type EntitlementProvider, communityEntitlements } from './entitlement.js';
-import type { Mailer } from './mailer.js';
+import { type Mailer, mailerDelivers } from './mailer.js';
 
 const log = getLogger(['thalermark', 'api', 'reminders']);
 
@@ -212,6 +212,25 @@ export async function sweepInvoiceReminders(args: {
   const entitlement = args.entitlement ?? communityEntitlements;
 
   const due = await findDueReminders(args.bootstrapDb, now);
+
+  // Bail before banking anything if mail cannot actually go out (TMC-212).
+  //
+  // The per-item guard below has always said the right thing — a stage must not
+  // be marked sent for an email that never left — but it tested `!mailer`, and
+  // bootstrap always wires the console driver, so it never fired. Every sweep
+  // on a self-host without email quietly wrote a full set of reminder rows for
+  // messages that went to stdout, and configuring email later found every stage
+  // already "sent" with the customer never chased. Checked once, up front,
+  // rather than per item, so an unconfigured install logs one line instead of a
+  // page of failures on every sweep.
+  if (due.length > 0 && !mailerDelivers(args.mail.mailer)) {
+    log.warn(
+      'reminder sweep: email is not configured, so {scanned} due reminder(s) were left for a later sweep',
+      { scanned: due.length },
+    );
+    return { sent: 0, skipped: due.length, failed: 0, scanned: due.length };
+  }
+
   let sent = 0;
   let skipped = 0;
   let failed = 0;

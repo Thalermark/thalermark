@@ -170,7 +170,13 @@
         >
           Send invite
         </button>
-        {#if form?.invited}
+        {#if form?.invited && form?.inviteLink}
+          <span class="text-sm text-fg/70">
+            Invite created for {form.invited}, but no email was delivered — this server has no
+            email set up. Send them this link:
+            <code class="mt-1 block break-all font-mono text-xs text-fg">{form.inviteLink}</code>
+          </span>
+        {:else if form?.invited}
           <span class="text-sm text-fg/60">Invite sent to {form.invited}.</span>
         {:else if form?.error}
           <span class="text-sm text-danger">{form.error}</span>

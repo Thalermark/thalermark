@@ -12,6 +12,7 @@ import { v7 as uuidv7 } from 'uuid';
 import type { AppDeps } from '../app.js';
 import { buildCustomerStatement } from '../lib/customer-statement.js';
 import { resolveEmailTemplate } from '../lib/email-templates.js';
+import { mailerDelivers } from '../lib/mailer.js';
 import { applyCursor, keysetOrderBy, parseLimit, slicePage } from '../lib/pagination.js';
 import { EMAIL_RE, UUID_RE, escapeLike } from '../lib/route-helpers.js';
 import { sendStatementEmail } from '../lib/statement-email.js';
@@ -332,11 +333,17 @@ export function contactsRoutes(deps: AppDeps) {
             entityType: 'contact',
             entityId: id,
             action: 'statement-emailed',
-            after: { to, subject, balanceDue: statement.balanceDue },
+            after: {
+              to,
+              subject,
+              balanceDue: statement.balanceDue,
+              delivered: mailerDelivers(deps.mailer),
+            },
             companyId: meta?.companyId ?? statement.customer.id,
           });
 
-          return c.json({ sentTo: to });
+          // See the invoice send (TMC-212).
+          return c.json({ sentTo: to, delivered: mailerDelivers(deps.mailer) });
         },
       )
       // hono/validator middleware: lifts the json body into the typed Input

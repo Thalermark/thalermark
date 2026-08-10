@@ -35,6 +35,10 @@ export function summarizeBillSettlement(args: {
   const summary = summarizeSettlement({
     totalCents: args.amountCents,
     paidCents: args.paidCents,
+    // Always issued. A bill exists because a vendor sent you one, so the
+    // never-issued case the invoice half has to model (TMC-215) cannot arise
+    // here — a bill has no draft state to fall back to.
+    issued: true,
   });
   return { ...summary, status: summary.status === 'paid' ? 'paid' : 'open' };
 }

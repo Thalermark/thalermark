@@ -26,7 +26,7 @@ export type SettlementSummary = {
   // What invoices.status must be for this summary to be consistent. The write
   // paths set the column from this rather than reasoning about it inline, so
   // there is exactly one place the mapping lives.
-  status: 'sent' | 'paid';
+  status: 'draft' | 'sent' | 'paid';
 };
 
 // Pure: given an invoice total and what has been received against it, say where
@@ -38,12 +38,29 @@ export type SettlementSummary = {
 // invoice is settled, and then some.
 //
 // A fully refunded invoice (payments netting to zero or below) reads 'unpaid'
-// and returns to 'sent' — it is owed again, which is exactly true.
+// and returns to whatever it was before the money arrived — it is owed again,
+// which is exactly true.
+//
+// `issued` is what "before" means, and it is why this is not simply 'sent'
+// (TMC-215). mark-paid accepts a DRAFT, so two clicks — mark paid on the wrong
+// invoice, then remove the payment — used to leave a draft sitting in 'sent'
+// with a null sent_at: an invoice the customer has never seen that the system
+// believed was issued. It could not be edited (PATCH is draft-only), it counted
+// as money owed in A/R while the ledger had posted no receivable, and voiding
+// it reversed a revenue entry that was never made.
+//
+// A never-issued invoice settled in cash is a counter sale — the ledger already
+// knows this and credits revenue rather than a receivable. Unwinding it must
+// return the document to the only state consistent with that: draft.
 export function summarizeSettlement(args: {
   totalCents: number;
   paidCents: number;
+  // Has this invoice ever been issued to the customer? `sentAt !== null`.
+  // Required rather than defaulted: the wrong answer here silently corrupts A/R,
+  // so every caller states it.
+  issued: boolean;
 }): SettlementSummary {
-  const { totalCents, paidCents } = args;
+  const { totalCents, paidCents, issued } = args;
   const outstandingCents = totalCents - paidCents;
 
   if (paidCents <= 0) {
@@ -51,7 +68,7 @@ export function summarizeSettlement(args: {
       settlement: 'unpaid',
       paid: centsToMoney(paidCents),
       outstanding: centsToMoney(outstandingCents),
-      status: 'sent',
+      status: issued ? 'sent' : 'draft',
     };
   }
   if (outstandingCents > 0) {
@@ -158,13 +175,17 @@ export function checkPaymentEligibility(args: {
 // Returns the updated invoice, or null if it vanished (concurrent void/delete).
 export async function syncInvoiceSettlement(
   tx: Database | Transaction,
-  args: { accountId: string; invoiceId: string; totalCents: number },
+  args: { accountId: string; invoiceId: string; totalCents: number; issued: boolean },
 ): Promise<{ invoice: Invoice; summary: SettlementSummary } | null> {
   const paidCents = await paidCentsForInvoice(tx, {
     accountId: args.accountId,
     invoiceId: args.invoiceId,
   });
-  const summary = summarizeSettlement({ totalCents: args.totalCents, paidCents });
+  const summary = summarizeSettlement({
+    totalCents: args.totalCents,
+    paidCents,
+    issued: args.issued,
+  });
 
   // The receipt whose details the header mirrors: latest by the date the money
   // arrived, then by id so a same-day pair is still deterministic (uuidv7 is

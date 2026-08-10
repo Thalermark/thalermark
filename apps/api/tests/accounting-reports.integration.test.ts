@@ -310,6 +310,256 @@ describe('GET /api/companies/:id/ar-aging', () => {
   });
 });
 
+// TMC-216 — one number for "who owes me?". Three surfaces answered that
+// question three different ways once TMC-187 shipped partial payments: the
+// dashboard read the AR ledger balance (right), while the invoices-list metric
+// strip and this aging report both summed invoice totals and ignored every
+// receipt. These tests pin the agreement, not just each surface on its own.
+describe('outstanding A/R agrees across dashboard, invoices strip and aging', () => {
+  beforeEach(resetDb);
+
+  type AgingBody = {
+    asOf: string;
+    buckets: { key: string; label: string; count: number; amount: string }[];
+    invoices: {
+      id: string;
+      number: string;
+      customerName: string | null;
+      dueDate: string;
+      daysPastDue: number;
+      amount: string;
+    }[];
+    total: string;
+  };
+  type SummaryBody = {
+    draft: { count: number };
+    awaiting: { count: number; total: string };
+    overdue: { count: number; total: string };
+  };
+  type DashboardBody = { moneyIn: string; moneyOut: string; owed: string; owing: string };
+
+  // The real receipt path — POST /api/invoices/:id/payments (TMC-187), the same
+  // endpoint the deposit UI calls. Deliberately not an INSERT into
+  // invoice_payments: the ledger posting is what makes the dashboard's figure
+  // move, so the test has to go through the code that posts it.
+  async function recordPayment(
+    ctx: Ctx,
+    invoiceId: string,
+    body: { amount: string; receivedOn: string; method: 'cash' | 'check' },
+  ): Promise<void> {
+    const res = await ctx.app.request(`/api/invoices/${invoiceId}/payments`, {
+      method: 'POST',
+      headers: headers(ctx),
+      body: JSON.stringify(body),
+    });
+    if (res.status !== 201) throw new Error(`payment failed: ${res.status} ${await res.text()}`);
+  }
+
+  async function sendInvoice(
+    ctx: Ctx,
+    contactId: string,
+    opts: { number: string; dueDate: string; total: string },
+  ): Promise<string> {
+    const id = await createInvoice(ctx, contactId, {
+      number: opts.number,
+      issueDate: '2026-05-01',
+      dueDate: opts.dueDate,
+      subtotal: opts.total,
+      tax: '0.00',
+      total: opts.total,
+    });
+    await post(ctx, `/api/invoices/${id}/mark-sent`);
+    return id;
+  }
+
+  async function arAging(ctx: Ctx, query = ''): Promise<AgingBody> {
+    const res = await ctx.app.request(`/api/companies/${ctx.companyId}/ar-aging${query}`, {
+      headers: headers(ctx),
+    });
+    if (res.status !== 200) throw new Error(`ar-aging failed: ${res.status} ${await res.text()}`);
+    return (await res.json()) as AgingBody;
+  }
+
+  async function invoiceSummary(ctx: Ctx): Promise<SummaryBody> {
+    const res = await ctx.app.request(`/api/invoices/summary?companyId=${ctx.companyId}`, {
+      headers: headers(ctx),
+    });
+    if (res.status !== 200) throw new Error(`summary failed: ${res.status} ${await res.text()}`);
+    return (await res.json()) as SummaryBody;
+  }
+
+  // The dashboard's owed figure is the live AR ledger balance — point-in-time,
+  // so the window only bounds money in/out and cannot move this number.
+  async function dashboardOwed(ctx: Ctx): Promise<string> {
+    const res = await ctx.app.request(
+      `/api/companies/${ctx.companyId}/dashboard?from=2026-01-01&to=2026-12-31`,
+      { headers: headers(ctx) },
+    );
+    if (res.status !== 200) throw new Error(`dashboard failed: ${res.status} ${await res.text()}`);
+    return ((await res.json()) as DashboardBody).owed;
+  }
+
+  it('reports the same owed figure on all three surfaces after a deposit', async () => {
+    const { ctx, close } = await setup('owed-agree@example.com');
+    try {
+      const cust = await createContact(ctx);
+      // $1,000 billed, $250 received. Due far in the future so the invoice is
+      // unambiguously in the summary's 'awaiting' bucket (dueDate >= today)
+      // whenever the suite runs.
+      const inv = await sendInvoice(ctx, cust, {
+        number: 'INV-DEP',
+        dueDate: '2999-12-31',
+        total: '1000.00',
+      });
+      await recordPayment(ctx, inv, {
+        amount: '250.00',
+        receivedOn: '2026-05-15',
+        method: 'cash',
+      });
+
+      const owed = await dashboardOwed(ctx);
+      const summary = await invoiceSummary(ctx);
+      const aging = await arAging(ctx);
+
+      // The value, not just the agreement — three equal wrong numbers would
+      // satisfy mutual equality on its own.
+      expect(owed).toBe('750.00');
+      expect(summary.awaiting.total).toBe('750.00');
+      expect(aging.total).toBe('750.00');
+      // ...and the agreement, stated as the thing the ticket is actually about.
+      expect(new Set([owed, summary.awaiting.total, aging.total]).size).toBe(1);
+      // The invoice is still one invoice awaiting payment, for less money.
+      expect(summary.awaiting.count).toBe(1);
+    } finally {
+      await close();
+    }
+  });
+
+  it('ages the outstanding amount, not the invoice total', async () => {
+    const { ctx, close } = await setup('owed-buckets@example.com');
+    try {
+      const cust = await createContact(ctx);
+      // Both land in 1–30 as of 2026-06-15; distinct due dates keep the list
+      // order deterministic (most overdue first).
+      const part = await sendInvoice(ctx, cust, {
+        number: 'INV-PART',
+        dueDate: '2026-06-01',
+        total: '500.00',
+      });
+      await recordPayment(ctx, part, {
+        amount: '125.00',
+        receivedOn: '2026-06-10',
+        method: 'check',
+      });
+      await sendInvoice(ctx, cust, {
+        number: 'INV-OPEN',
+        dueDate: '2026-06-05',
+        total: '100.00',
+      });
+
+      const aging = await arAging(ctx, '?asOf=2026-06-15');
+      const byKey = Object.fromEntries(aging.buckets.map((b) => [b.key, b]));
+      // 375 still owed on INV-PART + 100 on INV-OPEN. Summing totals would say
+      // 600.00 here.
+      expect(byKey['1-30']).toMatchObject({ count: 2, amount: '475.00' });
+      expect(aging.total).toBe('475.00');
+      // The per-invoice amount is likewise what is left, not what was billed.
+      expect(aging.invoices.map((i) => i.number)).toEqual(['INV-PART', 'INV-OPEN']);
+      expect(aging.invoices[0]?.amount).toBe('375.00');
+      expect(aging.invoices[1]?.amount).toBe('100.00');
+    } finally {
+      await close();
+    }
+  });
+
+  it('drops a fully-settled invoice from the aging list and the summary totals', async () => {
+    const { ctx, close } = await setup('owed-settled@example.com');
+    try {
+      const cust = await createContact(ctx);
+      // Settled in two instalments through the payments endpoint — the path
+      // that has to behave like the old single-shot mark-paid once the balance
+      // reaches zero.
+      const settled = await sendInvoice(ctx, cust, {
+        number: 'INV-SETTLED',
+        dueDate: '2999-12-31',
+        total: '1000.00',
+      });
+      await recordPayment(ctx, settled, {
+        amount: '400.00',
+        receivedOn: '2026-05-10',
+        method: 'cash',
+      });
+      await recordPayment(ctx, settled, {
+        amount: '600.00',
+        receivedOn: '2026-05-20',
+        method: 'cash',
+      });
+      const open = await sendInvoice(ctx, cust, {
+        number: 'INV-STILL-OPEN',
+        dueDate: '2999-12-31',
+        total: '800.00',
+      });
+      await recordPayment(ctx, open, {
+        amount: '300.00',
+        receivedOn: '2026-05-20',
+        method: 'cash',
+      });
+
+      const aging = await arAging(ctx);
+      expect(aging.invoices.map((i) => i.number)).toEqual(['INV-STILL-OPEN']);
+      expect(aging.total).toBe('500.00');
+      const byKey = Object.fromEntries(aging.buckets.map((b) => [b.key, b]));
+      expect(byKey.current).toMatchObject({ count: 1, amount: '500.00' });
+
+      const summary = await invoiceSummary(ctx);
+      expect(summary.awaiting.count).toBe(1);
+      expect(summary.awaiting.total).toBe('500.00');
+      expect(summary.overdue.count).toBe(0);
+
+      // And the ledger says the same thing.
+      expect(await dashboardOwed(ctx)).toBe('500.00');
+    } finally {
+      await close();
+    }
+  });
+
+  it('counts a part-paid invoice once however many receipts it carries', async () => {
+    const { ctx, close } = await setup('owed-counts@example.com');
+    try {
+      const cust = await createContact(ctx);
+      const inv = await sendInvoice(ctx, cust, {
+        number: 'INV-MULTI',
+        dueDate: '2999-12-31',
+        total: '900.00',
+      });
+      for (const [amount, receivedOn] of [
+        ['100.00', '2026-05-10'],
+        ['200.00', '2026-05-11'],
+        ['50.00', '2026-05-12'],
+      ] as const) {
+        await recordPayment(ctx, inv, { amount, receivedOn, method: 'cash' });
+      }
+
+      // The summary joins a grouped receipts subquery. If that join ever
+      // multiplied rows — one row per payment instead of one per invoice — the
+      // count would read 3 and the money would triple. It is one invoice.
+      const summary = await invoiceSummary(ctx);
+      expect(summary.awaiting.count).toBe(1);
+      expect(summary.awaiting.total).toBe('550.00');
+      expect(summary.draft.count).toBe(0);
+
+      const aging = await arAging(ctx);
+      expect(aging.invoices).toHaveLength(1);
+      expect(aging.invoices[0]?.amount).toBe('550.00');
+      const byKey = Object.fromEntries(aging.buckets.map((b) => [b.key, b]));
+      expect(byKey.current).toMatchObject({ count: 1, amount: '550.00' });
+      expect(await dashboardOwed(ctx)).toBe('550.00');
+    } finally {
+      await close();
+    }
+  });
+});
+
 describe('GET /api/companies/:id/sales-tax', () => {
   beforeEach(resetDb);
 

@@ -9,7 +9,7 @@ import {
   journalLines,
   memberships,
 } from '@thalermark/db';
-import { eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
 import type { Env } from '../src/env.js';
@@ -1101,6 +1101,358 @@ describe('invoice status transitions', () => {
         headers: { cookie: bCookie, 'x-account-id': bCtx.accountId },
       });
       expect(res.status).toBe(404);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+});
+
+// TMC-215. mark-paid accepts a DRAFT, so two unconfirmed clicks — mark paid on
+// the wrong invoice, then remove the payment — used to leave a document in
+// 'sent' with a null sent_at: an invoice the customer has never seen that the
+// system believed was issued. It could no longer be edited (PATCH is
+// draft-only), it counted as money owed in A/R while the ledger had posted no
+// receivable, and voiding it would have reversed revenue that was never posted.
+//
+// A never-issued invoice settled in cash is a counter sale (TMC-196) — the
+// receipt credits revenue, not a receivable. Unwinding it has to return the
+// document to the only state consistent with that: draft.
+describe('unwinding a receipt on an invoice that was never issued (TMC-215)', () => {
+  beforeEach(resetDb);
+
+  async function seedDraftInvoice(
+    ctx: CtxApp,
+    email: string,
+  ): Promise<{
+    cookie: string;
+    accountId: string;
+    companyId: string;
+    contactId: string;
+    invoiceId: string;
+    headers: Record<string, string>;
+  }> {
+    const cookie = await signUp(ctx.app, email);
+    const { accountId, companyId } = await userContext(email);
+    const contactId = await createContact(ctx, cookie, accountId, companyId);
+    const headers = { cookie, 'x-account-id': accountId, 'content-type': 'application/json' };
+    const create = await ctx.app.request('/api/invoices', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(invoiceBody(companyId, contactId)),
+    });
+    if (create.status !== 201) throw new Error(`seed invoice failed: ${create.status}`);
+    const { id } = (await create.json()) as { id: string };
+    return { cookie, accountId, companyId, contactId, invoiceId: id, headers };
+  }
+
+  // Signed balance on one chart-of-accounts code, debits − credits, in cents —
+  // the same read invoice-payments.integration.test.ts uses. A/R is 1200.
+  async function balanceCents(companyId: string, code: string): Promise<number> {
+    const [row] = await getTestDb()
+      .select({
+        net: sql<string>`coalesce(sum(case when ${journalLines.side} = 'debit' then ${journalLines.amount} else -${journalLines.amount} end), 0)::numeric(15,2)`,
+      })
+      .from(journalLines)
+      .innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id))
+      .innerJoin(chartOfAccounts, eq(journalLines.coaAccountId, chartOfAccounts.id))
+      .where(and(eq(journalEntries.companyId, companyId), eq(chartOfAccounts.code, code)));
+    return Math.round(Number(row?.net ?? '0') * 100);
+  }
+
+  // mark-paid records a receipt row rather than just stamping the header
+  // (TMC-187), and removing that row is how the mistake gets undone. The id
+  // only exists on the payments read.
+  async function theOnlyPaymentId(
+    ctx: CtxApp,
+    headers: Record<string, string>,
+    invoiceId: string,
+  ): Promise<string> {
+    const res = await ctx.app.request(`/api/invoices/${invoiceId}/payments`, { headers });
+    if (res.status !== 200) throw new Error(`payments read failed: ${res.status}`);
+    const body = (await res.json()) as { payments: { id: string }[] };
+    const id = body.payments[0]?.id;
+    if (!id || body.payments.length !== 1) {
+      throw new Error(`expected exactly one payment, got ${body.payments.length}`);
+    }
+    return id;
+  }
+
+  type SettlementResponse = {
+    invoice: { status: string; sentAt: string | null; paidAt: string | null };
+    settlement: string;
+    paid: string;
+    outstanding: string;
+  };
+
+  it('returns the invoice to draft, still unsent, and editable again', async () => {
+    const ctx = buildApp();
+    try {
+      const { contactId, invoiceId, headers } = await seedDraftInvoice(
+        ctx,
+        'unissued-undo@example.com',
+      );
+
+      const paid = await ctx.app.request(`/api/invoices/${invoiceId}/mark-paid`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ method: 'cash', paidOn: '2026-05-25' }),
+      });
+      expect(paid.status).toBe(200);
+      const paidBody = (await paid.json()) as { status: string; sentAt: string | null };
+      expect(paidBody.status).toBe('paid');
+      // It was never issued, and marking it paid does not pretend otherwise.
+      expect(paidBody.sentAt).toBeNull();
+
+      const paymentId = await theOnlyPaymentId(ctx, headers, invoiceId);
+      const removed = await ctx.app.request(`/api/invoices/${invoiceId}/payments/${paymentId}`, {
+        method: 'DELETE',
+        headers,
+      });
+      expect(removed.status).toBe(200);
+      const removedBody = (await removed.json()) as SettlementResponse;
+      expect(removedBody.invoice.status).toBe('draft');
+      expect(removedBody.invoice.sentAt).toBeNull();
+      expect(removedBody.invoice.paidAt).toBeNull();
+      expect(removedBody.settlement).toBe('unpaid');
+      expect(removedBody.paid).toBe('0.00');
+      expect(removedBody.outstanding).toBe('108.25');
+
+      const db = getTestDb();
+      const [row] = await db.select().from(invoices).where(eq(invoices.id, invoiceId));
+      expect(row?.status).toBe('draft');
+      expect(row?.sentAt).toBeNull();
+      expect(row?.paidAt).toBeNull();
+      expect(row?.paymentMethod).toBeNull();
+      // Never issued, so no public link was ever minted — the customer really
+      // has not seen this document.
+      expect(row?.publicToken).toBeNull();
+
+      // The consequence the user actually feels, and the reason the status
+      // string matters: they can fix the invoice they never meant to touch.
+      const patch = await ctx.app.request(`/api/invoices/${invoiceId}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({
+          contactId,
+          number: 'INV-001',
+          issueDate: '2026-05-23',
+          dueDate: '2026-06-22',
+          subtotal: '250.00',
+          tax: '0.00',
+          total: '250.00',
+          lineItems: [
+            {
+              position: 1,
+              description: 'Rescoped — this was the wrong invoice',
+              quantity: '1',
+              unitPrice: '250.00',
+              amount: '250.00',
+            },
+          ],
+        }),
+      });
+      expect(patch.status).toBe(200);
+      const patched = (await patch.json()) as {
+        total: string;
+        lineItems: { description: string }[];
+      };
+      expect(patched.total).toBe('250.00');
+      expect(patched.lineItems).toHaveLength(1);
+      const [afterPatch] = await db.select().from(invoices).where(eq(invoices.id, invoiceId));
+      expect(afterPatch?.total).toBe('250.00');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('leaves accounts receivable exactly where it found it', async () => {
+    const ctx = buildApp();
+    try {
+      const { cookie, accountId, companyId, contactId, invoiceId, headers } =
+        await seedDraftInvoice(ctx, 'unissued-ar@example.com');
+
+      // Give A/R a real balance to be wrong about first: an ordinary issued
+      // invoice for the same customer. "Nothing changed" against a zero balance
+      // would pass even if the round trip posted and unposted a receivable.
+      const other = await ctx.app.request('/api/invoices', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(invoiceBody(companyId, contactId, 'INV-AR')),
+      });
+      expect(other.status).toBe(201);
+      const { id: issuedId } = (await other.json()) as { id: string };
+      const sent = await ctx.app.request(`/api/invoices/${issuedId}/mark-sent`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(sent.status).toBe(200);
+
+      const before = await balanceCents(companyId, '1200');
+      expect(before).toBe(10_825);
+
+      const paid = await ctx.app.request(`/api/invoices/${invoiceId}/mark-paid`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ method: 'cash', paidOn: '2026-05-25' }),
+      });
+      expect(paid.status).toBe(200);
+      // A counter sale credits revenue, so A/R never moves on the way in
+      // either — the receivable the old bug reported was never posted.
+      expect(await balanceCents(companyId, '1200')).toBe(before);
+
+      const paymentId = await theOnlyPaymentId(ctx, headers, invoiceId);
+      const removed = await ctx.app.request(`/api/invoices/${invoiceId}/payments/${paymentId}`, {
+        method: 'DELETE',
+        headers,
+      });
+      expect(removed.status).toBe(200);
+      expect(((await removed.json()) as SettlementResponse).invoice.status).toBe('draft');
+
+      // The assertion the ticket asks for: A/R is byte-for-byte what it was
+      // before the whole round trip, and the only receivable on the books is
+      // the invoice that was genuinely issued.
+      expect(await balanceCents(companyId, '1200')).toBe(before);
+
+      // And the A/R the USER sees agrees with the ledger. This is where the
+      // bug actually showed up: the owed buckets are derived from status, not
+      // from account 1200, so a draft stranded in 'sent' was chased for money
+      // against a receivable that had never been posted. Summing awaiting +
+      // overdue rather than naming one keeps this independent of today's date.
+      const summary = await ctx.app.request(`/api/invoices/summary?companyId=${companyId}`, {
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(summary.status).toBe(200);
+      const buckets = (await summary.json()) as {
+        draft: { count: number };
+        awaiting: { count: number };
+        overdue: { count: number };
+      };
+      expect(buckets.draft.count).toBe(1);
+      expect(buckets.awaiting.count + buckets.overdue.count).toBe(1);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  // The control. Without this the fix could have sent every reopened invoice
+  // to draft and the regression test above would still be green.
+  it('an ISSUED invoice comes back to sent, not to draft', async () => {
+    const ctx = buildApp();
+    try {
+      const { cookie, accountId, companyId, contactId, invoiceId, headers } =
+        await seedDraftInvoice(ctx, 'issued-undo@example.com');
+      const sent = await ctx.app.request(`/api/invoices/${invoiceId}/mark-sent`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(sent.status).toBe(200);
+
+      const paid = await ctx.app.request(`/api/invoices/${invoiceId}/mark-paid`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ method: 'cash', paidOn: '2026-05-25' }),
+      });
+      expect(paid.status).toBe(200);
+
+      const paymentId = await theOnlyPaymentId(ctx, headers, invoiceId);
+      const removed = await ctx.app.request(`/api/invoices/${invoiceId}/payments/${paymentId}`, {
+        method: 'DELETE',
+        headers,
+      });
+      expect(removed.status).toBe(200);
+      const removedBody = (await removed.json()) as SettlementResponse;
+      expect(removedBody.invoice.status).toBe('sent');
+      expect(removedBody.invoice.sentAt).not.toBeNull();
+      expect(removedBody.invoice.paidAt).toBeNull();
+      expect(removedBody.settlement).toBe('unpaid');
+      expect(removedBody.outstanding).toBe('108.25');
+
+      const db = getTestDb();
+      const [row] = await db.select().from(invoices).where(eq(invoices.id, invoiceId));
+      expect(row?.status).toBe('sent');
+      expect(row?.sentAt).not.toBeNull();
+      // The customer was billed and has not paid: the receivable is back, at
+      // the full amount of the document.
+      expect(await balanceCents(companyId, '1200')).toBe(10_825);
+
+      // And it is still NOT editable — the counterparty holds this document.
+      // The mirror image of the draft case above.
+      const patch = await ctx.app.request(`/api/invoices/${invoiceId}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({
+          contactId,
+          number: 'INV-001',
+          issueDate: '2026-05-23',
+          dueDate: '2026-06-22',
+          subtotal: '250.00',
+          tax: '0.00',
+          total: '250.00',
+          lineItems: [
+            {
+              position: 1,
+              description: 'Not allowed',
+              quantity: '1',
+              unitPrice: '250.00',
+              amount: '250.00',
+            },
+          ],
+        }),
+      });
+      expect(patch.status).toBe(409);
+      expect((await patch.json()) as { error: string; status: string }).toMatchObject({
+        error: 'not_editable',
+        status: 'sent',
+      });
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  // Deliberate, and pinned so a later refactor has to think about it: there is
+  // no "part-paid draft" status to hold this, and money IS on the document, so
+  // it maps to 'sent' even though sent_at is still null. The bug was the ZERO
+  // case, where nothing justified 'sent' at all.
+  it('a part-paid never-issued invoice stays out of draft while money is on it', async () => {
+    const ctx = buildApp();
+    try {
+      const { companyId, invoiceId, headers } = await seedDraftInvoice(
+        ctx,
+        'unissued-partial@example.com',
+      );
+
+      // A draft cannot be part-paid directly — POST /payments refuses one,
+      // there being no receivable to pay down. The reachable route is the one a
+      // user takes: settle it in cash, then hand part of it back.
+      const paid = await ctx.app.request(`/api/invoices/${invoiceId}/mark-paid`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ method: 'cash', paidOn: '2026-05-25' }),
+      });
+      expect(paid.status).toBe(200);
+
+      const refund = await ctx.app.request(`/api/invoices/${invoiceId}/payments`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ amount: '-58.25', receivedOn: '2026-05-26', method: 'cash' }),
+      });
+      expect(refund.status).toBe(201);
+      const refundBody = (await refund.json()) as SettlementResponse;
+      expect(refundBody.settlement).toBe('partial');
+      expect(refundBody.paid).toBe('50.00');
+      expect(refundBody.outstanding).toBe('58.25');
+      expect(refundBody.invoice.status).toBe('sent');
+      // 'sent' here is a settlement label, not a claim that it went out.
+      expect(refundBody.invoice.sentAt).toBeNull();
+
+      const db = getTestDb();
+      const [row] = await db.select().from(invoices).where(eq(invoices.id, invoiceId));
+      expect(row?.status).toBe('sent');
+      expect(row?.sentAt).toBeNull();
+      expect(row?.publicToken).toBeNull();
+      // And the books still say what they always said: a counter sale, part
+      // refunded, with no receivable anywhere.
+      expect(await balanceCents(companyId, '1200')).toBe(0);
     } finally {
       await ctx.handle.close();
     }

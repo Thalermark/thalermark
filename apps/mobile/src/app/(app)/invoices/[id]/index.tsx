@@ -110,6 +110,12 @@ export default function InvoiceDetail() {
   const [duplicating, setDuplicating] = useState(false);
   const [transitionError, setTransitionError] = useState<string | null>(null);
   const [sentTo, setSentTo] = useState<string | null>(null);
+  // Did the email actually leave the building? The console mailer logs the
+  // message and resolves, which looks exactly like a real send — so the server
+  // tells us, and this screen stops asserting a delivery it can't vouch for
+  // (TMC-212). Defaults to true: an older API omits `delivered`, and silence
+  // must not raise a warning.
+  const [sendDelivered, setSendDelivered] = useState(true);
 
   // Send override + mark-paid panel UI state.
   const [showOverride, setShowOverride] = useState(false);
@@ -216,7 +222,7 @@ export default function InvoiceDetail() {
   // the full Response type doesn't surface here.
   async function act(
     fn: () => Promise<{ ok: boolean; json: () => Promise<unknown> }>,
-    onOk?: () => void,
+    onOk?: (body: unknown) => void,
   ) {
     setActing(true);
     setTransitionError(null);
@@ -230,7 +236,10 @@ export default function InvoiceDetail() {
         );
         return;
       }
-      onOk?.();
+      // The success body too, so a caller can read what the server actually
+      // did — /send reports whether the email really went out. Best-effort:
+      // a body that isn't JSON just yields null (matches the estimate screen).
+      onOk?.(await res.json().catch(() => null));
       await load();
     } catch {
       setTransitionError('Action failed.');
@@ -244,8 +253,12 @@ export default function InvoiceDetail() {
     const recipient = to || (detail.state === 'ready' ? detail.contactEmail : null);
     act(
       () => api.api.invoices[':id'].send.$post({ param: { id }, json: to ? { to } : {} }),
-      () => {
-        setSentTo(recipient);
+      (body) => {
+        const sent = body as { sentTo?: string; delivered?: boolean } | null;
+        setSentTo(sent?.sentTo ?? recipient);
+        // Only an explicit `false` is a non-delivery; undefined is an older
+        // server that never told us, and we don't scare people over that.
+        setSendDelivered(sent?.delivered !== false);
         setShowOverride(false);
       },
     );
@@ -406,11 +419,21 @@ export default function InvoiceDetail() {
               </View>
             ) : null}
             {sentTo ? (
-              <View className="mt-4 rounded-sm border border-gold-deep/30 bg-gold-deep/5 px-4 py-3">
-                <Text className="text-sm text-ink">
-                  Sent to <Text className="font-medium">{sentTo}</Text>.
-                </Text>
-              </View>
+              sendDelivered ? (
+                <View className="mt-4 rounded-sm border border-gold-deep/30 bg-gold-deep/5 px-4 py-3">
+                  <Text className="text-sm text-ink">
+                    Sent to <Text className="font-medium">{sentTo}</Text>.
+                  </Text>
+                </View>
+              ) : (
+                <View className="mt-4 rounded-sm border border-copper/40 bg-copper/5 px-4 py-3">
+                  <Text className="text-sm text-ink">
+                    Marked as sent — but <Text className="font-medium">no email was delivered</Text>
+                    . This server has no email set up, so nothing reached {sentTo}. The invoice is
+                    issued and its pay link works; send the customer that link yourself.
+                  </Text>
+                </View>
+              )
             ) : null}
 
             {/* Action toolbar */}

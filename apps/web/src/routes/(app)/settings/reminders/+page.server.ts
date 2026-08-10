@@ -21,9 +21,18 @@ export const load: PageServerLoad = async (event) => {
   // user never sees a minus sign — "before it's due" and "after it's due" carry
   // the sign, the same way the refund control offers a direction rather than
   // asking anyone to type a negative number.
+  // Can this server actually send them? Reminders are held back rather than
+  // banked when it cannot, so the page must not promise chasing that will not
+  // happen (TMC-212). Best-effort; assume yes if the read fails.
+  const tplRes = await client.api.companies[':id']['email-templates'].$get({
+    param: { id: company.id },
+  });
+  const emailConfigured = tplRes.ok ? ((await tplRes.json()).emailConfigured ?? true) : true;
+
   const offsets = company.reminderOffsets ?? [];
   return {
     company,
+    emailConfigured,
     before: offsets.filter((d) => d < 0).map((d) => Math.abs(d)),
     after: offsets.filter((d) => d >= 0),
     limits: {

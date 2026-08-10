@@ -10,7 +10,7 @@ describe('summarizeSettlement', () => {
   const total = 120_000; // $1,200.00
 
   it('nothing received reads unpaid and keeps the invoice open', () => {
-    expect(summarizeSettlement({ totalCents: total, paidCents: 0 })).toEqual({
+    expect(summarizeSettlement({ totalCents: total, paidCents: 0, issued: true })).toEqual({
       settlement: 'unpaid',
       paid: '0.00',
       outstanding: '1200.00',
@@ -19,7 +19,7 @@ describe('summarizeSettlement', () => {
   });
 
   it('a deposit reads partial — the case the whole ticket exists for', () => {
-    const s = summarizeSettlement({ totalCents: total, paidCents: 60_000 });
+    const s = summarizeSettlement({ totalCents: total, paidCents: 60_000, issued: true });
     expect(s.settlement).toBe('partial');
     expect(s.outstanding).toBe('600.00');
     // Still open. A half-paid invoice is not a paid invoice, and every report
@@ -28,14 +28,14 @@ describe('summarizeSettlement', () => {
   });
 
   it('the final payment settles it exactly', () => {
-    const s = summarizeSettlement({ totalCents: total, paidCents: total });
+    const s = summarizeSettlement({ totalCents: total, paidCents: total, issued: true });
     expect(s.settlement).toBe('paid');
     expect(s.outstanding).toBe('0.00');
     expect(s.status).toBe('paid');
   });
 
   it('overpayment is recorded, not refused, and still counts as settled', () => {
-    const s = summarizeSettlement({ totalCents: total, paidCents: 130_000 });
+    const s = summarizeSettlement({ totalCents: total, paidCents: 130_000, issued: true });
     expect(s.settlement).toBe('overpaid');
     // Negative outstanding is the honest representation of "we owe them $100".
     expect(s.outstanding).toBe('-100.00');
@@ -44,13 +44,13 @@ describe('summarizeSettlement', () => {
 
   it('a full refund reopens the invoice rather than leaving it paid', () => {
     // $600 in, $600 back out.
-    const s = summarizeSettlement({ totalCents: total, paidCents: 0 });
+    const s = summarizeSettlement({ totalCents: total, paidCents: 0, issued: true });
     expect(s.settlement).toBe('unpaid');
     expect(s.status).toBe('sent');
   });
 
   it('refunding more than was received goes negative without crashing', () => {
-    const s = summarizeSettlement({ totalCents: total, paidCents: -5_000 });
+    const s = summarizeSettlement({ totalCents: total, paidCents: -5_000, issued: true });
     expect(s.settlement).toBe('unpaid');
     expect(s.paid).toBe('-50.00');
     expect(s.status).toBe('sent');
@@ -59,8 +59,42 @@ describe('summarizeSettlement', () => {
   it('a zero-total invoice is settled by definition, not stuck open', () => {
     // Guards the boundary: outstanding is 0 with nothing received, so the
     // paidCents <= 0 branch must not claim it is unpaid forever.
-    const s = summarizeSettlement({ totalCents: 0, paidCents: 0 });
+    const s = summarizeSettlement({ totalCents: 0, paidCents: 0, issued: true });
     expect(s.outstanding).toBe('0.00');
+  });
+
+  // TMC-215. mark-paid accepts a draft, so an invoice can carry a receipt
+  // without ever having been issued — a counter sale. Unwinding that receipt
+  // used to leave it in 'sent' with a null sent_at: uneditable, and counted as
+  // money owed against a ledger that had posted no receivable.
+  describe('an invoice that was never issued', () => {
+    it('falls back to draft when the last receipt is removed', () => {
+      const s = summarizeSettlement({ totalCents: total, paidCents: 0, issued: false });
+      expect(s.settlement).toBe('unpaid');
+      expect(s.status).toBe('draft');
+    });
+
+    it('is still paid while the cash is on it — a counter sale is settled', () => {
+      const s = summarizeSettlement({ totalCents: total, paidCents: total, issued: false });
+      expect(s.settlement).toBe('paid');
+      // 'issued' decides where it lands when it REOPENS, not whether cash
+      // settles it. A paid-in-full counter sale is paid either way.
+      expect(s.status).toBe('paid');
+    });
+
+    it('is still partial mid-way, and NOT resurrected as sent', () => {
+      const s = summarizeSettlement({ totalCents: total, paidCents: 60_000, issued: false });
+      expect(s.settlement).toBe('partial');
+      // Deliberate: part-settled but never issued still maps to 'sent', because
+      // the money is on it and there is no third status to hold "part-paid
+      // draft". The bug was the ZERO case, where nothing justifies 'sent'.
+      expect(s.status).toBe('sent');
+    });
+
+    it('goes to draft on a refund past zero too', () => {
+      const s = summarizeSettlement({ totalCents: total, paidCents: -5_000, issued: false });
+      expect(s.status).toBe('draft');
+    });
   });
 });
 

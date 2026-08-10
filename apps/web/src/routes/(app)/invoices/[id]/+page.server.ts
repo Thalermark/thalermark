@@ -34,6 +34,7 @@ export const load: PageServerLoad = async (event) => {
   // Read it here so the success banner survives the post/redirect without a
   // session flash; the URL stays one-shot (refresh clears it).
   const sentTo = event.url.searchParams.get('sent');
+  const sendUndelivered = event.url.searchParams.get('undelivered') === '1';
 
   // Audit trail (slice 8.8a). Best-effort: a non-OK response renders an
   // empty history rather than failing the whole page.
@@ -61,6 +62,7 @@ export const load: PageServerLoad = async (event) => {
     contact,
     origin: event.url.origin,
     sentTo,
+    sendUndelivered,
     auditEvents,
     needsBusinessDetails,
     businessCompanyId,
@@ -166,8 +168,14 @@ async function runSend(event: Parameters<Actions[string]>[0]) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
     return fail(res.status, { transitionError: apiErrorMessage(body?.error, 'send_failed', body) });
   }
-  const body = (await res.json()) as { sentTo?: string };
-  const qs = body.sentTo ? `?sent=${encodeURIComponent(body.sentTo)}` : '';
+  const body = (await res.json()) as { sentTo?: string; delivered?: boolean };
+  // `undelivered` rides along because the server may have logged the message
+  // rather than sent it — the console mailer resolves successfully having done
+  // nothing (TMC-212). Only the negative case is carried, so an ordinary send
+  // keeps the URL it always had.
+  const qs = body.sentTo
+    ? `?sent=${encodeURIComponent(body.sentTo)}${body.delivered === false ? '&undelivered=1' : ''}`
+    : '';
   redirect(303, `/invoices/${id}${qs}`);
 }
 

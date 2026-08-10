@@ -30,8 +30,12 @@ export const actions: Actions = {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
       return fail(res.status, { emailError: body?.error ?? 'send_failed' });
     }
-    const body = (await res.json()) as { sentTo?: string };
-    const qs = body.sentTo ? `?sent=${encodeURIComponent(body.sentTo)}` : '';
+    const body = (await res.json()) as { sentTo?: string; delivered?: boolean };
+    // See the invoice send action (TMC-212) — only the undelivered case is
+    // carried, so the ordinary success URL is unchanged.
+    const qs = body.sentTo
+      ? `?sent=${encodeURIComponent(body.sentTo)}${body.delivered === false ? '&undelivered=1' : ''}`
+      : '';
     redirect(303, `/contacts/${id}/statement${qs}`);
   },
 };

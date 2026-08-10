@@ -16,6 +16,7 @@ import {
   expenseAllocations,
   expenses,
   invoiceLineItems,
+  invoicePayments,
   invoices,
   items,
   // Aliased: the job-margin handler has a local `jobs` in its response shape.
@@ -1421,9 +1422,17 @@ export function reportsRoutes(deps: AppDeps) {
         },
       )
       // A/R aging (getting-paid set). Currently-outstanding invoices (status
-      // 'sent' — issued but unpaid; no partial payments in MVP, so the owed
-      // amount is the invoice total) bucketed by days past due relative to the
-      // as-of date. The total ties to the AR ledger balance.
+      // 'sent' — issued but not yet settled) bucketed by days past due relative
+      // to the as-of date. The total ties to the AR ledger balance.
+      //
+      // The owed amount is the invoice total MINUS what has been received
+      // against it (TMC-216). It used to be the total outright, on the premise
+      // — stated in this comment until now — that MVP had no partial payments.
+      // TMC-187 shipped them and this query was not revisited, so a $1,000
+      // invoice with a $500 deposit was reported here, and on the invoices
+      // list, as $1,000 owed while the dashboard read $500 off the ledger.
+      // Three screens, three answers to the one question this product exists
+      // to answer.
       .get(
         '/api/companies/:id/ar-aging',
         validator('query', (v) => ({ asOf: typeof v.asOf === 'string' ? v.asOf : undefined })),
@@ -1461,6 +1470,31 @@ export function reportsRoutes(deps: AppDeps) {
               ),
             );
 
+          // What has already been received against each of them, in one grouped
+          // read rather than a query per invoice. Signed, so a refund nets
+          // itself back out and the invoice reads as owed again — the same
+          // arithmetic paidCentsForInvoice does for a single invoice.
+          const paidCentsByInvoice = new Map<string, number>();
+          if (rows.length > 0) {
+            const paidRows = await tx
+              .select({
+                invoiceId: invoicePayments.invoiceId,
+                paid: sql<string>`coalesce(sum(${invoicePayments.amount}), 0)::numeric(15,2)`,
+              })
+              .from(invoicePayments)
+              .where(
+                and(
+                  eq(invoicePayments.accountId, accountId),
+                  inArray(
+                    invoicePayments.invoiceId,
+                    rows.map((r) => r.id),
+                  ),
+                ),
+              )
+              .groupBy(invoicePayments.invoiceId);
+            for (const p of paidRows) paidCentsByInvoice.set(p.invoiceId, toCents(p.paid));
+          }
+
           // Days past due = asOf − dueDate (both bare dates, UTC midnight). A
           // negative value = not yet due → the "current" bucket.
           const asOfMs = new Date(`${asOf}T00:00:00Z`).getTime();
@@ -1475,26 +1509,38 @@ export function reportsRoutes(deps: AppDeps) {
           const bucketTotals = new Map(BUCKETS.map((b) => [b.key, { count: 0, amountCents: 0 }]));
           const outstanding = rows
             .map((r) => {
+              const outstandingCents = toCents(r.total) - (paidCentsByInvoice.get(r.id) ?? 0);
               const dueMs = new Date(`${r.dueDate}T00:00:00Z`).getTime();
               const daysPastDue = Math.round((asOfMs - dueMs) / 86_400_000);
               const bucket = BUCKETS.find((b) => daysPastDue >= b.min && daysPastDue <= b.max);
               const key = bucket?.key ?? 'current';
-              const agg = bucketTotals.get(key);
-              if (agg) {
-                agg.count += 1;
-                agg.amountCents += toCents(r.total);
-              }
               return {
                 id: r.id,
                 number: r.number,
                 customerName: r.customerName,
                 dueDate: r.dueDate,
                 daysPastDue,
-                amount: r.total,
+                bucketKey: key,
+                outstandingCents,
+                amount: centsToMoney(outstandingCents),
               };
             })
+            // A 'sent' invoice with nothing left on it should not exist —
+            // syncInvoiceSettlement flips the status the moment the balance
+            // reaches zero — but an aging report is the wrong place to argue
+            // about that. Nothing is owed, so nothing is listed, and the total
+            // keeps tying to the ledger either way.
+            .filter((r) => r.outstandingCents > 0)
             // Most overdue first.
             .sort((a, b) => b.daysPastDue - a.daysPastDue);
+
+          for (const r of outstanding) {
+            const agg = bucketTotals.get(r.bucketKey);
+            if (agg) {
+              agg.count += 1;
+              agg.amountCents += r.outstandingCents;
+            }
+          }
 
           const total = sumMoney(outstanding.map((r) => r.amount));
           return c.json({
@@ -1508,7 +1554,10 @@ export function reportsRoutes(deps: AppDeps) {
                 amount: centsToMoney(agg?.amountCents ?? 0),
               };
             }),
-            invoices: outstanding,
+            // bucketKey / outstandingCents are working values — cents never
+            // cross the API (money goes over the wire as decimal strings), and
+            // the bucket is already expressed by the buckets array above.
+            invoices: outstanding.map(({ bucketKey: _b, outstandingCents: _c, ...row }) => row),
             total,
           });
         },
