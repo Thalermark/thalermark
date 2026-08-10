@@ -131,7 +131,9 @@ Optional integrations, each disabled-but-safe when blank:
   saved and verified, the AI endpoints return 503 and the rest of the app runs.
   See [AI options](#ai-options).
 - **Payments** — all three `STRIPE_*` keys. Blank ⇒ the Pay button hides and the
-  webhook 503s.
+  webhook 503s. **If this install serves businesses you don't own, also set
+  `STRIPE_REQUIRE_CONNECTED_ACCOUNT=true`** — see
+  [Running it for other people's businesses](#running-it-for-other-peoples-businesses).
 - **Address autocomplete** — `GOOGLE_PLACES_API_KEY` powers the customer-form
   type-ahead (Google Places, New). Blank ⇒ the field falls back to manual entry.
   Set the SAME key in the root `.env` (api) and `apps/web/.env` (web).
@@ -141,6 +143,43 @@ Optional integrations, each disabled-but-safe when blank:
 - **Legal consent** — off by default (`LEGAL_CONSENT_REQUIRED`). On ⇒ requires
   Terms/Privacy acceptance and records it per user/version. See
   [Legal consent](#legal-consent-termsprivacy).
+
+---
+
+## Running it for other people's businesses
+
+Most self-hosts are one person running their own books, and every default here
+is set for that. If you are running this install on behalf of businesses you do
+not own — a bookkeeper with several clients, an accountant hosting for a
+practice — one default needs changing.
+
+```bash
+STRIPE_REQUIRE_CONNECTED_ACCOUNT=true
+```
+
+**What it does.** With it off (the default), a company that has not onboarded
+Stripe Connect is still payable online, and the charge runs on the platform
+key — `STRIPE_SECRET_KEY`, i.e. *yours*. That is correct when the operator and
+the business are the same person: your key, your customer, your money.
+
+It stops being correct the moment they are different people. Your client's
+customer pays their invoice, and the money lands in **your** Stripe balance.
+Holding another business's receipts is fund commingling, and unpicking it later
+is a manual reconciliation nobody wants to do.
+
+**With it on**, a company that has not connected its own Stripe account is
+simply not payable by card until it does. The public invoice says so in plain
+language rather than hiding the button, so the customer is not left staring at
+a page with no way to pay. Offline payment methods (cash, check, Venmo, Zelle)
+are unaffected and still show.
+
+Each client company onboards Stripe Connect once, from **Settings → Payments**,
+and its receipts then settle into its own account.
+
+> The managed Cloud service sets this to `true` and does not offer it as a
+> setting — it serves businesses it does not own by definition. The `false`
+> default exists for the single-operator self-host, which is the common case
+> here and nowhere else.
 
 ---
 
