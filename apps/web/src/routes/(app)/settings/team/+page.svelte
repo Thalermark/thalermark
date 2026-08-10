@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ConfirmSubmit from '$lib/components/ConfirmSubmit.svelte';
   import { type Role, can, INVITE_ROLES } from '@thalermark/validation';
   import type { PageProps } from './$types';
 
@@ -80,43 +81,51 @@
 
           <!-- Actions -->
           {#if member.isYou && member.role !== 'owner'}
-            <form method="POST" action="?/leave">
-              <button
-                type="submit"
-                class="rounded-sm border border-fg/30 px-3 py-1.5 text-sm font-medium text-fg transition-colors hover:border-danger hover:text-danger"
-              >
-                Leave
-              </button>
-            </form>
+            <ConfirmSubmit
+              action="?/leave"
+              label="Leave"
+              title="Leave this workspace?"
+              confirmLabel="Leave workspace"
+              triggerClass="rounded-sm border border-fg/30 px-3 py-1.5 text-sm font-medium text-fg transition-colors hover:border-danger hover:text-danger"
+            >
+              {#snippet body()}
+                You lose access to this workspace and everything in it straight away. Nothing is
+                deleted — the books stay exactly as they are — but you can only get back in if
+                someone still inside invites you again.
+              {/snippet}
+            </ConfirmSubmit>
           {:else if member.role !== 'owner'}
             {#if canTransfer}
-              <form
-                method="POST"
+              <ConfirmSubmit
                 action="?/transfer"
-                onsubmit={(e) => {
-                  if (!confirm(`Make ${member.name} the owner? You'll become an admin.`))
-                    e.preventDefault();
-                }}
+                label="Make owner"
+                title="Make {member.name} the owner?"
+                confirmLabel="Transfer ownership"
+                hidden={{ userId: member.userId }}
+                triggerClass="rounded-sm border border-fg/30 px-3 py-1.5 text-sm font-medium text-fg transition-colors hover:border-accent hover:text-accent"
               >
-                <input type="hidden" name="userId" value={member.userId} />
-                <button
-                  type="submit"
-                  class="rounded-sm border border-fg/30 px-3 py-1.5 text-sm font-medium text-fg transition-colors hover:border-accent hover:text-accent"
-                >
-                  Make owner
-                </button>
-              </form>
+                {#snippet body()}
+                  They take over as owner and you become an admin. Only the owner can transfer
+                  ownership, so you cannot take it back yourself — {member.name} would have to hand
+                  it to you.
+                {/snippet}
+              </ConfirmSubmit>
             {/if}
             {#if canManageTeam}
-              <form method="POST" action="?/remove">
-                <input type="hidden" name="userId" value={member.userId} />
-                <button
-                  type="submit"
-                  class="rounded-sm border border-fg/30 px-3 py-1.5 text-sm font-medium text-fg transition-colors hover:border-danger hover:text-danger"
-                >
-                  Remove
-                </button>
-              </form>
+              <ConfirmSubmit
+                action="?/remove"
+                label="Remove"
+                title="Remove {member.name} from the workspace?"
+                confirmLabel="Remove {member.name}"
+                hidden={{ userId: member.userId }}
+                triggerClass="rounded-sm border border-fg/30 px-3 py-1.5 text-sm font-medium text-fg transition-colors hover:border-danger hover:text-danger"
+              >
+                {#snippet body()}
+                  They lose access immediately. Their name stays on the history of anything they
+                  already did, and nothing they entered is removed. To bring them back you would
+                  invite them again.
+                {/snippet}
+              </ConfirmSubmit>
             {/if}
           {/if}
         </div>

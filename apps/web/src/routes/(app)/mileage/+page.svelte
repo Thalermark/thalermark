@@ -1,4 +1,6 @@
 <script lang="ts">
+  import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
+  import ConfirmSubmit from '$lib/components/ConfirmSubmit.svelte';
   import LoadMore from '$lib/components/LoadMore.svelte';
   import { fetchMore } from '$lib/load-more';
   import { may } from '$lib/perms';
@@ -63,6 +65,19 @@
     vehicles.filter((v) => v.personalUse === null || v.placedInServiceOn === null),
   );
   const todayRate = standardMileageRateFor(today);
+
+  // Retiring a vehicle (TMC-217). This one confirmation cannot use ConfirmSubmit:
+  // the trigger is a submit button INSIDE the saveVehicle form, retargeted with
+  // formaction, and the Part IV fields ride along with it. Giving it a form of
+  // its own would change what gets posted, so the dialog is wired by hand.
+  //
+  // One dialog for however many vehicles are listed, not one per row: the click
+  // records WHICH button asked, and the same dialog then speaks for that row.
+  // Only one can be open at a time, so a <dialog> per truck plus an open flag
+  // keyed by id would be machinery with nothing to show for it.
+  let retireOpen = $state(false);
+  let retireBtn: HTMLButtonElement | null = $state(null);
+  let retireLabel = $state('');
 </script>
 
 <div class="flex flex-wrap items-baseline justify-between gap-4">
@@ -206,10 +221,21 @@
               <input type="hidden" name="vehicleId" value={trip.vehicleId ?? ''} />
               <button type="submit" class="link text-sm">Again</button>
             </form>
-            <form method="POST" action="?/remove">
-              <input type="hidden" name="id" value={trip.id} />
-              <button type="submit" class="link text-sm text-fg/50">Delete</button>
-            </form>
+            <ConfirmSubmit
+              action="?/remove"
+              label="Delete"
+              title="Delete this trip?"
+              confirmLabel="Delete trip"
+              hidden={{ id: trip.id }}
+              triggerClass="link text-sm text-fg/50"
+            >
+              {#snippet body()}
+                The {miles(trip.miles)} miles on {trip.tripDate} come off your mileage log and out of
+                your deduction{value ? `, ${fmt(value)} of it` : ''}. There is no undo — you would
+                have to log the drive again from scratch. It doesn't touch your books; mileage never
+                moves money.
+              {/snippet}
+            </ConfirmSubmit>
           </span>
         {/if}
       </li>
@@ -264,7 +290,24 @@
       <input type="hidden" name="id" value={v.id} />
       <div class="flex flex-wrap items-baseline justify-between gap-3">
         <span class="font-serif text-lg text-fg">{v.label}</span>
-        <button type="submit" formaction="?/retireVehicle" class="link text-xs text-fg/50">
+        <!--
+          Stays a real type="submit" with its formaction: with scripting off the
+          POST goes through exactly as it did before, unconfirmed but never
+          broken. The click is cancelled and re-issued from the dialog through
+          requestSubmit(button), which honours formaction and does not re-fire
+          this handler.
+        -->
+        <button
+          type="submit"
+          formaction="?/retireVehicle"
+          class="link text-xs text-fg/50"
+          onclick={(e) => {
+            e.preventDefault();
+            retireBtn = e.currentTarget;
+            retireLabel = v.label;
+            retireOpen = true;
+          }}
+        >
           No longer used
         </button>
       </div>
@@ -308,4 +351,19 @@
       <button type="submit" class="btn mt-4">Save</button>
     </form>
   {/each}
+
+  <ConfirmDialog
+    bind:open={retireOpen}
+    title="Mark {retireLabel} as no longer used?"
+    confirmLabel="Retire this vehicle"
+    onconfirm={() => retireBtn?.form?.requestSubmit(retireBtn)}
+  >
+    {#snippet body()}
+      Retired, not deleted: every trip you have already logged keeps its miles and stays in your
+      deduction, and the vehicle still appears on your tax worksheet for the years it drove. It
+      disappears from the vehicle picker, so you can't log any more driving against it.
+      <strong class="font-medium text-fg">There is no way to bring it back.</strong> You would have
+      to add it again as a new vehicle, and the old trips would stay with this one.
+    {/snippet}
+  </ConfirmDialog>
 {/if}

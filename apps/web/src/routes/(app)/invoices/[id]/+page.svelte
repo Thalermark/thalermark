@@ -1,5 +1,6 @@
 <script lang="ts">
   import AuditHistory from '$lib/components/AuditHistory.svelte';
+  import ConfirmSubmit from '$lib/components/ConfirmSubmit.svelte';
   import PaymentFields from '$lib/components/PaymentFields.svelte';
   import SplitButton from '$lib/components/SplitButton.svelte';
   import { may } from '$lib/perms';
@@ -295,14 +296,19 @@
       </SplitButton>
     {/if}
     {#if canVoid}
-      <form method="post" action="?/void">
-        <button
-          type="submit"
-          class="rounded-sm border border-danger/30 px-4 py-2 text-sm font-medium text-danger transition-colors hover:bg-danger/5"
-        >
-          Void
-        </button>
-      </form>
+      <ConfirmSubmit
+        action="?/void"
+        label="Void"
+        title="Void invoice {inv.number}?"
+        confirmLabel="Void invoice"
+        triggerClass="rounded-sm border border-danger/30 px-4 py-2 text-sm font-medium text-danger transition-colors hover:bg-danger/5"
+      >
+        {#snippet body()}
+          Voiding cancels the invoice and reverses the income it recorded. It stays on the books as
+          a voided document — you can't reopen it or edit it afterwards, and the customer's pay link
+          stops working.
+        {/snippet}
+      </ConfirmSubmit>
     {/if}
   </div>
 
@@ -466,15 +472,20 @@
                 {paymentAmount(p.amount)}
               </span>
               {#if canRecordPayment}
-                <form method="post" action="?/removePayment">
-                  <input type="hidden" name="paymentId" value={p.id} />
-                  <button
-                    type="submit"
-                    class="text-xs uppercase tracking-widest text-fg/40 hover:text-accent"
-                  >
-                    Remove
-                  </button>
-                </form>
+                <ConfirmSubmit
+                  action="?/removePayment"
+                  label="Remove"
+                  title="Remove this {Number(p.amount) < 0 ? 'refund' : 'payment'}?"
+                  confirmLabel="Remove"
+                  hidden={{ paymentId: p.id }}
+                  triggerClass="text-xs uppercase tracking-widest text-fg/40 hover:text-accent"
+                >
+                  {#snippet body()}
+                    The {paymentAmount(p.amount)} recorded on {p.receivedOn} is deleted and its ledger
+                    entry reversed. The invoice goes back to owing that much. Nothing here remembers
+                    the reference or the method, so you'd have to re-enter them by hand.
+                  {/snippet}
+                </ConfirmSubmit>
               {/if}
             </span>
           </li>

@@ -1,5 +1,6 @@
 <script lang="ts">
   import AuditHistory from '$lib/components/AuditHistory.svelte';
+  import ConfirmSubmit from '$lib/components/ConfirmSubmit.svelte';
   import PaymentFields from '$lib/components/PaymentFields.svelte';
   import { may } from '$lib/perms';
   import type { PageProps } from './$types';
@@ -161,17 +162,18 @@
       <button type="button" class="btn" onclick={() => (showPay = !showPay)}>Mark paid</button>
     {/if}
     <a href="/bills/{bill.id}/edit" class="text-sm text-fg/70 hover:text-fg">Edit</a>
-    <form method="POST" action="?/void">
-      <button
-        type="submit"
-        class="text-sm text-fg/50 hover:text-danger"
-        onclick={(e) => {
-          if (!confirm('Void this bill? This reverses its ledger entry.')) e.preventDefault();
-        }}
-      >
-        Void
-      </button>
-    </form>
+    <ConfirmSubmit
+      action="?/void"
+      label="Void"
+      title="Void this bill?"
+      confirmLabel="Void bill"
+      triggerClass="text-sm text-fg/50 hover:text-danger"
+    >
+      {#snippet body()}
+        The bill is cancelled and whatever is still owed on it comes off what you owe. It stays on
+        the books as a voided bill and cannot be reopened or edited afterwards.
+      {/snippet}
+    </ConfirmSubmit>
   </div>
 
   {#if showPay && canMarkPaid}
@@ -219,19 +221,20 @@
                 {paymentAmount(p.amount)}
               </span>
               {#if canRecordPayment}
-                <form method="POST" action="?/removePayment">
-                  <input type="hidden" name="paymentId" value={p.id} />
-                  <button
-                    type="submit"
-                    class="text-xs uppercase tracking-widest text-fg/40 hover:text-accent"
-                    onclick={(e) => {
-                      if (!confirm('Remove this payment? The ledger entry is reversed, not erased.'))
-                        e.preventDefault();
-                    }}
-                  >
-                    Remove
-                  </button>
-                </form>
+                <ConfirmSubmit
+                  action="?/removePayment"
+                  label="Remove"
+                  title="Remove this {Number(p.amount) < 0 ? 'refund' : 'payment'}?"
+                  confirmLabel="Remove"
+                  hidden={{ paymentId: p.id }}
+                  triggerClass="text-xs uppercase tracking-widest text-fg/40 hover:text-accent"
+                >
+                  {#snippet body()}
+                    The {paymentAmount(p.amount)} recorded on {p.paidOn} is deleted and its ledger entry
+                    reversed, so the bill goes back to owing that much. The reference and method are
+                    not kept anywhere else — you would re-enter them by hand.
+                  {/snippet}
+                </ConfirmSubmit>
               {/if}
             </span>
           </li>

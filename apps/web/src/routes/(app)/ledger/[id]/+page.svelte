@@ -1,5 +1,6 @@
 <script lang="ts">
   import AuditHistory from '$lib/components/AuditHistory.svelte';
+  import ConfirmSubmit from '$lib/components/ConfirmSubmit.svelte';
   import { may } from '$lib/perms';
   import { sumMoney } from '@thalermark/validation';
   import type { PageProps } from './$types';
@@ -26,22 +27,18 @@
     Journal entry<span class="text-accent">.</span>
   </h1>
   {#if canReverse}
-    <form
-      method="post"
+    <ConfirmSubmit
       action="?/reverse"
-      onsubmit={(e) => {
-        if (!confirm('Reverse this entry? This posts an opposite entry and cannot be undone.')) {
-          e.preventDefault();
-        }
-      }}
+      label="Reverse"
+      title="Reverse this entry?"
+      confirmLabel="Reverse entry"
+      triggerClass="rounded-sm border border-danger/30 px-3 py-1 font-mono text-xs uppercase tracking-widest text-danger/80 hover:border-danger hover:text-danger"
     >
-      <button
-        type="submit"
-        class="rounded-sm border border-danger/30 px-3 py-1 font-mono text-xs uppercase tracking-widest text-danger/80 hover:border-danger hover:text-danger"
-      >
-        Reverse
-      </button>
-    </form>
+      {#snippet body()}
+        A balancing opposite entry is posted, cancelling this one out. Both stay on the record —
+        nothing is erased — and this cannot be undone.
+      {/snippet}
+    </ConfirmSubmit>
   {/if}
 </div>
 

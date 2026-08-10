@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ConfirmSubmit from '$lib/components/ConfirmSubmit.svelte';
   import { BUSINESS_TYPES, BUSINESS_TYPE_LABELS } from '@thalermark/validation';
   import { untrack } from 'svelte';
   import type { PageProps } from './$types';
@@ -556,15 +557,21 @@
         alt="Current logo"
         class="max-h-24 max-w-[16rem] rounded-sm border border-fg/10 bg-surface object-contain p-2"
       />
-      <form method="POST" action="?/removeLogo" class="mt-4">
-        <input type="hidden" name="companyId" value={data.company.id} />
-        <button
-          type="submit"
-          class="rounded-sm border border-fg/20 px-3 py-1.5 text-sm text-fg/70 transition-colors hover:border-danger/40 hover:text-danger"
-        >
-          Remove logo
-        </button>
-      </form>
+      <ConfirmSubmit
+        action="?/removeLogo"
+        label="Remove logo"
+        title="Remove your logo?"
+        confirmLabel="Remove logo"
+        hidden={{ companyId: data.company.id }}
+        formClass="mt-4"
+        triggerClass="rounded-sm border border-fg/20 px-3 py-1.5 text-sm text-fg/70 transition-colors hover:border-danger/40 hover:text-danger"
+      >
+        {#snippet body()}
+          The image is deleted from this server, and invoices and estimates you send from now on
+          go out without it. Documents you already sent are unaffected. You can upload it again any
+          time if you still have the file.
+        {/snippet}
+      </ConfirmSubmit>
     {:else}
       <p class="text-sm text-fg/50">No logo yet.</p>
     {/if}

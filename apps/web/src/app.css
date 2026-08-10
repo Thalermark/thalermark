@@ -151,6 +151,19 @@
       text-sm font-medium text-fg transition-colors
       hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-50;
   }
+  /* The one that takes something away. Reserved for the confirming button in a
+     ConfirmDialog and nothing else — if a destructive control is styled this
+     loudly out on the page, the page is asking for the click rather than
+     checking it (TMC-217). */
+  /* text-on-inverse, not text-cream: --danger is a dark oxblood in light mode
+     and a LIFTED oxblood on navy in dark, so a fixed cream label is unreadable
+     in one of the two themes. on-inverse is the token that already means "text
+     that sits on a strong fill" and flips with the theme. */
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-2 rounded-sm bg-danger px-4 py-2
+      text-sm font-medium text-on-inverse transition-colors
+      hover:bg-danger/85 disabled:cursor-not-allowed disabled:opacity-50;
+  }
   /* Compact size modifier (padding only — pair with .btn or .btn-ghost). */
   .btn-sm {
     @apply px-3 py-1.5;
