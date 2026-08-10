@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { enhance } from '$app/forms';
   import ItemTaxFields from '$lib/components/ItemTaxFields.svelte';
   import type { PageProps } from './$types';
 
@@ -38,7 +39,7 @@
   </div>
 {/if}
 
-<form method="post" class="mt-8 space-y-6">
+<form method="post" class="mt-8 space-y-6" use:enhance>
   <div>
     <label for="name" class="label">
       Name<span class="text-accent">*</span>

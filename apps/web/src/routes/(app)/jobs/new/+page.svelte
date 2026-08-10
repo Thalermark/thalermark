@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { enhance } from '$app/forms';
   import type { PageProps } from './$types';
 
   let { form, data }: PageProps = $props();
@@ -28,7 +29,7 @@
   </div>
 {/if}
 
-<form method="post" class="mt-8 space-y-6">
+<form method="post" class="mt-8 space-y-6" use:enhance>
   <div>
     <label for="name" class="label">
       What do you call it<span class="text-accent">*</span>

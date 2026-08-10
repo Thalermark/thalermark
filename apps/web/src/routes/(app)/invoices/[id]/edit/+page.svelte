@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { enhance } from '$app/forms';
   import { untrack } from 'svelte';
   import ContactPicker from '$lib/components/ContactPicker.svelte';
   import ItemPicker from '$lib/components/ItemPicker.svelte';
@@ -175,7 +176,7 @@
   </div>
 {/if}
 
-<form method="post" class="mt-8 space-y-8">
+<form method="post" class="mt-8 space-y-8" use:enhance>
   <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
     <div>
       <label for="contactName" class="label">

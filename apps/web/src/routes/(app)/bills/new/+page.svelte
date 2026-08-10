@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { enhance } from '$app/forms';
   import ContactPicker from '$lib/components/ContactPicker.svelte';
   import type { PageProps } from './$types';
 
@@ -25,7 +26,7 @@
   <p class="callout mt-6 border-danger/30 bg-danger/5 text-danger">{form.formError}</p>
 {/if}
 
-<form method="POST" class="mt-8 max-w-2xl space-y-6">
+<form method="POST" class="mt-8 max-w-2xl space-y-6" use:enhance>
   <div>
     <span class="label">Vendor<span class="text-accent">*</span></span>
     <ContactPicker

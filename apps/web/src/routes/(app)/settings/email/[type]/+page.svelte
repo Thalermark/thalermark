@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { enhance } from '$app/forms';
   import { page } from '$app/state';
   import type { PageProps } from './$types';
 
@@ -67,7 +68,7 @@
     </span>
   </header>
 
-  <form method="POST" class="px-6 py-6">
+  <form method="POST" class="px-6 py-6" use:enhance>
     <input type="hidden" name="companyId" value={data.company.id} />
 
     <label class="block">
