@@ -111,9 +111,19 @@
       We're still confirming this payment. Refresh in a moment — the invoice shows as paid once
       it clears.
     </div>
-  {:else if inv.connectPending && inv.status === 'sent'}
+  {:else if inv.noPaymentMethod}
+    <!--
+      Shown only when this page offers no way to pay at all — no card, no cash,
+      no check, no Venmo, no Zelle. It says what the recipient can do and
+      nothing about why: a customer should never be shown their supplier's
+      unfinished payment setup. The owner is told that, in the app.
+    -->
     <div class="mt-6 rounded-sm border border-fg/15 bg-surface-2 px-4 py-3 text-sm text-fg/80">
-      {inv.companyName ?? 'This business'} hasn't finished setting up online payments. Online pay will appear here once that's done — in the meantime you can pay by any method listed below, or reach out to them directly.
+      To arrange payment, please contact {inv.companyName ?? 'the business'}{inv.companyEmail
+        ? ` at ${inv.companyEmail}`
+        : inv.companyPhone
+          ? ` on ${inv.companyPhone}`
+          : ''}.
     </div>
   {/if}
 

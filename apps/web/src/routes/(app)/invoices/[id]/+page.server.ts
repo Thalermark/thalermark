@@ -30,6 +30,19 @@ export const load: PageServerLoad = async (event) => {
   const needsBusinessDetails = !!company && !company.businessAddress;
   const businessCompanyId = company?.id ?? null;
 
+  // Whether this company's invoices can be paid by card yet. The recipient's
+  // page is deliberately silent about unfinished Stripe onboarding — telling a
+  // customer their supplier hasn't sorted its admin is not the customer's
+  // problem — so the owner has to learn it here, on the invoice they just sent.
+  // Best-effort like the prompts above: a failed fetch drops the banner.
+  let paymentsNotLive = false;
+  if (company) {
+    const connectRes = await client.api.companies[':id']['stripe-connect'].status.$get({
+      param: { id: company.id },
+    });
+    if (connectRes.ok) paymentsNotLive = (await connectRes.json()).connectPending;
+  }
+
   // After a successful send, the action redirects back with ?sent=<email>.
   // Read it here so the success banner survives the post/redirect without a
   // session flash; the URL stays one-shot (refresh clears it).
@@ -75,6 +88,7 @@ export const load: PageServerLoad = async (event) => {
     auditEvents,
     needsBusinessDetails,
     businessCompanyId,
+    paymentsNotLive,
     settlement,
     // Whether the BUSINESS has automatic reminders switched on. The per-invoice
     // control is meaningless without it — "stop reminding about this invoice"
