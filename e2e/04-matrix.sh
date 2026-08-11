@@ -12,7 +12,7 @@ handoff_pair() { # handoff_pair <fromType> <toType>
   local FROM=$1 TO=$2 N="$1 → $2"
   local C CASH FUEL H NEW TID BEFORE OPENED
   C=$(newco "Matrix $FROM to $TO" "$FROM")
-  CASH=$(coa "$C" 1000); FUEL=$(coa "$C" 6200)
+  CASH=$(coa "$C" 1000); FUEL=$(coa "$C" 6100)
   api POST /api/owner-money "{\"companyId\":\"$C\",\"kind\":\"contribution\",\"amount\":\"15000.00\",\"occurredOn\":\"2025-01-05\"}" >/dev/null
   api POST /api/expenses "{\"companyId\":\"$C\",\"categoryAccountId\":\"$FUEL\",\"paymentAccountId\":\"$CASH\",\"amount\":\"400.00\",\"expenseDate\":\"2026-02-01\",\"merchant\":\"Fuel\"}" >/dev/null
   BEFORE=$(api GET "/api/companies/$C/balance-sheet?asOf=2026-06-30" | jq -r '.totalAssets')

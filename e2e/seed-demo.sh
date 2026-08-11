@@ -14,11 +14,15 @@ CID=$COMPANY_ID
 api PATCH "/api/companies/$CID" '{"businessType":"sole_prop","name":"Ridgeline Lawn Care"}' >/dev/null
 
 CASH=$(coa "$CID" 1000)
-FUEL=$(coa "$CID" 6200)
+# Each expense below sits in the category its name implies, so a screenshot of
+# the seeded account can't be misread as the product mis-categorising it, and
+# the tax worksheet lands the cost on the Schedule C line it really belongs to.
+FUEL=$(coa "$CID" 6100)
+SUPPLIES=$(coa "$CID" 7000)
 
 api POST /api/owner-money "{\"companyId\":\"$CID\",\"kind\":\"contribution\",\"amount\":\"20000.00\",\"occurredOn\":\"2024-01-05\"}" >/dev/null
 api POST /api/expenses "{\"companyId\":\"$CID\",\"categoryAccountId\":\"$FUEL\",\"paymentAccountId\":\"$CASH\",\"amount\":\"500.00\",\"expenseDate\":\"2026-03-01\",\"merchant\":\"Fuel\"}" >/dev/null
-api POST /api/expenses "{\"companyId\":\"$CID\",\"categoryAccountId\":\"$FUEL\",\"paymentAccountId\":\"$CASH\",\"amount\":\"240.00\",\"expenseDate\":\"2025-09-14\",\"merchant\":\"Blades\"}" >/dev/null
+api POST /api/expenses "{\"companyId\":\"$CID\",\"categoryAccountId\":\"$SUPPLIES\",\"paymentAccountId\":\"$CASH\",\"amount\":\"240.00\",\"expenseDate\":\"2025-09-14\",\"merchant\":\"Blades\"}" >/dev/null
 
 PID=$(api POST /api/purchases "{\"companyId\":\"$CID\",\"description\":\"Zero-turn mower\",\"amount\":\"6000.00\",\"purchaseDate\":\"2024-03-01\",\"funding\":\"financed\",\"downPayment\":\"1000.00\",\"taxTreatment\":\"spread\",\"usefulLifeYears\":5}" | jq -r '.id')
 api POST /api/purchases "{\"companyId\":\"$CID\",\"description\":\"Trailer\",\"amount\":\"2400.00\",\"purchaseDate\":\"2025-05-01\",\"funding\":\"paid_in_full\",\"taxTreatment\":\"spread\",\"usefulLifeYears\":5}" >/dev/null

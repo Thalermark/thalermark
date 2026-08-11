@@ -12,7 +12,7 @@ section "Chart of accounts — all five entity types"
 # Codes the ledger posts against BY LITERAL VALUE. If any entity type is missing
 # one, a posting into that company throws at runtime rather than at seed time —
 # which is exactly the failure this checks for.
-REQUIRED=(1000 1200 1500 1900 2000 2700 3000 3100 3900 4000 4100 6200 7950)
+REQUIRED=(1000 1200 1500 1900 2000 2700 3000 3100 3900 4000 4100 6100 6200 7000 7950)
 
 for BT in sole_prop llc_single_member partnership s_corp c_corp; do
   CID=$(newco "Probe $BT" "$BT")
