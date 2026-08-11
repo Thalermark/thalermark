@@ -3,6 +3,7 @@ import {
   companies,
   contacts,
   estimateLineItems,
+  estimateRevisions,
   estimates,
   invoiceLineItems,
   invoices,
@@ -478,7 +479,16 @@ export function estimatesRoutes(deps: AppDeps) {
             and(eq(estimateLineItems.estimateId, id), eq(estimateLineItems.accountId, accountId)),
           )
           .orderBy(asc(estimateLineItems.position));
-        return c.json({ ...estimate, lineItems: lines });
+        // Every time this quote was pulled back to be corrected (TMC-227),
+        // newest first. Empty for almost every estimate.
+        const revisions = await tx
+          .select()
+          .from(estimateRevisions)
+          .where(
+            and(eq(estimateRevisions.accountId, accountId), eq(estimateRevisions.estimateId, id)),
+          )
+          .orderBy(desc(estimateRevisions.revisedAt));
+        return c.json({ ...estimate, lineItems: lines, revisions });
       })
       .patch(
         '/api/estimates/:id',
@@ -614,6 +624,97 @@ export function estimatesRoutes(deps: AppDeps) {
           ESTIMATE_TRANSITIONS['mark-declined'],
         ),
       )
+      // "Fix this estimate" — the estimate half of TMC-227. Pull a sent quote
+      // back to a draft you can edit, then resend it through the ordinary send.
+      //
+      // A wrong price on a sent estimate was permanent in exactly the way a
+      // wrong invoice was, and it costs the business more directly: the number
+      // the customer is comparing against a competitor is the wrong one.
+      //
+      // Cheaper than the invoice side by everything that matters — estimates
+      // post nothing to the ledger, so there is no reversal, no period check and
+      // no settlement to guard. The number, the public token and the customer's
+      // link survive for the same reasons.
+      //
+      // A DEDICATED HANDLER, not a fourth entry in ESTIMATE_TRANSITIONS. That
+      // helper stamps unconditionally (revise must stamp nothing) and its UPDATE
+      // does not re-assert the status it validated, so a concurrent pair can
+      // both apply. Rather than loosen a new transition to match three existing
+      // ones, this one takes the invoice-side compare-and-swap; the divergence
+      // is deliberate and the three older transitions are left alone.
+      .post('/api/estimates/:id/revise', requireCapability('sales:write'), async (c) => {
+        const id = c.req.param('id');
+        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+
+        const [current] = await tx
+          .select()
+          .from(estimates)
+          .where(and(eq(estimates.id, id), eq(estimates.accountId, accountId)))
+          .limit(1);
+        if (!current) return c.json({ error: 'estimate_not_found' }, 404);
+
+        // An estimate that already became an invoice is history. Editing it
+        // would change the quote behind a document that has its own life, its
+        // own number and possibly its own payments — and the invoice is the one
+        // that is actually wrong.
+        if (current.convertedInvoiceId) {
+          return c.json({ error: 'already_converted' }, 409);
+        }
+        // Sent only. Accepted and declined are terminal in v1: an accepted
+        // estimate is an agreement, and changing one needs re-acceptance
+        // semantics nobody has designed yet.
+        //
+        // Note what this deliberately DOES allow. 'expired' is derived at read
+        // time off expires_on and never stored, so a quote that has run out is
+        // still 'sent' here and can be pulled back — which is the "the price
+        // has gone up, re-offer it" case. The new expiry is edited in the draft
+        // like any other field.
+        if (current.status !== 'sent') {
+          return c.json({ error: 'invalid_transition', from: current.status, to: 'draft' }, 409);
+        }
+
+        const now = new Date();
+        // Re-asserts the status the check above observed, so a concurrent
+        // accept — or a second click — loses cleanly instead of double-applying.
+        // sent_at is deliberately left in place: 'draft' + sent_at is the
+        // derived "being revised" state both clients and the public page read.
+        const [updated] = await tx
+          .update(estimates)
+          .set({ status: 'draft', updatedAt: now })
+          .where(
+            and(
+              eq(estimates.id, id),
+              eq(estimates.accountId, accountId),
+              eq(estimates.status, 'sent'),
+            ),
+          )
+          .returning();
+        if (!updated) {
+          return c.json({ error: 'invalid_transition', from: current.status, to: 'draft' }, 409);
+        }
+
+        await tx.insert(estimateRevisions).values({
+          id: uuidv7(),
+          accountId,
+          companyId: current.companyId,
+          estimateId: id,
+          revisedAt: now,
+          previousTotal: current.total,
+        });
+
+        await c.var.audit({
+          entityType: 'estimate',
+          entityId: id,
+          action: 'revise',
+          before: { status: current.status, total: current.total },
+          after: { status: updated.status },
+          companyId: updated.companyId,
+        });
+
+        return c.json(updated);
+      })
       // Convert an accepted estimate into a draft invoice. Gated to status
       // 'accepted' — the "estimate → agreement → invoice" flow. Idempotent:
       // a second call (or a re-load that fires the action twice) returns the
