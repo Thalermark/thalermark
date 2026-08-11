@@ -87,11 +87,10 @@
         vector-effect="non-scaling-stroke"
       />
     {/each}
-    {#if last}
-      <!-- The most recent point, marked. Without it the eye has to find the
-           end of the line, which is the one value that matters most. -->
-      <circle cx={last.x} cy={last.y} r="2" fill={toneFill(tone)} vector-effect="non-scaling-stroke"
-      ></circle>
-    {/if}
+    <!-- No end-point marker. `preserveAspectRatio="none"` stretches the
+         viewBox to the container, which turns a circle into a lopsided ellipse
+         — and `vector-effect` rescues strokes, not radii. The line's right-hand
+         end is already the newest value, so the dot was decoration that only
+         looked correct at one aspect ratio. -->
   </svg>
 {/if}
