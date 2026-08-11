@@ -46,6 +46,9 @@ type Invoice = {
   tax: string | null;
   total: string;
   notes: string | null;
+  // Needed for the derived "being revised" state: 'draft' with a sent_at is an
+  // invoice pulled back to be corrected (TMC-227).
+  sentAt: string | null;
   publicToken: string | null;
   paymentMethod: string | null;
   paymentReference: string | null;
@@ -55,6 +58,9 @@ type Invoice = {
   // undefined rather than the screen failing to parse the invoice at all.
   remindersOptedOut?: boolean;
   lineItems: LineItem[];
+  // Every pull-back so far, newest first (TMC-227). Empty for almost every
+  // invoice; the nudge reads the most recent one's date.
+  revisions: { revisedAt: string; previousTotal: string }[];
 };
 type DetailState =
   | { state: 'loading' }
@@ -100,6 +106,11 @@ const TRANSITION_ERRORS: Record<string, string> = {
     'This invoice was settled in one go, so there is nothing left to record against it.',
   voided: 'This invoice was voided, so no more money can be recorded against it.',
   not_issued: 'Send this invoice first — there is nothing owed on a draft to pay down.',
+  // Correcting a sent invoice (TMC-227). Same sentences the web detail uses.
+  invoice_paid:
+    'This invoice has been paid. Remove or refund the payment first, then pull it back to fix it.',
+  revision_in_progress:
+    'This invoice is being fixed. Resend the corrected one first, then change its payments.',
 };
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
@@ -171,11 +182,13 @@ export default function InvoiceDetail() {
         tax: inv.tax ?? null,
         total: inv.total,
         notes: inv.notes ?? null,
+        sentAt: inv.sentAt ?? null,
         publicToken: inv.publicToken ?? null,
         paymentMethod: inv.paymentMethod ?? null,
         paymentReference: inv.paymentReference ?? null,
         paidAt: inv.paidAt ?? null,
         lineItems: inv.lineItems,
+        revisions: inv.revisions ?? [],
       },
     });
     // Receipts + derived settlement. Best-effort like the audit trail below —
@@ -217,12 +230,24 @@ export default function InvoiceDetail() {
   const depositAccounts = useMoneyAccounts(inv?.companyId ?? null, false);
   const [depositAccountId, setDepositAccountId] = useState<string | null>(null);
   const status = inv?.status;
+  // Pulled back to be corrected and not yet resent (TMC-227). A DERIVED label,
+  // not a status — same shape as the overdue/expired labels, and for the same
+  // reason: a sixth enum value would have to be understood by the ledger, every
+  // report and both clients at once.
+  const isRevising = status === 'draft' && inv?.sentAt != null;
+  const statusLabel = isRevising ? 'being revised' : status;
   const canSend = canWrite && (status === 'draft' || status === 'sent');
   const canMarkSent = canWrite && status === 'draft';
-  const canMarkPaid = canWrite && (status === 'draft' || status === 'sent');
+  const canRevise = canWrite && status === 'sent';
+  // Refused server-side while a correction is in flight — mark-paid on a draft
+  // posts a counter-sale receipt, which would credit a receivable that has just
+  // been reversed. Hidden so the button never offers a certain 409.
+  const canMarkPaid = canWrite && !isRevising && (status === 'draft' || status === 'sent');
+  // Void stays available while revising: "pulled it back, then decided to kill
+  // it" is a real ending, and draft → voided posts nothing.
   const canVoid = canWrite && (status === 'draft' || status === 'sent');
   const canEdit = canWrite && status === 'draft';
-  const hasActions = canSend || canMarkSent || canMarkPaid || canVoid;
+  const hasActions = canSend || canMarkSent || canRevise || canMarkPaid || canVoid;
 
   // Run a transition, then reload. `onOk` records any success side effect
   // (e.g. the "sent to" banner) before the refresh. The fn returns an hc
@@ -371,6 +396,23 @@ export default function InvoiceDetail() {
     ]);
   }
 
+  // "Fix this invoice" (TMC-227). Confirmed, but not destructive — nothing is
+  // lost by pulling an invoice back. What the dialog exists for is that the
+  // CUSTOMER sees the change, which the body spells out. Same copy as web.
+  function onRevise() {
+    Alert.alert(
+      'Fix this invoice?',
+      "It goes back to a draft you can edit. The customer's link will say it's being revised, and the amount comes off your books until you resend it.",
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Pull it back',
+          onPress: () => act(() => api.api.invoices[':id'].revise.$post({ param: { id } })),
+        },
+      ],
+    );
+  }
+
   // Mirrors the API's eligibility rule so the button never offers a certain
   // 409: an issued invoice, and a settled one only if it got there through
   // payment rows (a legacy header-only settlement stays closed).
@@ -428,10 +470,27 @@ export default function InvoiceDetail() {
                   </Pressable>
                 ) : null}
                 <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
-                  {inv.status}
+                  {statusLabel}
                 </Text>
               </View>
             </View>
+
+            {isRevising ? (
+              /* The stranded-draft nudge (TMC-227). Correcting is three actions
+                 and the middle one leaves this screen, so it is easy to stop
+                 after two — leaving a customer holding a link that says the
+                 invoice is being revised and money off the books. */
+              <View className="mt-4 rounded-sm border border-gold-deep/40 bg-gold-deep/5 px-4 py-3">
+                <Text className="text-sm text-ink">
+                  You pulled this back
+                  {inv.revisions?.[0]?.revisedAt
+                    ? ` on ${inv.revisions[0].revisedAt.slice(0, 10)}`
+                    : ''}
+                  — the customer's link says it's being revised, and the amount is off your books,
+                  until you resend the corrected invoice.
+                </Text>
+              </View>
+            ) : null}
 
             {transitionError ? (
               <View className="mt-4 rounded-sm border border-oxblood/30 bg-oxblood/5 px-4 py-3">
@@ -478,7 +537,11 @@ export default function InvoiceDetail() {
                         className="flex-1 rounded-sm bg-ink px-4 py-3 active:bg-gold-deep disabled:opacity-50"
                       >
                         <Text className="text-center text-sm font-medium text-cream">
-                          {inv.status === 'sent' ? 'Resend invoice' : 'Send invoice'}
+                          {isRevising
+                            ? 'Resend corrected invoice'
+                            : inv.status === 'sent'
+                              ? 'Resend invoice'
+                              : 'Send invoice'}
                         </Text>
                       </Pressable>
                       <Pressable
@@ -501,6 +564,17 @@ export default function InvoiceDetail() {
                       className="flex-1 rounded-sm border border-ink/20 px-4 py-3 active:bg-ink/5 disabled:opacity-50"
                     >
                       <Text className="text-center text-sm font-medium text-ink">Mark paid</Text>
+                    </Pressable>
+                  ) : null}
+                  {canRevise ? (
+                    <Pressable
+                      onPress={onRevise}
+                      disabled={acting}
+                      className="flex-1 rounded-sm border border-ink/20 px-4 py-3 active:bg-ink/5 disabled:opacity-50"
+                    >
+                      <Text className="text-center text-sm font-medium text-ink">
+                        Fix this invoice
+                      </Text>
                     </Pressable>
                   ) : null}
                   {canVoid ? (

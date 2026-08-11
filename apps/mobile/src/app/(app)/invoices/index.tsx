@@ -19,10 +19,14 @@ type InvoiceSummary = {
   draft: { count: number };
   awaiting: { count: number; total: string };
   overdue: { count: number; total: string };
+  // Pulled back to be corrected and not yet resent (TMC-227). Optional: a
+  // mobile binary in the stores may be talking to an older API, and a missing
+  // count must read as "none" rather than crash the strip.
+  revising?: { count: number };
 };
 // Derived date-partition buckets (not stored statuses); alternatives to a
 // plain status filter, so picking one clears status and vice-versa.
-type Bucket = '' | 'overdue' | 'awaiting';
+type Bucket = '' | 'overdue' | 'awaiting' | 'revising';
 
 // Mirror of apps/web's /invoices list. customerName is LEFT JOINed by the API
 // now (#195), so the list no longer fetches every contact to resolve names —
@@ -37,6 +41,8 @@ type InvoiceRow = {
   number: string;
   customerName: string | null;
   status: string;
+  // Carried so the row can show "being revised" — derived, not a sixth status.
+  sentAt: string | null;
   dueDate: string;
   currency: string;
   total: string;
@@ -122,6 +128,7 @@ export default function InvoicesList() {
             number: i.number,
             customerName: i.customerName ?? null,
             status: i.status,
+            sentAt: i.sentAt ?? null,
             dueDate: i.dueDate,
             currency: i.currency,
             total: i.total,
@@ -188,6 +195,26 @@ export default function InvoicesList() {
                 active: bucket === 'overdue',
                 alert: summary.overdue.count > 0,
               },
+              // Only when there is one, like the web strip and the dashboard's
+              // "Not delivered" tile (TMC-227) — a permanent "0 being fixed" is
+              // one more number to ignore. It appears at the moment it matters:
+              // a correction started and never resent leaves the customer's
+              // link saying "being revised" indefinitely.
+              ...((summary.revising?.count ?? 0) > 0
+                ? [
+                    {
+                      label: 'Being fixed',
+                      value: summary.revising?.count ?? 0,
+                      sub: 'not resent yet',
+                      onPress: () => {
+                        setBucket('revising');
+                        setStatus('');
+                      },
+                      active: bucket === 'revising',
+                      alert: true,
+                    },
+                  ]
+                : []),
             ]}
           />
         </View>
@@ -296,7 +323,8 @@ export default function InvoicesList() {
               <View className="mt-1 flex-row items-center justify-between">
                 <Text className="text-sm text-ink/70">{item.customerName ?? '—'}</Text>
                 <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
-                  {item.status} · {item.dueDate}
+                  {item.status === 'draft' && item.sentAt !== null ? 'being revised' : item.status}{' '}
+                  · {item.dueDate}
                 </Text>
               </View>
             </Pressable>
