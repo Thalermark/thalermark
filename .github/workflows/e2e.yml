@@ -170,7 +170,7 @@ jobs:
 
       # TMC_DATABASE_URL routes the harness's psql_q through the runner's psql
       # instead of `docker exec`; there is no container to exec into here.
-      - name: Run the walkthrough (suites 01-06, 09)
+      - name: Run the walkthrough (suites 01-06, 09, 10)
         env:
           TMC_API: http://localhost:3000
           TMC_WEB: http://localhost:5173
@@ -178,7 +178,7 @@ jobs:
         run: |
           set -euo pipefail
           failed=0
-          for suite in e2e/0[1-6]-*.sh e2e/09-*.sh; do
+          for suite in e2e/0[1-6]-*.sh e2e/09-*.sh e2e/10-*.sh; do
             echo "::group::$suite"
             # Each suite reports its own pass/fail tally and exits non-zero on
             # any failure. Keep going rather than bailing on the first, so one
