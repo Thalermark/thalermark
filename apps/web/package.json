@@ -21,6 +21,7 @@
     "@stripe/stripe-js": "9.7.0",
     "@thalermark/api-contract": "workspace:*",
     "@thalermark/brand": "workspace:*",
+    "@thalermark/charts": "workspace:^",
     "@thalermark/location": "workspace:*",
     "@thalermark/validation": "workspace:*",
     "better-auth": "1.6.13",
