@@ -57,7 +57,11 @@
     return null;
   });
 
-  const hasLine = $derived(lines.some((l) => l.length > 1));
+  // Two joinable points AND something to actually show. A brand-new account
+  // has twelve gap-filled zeroes, which is a real answer to "how much" and a
+  // meaningless one to "which way" — a flat line pinned to the baseline is
+  // noise dressed as information, so it draws nothing.
+  const hasLine = $derived(lines.some((l) => l.length > 1) && (ceiling ?? 0) > 0);
 </script>
 
 {#if hasLine}

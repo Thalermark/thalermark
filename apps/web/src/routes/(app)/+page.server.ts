@@ -1,5 +1,6 @@
 import { pickActiveCompany } from '$lib/active-company';
 import { serverApiClient } from '$lib/api.server';
+import { fillMonths } from '$lib/reports.server';
 import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 
@@ -85,8 +86,12 @@ export const load: PageServerLoad = async (event) => {
     param: { id: company.id },
     query: { from: iso(trendFrom), to: iso(trendTo) },
   });
+  // GAP-FILLED, which is not optional. The API returns only months that had
+  // sales, so feeding `months` straight in would draw June and August as
+  // adjacent points and hide the empty July between them — a trend line that
+  // silently omits the bad months is worse than no trend line.
   const revenueTrend = trendRes.ok
-    ? (await trendRes.json()).months.map((m) => m.revenue)
+    ? await trendRes.json().then((r) => fillMonths(r.from, r.to, r.months).map((m) => m.revenue))
     : ([] as string[]);
 
   // Cash-flow nudges (AI) stream in separately: the position tiles render
