@@ -275,7 +275,7 @@ describe('email templates', () => {
       });
       await send(await mkInvoice('INV-001'));
       expect(rec.sent[0]?.subject).toBe('PAY UP INV-001');
-      expect(rec.sent[0]?.text).toContain('Yo Wile E. Coyote, 100.00 USD please.');
+      expect(rec.sent[0]?.text).toContain('Yo Wile E. Coyote, $100.00 please.');
       // Still carries the fixed chrome (public link) the template can't remove.
       expect(rec.sent[0]?.html).toContain('/i/');
 
@@ -318,8 +318,41 @@ describe('email templates', () => {
       expect(res.status).toBe(200);
       const out = (await res.json()) as { subject: string; html: string; text: string };
       expect(out.subject).toBe('Preview INV-0007');
-      expect(out.text).toContain('Hi Jordan Rivera, see 1,250.00 USD.');
+      expect(out.text).toContain('Hi Jordan Rivera, see $1,250.00.');
       expect(out.html).toContain('<!DOCTYPE html>');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  // The customer reads these, so they are formatted, not dumped: an amount with
+  // a symbol and separators, and a date in words. The stored shapes ("1250.00",
+  // "2026-07-01") must never reach the inbox.
+  //
+  // The date matters twice over: the sample due date is the FIRST of the month,
+  // which is exactly the value a UTC-midnight parse renders as the last day of
+  // the month before. "June 30, 2026" here means the day shifted.
+  it('preview formats money and dates for a reader, without shifting the day', async () => {
+    const ctx = buildApp();
+    try {
+      const { companyId, h } = await setup(ctx, 'g@acme.test');
+      const res = await ctx.app.request(
+        `/api/companies/${companyId}/email-templates/invoice/preview`,
+        {
+          method: 'POST',
+          headers: h(),
+          body: JSON.stringify({
+            subject: 'Preview {{invoice_number}}',
+            body: '{{amount}} due {{due_date}}',
+          }),
+        },
+      );
+      expect(res.status).toBe(200);
+      const out = (await res.json()) as { subject: string; html: string; text: string };
+      expect(out.text).toContain('$1,250.00 due July 1, 2026');
+      expect(out.text).not.toContain('1250.00');
+      expect(out.text).not.toContain('2026-07-01');
+      expect(out.text).not.toContain('June 30');
     } finally {
       await ctx.handle.close();
     }

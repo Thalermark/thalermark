@@ -1,3 +1,4 @@
+import { formatDateDisplay, formatMoneyDisplay } from '@thalermark/validation';
 import type { CustomerStatement, StatementLine } from './customer-statement.js';
 import { emailFooterText, renderEmailHtml } from './email-layout.js';
 import { DEFAULT_TEMPLATES, renderTemplate } from './email-templates.js';
@@ -21,8 +22,9 @@ export type StatementEmailInput = {
   template?: { subject: string; body: string };
 };
 
-const money = (v: string) =>
-  Number(v).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+// Shared with the invoice/estimate/reminder emails so every customer-facing
+// amount reads the same way, and a bad currency code can't throw mid-build.
+const money = (v: string) => formatMoneyDisplay(v);
 
 export function buildStatementEmail(input: StatementEmailInput): {
   subject: string;
@@ -38,7 +40,7 @@ export function buildStatementEmail(input: StatementEmailInput): {
   const { subject, textBody, htmlBody } = renderTemplate(template ?? DEFAULT_TEMPLATES.statement, {
     customer_name: statement.customer.name,
     company_name: companyName,
-    statement_date: statement.statementDate,
+    statement_date: formatDateDisplay(statement.statementDate),
     balance_due: balanceDue,
   });
 
@@ -76,7 +78,7 @@ export function buildStatementEmail(input: StatementEmailInput): {
     : '<p style="margin:14px 0 0;">No invoices on file.</p>';
   const html = renderEmailHtml({
     brandName: companyName,
-    preheader: `Balance due ${balanceDue} · statement as of ${statement.statementDate}`,
+    preheader: `Balance due ${balanceDue} · statement as of ${formatDateDisplay(statement.statementDate)}`,
     heading: 'Account statement',
     bodyHtml: `${htmlBody}${table}<p style="margin:16px 0 0;">Total invoiced: ${escapeHtml(money(statement.totalCharges))}<br>Total paid: ${escapeHtml(money(statement.totalPayments))}<br><strong>Balance due: ${escapeHtml(balanceDue)}</strong></p>`,
     poweredBy: true,

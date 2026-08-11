@@ -1,3 +1,4 @@
+import { formatDateDisplay, formatMoneyDisplay } from '@thalermark/validation';
 import { emailFooterText, renderEmailHtml } from './email-layout.js';
 import { DEFAULT_TEMPLATES, renderTemplate } from './email-templates.js';
 import type { Mailer } from './mailer.js';
@@ -42,7 +43,10 @@ export function buildInvoiceEmail(input: InvoiceEmailInput): {
   const publicUrl = publicAppUrl
     ? `${publicAppUrl}/i/${invoice.publicToken}`
     : `/i/${invoice.publicToken}`;
-  const amount = `${invoice.total} ${invoice.currency}`;
+  // Both of these are read by a customer, not by an accountant: "$1,500.00" and
+  // "September 15, 2026", never the stored "1500.00 USD" and "2026-09-15".
+  const amount = formatMoneyDisplay(invoice.total, invoice.currency);
+  const dueDate = formatDateDisplay(invoice.dueDate);
 
   // The editable subject + greeting/message prose. customer_name falls back to
   // "there" so a nameless customer reads "Hi there," not "Hi ,".
@@ -50,7 +54,7 @@ export function buildInvoiceEmail(input: InvoiceEmailInput): {
     customer_name: customerName?.trim() || 'there',
     invoice_number: invoice.number,
     amount,
-    due_date: invoice.dueDate,
+    due_date: dueDate,
     company_name: companyName,
   });
 
@@ -75,7 +79,7 @@ export function buildInvoiceEmail(input: InvoiceEmailInput): {
 
   const html = renderEmailHtml({
     brandName: companyName,
-    preheader: `Invoice ${invoice.number} · ${amount} · due ${invoice.dueDate}`,
+    preheader: `Invoice ${invoice.number} · ${amount} · due ${dueDate}`,
     heading: `Invoice ${invoice.number}`,
     bodyHtml: htmlBody,
     cta: { label: 'View invoice', url: publicUrl },

@@ -1,3 +1,4 @@
+import { formatDateDisplay, formatMoneyDisplay } from '@thalermark/validation';
 import { emailFooterText, renderEmailHtml } from './email-layout.js';
 import { DEFAULT_TEMPLATES, renderTemplate } from './email-templates.js';
 import { escapeHtml } from './html.js';
@@ -39,7 +40,9 @@ export function buildEstimateEmail(input: EstimateEmailInput): {
   const publicUrl = publicAppUrl
     ? `${publicAppUrl}/e/${estimate.publicToken}`
     : `/e/${estimate.publicToken}`;
-  const amount = `${estimate.total} ${estimate.currency}`;
+  // Customer-facing, so formatted for a reader: "$1,500.00", not "1500.00 USD".
+  const amount = formatMoneyDisplay(estimate.total, estimate.currency);
+  const expiresOn = estimate.expiresOn ? formatDateDisplay(estimate.expiresOn) : null;
 
   const { subject, textBody, htmlBody } = renderTemplate(template ?? DEFAULT_TEMPLATES.estimate, {
     customer_name: customerName?.trim() || 'there',
@@ -48,16 +51,14 @@ export function buildEstimateEmail(input: EstimateEmailInput): {
     company_name: companyName,
   });
 
-  const validUntilText = estimate.expiresOn
-    ? `\nThis estimate is valid until ${estimate.expiresOn}.`
-    : '';
-  const validUntilHtml = estimate.expiresOn
-    ? `<p style="margin:14px 0 0;">This estimate is valid until ${escapeHtml(estimate.expiresOn)}.</p>`
+  const validUntilText = expiresOn ? `\nThis estimate is valid until ${expiresOn}.` : '';
+  const validUntilHtml = expiresOn
+    ? `<p style="margin:14px 0 0;">This estimate is valid until ${escapeHtml(expiresOn)}.</p>`
     : '';
   const text = `${textBody}${validUntilText}\n\nView the estimate: ${publicUrl}\n\n— ${companyName}\n\n${emailFooterText(true)}`;
   const html = renderEmailHtml({
     brandName: companyName,
-    preheader: `Estimate ${estimate.number} · ${amount}${estimate.expiresOn ? ` · valid until ${estimate.expiresOn}` : ''}`,
+    preheader: `Estimate ${estimate.number} · ${amount}${expiresOn ? ` · valid until ${expiresOn}` : ''}`,
     heading: `Estimate ${estimate.number}`,
     bodyHtml: `${htmlBody}${validUntilHtml}`,
     cta: { label: 'View estimate', url: publicUrl },
