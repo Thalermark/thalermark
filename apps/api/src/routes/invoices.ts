@@ -37,6 +37,7 @@ import {
   isNull,
   lt,
   lte,
+  ne,
   or,
   sql,
 } from 'drizzle-orm';
@@ -59,6 +60,7 @@ import {
 import {
   BILLED_INVOICE_STATUSES,
   assertJobInCompany,
+  jobCostCents,
   jobMade,
   stampBilledTimeEntries,
   validateBilledTimeEntries,
@@ -83,6 +85,7 @@ import {
   resolveMoneyAccount,
   storedMoneyCode,
 } from '../lib/route-helpers.js';
+import { computeSendConcern } from '../lib/send-check.js';
 import { resolveReplyTo } from '../lib/sender.js';
 import type { AuditWriter } from '../middleware/audit.js';
 import { requireCapability } from '../middleware/authz.js';
@@ -1972,6 +1975,90 @@ export function invoicesRoutes(deps: AppDeps) {
       // Unguarded like every other read in this file — the capability model
       // gates writes, and any member who can see an invoice can see what has
       // been paid against it.
+      // The typo catcher (TMC-227). One sentence's worth of doubt about the
+      // invoice about to go out, or nothing at all.
+      //
+      // ITS OWN ENDPOINT, not a field on GET /:id. Both clients fetch it while
+      // the page is loading — in parallel with the page data, not after it — so
+      // the answer is already on screen by the time a thumb reaches Send. Folded
+      // into the detail payload it would be three extra queries on every invoice
+      // view, including the overwhelming majority that never get sent again.
+      //
+      // A read, so no capability gate beyond the tenant context: anyone who can
+      // see the invoice can see that its number looks odd.
+      .get('/api/invoices/:id/send-check', async (c) => {
+        const id = c.req.param('id');
+        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+
+        const [invoice] = await tx
+          .select({
+            id: invoices.id,
+            companyId: invoices.companyId,
+            contactId: invoices.contactId,
+            jobId: invoices.jobId,
+            total: invoices.total,
+            currency: invoices.currency,
+          })
+          .from(invoices)
+          .where(and(eq(invoices.id, id), eq(invoices.accountId, accountId)))
+          .limit(1);
+        if (!invoice) return c.json({ error: 'invoice_not_found' }, 404);
+
+        // This customer's last five ISSUED invoices, this one excluded.
+        //
+        // sent/paid only, which is the whole baseline decision: a wrong DRAFT
+        // sitting in the list is exactly the mistake being hunted, and letting
+        // it in teaches the check that wrong is normal. Voided is out for the
+        // mirror reason — a cancelled invoice is not evidence of anything.
+        //
+        // Ordered by issue date rather than creation, so "what you usually bill
+        // them" means recent work rather than recent typing.
+        const priors = await tx
+          .select({ total: invoices.total })
+          .from(invoices)
+          .where(
+            and(
+              eq(invoices.accountId, accountId),
+              eq(invoices.companyId, invoice.companyId),
+              eq(invoices.contactId, invoice.contactId),
+              inArray(invoices.status, ['sent', 'paid']),
+              isNotNull(invoices.sentAt),
+              ne(invoices.id, id),
+            ),
+          )
+          .orderBy(desc(invoices.issueDate), desc(invoices.createdAt))
+          .limit(5);
+
+        // Only asked when the invoice is actually on a job — this is a rollup
+        // across every expense tagged to it, and there is no point paying for
+        // it on the majority of invoices that have no job at all.
+        let jobCost: number | undefined;
+        if (invoice.jobId) {
+          const byJob = await jobCostCents(tx, accountId, invoice.companyId, [invoice.jobId]);
+          jobCost = byJob.get(invoice.jobId) ?? 0;
+        }
+
+        const [customer] = await tx
+          .select({ name: contacts.name })
+          .from(contacts)
+          .where(and(eq(contacts.id, invoice.contactId), eq(contacts.accountId, accountId)))
+          .limit(1);
+
+        const result = computeSendConcern({
+          totalCents: toCents(invoice.total),
+          priorIssuedTotalsCents: priors.map((p) => toCents(p.total)),
+          jobCostCents: jobCost,
+          customerName: customer?.name ?? null,
+          currency: invoice.currency,
+        });
+
+        // Always 200 with a nullable body, never a 404-shaped "nothing to say".
+        // Silence is the ordinary answer, and a client must be able to tell it
+        // apart from a failed request without inspecting a status code.
+        return c.json({ concern: result?.concern ?? null, signal: result?.signal ?? null });
+      })
       .get('/api/invoices/:id/payments', async (c) => {
         const id = c.req.param('id');
         if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
