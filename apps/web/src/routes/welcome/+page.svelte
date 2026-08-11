@@ -25,6 +25,15 @@
   let businessPhone = $state(
     untrack(() => formValue('businessPhone') ?? data.company.businessPhone ?? ''),
   );
+  // Defaults to the address they signed up with (TMC-225), the same way the
+  // company name is guessed from the person at signup and corrected here. It is
+  // what customer replies route to, and what prints on the invoice — so it is
+  // prefilled and editable rather than assumed silently.
+  let businessEmail = $state(
+    untrack(
+      () => formValue('businessEmail') ?? data.company.businessEmail ?? data.signupEmail ?? '',
+    ),
+  );
 
   let submitting = $state(false);
 
@@ -124,6 +133,19 @@
         placeholder="(555) 123-4567"
         class="field mt-2 text-sm"
       />
+    </label>
+    <label class="block">
+      <span class="label">Business email</span>
+      <input
+        type="email"
+        name="businessEmail"
+        bind:value={businessEmail}
+        placeholder="hello@yourbusiness.com"
+        class="field mt-2 text-sm"
+      />
+      <span class="mt-1 block text-xs text-fg/50">
+        This shows on your invoices so customers can reach you, and it's where their replies go.
+      </span>
     </label>
   </div>
 

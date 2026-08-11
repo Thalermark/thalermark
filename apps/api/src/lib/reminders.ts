@@ -17,6 +17,7 @@ import { recordSendFailed } from './delivery.js';
 import { renderTemplate, resolveEmailTemplate } from './email-templates.js';
 import { type EntitlementProvider, communityEntitlements } from './entitlement.js';
 import { type Mailer, mailerDelivers } from './mailer.js';
+import { resolveReplyTo } from './sender.js';
 
 const log = getLogger(['thalermark', 'api', 'reminders']);
 
@@ -66,6 +67,7 @@ type DueReminder = {
   customerEmail: string;
   companyName: string;
   replyToEmail: string | null;
+  businessEmail: string | null;
   offsetDays: number;
   companyToday: string;
   outstanding: string;
@@ -108,6 +110,7 @@ async function findDueReminders(db: Database, nowTs: Date): Promise<DueReminder[
     customer_email: string;
     company_name: string;
     reply_to_email: string | null;
+    business_email: string | null;
     offset_days: number;
     company_today: string;
     outstanding: string;
@@ -123,6 +126,7 @@ async function findDueReminders(db: Database, nowTs: Date): Promise<DueReminder[
       ct.email        AS customer_email,
       c.name          AS company_name,
       c.reply_to_email AS reply_to_email,
+      c.business_email AS business_email,
       o.offset_days   AS offset_days,
       (${nowTs}::timestamptz AT TIME ZONE c.timezone)::date AS company_today,
       (i.total - COALESCE((
@@ -193,6 +197,7 @@ async function findDueReminders(db: Database, nowTs: Date): Promise<DueReminder[
     customerEmail: r.customer_email,
     companyName: r.company_name,
     replyToEmail: r.reply_to_email,
+    businessEmail: r.business_email,
     offsetDays: Number(r.offset_days),
     companyToday: r.company_today,
     outstanding: centsToMoney(toCents(r.outstanding)),
@@ -296,7 +301,13 @@ export async function sweepInvoiceReminders(args: {
             text: textBody,
             html: htmlBody,
             from: args.mail.emailFrom,
-            replyTo: item.replyToEmail ?? undefined,
+            // Same chain the invoice/estimate/statement sends use: an unset
+            // reply-to must not aim a chased customer at the platform.
+            replyTo:
+              resolveReplyTo(
+                { replyToEmail: item.replyToEmail, businessEmail: item.businessEmail },
+                args.mail.emailFrom ?? '',
+              ) || undefined,
           });
         },
       );

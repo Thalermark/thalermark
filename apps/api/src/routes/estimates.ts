@@ -26,6 +26,7 @@ import { suggestNextEstimateNumber, suggestNextInvoiceNumber } from '../lib/invo
 import { mailerDelivers } from '../lib/mailer.js';
 import { applyCursor, keysetOrderBy, parseLimit, slicePage } from '../lib/pagination.js';
 import { EMAIL_RE, UUID_RE, escapeLike, isValidDateParam } from '../lib/route-helpers.js';
+import { resolveReplyTo } from '../lib/sender.js';
 import { requireCapability } from '../middleware/authz.js';
 import { requireEntitlement } from '../middleware/entitlement.js';
 import { RATE_LIMITS, rateLimit } from '../middleware/rate-limit.js';
@@ -849,7 +850,11 @@ export function estimatesRoutes(deps: AppDeps) {
             if (!to || !EMAIL_RE.test(to)) return c.json({ error: 'invalid_recipient' }, 400);
 
             const [company] = await tx
-              .select({ name: companies.name, replyToEmail: companies.replyToEmail })
+              .select({
+                name: companies.name,
+                replyToEmail: companies.replyToEmail,
+                businessEmail: companies.businessEmail,
+              })
               .from(companies)
               .where(and(eq(companies.id, current.companyId), eq(companies.accountId, accountId)))
               .limit(1);
@@ -907,7 +912,7 @@ export function estimatesRoutes(deps: AppDeps) {
               estimate: { ...estimate, publicToken: estimate.publicToken },
               customerName: customer.name,
               companyName,
-              replyToEmail: company?.replyToEmail ?? null,
+              replyToEmail: resolveReplyTo(company ?? {}, deps.emailFrom ?? ''),
               template,
               to,
             };

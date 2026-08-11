@@ -27,5 +27,8 @@ export const load: LayoutServerLoad = async (event) => {
   // user who hasn't created a business). Send them to the account picker, which
   // owns that empty state — the wizard has nothing to set up.
   if (!company) throw redirect(303, '/select-company');
-  return { company };
+  // The address they signed up with, offered as the default business email in
+  // Step 1 (TMC-225). Same idea as the company name: signup guesses from the
+  // person, the wizard is where they correct the guess.
+  return { company, signupEmail: event.locals.session?.user.email ?? '' };
 };

@@ -1933,9 +1933,17 @@ describe('POST /api/invoices/:id/send', () => {
       expect(mail?.html).toContain(`/i/${body.publicToken}`);
       expect(mail?.text).toContain(`/i/${body.publicToken}`);
       // From keeps the verified envelope address (display name swapped to the
-      // company); no reply-to until the company sets one.
+      // company).
       expect(mail?.from).toMatch(/<test@thalermark\.test>$/);
-      expect(mail?.replyTo).toBeUndefined();
+      // This company set neither a reply-to nor a business email, so the chain
+      // lands on its terminal no-reply (TMC-225). It used to send NO Reply-To at
+      // all, which meant a customer hitting Reply wrote to the platform address
+      // in From — mail the business never saw and never knew about.
+      //
+      // The domain is derived from the configured From, not hardcoded: this
+      // fixture sends as thalermark.TEST, and a self-hoster on their own domain
+      // must not have replies aimed at one they don't own.
+      expect(mail?.replyTo).toBe('no-reply@thalermark.test');
 
       const db = getTestDb();
       const audits = await db.select().from(auditEvents).where(eq(auditEvents.entityId, invoiceId));
