@@ -22,14 +22,23 @@ export const load: PageServerLoad = async (event) => {
   // Resolve the category + payment account ids to human labels. Best-effort:
   // a failed accounts fetch falls back to the raw ids rather than blanking
   // the page.
-  const [expenseAccRes, assetAccRes] = await Promise.all([
+  // "Paid from" resolves through the MONEY accounts, not `type=asset`.
+  //
+  // A credit card is a liability, so an asset query does not contain it — and
+  // the label lookup below falls back to the raw id, which put a bare uuid on
+  // screen for every card-funded expense (TMC-207). The expense query stays as
+  // it is: categories genuinely are expense accounts.
+  //
+  // Includes archived accounts, because this is a READ of something already
+  // recorded: an expense paid from an account since archived still has to say
+  // which one.
+  const [expenseAccRes, moneyRes] = await Promise.all([
     client.api.companies[':id'].accounts.$get({
       param: { id: expense.companyId },
       query: { type: 'expense' },
     }),
-    client.api.companies[':id'].accounts.$get({
-      param: { id: expense.companyId },
-      query: { type: 'asset' },
+    client.api['money-accounts'].$get({
+      query: { companyId: expense.companyId, includeArchived: 'true' },
     }),
   ]);
   const labelById = new Map<string, string>();
@@ -37,9 +46,9 @@ export const load: PageServerLoad = async (event) => {
     for (const a of (await expenseAccRes.json()).accounts)
       labelById.set(a.id, `${a.code} · ${a.name}`);
   }
-  if (assetAccRes.ok) {
-    for (const a of (await assetAccRes.json()).accounts)
-      labelById.set(a.id, `${a.code} · ${a.name}`);
+  if (moneyRes.ok) {
+    // Name only — the user picked "Chase Sapphire", not "2100 · Chase Sapphire".
+    for (const a of (await moneyRes.json()).moneyAccounts) labelById.set(a.id, a.name);
   }
 
   // Audit trail (slice 8.8a pattern). Best-effort — a non-OK response renders
