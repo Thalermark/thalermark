@@ -150,6 +150,9 @@ export default function InvoiceDetail() {
   // Direction rather than a typed minus sign — nobody should have to know that
   // a refund is stored as a negative payment.
   const [payDirection, setPayDirection] = useState<'in' | 'out'>('in');
+  // One sentence's worth of doubt about the invoice about to go out, or null —
+  // which is the ordinary answer (TMC-227).
+  const [sendConcern, setSendConcern] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const res = await api.api.invoices[':id'].$get({ param: { id } });
@@ -196,6 +199,14 @@ export default function InvoiceDetail() {
     try {
       const payRes = await api.api.invoices[':id'].payments.$get({ param: { id } });
       if (payRes.ok) setSettlement((await payRes.json()) as Settlement);
+    } catch {}
+    // The typo catcher (TMC-227). Fetched on load, not on tap: this client is
+    // the one being used standing in a customer's yard on one bar of signal,
+    // and a check the user has to wait for is a check they learn to tap
+    // through. Best-effort — no callout beats a blocked send.
+    try {
+      const checkRes = await api.api.invoices[':id']['send-check'].$get({ param: { id } });
+      if (checkRes.ok) setSendConcern((await checkRes.json()).concern);
     } catch {}
     // Audit trail — best-effort; refetched on every load() (focus + after each
     // in-screen transition), so the history reflects the action just taken. A
@@ -515,6 +526,19 @@ export default function InvoiceDetail() {
                   </Text>
                 </View>
               )
+            ) : null}
+
+            {/* The typo catcher (TMC-227), directly above the Send control —
+                where the decision is made. It never blocks, has no dismissal
+                state and nothing to remember between screens: it is a sentence
+                and a way to disagree with it. Copper, not the oxblood Void
+                wears, because nothing is wrong yet and dressing a maybe as an
+                error is how a warning gets trained out of someone. */}
+            {canSend && sendConcern ? (
+              <View className="mt-6 rounded-sm border border-gold-deep/40 bg-gold-deep/5 px-4 py-3">
+                <Text className="text-sm text-ink">{sendConcern}</Text>
+                <Text className="mt-1 text-sm text-ink/50">Send anyway if that's right.</Text>
+              </View>
             ) : null}
 
             {/* Action toolbar */}
