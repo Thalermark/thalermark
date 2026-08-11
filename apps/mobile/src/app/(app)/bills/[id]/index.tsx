@@ -13,6 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { type AuditEvent, AuditHistory } from '../../../../components/AuditHistory';
 import { DateField } from '../../../../components/DateField';
+import { MoneyAccountPicker, useMoneyAccounts } from '../../../../components/MoneyAccountPicker';
 import { api } from '../../../../lib/api';
 import { apiErrorMessage } from '../../../../lib/api-errors';
 import { useMay } from '../../../../lib/role';
@@ -118,6 +119,9 @@ export default function BillDetail() {
   // Direction rather than a typed minus sign — nobody should have to know that
   // a refund from the vendor is a negative payment.
   const [payDirection, setPayDirection] = useState<'out' | 'in'>('out');
+  // Which account the money leaves (TMC-207). Cards included: paying one card
+  // off with another is unusual but real, and the ledger treats it the same.
+  const [payAccountId, setPayAccountId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const res = await api.api.bills[':id'].$get({ param: { id } });
@@ -195,6 +199,8 @@ export default function BillDetail() {
   // `expenses:write`; each action is ANDed with the open state.
   const canWrite = useMay('expenses:write');
   const bill = detail.state === 'ready' ? detail.bill : null;
+  // Loaded once the bill is known, since the accounts are company-scoped.
+  const moneyAccounts = useMoneyAccounts(bill?.companyId ?? null);
   const isOpen = bill?.status === 'open';
   const canAct = canWrite && isOpen;
 
@@ -244,7 +250,14 @@ export default function BillDetail() {
       () =>
         api.api.bills[':id']['mark-paid'].$post({
           param: { id },
-          json: { method: paidMethod, reference: reference || undefined, paidOn },
+          json: {
+            method: paidMethod,
+            reference: reference || undefined,
+            paidOn,
+            // Omitted → the server's primary account, which is what a company
+            // with one place to pay from has always used.
+            paymentAccountId: payAccountId ?? undefined,
+          },
         }),
       () => setShowPaidPanel(false),
     );
@@ -267,6 +280,7 @@ export default function BillDetail() {
             paidOn: payOn,
             method: payMethod,
             reference: reference || undefined,
+            paymentAccountId: payAccountId ?? undefined,
           },
         }),
       () => {
@@ -414,6 +428,11 @@ export default function BillDetail() {
                 ) : null}
                 <View className="mt-3">
                   <DateField label="Payment date" value={paidOn} onChange={setPaidOn} />
+                  <MoneyAccountPicker
+                    accounts={moneyAccounts}
+                    value={payAccountId ?? moneyAccounts?.[0]?.id ?? null}
+                    onChange={setPayAccountId}
+                  />
                 </View>
                 <Pressable
                   onPress={onMarkPaid}

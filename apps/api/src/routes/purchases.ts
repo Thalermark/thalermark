@@ -28,7 +28,13 @@ import {
   postLoanPayment,
 } from '../lib/ledger.js';
 import { applyCursor, keysetOrderBy, parseLimit, slicePage } from '../lib/pagination.js';
-import { UUID_RE, expenseDateToPostedAt, resolveVendorLink } from '../lib/route-helpers.js';
+import {
+  UUID_RE,
+  expenseDateToPostedAt,
+  resolveMoneyAccount,
+  resolveVendorLink,
+  storedMoneyCode,
+} from '../lib/route-helpers.js';
 import { requireCapability } from '../middleware/authz.js';
 import type { RlsVariables } from '../middleware/rls-context.js';
 
@@ -85,6 +91,16 @@ export function purchasesRoutes() {
           rest.funding === 'paid_in_full' ? rest.amount : (rest.downPayment ?? '0');
         const paidNow = paidNowFor(rest.funding, rest.amount, downPayment);
 
+        // Stored, because postCapitalPurchaseReversal re-derives its lines from
+        // this row — a card-funded mower reversed against cash would credit the
+        // card and debit checking, balanced and wrong.
+        const money = await resolveMoneyAccount(tx, {
+          accountId,
+          companyId,
+          moneyAccountId: rest.paymentAccountId,
+        });
+        if ('error' in money) return c.json({ error: money.error }, 400);
+
         const purchaseId = uuidv7();
         const [created] = await tx
           .insert(capitalPurchases)
@@ -97,6 +113,7 @@ export function purchasesRoutes() {
             purchaseDate: rest.purchaseDate,
             funding: rest.funding,
             downPayment,
+            paymentAccountId: money.id,
             taxTreatment: rest.taxTreatment,
             usefulLifeYears: rest.usefulLifeYears ?? 5,
             vendorContactId: vendorContactId ?? null,
@@ -125,6 +142,7 @@ export function purchasesRoutes() {
             paidNow,
             taxTreatment: rest.taxTreatment,
             description: rest.description,
+            moneyCode: money.code,
           },
           accountId,
           companyId,
@@ -261,7 +279,7 @@ export function purchasesRoutes() {
           if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
           const tx = c.get('tx');
           const accountId = c.get('accountId');
-          const { amount, interest, paidOn } = c.req.valid('json');
+          const { amount, interest, paidOn, paymentAccountId } = c.req.valid('json');
 
           const [purchase] = await tx
             .select()
@@ -287,11 +305,19 @@ export function purchasesRoutes() {
             return c.json({ error: 'payment_exceeds_balance', owing }, 409);
           }
 
+          const loanMoney = await resolveMoneyAccount(tx, {
+            accountId,
+            companyId: purchase.companyId,
+            moneyAccountId: paymentAccountId,
+          });
+          if ('error' in loanMoney) return c.json({ error: loanMoney.error }, 400);
+
           await postLoanPayment(tx, {
             purchaseId: id,
             description: purchase.description,
             amount,
             interest,
+            moneyCode: loanMoney.code,
             accountId,
             companyId: purchase.companyId,
             postedAt: expenseDateToPostedAt(paidOn),
@@ -412,6 +438,13 @@ export function purchasesRoutes() {
               paidNow: paidNowFor(current.funding, current.amount, current.downPayment),
               taxTreatment: current.taxTreatment as CapitalPurchaseTaxTreatment,
               description: current.description,
+              // The account the down payment actually left, resolved even if it
+              // has since been archived.
+              moneyCode: await storedMoneyCode(tx, {
+                accountId,
+                companyId: current.companyId,
+                moneyAccountId: current.paymentAccountId,
+              }),
             },
             accountId,
             companyId: current.companyId,
@@ -492,6 +525,13 @@ export function purchasesRoutes() {
               paidNow: paidNowFor(restored.funding, restored.amount, restored.downPayment),
               taxTreatment: restored.taxTreatment as CapitalPurchaseTaxTreatment,
               description: restored.description,
+              // Restore is an undo: the entry goes back where it was, including
+              // which account the down payment came out of.
+              moneyCode: await storedMoneyCode(tx, {
+                accountId,
+                companyId: restored.companyId,
+                moneyAccountId: restored.paymentAccountId,
+              }),
             },
             accountId,
             companyId: restored.companyId,

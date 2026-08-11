@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { DateField } from '../../../components/DateField';
+import { MoneyAccountPicker, useMoneyAccounts } from '../../../components/MoneyAccountPicker';
 import { pickActiveCompany } from '../../../lib/active-company';
 import { api } from '../../../lib/api';
 import { apiErrorMessage } from '../../../lib/api-errors';
@@ -68,6 +69,10 @@ export default function NewOwnerMoney() {
   );
 
   const noCompany = bootstrapped && companyId === null;
+  // Bank accounts only: an owner does not contribute money "into" a credit
+  // card, and a draw taken on the business card is a card purchase.
+  const moneyAccounts = useMoneyAccounts(companyId, false);
+  const [moneyAccountId, setMoneyAccountId] = useState<string | null>(null);
   const canSubmit = !submitting && !noCompany && amount.trim().length > 0;
 
   async function onSubmit() {
@@ -81,6 +86,8 @@ export default function NewOwnerMoney() {
       amount: amount.trim(),
       occurredOn: occurredOn.trim(),
       memo: memo.trim() === '' ? undefined : memo.trim(),
+      // Absent → the server's primary account.
+      moneyAccountId: moneyAccountId ?? undefined,
     });
     if (!parsed.success) {
       const errs: Record<string, string> = {};
@@ -173,6 +180,13 @@ export default function NewOwnerMoney() {
               value={occurredOn}
               onChange={setOccurredOn}
               error={fieldErrors.occurredOn}
+            />
+
+            <MoneyAccountPicker
+              accounts={moneyAccounts}
+              value={moneyAccountId ?? moneyAccounts?.[0]?.id ?? null}
+              onChange={setMoneyAccountId}
+              label={kind === 'draw' ? 'Taken from' : 'Paid into'}
             />
 
             <View>

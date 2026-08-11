@@ -19,6 +19,7 @@ export * from './journal-entry.js';
 export * from './llm-connection.js';
 export * from './mileage.js';
 export * from './money.js';
+export * from './money-account.js';
 export * from './opening-balance.js';
 export * from './owner-money-event.js';
 export * from './password-strength.js';

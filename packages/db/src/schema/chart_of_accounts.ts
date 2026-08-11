@@ -38,6 +38,23 @@ export const chartOfAccounts = pgTable(
     accountType: text('account_type').notNull(),
     normalBalance: text('normal_balance').notNull(),
     taxMapping: text('tax_mapping'),
+    // Marks the rows that are somewhere money actually sits, and what the user
+    // calls that place: 'checking' | 'savings' | 'cash' | 'credit_card'. NULL —
+    // the overwhelming majority — means this is an ordinary ledger account and
+    // no money flow may point at it (TMC-207).
+    //
+    // A real column rather than a code-range test. The payable-from set was
+    // already deliberately named rather than inferred (`PAYABLE_FROM_CODES` in
+    // routes/bills.ts) because inferring it from account_type offered "pay this
+    // bill out of Accumulated Depreciation" — a BALANCED journal entry that is
+    // nonsense, and therefore the one class of error a trial-balance check can
+    // never catch. Sniffing a numeric band would reintroduce exactly that, one
+    // renumbering away.
+    //
+    // It also carries the asset/liability distinction the user never sees: a
+    // card is a liability and a checking account is an asset, but both are
+    // "where the money went", and deciding which is the system's job.
+    moneyAccountKind: text('money_account_kind'),
     isActive: boolean('is_active').notNull().default(true),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

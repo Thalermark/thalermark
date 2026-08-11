@@ -147,6 +147,8 @@ export const invoiceMarkPaidSchema = z.object({
   // server uses now. Format-only validation, like issue/due dates; the UI caps
   // it at today.
   paidOn: isoDateString.optional(),
+  // Which money account it banked into (TMC-207). Omitted → primary.
+  depositAccountId: z.string().uuid().optional(),
 });
 
 export type InvoiceMarkPaidInput = z.infer<typeof invoiceMarkPaidSchema>;
@@ -195,6 +197,8 @@ export const invoiceDepositSchema = z.object({
     .union([z.string().trim().min(8).max(200), z.literal(''), z.null()])
     .transform((v) => (v ? v : undefined))
     .optional(),
+  // Which money account the deposit banked into (TMC-207). Omitted → primary.
+  depositAccountId: z.string().uuid().optional(),
 });
 export type InvoiceDepositInput = z.infer<typeof invoiceDepositSchema>;
 
@@ -207,6 +211,9 @@ export const invoicePaymentCreateSchema = z.object({
   amount: signedMoneyString,
   receivedOn: isoDateString,
   method: z.enum(INVOICE_PAYMENT_METHODS),
+  // Which of the company's money accounts this receipt banked into (TMC-207).
+  // Omitted → the primary account, which is where every receipt before it went.
+  depositAccountId: z.string().uuid().optional(),
   reference: z
     .union([z.string().trim().max(100), z.literal(''), z.null()])
     .transform((v) => (v ? v : null))

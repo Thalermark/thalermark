@@ -28,6 +28,10 @@ export const capitalPurchaseCreateSchema = z
     // amount; for financed it's the down payment (0 if none). Optional on the
     // wire — the refine fills the paid_in_full case and bounds the financed one.
     downPayment: moneyString.optional(),
+    // Which money account the down payment came out of — a mower is as likely
+    // to go on the card as out of checking. Omitted → the primary account,
+    // which is where every purchase before TMC-207 was paid from.
+    paymentAccountId: z.string().uuid().optional(),
     taxTreatment: z.enum(CAPITAL_PURCHASE_TAX_TREATMENT),
     // Useful life for the 'spread' path; defaulted server-side, so optional and
     // bounded loosely here (1..40 years).
@@ -95,6 +99,8 @@ export const loanPaymentSchema = z
   .object({
     amount: moneyString,
     interest: moneyString.optional().default('0'),
+    // Which account the payment went out of. Omitted → primary.
+    paymentAccountId: z.string().uuid().optional(),
     paidOn: isoDateString,
   })
   .superRefine((v, ctx) => {

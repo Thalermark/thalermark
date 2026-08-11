@@ -1,5 +1,6 @@
 import { bigint, date, index, numeric, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { accounts } from './accounts.js';
+import { chartOfAccounts } from './chart_of_accounts.js';
 import { companies } from './companies.js';
 import { contacts } from './contacts.js';
 
@@ -45,6 +46,17 @@ export const capitalPurchases = pgTable(
     // paid_in_full. The financed remainder (amount − down_payment) becomes the
     // loan.
     downPayment: numeric('down_payment', { precision: 15, scale: 2 }).notNull().default('0'),
+    // Which money account the down payment came out of (TMC-207) — a mower is
+    // as likely to go on the card as out of checking. Nullable; purchases made
+    // before multiple accounts existed resolve to the primary cash account.
+    //
+    // Stored, not passed at post time: postCapitalPurchaseReversal re-derives
+    // its lines from this row via capitalPurchaseLines and flips them, so a
+    // create-time-only parameter would credit the card and debit cash on the
+    // way back out.
+    paymentAccountId: uuid('payment_account_id').references(() => chartOfAccounts.id, {
+      onDelete: 'restrict',
+    }),
     // 'deduct_now' | 'spread' — the plain tax choice ("deduct it all this year"
     // vs "spread it out"). deduct_now posts the full §179 write-off at purchase;
     // spread leaves the asset on the books for the (deferred) yearly depreciation.

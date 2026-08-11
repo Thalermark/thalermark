@@ -281,6 +281,13 @@
       "when": 1786415943396,
       "tag": "0039_contacts_archived_at",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1786452899247,
+      "tag": "0040_money_accounts",
+      "breakpoints": true
     }
   ]
 }

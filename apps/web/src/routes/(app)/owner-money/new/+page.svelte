@@ -6,7 +6,7 @@
   const values = $derived(form?.values ?? {});
   const fieldErrors = $derived(form?.fieldErrors ?? {});
 
-  type FieldKey = 'kind' | 'amount' | 'occurredOn' | 'memo';
+  type FieldKey = 'kind' | 'amount' | 'occurredOn' | 'memo' | 'moneyAccountId';
   function v(key: FieldKey): string {
     const submitted = (values as Record<string, unknown>)[key];
     return typeof submitted === 'string' ? submitted : '';
@@ -84,6 +84,24 @@
       {/if}
     </div>
   </div>
+
+  <!--
+    Hidden while there is one place the money can go, which is the common case
+    and the pre-TMC-207 behaviour: omitting the field makes the server take its
+    existing default.
+  -->
+  {#if data.moneyAccounts.length > 1}
+    <div>
+      <label for="moneyAccountId" class="label">
+        {v('kind') === 'draw' ? 'Taken from' : 'Paid into'}
+      </label>
+      <select id="moneyAccountId" name="moneyAccountId" class="field mt-1">
+        {#each data.moneyAccounts as a (a.id)}
+          <option value={a.id} selected={v('moneyAccountId') === a.id}>{a.name}</option>
+        {/each}
+      </select>
+    </div>
+  {/if}
 
   <div>
     <label for="memo" class="label">Note</label>

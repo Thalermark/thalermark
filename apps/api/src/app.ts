@@ -41,6 +41,7 @@ import { jobsRoutes } from './routes/jobs.js';
 import { ledgerRoutes } from './routes/ledger.js';
 import { locationsRoutes } from './routes/locations.js';
 import { mileageRoutes } from './routes/mileage.js';
+import { moneyAccountsRoutes } from './routes/money-accounts.js';
 import { ownerMoneyRoutes } from './routes/owner-money.js';
 import { publicRoutes } from './routes/public.js';
 import { purchasesRoutes } from './routes/purchases.js';
@@ -334,6 +335,7 @@ export function createApp(deps: AppDeps) {
   app.route('/', jobsRoutes());
   app.route('/', mileageRoutes());
   app.route('/', taxPoliciesRoutes());
+  app.route('/', moneyAccountsRoutes());
   app.route('/', auditEventsRoutes());
   app.route('/', telemetryRoutes());
   // Deps-taking sub-apps: they close over `deps` (social providers list, address
@@ -371,6 +373,7 @@ export type ItemsAppType = ReturnType<typeof itemsRoutes>;
 export type JobsAppType = ReturnType<typeof jobsRoutes>;
 export type MileageAppType = ReturnType<typeof mileageRoutes>;
 export type TaxPoliciesAppType = ReturnType<typeof taxPoliciesRoutes>;
+export type MoneyAccountsAppType = ReturnType<typeof moneyAccountsRoutes>;
 export type SocialProvidersAppType = ReturnType<typeof socialProvidersRoutes>;
 export type LocationsAppType = ReturnType<typeof locationsRoutes>;
 export type AuditEventsAppType = ReturnType<typeof auditEventsRoutes>;

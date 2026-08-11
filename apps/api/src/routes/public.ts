@@ -684,6 +684,13 @@ export function publicRoutes(deps: AppDeps) {
             // stripe_payment_intent_id is the only check that holds under a
             // race. A conflict means we already booked this intent, so the
             // insert returns nothing and the whole tx becomes a no-op.
+            //
+            // deposit_account_id is deliberately left unset, which resolves to
+            // the primary money account (TMC-207). There is no user at the
+            // keyboard on a webhook, and card settlements land wherever Stripe
+            // pays out — the business's main account by definition. Offering a
+            // choice here would mean guessing, and guessing wrong banks real
+            // money into the wrong account with nothing on screen to correct.
             const [payment] = await tx
               .insert(invoicePayments)
               .values({

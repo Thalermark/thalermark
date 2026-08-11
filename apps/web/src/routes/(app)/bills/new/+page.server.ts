@@ -17,18 +17,35 @@ export const load: PageServerLoad = async (event) => {
   const company = pickActiveCompany(event.cookies, companies);
   if (!company) throw error(500, 'no company in this workspace');
 
-  const catRes = await client.api.companies[':id'].accounts.$get({
-    param: { id: company.id },
-    query: { type: 'expense' },
-  });
+  const [catRes, moneyRes] = await Promise.all([
+    client.api.companies[':id'].accounts.$get({
+      param: { id: company.id },
+      query: { type: 'expense' },
+    }),
+    client.api['money-accounts'].$get({ query: { companyId: company.id } }),
+  ]);
   if (!catRes.ok) throw error(catRes.status, 'failed to load categories');
   const categories = (await catRes.json()).accounts.map((a: Account) => ({
     id: a.id,
     label: `${a.code} · ${a.name}`,
   }));
 
+  // Credit-card accounts join the category list (TMC-207) — a card STATEMENT is
+  // a bill, and its category is the card, not an expense.
+  //
+  // This is the double-count guard, not a convenience. The charges on that
+  // statement were already expensed when they were made on the card; filing the
+  // statement itself under an expense category books the same cost twice, which
+  // is the single most common small-business bookkeeping error. Pointing it at
+  // the card instead pays down what the card owes and leaves the original cost
+  // counted once.
+  const cardAccounts = moneyRes.ok
+    ? (await moneyRes.json()).moneyAccounts.filter((a) => a.kind === 'credit_card')
+    : [];
+
   return {
     categories,
+    cardAccounts: cardAccounts.map((a) => ({ id: a.id, label: a.name })),
     today: new Date().toISOString().slice(0, 10),
   };
 };

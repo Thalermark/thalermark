@@ -14,10 +14,24 @@ export const load: PageServerLoad = async (event) => {
   const company = pickActiveCompany(event.cookies, companies);
   if (!company) throw error(500, 'no company in this workspace');
 
-  return { today: new Date().toISOString().slice(0, 10) };
+  // Which account the money moves through (TMC-207). Bank accounts only: an
+  // owner does not contribute money "into" a credit card, and a draw taken on
+  // the business card is a card purchase, not a draw.
+  const moneyRes = await client.api['money-accounts'].$get({ query: { companyId: company.id } });
+  const moneyAccounts = moneyRes.ok
+    ? (await moneyRes.json()).moneyAccounts.filter((a) => a.kind !== 'credit_card')
+    : [];
+
+  return { today: new Date().toISOString().slice(0, 10), moneyAccounts };
 };
 
-type FormValues = { kind: string; amount: string; occurredOn: string; memo: string };
+type FormValues = {
+  kind: string;
+  amount: string;
+  occurredOn: string;
+  memo: string;
+  moneyAccountId: string;
+};
 
 function readForm(data: FormData): FormValues {
   return {
@@ -25,6 +39,7 @@ function readForm(data: FormData): FormValues {
     amount: String(data.get('amount') ?? '').trim(),
     occurredOn: String(data.get('occurredOn') ?? '').trim(),
     memo: String(data.get('memo') ?? '').trim(),
+    moneyAccountId: String(data.get('moneyAccountId') ?? '').trim(),
   };
 }
 
@@ -58,6 +73,9 @@ export const actions: Actions = {
       amount: values.amount,
       occurredOn: values.occurredOn,
       memo: values.memo === '' ? undefined : values.memo,
+      // Absent → the server's primary account, which is where every event
+      // recorded before there was a choice went.
+      moneyAccountId: values.moneyAccountId === '' ? undefined : values.moneyAccountId,
     });
     if (!parsed.success) {
       const fieldErrors: Record<string, string> = {};

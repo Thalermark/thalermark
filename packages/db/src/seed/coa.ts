@@ -50,7 +50,9 @@ import { SOLE_PROP_OVERLAY } from './coa-sole-prop.js';
 // - Health insurance / SEP IRA / pension: on Schedule 1 of the 1040, not
 //   Schedule C. The corporate forms do have pension/benefit lines; they stay
 //   blank until there's a payroll workflow to fill them.
-// - Separate Cash accounts per bank/processor: one Cash is fine for now.
+// - (Landed in TMC-207: a company can now add its own checking / savings / cash
+//   / credit-card accounts. The seed still ships exactly one, Cash, as the
+//   primary; the rest are user-created.)
 
 export type CoaAccountType = 'asset' | 'liability' | 'equity' | 'revenue' | 'expense';
 export type CoaNormalBalance = 'debit' | 'credit';
@@ -61,6 +63,15 @@ export type CoaSeed = {
   accountType: CoaAccountType;
   normalBalance: CoaNormalBalance;
   taxMapping: string | null;
+  // Set only on the accounts that are somewhere money actually sits (TMC-207).
+  // The seeded chart has exactly one: Cash. Everything the user adds later comes
+  // through the money-account endpoint, not through here.
+  //
+  // This has to be seeded and not merely backfilled by the migration: a company
+  // created AFTER that migration would otherwise have no money account at all,
+  // and cash on hand — which selects on this — would read zero for a business
+  // with money in the bank.
+  moneyAccountKind?: 'checking' | 'savings' | 'cash' | 'credit_card';
 };
 
 // An account before the entity overlay decides what tax line it lands on.
@@ -87,7 +98,17 @@ export type CoaOverlay = {
 // absent: it belongs to the entity, not the account.
 const BASE_COA: readonly CoaAccount[] = [
   // Assets
-  { code: '1000', name: 'Cash', accountType: 'asset', normalBalance: 'debit' },
+  {
+    code: '1000',
+    name: 'Cash',
+    accountType: 'asset',
+    normalBalance: 'debit',
+    // The primary money account. Every posting helper defaults here, and it is
+    // what a company that never adds a second account keeps everything in.
+    // Renameable ("Chase Business Checking") — the ledger posts by code, so the
+    // name is free to be whatever the owner calls it.
+    moneyAccountKind: 'cash',
+  },
   { code: '1200', name: 'Accounts Receivable', accountType: 'asset', normalBalance: 'debit' },
   // Durable gear the business owns and uses for years — a mower, trailer, truck.
   // Posted to by the "log a big purchase" flow (a capital asset, carried here at
@@ -254,6 +275,7 @@ export async function seedChartOfAccounts(
     accountType: seed.accountType,
     normalBalance: seed.normalBalance,
     taxMapping: seed.taxMapping,
+    moneyAccountKind: seed.moneyAccountKind ?? null,
   }));
   await tx
     .insert(chartOfAccounts)
@@ -351,6 +373,10 @@ export async function reconcileChartOfAccounts(
       accountType: seed.accountType,
       normalBalance: seed.normalBalance,
       taxMapping: seed.taxMapping,
+      // Only ever fills gaps — an account the new entity type needs that the
+      // old chart lacked. Cash is in every chart so this never re-adds it, but
+      // carrying the field keeps the two insert paths honest with each other.
+      moneyAccountKind: seed.moneyAccountKind ?? null,
     }));
   if (toInsert.length > 0) {
     await tx

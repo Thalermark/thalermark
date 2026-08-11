@@ -150,7 +150,17 @@ export function expensesRoutes(deps: AppDeps) {
           if (!category || category.accountType !== 'expense') {
             return c.json({ error: 'invalid_category_account' }, 400);
           }
-          if (!payment || payment.accountType !== 'asset') {
+          // Money-account kind, not account_type (TMC-207). A credit card is a
+          // LIABILITY that money legitimately moves through — "I filled the
+          // truck on the fuel card" — so an asset test would refuse the single
+          // most common case this feature exists for. The old test also let
+          // through Accounts Receivable and Accumulated Depreciation, which are
+          // assets nobody pays for fuel with.
+          //
+          // isActive is checked because this is NEW work: an archived account
+          // still resolves for reversals of expenses that already used it, but
+          // must not be offered for a fresh one.
+          if (!payment || !payment.moneyAccountKind || !payment.isActive) {
             return c.json({ error: 'invalid_payment_account' }, 400);
           }
 
@@ -599,7 +609,7 @@ export function expensesRoutes(deps: AppDeps) {
           if (!newCategory || newCategory.accountType !== 'expense') {
             return c.json({ error: 'invalid_category_account' }, 400);
           }
-          if (!newPayment || newPayment.accountType !== 'asset') {
+          if (!newPayment || !newPayment.moneyAccountKind || !newPayment.isActive) {
             return c.json({ error: 'invalid_payment_account' }, 400);
           }
           const oldCategory = coa.get(current.categoryAccountId);

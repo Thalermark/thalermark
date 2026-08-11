@@ -91,6 +91,21 @@
     </div>
   </fieldset>
 
+  <!--
+    Shown for BOTH funding shapes: paid-in-full still leaves an account, and a
+    financed down payment leaves one too. Hidden while there is only one.
+  -->
+  {#if data.moneyAccounts.length > 1}
+    <div>
+      <label for="paymentAccountId" class="label">Paid from</label>
+      <select id="paymentAccountId" name="paymentAccountId" class="field mt-1">
+        {#each data.moneyAccounts as a (a.id)}
+          <option value={a.id} selected={v('paymentAccountId') === a.id}>{a.name}</option>
+        {/each}
+      </select>
+    </div>
+  {/if}
+
   {#if funding === 'financed'}
     <div>
       <label for="downPayment" class="label">How much did you put down? (if any)</label>

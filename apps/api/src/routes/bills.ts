@@ -1,4 +1,4 @@
-import { billPayments, bills, chartOfAccounts, companies, contacts } from '@thalermark/db';
+import { billPayments, bills, companies, contacts } from '@thalermark/db';
 import {
   billCreateSchema,
   billMarkPaidSchema,
@@ -30,6 +30,7 @@ import {
   UUID_RE,
   expenseDateToPostedAt,
   resolveCoaAccounts,
+  resolveMoneyAccount,
   resolveVendorLink,
 } from '../lib/route-helpers.js';
 import { requireCapability } from '../middleware/authz.js';
@@ -61,42 +62,34 @@ function billMemoLabel(vendorName: string, reference: string | null | undefined)
 // Resolves the account a bill payment leaves from. Shared by mark-paid and the
 // per-payment route.
 //
-// That set is exactly Cash (1000) today, and an explicit pick is checked
-// AGAINST it rather than merely being validated as an asset. The old check —
-// any account_type 'asset' — was harmless while nothing surfaced a choice and
-// every caller took the default, but the chart seeds Accounts Receivable,
-// Vehicles & Equipment and Accumulated Depreciation as assets too, and "paid
-// this bill out of Accumulated Depreciation" posts a balanced entry that is
-// nonsense. A balanced wrong answer is the failure this codebase is built to
-// avoid, so the set is named rather than inferred from the type.
+// Membership is decided by money_account_kind, NOT by account_type. The old
+// check — any account_type 'asset' — was harmless while nothing surfaced a
+// choice and every caller took the default, but the chart seeds Accounts
+// Receivable, Vehicles & Equipment and Accumulated Depreciation as assets too,
+// and "paid this bill out of Accumulated Depreciation" posts a balanced entry
+// that is nonsense. A balanced wrong answer is the failure this codebase is
+// built to avoid, so the set is named rather than inferred from the type.
 //
-// The chart is seed-only — there is no endpoint that creates a
-// chart_of_accounts row — so there is currently no second cash or bank account
-// for a user to pick even in principle. When one lands, this becomes a set
-// membership and the clients get a real picker back; the same single-Cash pin
-// is already documented in ledger.ts's cash reads.
-const PAYABLE_FROM_CODES = ['1000'];
-
+// It cannot be a code list either, now that TMC-207 lets a company add its own:
+// the accounts are per-company and a credit card is a liability, so no single
+// type or fixed code set covers "somewhere money moves through".
+//
+// Omitting paymentAccountId still resolves to the seeded primary (1000), which
+// is what every bill paid before this feature used and what a company that
+// never adds a second account keeps using.
 async function resolvePaymentAccount(
   tx: RlsVariables['tx'],
   args: { accountId: string; companyId: string; paymentAccountId?: string | undefined },
 ): Promise<{ id: string; code: string } | { error: 'invalid_payment_account' }> {
-  const [cash] = await tx
-    .select({ id: chartOfAccounts.id, code: chartOfAccounts.code })
-    .from(chartOfAccounts)
-    .where(
-      and(
-        eq(chartOfAccounts.accountId, args.accountId),
-        eq(chartOfAccounts.companyId, args.companyId),
-        inArray(chartOfAccounts.code, PAYABLE_FROM_CODES),
-      ),
-    )
-    .limit(1);
-  if (!cash) throw new Error(`company ${args.companyId}: Cash account missing`);
-  if (args.paymentAccountId && args.paymentAccountId !== cash.id) {
-    return { error: 'invalid_payment_account' };
-  }
-  return cash;
+  const resolved = await resolveMoneyAccount(tx, {
+    accountId: args.accountId,
+    companyId: args.companyId,
+    moneyAccountId: args.paymentAccountId,
+  });
+  // Kept as a thin alias so the bill routes keep returning the error code their
+  // clients already map to a message.
+  if ('error' in resolved) return { error: 'invalid_payment_account' };
+  return resolved;
 }
 
 // The vendor name behind a bill, for the GL memo. Falls back rather than
@@ -174,10 +167,28 @@ export function billsRoutes() {
         if (!vendor) return c.json({ error: 'contact_not_found' }, 404);
         if ('error' in vendor) return c.json({ error: vendor.error }, vendor.status);
 
-        // category must be an 'expense' COA row (the Dr side of the open entry).
+        // The Dr side of the open entry. Normally an expense account — but a
+        // CREDIT CARD account is allowed here too, and that is the whole
+        // statement-as-a-bill flow (TMC-207).
+        //
+        // When Chase sends a $150 statement, the landscaper goes to Bills and
+        // records $150 owed to Chase. Categorising that as an expense would
+        // count it TWICE: the fuel was already expensed the moment it was
+        // bought on the card. Pointing it at the card account instead posts
+        // Dr Card / Cr AP, which pays down what the card owes and leaves the
+        // fuel expensed exactly once. Double-counting card payments is the most
+        // common small-business bookkeeping error, and this is the guard.
+        //
+        // Only cards, not every money account: "this bill is categorised as my
+        // checking account" is meaningless, and would post Dr Checking / Cr AP —
+        // inventing money out of a payable.
         const coa = await resolveCoaAccounts(tx, accountId, companyId, [categoryAccountId]);
         const category = coa.get(categoryAccountId);
-        if (!category || category.accountType !== 'expense') {
+        const categoryUsable =
+          category &&
+          (category.accountType === 'expense' || category.moneyAccountKind === 'credit_card') &&
+          category.isActive;
+        if (!categoryUsable) {
           return c.json({ error: 'invalid_category_account' }, 400);
         }
 
@@ -437,7 +448,12 @@ export function billsRoutes() {
             next.categoryAccountId,
           ]);
           const newCategory = coa.get(next.categoryAccountId);
-          if (!newCategory || newCategory.accountType !== 'expense') {
+          const newCategoryUsable =
+            newCategory &&
+            (newCategory.accountType === 'expense' ||
+              newCategory.moneyAccountKind === 'credit_card') &&
+            newCategory.isActive;
+          if (!newCategoryUsable) {
             return c.json({ error: 'invalid_category_account' }, 400);
           }
           const oldCategory = coa.get(current.categoryAccountId);

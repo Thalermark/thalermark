@@ -49,9 +49,35 @@
         {#each data.categories as cat (cat.id)}
           <option value={cat.id} selected={v?.categoryAccountId === cat.id}>{cat.label}</option>
         {/each}
+        <!--
+          A card statement is a bill whose category is the CARD. Grouped apart
+          so it reads as a different kind of answer, because it is: everything
+          above is "what did we buy", this is "this is the monthly statement for
+          money already spent".
+        -->
+        {#if data.cardAccounts.length > 0}
+          <optgroup label="Credit card statement">
+            {#each data.cardAccounts as card (card.id)}
+              <option value={card.id} selected={v?.categoryAccountId === card.id}>
+                {card.label} — monthly statement
+              </option>
+            {/each}
+          </optgroup>
+        {/if}
       </select>
       {#if fe('categoryAccountId')}
         <p class="mt-1 text-xs text-danger">{fe('categoryAccountId')}</p>
+      {/if}
+      {#if data.cardAccounts.length > 0}
+        <!--
+          Says the quiet part out loud at the moment of the decision. Someone
+          entering a $150 Chase statement will otherwise reach for a spending
+          category, and book the same $150 twice.
+        -->
+        <span class="mt-1 block text-xs text-fg/50">
+          Paying off a credit card? Pick the card itself — the things you bought on it were
+          already counted when you bought them.
+        </span>
       {/if}
     </label>
 

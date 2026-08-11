@@ -77,6 +77,8 @@ import {
   expenseDateToPostedAt,
   isValidDateParam,
   localToday,
+  resolveMoneyAccount,
+  storedMoneyCode,
 } from '../lib/route-helpers.js';
 import type { AuditWriter } from '../middleware/audit.js';
 import { requireCapability } from '../middleware/authz.js';
@@ -315,6 +317,14 @@ async function applyInvoiceTransition(
   if (!args.skipLedgerPosting) {
     await postInvoiceTransition(tx, {
       invoice: updated,
+      // The cash leg of a direct mark-paid banks into the account stored on the
+      // invoice. Resolved through storedMoneyCode rather than the new-work
+      // resolver so a void/repost still works after that account is archived.
+      moneyCode: await storedMoneyCode(tx, {
+        accountId,
+        companyId: updated.companyId,
+        moneyAccountId: updated.depositAccountId,
+      }),
       prevStatus: from,
       nextStatus: updated.status as InvoiceStatus,
       accountId,
@@ -1080,6 +1090,13 @@ export function invoicesRoutes(deps: AppDeps) {
             receivedOn = localToday(company?.timezone ?? 'UTC');
           }
 
+          const markPaidDeposit = await resolveMoneyAccount(tx, {
+            accountId,
+            companyId: invoice.companyId,
+            moneyAccountId: data.depositAccountId,
+          });
+          if ('error' in markPaidDeposit) return c.json({ error: markPaidDeposit.error }, 400);
+
           const [payment] = await tx
             .insert(invoicePayments)
             .values({
@@ -1091,6 +1108,7 @@ export function invoicesRoutes(deps: AppDeps) {
               receivedOn,
               method: data.method,
               reference: data.reference ?? null,
+              depositAccountId: markPaidDeposit.id,
             })
             .returning();
           if (!payment) return c.json({ error: 'invoice_not_found' }, 404);
@@ -1253,6 +1271,13 @@ export function invoicesRoutes(deps: AppDeps) {
           // write. Reachable only by aiming one key at two different draft
           // invoices CONCURRENTLY; the pre-check above answers the sequential
           // form of that with a clean 409 and no writes at all.
+          const issueDeposit = await resolveMoneyAccount(tx, {
+            accountId,
+            companyId: invoice.companyId,
+            moneyAccountId: data.depositAccountId,
+          });
+          if ('error' in issueDeposit) return c.json({ error: issueDeposit.error }, 400);
+
           const [payment] = await tx
             .insert(invoicePayments)
             .values({
@@ -1263,6 +1288,7 @@ export function invoicesRoutes(deps: AppDeps) {
               amount: data.amount,
               receivedOn,
               method: data.method ?? 'cash',
+              depositAccountId: issueDeposit.id,
               idempotencyKey: key ?? null,
             })
             .returning();
@@ -1777,6 +1803,15 @@ export function invoicesRoutes(deps: AppDeps) {
           // look correct while AR and Cash quietly disagreed with it.
           const key = data.idempotencyKey;
           const paymentId = uuidv7();
+          // Where the money landed. Refused rather than silently defaulted if
+          // the client names an account that does not resolve — banking a
+          // receipt into the wrong account looks like it worked.
+          const deposit = await resolveMoneyAccount(tx, {
+            accountId,
+            companyId: invoice.companyId,
+            moneyAccountId: data.depositAccountId,
+          });
+          if ('error' in deposit) return c.json({ error: deposit.error }, 400);
           const values = {
             id: paymentId,
             accountId,
@@ -1786,6 +1821,7 @@ export function invoicesRoutes(deps: AppDeps) {
             receivedOn: data.receivedOn,
             method: data.method,
             reference: data.reference ?? null,
+            depositAccountId: deposit.id,
             idempotencyKey: key ?? null,
           };
           const [payment] = key

@@ -14,6 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ContactField } from '../../../components/ContactField';
 import { DateField } from '../../../components/DateField';
+import { MoneyAccountPicker, useMoneyAccounts } from '../../../components/MoneyAccountPicker';
 import { pickActiveCompany } from '../../../lib/active-company';
 import { api } from '../../../lib/api';
 import { apiErrorMessage } from '../../../lib/api-errors';
@@ -75,6 +76,9 @@ export default function NewPurchase() {
 
   const inlineMode = contactId === NEW_CONTACT;
   const noCompany = bootstrapped && companyId === null;
+  // Cards included: a mower is as likely to go on the card as out of checking.
+  const moneyAccounts = useMoneyAccounts(companyId);
+  const [paymentAccountId, setPaymentAccountId] = useState<string | null>(null);
   const canSubmit =
     !submitting && !noCompany && description.trim().length > 0 && amount.trim().length > 0;
 
@@ -153,6 +157,8 @@ export default function NewPurchase() {
       purchaseDate: purchaseDate.trim(),
       funding,
       downPayment: financed && downPayment.trim() !== '' ? downPayment.trim() : undefined,
+      // Absent → the server's primary account.
+      paymentAccountId: paymentAccountId ?? undefined,
       taxTreatment,
       vendorContactId: resolvedContactId,
     });
@@ -223,6 +229,14 @@ export default function NewPurchase() {
               keyboardType="decimal-pad"
             />
             <DateField label="When? *" value={purchaseDate} onChange={setPurchaseDate} />
+
+            {/* Shown for both funding shapes: paid-in-full still leaves an
+                account, and a financed down payment leaves one too. */}
+            <MoneyAccountPicker
+              accounts={moneyAccounts}
+              value={paymentAccountId ?? moneyAccounts?.[0]?.id ?? null}
+              onChange={setPaymentAccountId}
+            />
 
             <View>
               <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">

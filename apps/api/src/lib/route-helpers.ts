@@ -3,7 +3,7 @@
 // can import it without a cycle back through app.ts.
 
 import { type Transaction, chartOfAccounts, contacts } from '@thalermark/db';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull } from 'drizzle-orm';
 import { reindexEntities } from './search/reindex.js';
 
 // UUIDv7 shape guard for `:id` path params. Most routes validate an id before
@@ -70,19 +70,34 @@ export function localToday(tz: string): string {
   }).format(new Date());
 }
 
-// Resolves chart_of_accounts row ids to their { code, accountType } within one
-// company (scoped by account for defense-in-depth per
+// Resolves chart_of_accounts row ids to their shape within one company (scoped
+// by account for defense-in-depth per
 // [[architecture_account_id_explicit_filter]]). The expense + bill endpoints
-// use it to validate the category/payment account types before posting and to
-// recover the codes of a stored account when posting a reversal. Returns a Map
-// keyed by id; ids that don't resolve are simply absent. Shared by the expenses
-// sub-app and the bills routes.
+// use it to validate the category/payment account before posting and to recover
+// the codes of a stored account when posting a reversal. Returns a Map keyed by
+// id; ids that don't resolve are simply absent. Shared by the expenses sub-app
+// and the bills routes.
+//
+// moneyAccountKind is what "can money move through this?" is decided on since
+// TMC-207 — NOT accountType. A type test would accept Accounts Receivable and
+// Accumulated Depreciation, which are assets too, and posting against them
+// balances while being nonsense. It also has to be the test rather than a code
+// list because a credit card is a LIABILITY that money legitimately moves
+// through, so no single account_type covers the set.
+//
+// isActive rides along so a caller can refuse an ARCHIVED account for new work
+// while still resolving it for reversals of transactions that already used it.
 export async function resolveCoaAccounts(
   tx: Transaction,
   accountId: string,
   companyId: string,
   ids: string[],
-): Promise<Map<string, { code: string; accountType: string }>> {
+): Promise<
+  Map<
+    string,
+    { code: string; accountType: string; moneyAccountKind: string | null; isActive: boolean }
+  >
+> {
   const unique = Array.from(new Set(ids));
   if (unique.length === 0) return new Map();
   const rows = await tx
@@ -90,6 +105,8 @@ export async function resolveCoaAccounts(
       id: chartOfAccounts.id,
       code: chartOfAccounts.code,
       accountType: chartOfAccounts.accountType,
+      moneyAccountKind: chartOfAccounts.moneyAccountKind,
+      isActive: chartOfAccounts.isActive,
     })
     .from(chartOfAccounts)
     .where(
@@ -99,7 +116,17 @@ export async function resolveCoaAccounts(
         inArray(chartOfAccounts.id, unique),
       ),
     );
-  return new Map(rows.map((r) => [r.id, { code: r.code, accountType: r.accountType }]));
+  return new Map(
+    rows.map((r) => [
+      r.id,
+      {
+        code: r.code,
+        accountType: r.accountType,
+        moneyAccountKind: r.moneyAccountKind,
+        isActive: r.isActive,
+      },
+    ]),
+  );
 }
 
 // Resolve an expense/bill's buy-from vendor link (shared by expense create +
@@ -142,4 +169,105 @@ export async function resolveVendorLink(
     await reindexEntities(tx, accountId, [{ entityType: 'contact', entityId: vendorContactId }]);
   }
   return { id: vendor.id, name: vendor.name };
+}
+
+// The seeded primary money account. Duplicated from ledger.ts's COA_CASH rather
+// than imported to keep this module free of a ledger dependency (it is imported
+// by routes that never post).
+const PRIMARY_MONEY_CODE = '1000';
+
+// Resolves "which of this company's money accounts did the money move through?"
+// to the { id, code } the caller needs — the id to store on the row, the code to
+// post with (the ledger resolves lines by literal code).
+//
+// One helper because five flows ask the identical question — expenses, bill
+// payments, invoice receipts, owner money and capital purchases — and the answer
+// has two easy ways to be wrong that a trial-balance check cannot catch:
+//
+//   * accepting an account money cannot move through. account_type is not the
+//     test: the seed marks Accounts Receivable, Vehicles & Equipment and
+//     Accumulated Depreciation as assets, and "paid this bill out of Accumulated
+//     Depreciation" posts a BALANCED entry that is nonsense. Membership is
+//     money_account_kind.
+//   * silently falling back to the primary when the caller named an account that
+//     did not resolve, which would bank money into the wrong place while looking
+//     like it worked. An explicit id that fails to resolve is an error; only an
+//     ABSENT id falls back.
+//
+// Archived accounts are refused. This is the new-work path; reversals resolve
+// the account already stored on the row and never come through here, so
+// archiving can never strand a transaction that already used one.
+export async function resolveMoneyAccount(
+  tx: Transaction,
+  args: { accountId: string; companyId: string; moneyAccountId?: string | null | undefined },
+): Promise<{ id: string; code: string } | { error: 'invalid_money_account' }> {
+  if (args.moneyAccountId) {
+    const [picked] = await tx
+      .select({ id: chartOfAccounts.id, code: chartOfAccounts.code })
+      .from(chartOfAccounts)
+      .where(
+        and(
+          eq(chartOfAccounts.accountId, args.accountId),
+          eq(chartOfAccounts.companyId, args.companyId),
+          eq(chartOfAccounts.id, args.moneyAccountId),
+          isNotNull(chartOfAccounts.moneyAccountKind),
+          eq(chartOfAccounts.isActive, true),
+        ),
+      )
+      .limit(1);
+    if (!picked) return { error: 'invalid_money_account' };
+    return picked;
+  }
+
+  const [primary] = await tx
+    .select({ id: chartOfAccounts.id, code: chartOfAccounts.code })
+    .from(chartOfAccounts)
+    .where(
+      and(
+        eq(chartOfAccounts.accountId, args.accountId),
+        eq(chartOfAccounts.companyId, args.companyId),
+        eq(chartOfAccounts.code, PRIMARY_MONEY_CODE),
+      ),
+    )
+    .limit(1);
+  // The seed guarantees this row; its absence means the chart is broken, which
+  // is a crash rather than a 400 — the same call the ledger makes.
+  if (!primary) throw new Error(`company ${args.companyId}: primary money account missing`);
+  return primary;
+}
+
+// The posting CODE for an account already stored on a row.
+//
+// Deliberately not resolveMoneyAccount: that one guards NEW work and refuses an
+// archived account. This is the reversal/repost path, where the account was
+// valid when the transaction was recorded and the only correct answer is the one
+// the money actually moved through. Refusing it here would strand an edit or a
+// delete on any transaction whose account was later archived — and archiving is
+// meant to be a filing decision, not something that freezes history.
+//
+// A null id means the row predates TMC-207 (or took the default), which resolves
+// to the primary account — where that money actually went.
+export async function storedMoneyCode(
+  tx: Transaction,
+  args: { accountId: string; companyId: string; moneyAccountId?: string | null | undefined },
+): Promise<string> {
+  if (args.moneyAccountId) {
+    const [row] = await tx
+      .select({ code: chartOfAccounts.code })
+      .from(chartOfAccounts)
+      .where(
+        and(
+          eq(chartOfAccounts.accountId, args.accountId),
+          eq(chartOfAccounts.id, args.moneyAccountId),
+        ),
+      )
+      .limit(1);
+    // The FK is RESTRICT, so a stored id that does not resolve means the chart
+    // was corrupted out from under the books — a crash, not a silent default.
+    if (!row) {
+      throw new Error(`money account ${args.moneyAccountId} missing for account ${args.accountId}`);
+    }
+    return row.code;
+  }
+  return PRIMARY_MONEY_CODE;
 }

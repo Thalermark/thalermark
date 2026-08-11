@@ -54,8 +54,18 @@ export const load: PageServerLoad = async (event) => {
   });
   const settlement = paymentsRes.ok ? await paymentsRes.json() : null;
 
+  // Where the money can be paid FROM (TMC-207). Every active money account,
+  // cards included: paying one card off with another is unusual but real, and
+  // the ledger handles it the same way.
+  const moneyRes = await client.api['money-accounts'].$get({
+    query: { companyId: bill.companyId },
+  });
+  const moneyAccounts = moneyRes.ok ? (await moneyRes.json()).moneyAccounts : [];
+  for (const a of moneyAccounts) labelById.set(a.id, a.name);
+
   return {
     bill,
+    moneyAccounts,
     // One key per render, so a double-click on Record payment sends the same
     // one twice and the server writes a single row (TMC-218). Minted here so it
     // survives hydration unchanged.
@@ -91,7 +101,16 @@ export const actions: Actions = {
 
     const res = await client.api.bills[':id']['mark-paid'].$post({
       param: { id },
-      json: { method, reference, paidOn },
+      // Which account the money left. Omitted → the server's primary.
+      json: {
+        method,
+        reference,
+        paidOn,
+        paymentAccountId: (() => {
+          const raw = data.get('paymentAccountId');
+          return typeof raw === 'string' && raw ? raw : undefined;
+        })(),
+      },
     });
     if (res.status === 404) throw error(404, 'bill not found');
     if (!res.ok) {
@@ -135,14 +154,15 @@ export const actions: Actions = {
       typeof referenceRaw === 'string' && referenceRaw.trim() ? referenceRaw.trim() : undefined;
     const keyRaw = formData.get('idempotencyKey');
     const idempotencyKey = typeof keyRaw === 'string' && keyRaw ? keyRaw : undefined;
-    // paymentAccountId is deliberately not sent — the server resolves Cash,
-    // which is the only account a bill can be paid from while the chart is
-    // seed-only. The field stays on the API for when that changes.
+    // Which account the money left. Omitted → the server resolves the primary,
+    // which is what a company with one account has always done.
+    const accRaw = formData.get('paymentAccountId');
+    const paymentAccountId = typeof accRaw === 'string' && accRaw ? accRaw : undefined;
     const res = await client.api.bills[':id'].payments.$post({
       param: { id },
       // Forwarded from the hidden field the form rendered with; the partial
       // unique index on bill_payments is what actually stops the second row.
-      json: { amount, paidOn, method, reference, idempotencyKey },
+      json: { amount, paidOn, method, reference, idempotencyKey, paymentAccountId },
     });
     if (res.status === 404) throw error(404, 'bill not found');
     if (!res.ok) {
