@@ -224,6 +224,9 @@ export async function generateOnce(
       // neither Cash nor fees — explicit null rather than an optional field so
       // any future caller has to make the same call consciously.
       processingFee: null,
+      // Same reasoning: nothing has banked yet, so there is no account for it to
+      // have banked into. It is set when the invoice is actually paid.
+      depositAccountId: null,
     },
     prevStatus: 'draft',
     nextStatus: 'sent',

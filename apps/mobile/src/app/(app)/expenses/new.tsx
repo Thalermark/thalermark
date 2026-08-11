@@ -28,7 +28,7 @@ import { useFlowAbandonment } from '../../../lib/flow-abandonment';
 // account), so the form fetches the company's COA and offers two pickers. A
 // "✨ Suggest" affordance asks the AI categorizer to pre-fill the category from
 // the typed merchant (opt-in; soft-fails when no LLM is configured).
-type Account = { id: string; code: string; name: string };
+type Account = { id: string; code: string; name: string; kind?: string | null };
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
@@ -96,18 +96,22 @@ export default function NewExpense() {
             param: { id: company.id },
             query: { type: 'expense' },
           }),
-          api.api.companies[':id'].accounts.$get({
-            param: { id: company.id },
-            query: { type: 'asset' },
-          }),
+          // Money accounts, NOT `type=asset` (TMC-207). That query also returns
+          // Accounts Receivable, Vehicles & Equipment and Accumulated
+          // Depreciation, so the picker was offering "paid for fuel out of
+          // Accumulated Depreciation" — a balanced entry that is nonsense. It
+          // also excluded credit cards, which are a LIABILITY money genuinely
+          // moves through and the main case this feature exists for.
+          api.api['money-accounts'].$get({ query: { companyId: company.id } }),
         ]);
         if (!active) return;
         if (catRes.ok) setCategories((await catRes.json()).accounts);
         if (payRes.ok) {
-          const { accounts } = await payRes.json();
-          setPayments(accounts);
-          // Default payment to the first asset account (typically Cash/Checking).
-          setPaymentId((p) => p ?? accounts[0]?.id ?? null);
+          const { moneyAccounts } = await payRes.json();
+          setPayments(
+            moneyAccounts.map((a) => ({ id: a.id, code: a.code, name: a.name, kind: a.kind })),
+          );
+          setPaymentId((p) => p ?? moneyAccounts[0]?.id ?? null);
         }
 
         // Duplicate prefill — seed from the source expense (date + receipt

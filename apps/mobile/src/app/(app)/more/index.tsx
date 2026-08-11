@@ -36,7 +36,8 @@ type Entry = {
     | '/more/email'
     | '/more/privacy'
     | '/more/about'
-    | '/more/tax-policies';
+    | '/more/tax-policies'
+    | '/more/accounts';
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
   subtitle: string;
@@ -172,6 +173,12 @@ const SETTINGS_ENTRIES: Entry[] = [
     icon: 'business-outline',
     title: 'Business',
     subtitle: 'Address, phone, and logo on your invoices, plus your reply-to email.',
+  },
+  {
+    href: '/more/accounts',
+    icon: 'wallet-outline',
+    title: 'Accounts',
+    subtitle: 'The bank accounts, cards and cash your money actually sits in.',
   },
   {
     href: '/more/tax-policies',

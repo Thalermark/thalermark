@@ -12,7 +12,11 @@ export const load: PageServerLoad = async (event) => {
   const { companies } = await companiesRes.json();
   const company = pickActiveCompany(event.cookies, companies);
   if (!company) throw error(500, 'no company in this workspace');
-  return { today: new Date().toISOString().slice(0, 10) };
+  // Which account the money left (TMC-207). Cards included: a mower is as
+  // likely to go on the card as out of checking.
+  const moneyRes = await client.api['money-accounts'].$get({ query: { companyId: company.id } });
+  const moneyAccounts = moneyRes.ok ? (await moneyRes.json()).moneyAccounts : [];
+  return { today: new Date().toISOString().slice(0, 10), moneyAccounts };
 };
 
 type FormValues = {
@@ -21,6 +25,7 @@ type FormValues = {
   purchaseDate: string;
   funding: string;
   downPayment: string;
+  paymentAccountId: string;
   taxTreatment: string;
   vendorContactId: string;
 };
@@ -32,6 +37,7 @@ function readForm(data: FormData): FormValues {
     purchaseDate: String(data.get('purchaseDate') ?? '').trim(),
     funding: String(data.get('funding') ?? '').trim(),
     downPayment: String(data.get('downPayment') ?? '').trim(),
+    paymentAccountId: String(data.get('paymentAccountId') ?? '').trim(),
     taxTreatment: String(data.get('taxTreatment') ?? '').trim(),
     vendorContactId: String(data.get('vendorContactId') ?? '').trim(),
   };
@@ -70,6 +76,8 @@ export const actions: Actions = {
       purchaseDate: values.purchaseDate,
       funding: values.funding,
       downPayment: financed && values.downPayment !== '' ? values.downPayment : undefined,
+      // Absent → the server's primary account.
+      paymentAccountId: values.paymentAccountId === '' ? undefined : values.paymentAccountId,
       taxTreatment: values.taxTreatment,
       vendorContactId: values.vendorContactId !== '' ? values.vendorContactId : undefined,
     });

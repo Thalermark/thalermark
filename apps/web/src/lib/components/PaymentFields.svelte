@@ -3,11 +3,44 @@
   // (pre-filled). Renders the method radios + a conditional Check#/Note field +
   // a payment-date input capped at today. Field names match the API schema
   // (method / reference / paidOn); the parent <form> owns the action + submit.
+  //
+  // Optionally renders the money-account picker too (TMC-207), because "how was
+  // it paid" and "which account did it move through" are the same moment for
+  // the user. Field NAME differs by direction — bills pay FROM an account,
+  // invoices deposit INTO one — so the caller supplies it.
   let {
     method = 'cash',
     reference = null,
     date,
-  }: { method?: string; reference?: string | null; date?: string } = $props();
+    accounts = [],
+    accountField = 'paymentAccountId',
+    accountLabel = 'Paid from',
+    // Nothing is ever deposited into a credit card, so the money-in callers
+    // pass false and get bank accounts only.
+    allowCards = true,
+  }: {
+    method?: string;
+    reference?: string | null;
+    date?: string;
+    accounts?: { id: string; name: string; kind: string | null }[];
+    accountField?: string;
+    accountLabel?: string;
+    allowCards?: boolean;
+  } = $props();
+
+  const KIND_LABEL: Record<string, string> = {
+    checking: 'Checking',
+    savings: 'Savings',
+    cash: 'Cash',
+    credit_card: 'Credit card',
+  };
+
+  // Hidden entirely while there is one account: picking from a list of one is
+  // noise, and omitting the field is exactly the request a pre-TMC-207 form
+  // made, so the server takes its existing default path.
+  const accountOptions = $derived(
+    allowCards ? accounts : accounts.filter((a) => a.kind !== 'credit_card'),
+  );
 
   const CHOICES = [
     { value: 'cash', label: 'Cash' },
@@ -61,6 +94,19 @@
       class="rounded-sm border border-fg/20 bg-surface px-3 py-2 focus:border-accent focus:outline-none"
       >{reference ?? ''}</textarea
     >
+  </label>
+{/if}
+{#if accountOptions.length > 1}
+  <label class="mt-4 grid max-w-xs gap-1 text-sm text-fg">
+    {accountLabel}
+    <select
+      name={accountField}
+      class="rounded-sm border border-fg/20 bg-surface px-3 py-2 focus:border-accent focus:outline-none"
+    >
+      {#each accountOptions as a (a.id)}
+        <option value={a.id}>{a.name}{a.kind ? ` · ${KIND_LABEL[a.kind] ?? ''}` : ''}</option>
+      {/each}
+    </select>
   </label>
 {/if}
 <label class="mt-4 grid max-w-xs gap-1 text-sm text-fg">

@@ -1,5 +1,6 @@
 import { date, index, numeric, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { accounts } from './accounts.js';
+import { chartOfAccounts } from './chart_of_accounts.js';
 import { companies } from './companies.js';
 
 // Owner money events — the owner moving their OWN money in or out of the
@@ -40,6 +41,16 @@ export const ownerMoneyEvents = pgTable(
     kind: text('kind').notNull(),
     amount: numeric('amount', { precision: 15, scale: 2 }).notNull(),
     occurredOn: date('occurred_on', { mode: 'string' }).notNull(),
+    // Which money account the owner put money into, or took it out of
+    // (TMC-207). Nullable — events recorded before multiple accounts existed
+    // resolve to the primary cash account.
+    //
+    // Stored, not passed at post time: postOwnerMoneyEventReversal re-derives
+    // its lines from this row, so a create-time-only parameter would reverse a
+    // draw taken from savings back into checking. Balanced, and wrong.
+    moneyAccountId: uuid('money_account_id').references(() => chartOfAccounts.id, {
+      onDelete: 'restrict',
+    }),
     memo: text('memo'),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

@@ -386,7 +386,12 @@
       action="?/markPaid"
       class="mt-4 max-w-md rounded-sm border border-fg/15 bg-surface-2 p-5"
     >
-      <PaymentFields />
+      <PaymentFields
+        accounts={data.moneyAccounts}
+        accountField="depositAccountId"
+        accountLabel="Deposited into"
+        allowCards={false}
+      />
       <div class="mt-5 flex items-center gap-3">
         <SubmitButton label="Confirm paid" pendingLabel="Marking paid…" class="btn" />
         <button
@@ -614,6 +619,16 @@
               </select>
             </div>
           </div>
+          {#if data.moneyAccounts.length > 1}
+            <div class="mt-4">
+              <label class="label" for="payment-deposit">Deposited into</label>
+              <select id="payment-deposit" name="depositAccountId" class="field mt-1">
+                {#each data.moneyAccounts as a (a.id)}
+                  <option value={a.id}>{a.name}</option>
+                {/each}
+              </select>
+            </div>
+          {/if}
           <div class="mt-4">
             <label class="label" for="payment-reference">Reference (optional)</label>
             <input

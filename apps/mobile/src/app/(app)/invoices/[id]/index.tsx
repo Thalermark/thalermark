@@ -13,6 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { type AuditEvent, AuditHistory } from '../../../../components/AuditHistory';
 import { DateField } from '../../../../components/DateField';
+import { MoneyAccountPicker, useMoneyAccounts } from '../../../../components/MoneyAccountPicker';
 import { api } from '../../../../lib/api';
 import { apiErrorMessage } from '../../../../lib/api-errors';
 import { useMay } from '../../../../lib/role';
@@ -36,6 +37,8 @@ type Invoice = {
   status: string;
   number: string;
   contactId: string;
+  // Needed to scope the money-account lookup, which is per company.
+  companyId: string;
   issueDate: string;
   dueDate: string;
   currency: string;
@@ -157,6 +160,7 @@ export default function InvoiceDetail() {
       customerName,
       contactEmail,
       invoice: {
+        companyId: inv.companyId,
         status: inv.status,
         number: inv.number,
         contactId: inv.contactId,
@@ -208,6 +212,10 @@ export default function InvoiceDetail() {
   // viewer/accountant sees no action buttons.
   const canWrite = useMay('sales:write');
   const inv = detail.state === 'ready' ? detail.invoice : null;
+  // Where a receipt lands (TMC-207). Bank accounts only — nothing is ever
+  // deposited into a credit card.
+  const depositAccounts = useMoneyAccounts(inv?.companyId ?? null, false);
+  const [depositAccountId, setDepositAccountId] = useState<string | null>(null);
   const status = inv?.status;
   const canSend = canWrite && (status === 'draft' || status === 'sent');
   const canMarkSent = canWrite && status === 'draft';
@@ -270,7 +278,13 @@ export default function InvoiceDetail() {
       () =>
         api.api.invoices[':id']['mark-paid'].$post({
           param: { id },
-          json: { method: paidMethod, reference: reference || undefined, paidOn },
+          json: {
+            method: paidMethod,
+            reference: reference || undefined,
+            paidOn,
+            // Omitted → the server's primary account.
+            depositAccountId: depositAccountId ?? undefined,
+          },
         }),
       () => setShowPaidPanel(false),
     );
@@ -295,7 +309,13 @@ export default function InvoiceDetail() {
       () =>
         api.api.invoices[':id'].payments.$post({
           param: { id },
-          json: { amount, receivedOn: payOn, method: payMethod, reference: reference || undefined },
+          json: {
+            amount,
+            receivedOn: payOn,
+            method: payMethod,
+            reference: reference || undefined,
+            depositAccountId: depositAccountId ?? undefined,
+          },
         }),
       () => {
         setShowPaymentPanel(false);
@@ -544,6 +564,12 @@ export default function InvoiceDetail() {
                 ) : null}
                 <View className="mt-3">
                   <DateField label="Payment date" value={paidOn} onChange={setPaidOn} />
+                  <MoneyAccountPicker
+                    accounts={depositAccounts}
+                    value={depositAccountId ?? depositAccounts?.[0]?.id ?? null}
+                    onChange={setDepositAccountId}
+                    label="Deposited into"
+                  />
                 </View>
                 <Pressable
                   onPress={onMarkPaid}

@@ -11,6 +11,27 @@ function accountOptions(accounts: Account[]) {
   return accounts.map((a) => ({ id: a.id, label: `${a.code} · ${a.name}` }));
 }
 
+const KIND_LABEL: Record<string, string> = {
+  checking: 'Checking',
+  savings: 'Savings',
+  cash: 'Cash',
+  credit_card: 'Credit card',
+};
+
+// Paid-from comes from the money accounts, not `type=asset` — see the long note
+// on the new-expense loader for why the asset query was offering "paid out of
+// Accumulated Depreciation" (TMC-207).
+//
+// The list is the ACTIVE accounts, so an archived one is not offered for a
+// fresh choice. An expense already recorded against an archived account keeps
+// it: the server resolves the stored id on reversal without this list.
+function moneyOptions(accounts: { id: string; name: string; kind: string | null }[]) {
+  return accounts.map((a) => ({
+    id: a.id,
+    label: a.kind ? `${a.name} · ${KIND_LABEL[a.kind] ?? ''}` : a.name,
+  }));
+}
+
 export const load: PageServerLoad = async (event) => {
   const client = serverApiClient(event);
   const expenseRes = await client.api.expenses[':id'].$get({ param: { id: event.params.id } });
@@ -18,20 +39,17 @@ export const load: PageServerLoad = async (event) => {
   if (!expenseRes.ok) throw error(expenseRes.status, 'failed to load expense');
   const expense = await expenseRes.json();
 
-  const [expenseAccRes, assetAccRes] = await Promise.all([
+  const [expenseAccRes, moneyRes] = await Promise.all([
     client.api.companies[':id'].accounts.$get({
       param: { id: expense.companyId },
       query: { type: 'expense' },
     }),
-    client.api.companies[':id'].accounts.$get({
-      param: { id: expense.companyId },
-      query: { type: 'asset' },
-    }),
+    client.api['money-accounts'].$get({ query: { companyId: expense.companyId } }),
   ]);
   if (!expenseAccRes.ok) throw error(expenseAccRes.status, 'failed to load categories');
-  if (!assetAccRes.ok) throw error(assetAccRes.status, 'failed to load payment accounts');
+  if (!moneyRes.ok) throw error(moneyRes.status, 'failed to load payment accounts');
   const expenseAccounts = (await expenseAccRes.json()).accounts;
-  const assetAccounts = (await assetAccRes.json()).accounts;
+  const moneyAccounts = (await moneyRes.json()).moneyAccounts;
 
   // Receipt auto-fill (slice 8.9h) lands here via ?prefill=1 with the AI's
   // suggestions in the query. They seed the form (overriding the saved record)
@@ -54,8 +72,8 @@ export const load: PageServerLoad = async (event) => {
   return {
     expense,
     categories: accountOptions(expenseAccounts),
-    paymentAccounts: accountOptions(assetAccounts),
-    paymentPickerVisible: assetAccounts.length > 1,
+    paymentAccounts: moneyOptions(moneyAccounts),
+    paymentPickerVisible: moneyAccounts.length > 1,
     prefill,
     prefilled,
   };

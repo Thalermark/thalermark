@@ -180,7 +180,7 @@
 
   {#if showPay && canMarkPaid}
     <form method="POST" action="?/markPaid" class="mt-6 max-w-xl rounded-sm border border-fg/10 bg-surface-2 p-5">
-      <PaymentFields />
+      <PaymentFields accounts={data.moneyAccounts} />
       <div class="mt-5 flex items-center gap-4">
         <SubmitButton label="Pay in full" pendingLabel="Recording…" class="btn" />
         <button type="button" class="text-sm text-fg/60 hover:text-fg" onclick={() => (showPay = false)}>

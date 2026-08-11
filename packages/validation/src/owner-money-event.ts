@@ -8,9 +8,10 @@ import { isoDateString, moneyString } from './money.js';
 //
 // The double-entry is hidden (per [[project_ledger_decision]]); the client only
 // supplies the company scope + the visible fields. accountId comes from the
-// rls-context middleware (x-account-id). `kind` fully determines the posting, so
-// — unlike bills/expenses — there is no category or payment-account field; cash
-// is always Cash (1000), the single-Cash MVP assumption. amount is a decimal
+// rls-context middleware (x-account-id). `kind` fully determines which equity
+// account the posting hits; moneyAccountId says which of the company's money
+// accounts the cash side moved through, and is optional — omitted means the
+// primary, which is where every event recorded before TMC-207 went. amount is a decimal
 // string ([[architecture_money_decimal_strings]]); occurredOn is a bare
 // YYYY-MM-DD calendar date driving the ledger posting date. memo is the user's
 // note.
@@ -22,6 +23,8 @@ export const ownerMoneyEventCreateSchema = z.object({
   kind: z.enum(OWNER_MONEY_EVENT_KINDS),
   amount: moneyString,
   occurredOn: isoDateString,
+  // Which account the owner put money into / took it out of. Omitted → primary.
+  moneyAccountId: z.string().uuid().optional(),
   memo: z.string().max(5000).optional(),
 });
 

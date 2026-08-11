@@ -35,6 +35,9 @@
       title: 'Your business',
       tabs: [
         { href: '/settings/business', label: 'Business', cap: 'settings:manage' },
+        // "Accounts" rather than "Chart of accounts" — the user is adding the
+        // bank account and card they actually have, not editing a ledger.
+        { href: '/settings/accounts', label: 'Accounts', cap: 'settings:manage' },
         { href: '/settings/tax-policies', label: 'Tax', cap: 'settings:manage' },
         { href: '/settings/payments', label: 'Payments', cap: 'settings:manage' },
         { href: '/settings/email', label: 'Email templates', cap: 'settings:manage' },

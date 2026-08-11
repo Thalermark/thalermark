@@ -12,6 +12,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 import { accounts } from './accounts.js';
+import { chartOfAccounts } from './chart_of_accounts.js';
 import { companies } from './companies.js';
 import { contacts } from './contacts.js';
 import { items } from './items.js';
@@ -63,6 +64,19 @@ export const invoices = pgTable(
     issueDate: date('issue_date', { mode: 'string' }).notNull(),
     dueDate: date('due_date', { mode: 'string' }).notNull(),
     currency: text('currency').notNull().default('USD'),
+    // Which money account the DIRECT mark-paid path banks into (TMC-207).
+    //
+    // Distinct from invoice_payments.deposit_account_id, and both are needed:
+    // partial payments (TMC-187) each land in their own account and carry it on
+    // the receipt, but the whole-invoice transitions still post their own cash
+    // leg through invoicePostingLines (draft→paid, sent→paid). That leg has no
+    // receipt row to read from, so it reads this.
+    //
+    // Nullable — every invoice paid before multiple accounts existed resolves to
+    // the primary cash account, which is where the money went.
+    depositAccountId: uuid('deposit_account_id').references(() => chartOfAccounts.id, {
+      onDelete: 'restrict',
+    }),
     subtotal: numeric('subtotal', { precision: 15, scale: 2 }).notNull().default('0'),
     tax: numeric('tax', { precision: 15, scale: 2 }).notNull().default('0'),
     total: numeric('total', { precision: 15, scale: 2 }).notNull().default('0'),

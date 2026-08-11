@@ -7,7 +7,12 @@ import {
   journalEntries,
   journalLines,
 } from '@thalermark/db';
-import { type DepreciationConvention, centsToMoney, toCents } from '@thalermark/validation';
+import {
+  CASH_ON_HAND_KINDS,
+  type DepreciationConvention,
+  centsToMoney,
+  toCents,
+} from '@thalermark/validation';
 import type { SQL } from 'drizzle-orm';
 import { and, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
@@ -34,7 +39,32 @@ import { assertPeriodOpen } from './period-lock.js';
 // productSubtotalForInvoice) — there is no header column for it, so the entry
 // always balances against the client-sent subtotal/total. Sales Tax Payable
 // (2200) is only touched when the invoice carries tax > 0.
-const COA_CASH = '1000';
+// The seeded primary money account. Still the default for every posting helper
+// below, and still where a company that never adds a second account keeps all
+// its money — so an install that ignores TMC-207 entirely behaves exactly as it
+// did before.
+//
+// It is no longer the ONLY place money can sit. Helpers that credit or debit
+// "cash" now take an optional code, defaulting here; callers pass the code of
+// whichever money account the transaction actually used, resolved from the
+// column stored on the row.
+export const COA_CASH = '1000';
+
+// What counts as "money on hand" for the dashboard, the cash-flow reads and the
+// AI nudges. Deliberately NOT every money account: a credit card is a money
+// account you can spend from, but its balance is money you OWE, not money you
+// hold. Summing it into cash on hand would report a business as richer the more
+// it borrowed.
+//
+// Same reasoning for cash FLOW. Buying fuel on the card moves no cash — you owe
+// Chase instead. The cash actually leaves when the statement gets paid, which is
+// its own posting out of a real bank account, and that is the one this counts.
+//
+// Defined once in @thalermark/validation and re-exported here rather than
+// restated: the clients filter their pickers on the same lists, and two copies
+// would drift the day a fifth kind lands.
+export { CASH_ON_HAND_KINDS };
+export type { MoneyAccountKind } from '@thalermark/validation';
 // Exported for the position dashboard (slice 8.10): "money in/out" sums cash
 // movement across asset accounts *except* AR, and "owed" is the AR balance.
 export const COA_AR = '1200';
@@ -122,9 +152,13 @@ export function invoicePostingLines(
     tax: string;
     total: string;
     processingFee?: string | null;
+    // Which money account the payment banked into. Omitted → the primary cash
+    // account, which is where every invoice paid before TMC-207 went.
+    moneyCode?: string;
   },
 ): LedgerLine[] {
   const { subtotal, productSubtotal, tax, total, processingFee } = amounts;
+  const moneyCode = amounts.moneyCode ?? COA_CASH;
   const serviceSubtotal = subtractMoney(subtotal, productSubtotal);
   const fee = processingFee ?? '0.00';
   const cashNet = subtractMoney(total, fee);
@@ -139,7 +173,7 @@ export function invoicePostingLines(
   }
   if (prevStatus === 'draft' && nextStatus === 'paid') {
     return [
-      { code: COA_CASH, side: 'debit', amount: cashNet },
+      { code: moneyCode, side: 'debit', amount: cashNet },
       { code: COA_MERCHANT_FEES, side: 'debit', amount: fee },
       { code: COA_SERVICE_REVENUE, side: 'credit', amount: serviceSubtotal },
       { code: COA_PRODUCT_REVENUE, side: 'credit', amount: productSubtotal },
@@ -148,7 +182,7 @@ export function invoicePostingLines(
   }
   if (prevStatus === 'sent' && nextStatus === 'paid') {
     return [
-      { code: COA_CASH, side: 'debit', amount: cashNet },
+      { code: moneyCode, side: 'debit', amount: cashNet },
       { code: COA_MERCHANT_FEES, side: 'debit', amount: fee },
       { code: COA_AR, side: 'credit', amount: total },
     ];
@@ -553,16 +587,21 @@ export async function postBillPaymentReceiptReversal(
 
 export type OwnerMoneyEventKind = 'contribution' | 'draw';
 
-export function ownerMoneyEventLines(kind: OwnerMoneyEventKind, amount: string): LedgerLine[] {
+export function ownerMoneyEventLines(
+  kind: OwnerMoneyEventKind,
+  amount: string,
+  // Which account the money went into / came out of. Omitted → primary cash.
+  moneyCode: string = COA_CASH,
+): LedgerLine[] {
   if (kind === 'contribution') {
     return [
-      { code: COA_CASH, side: 'debit', amount },
+      { code: moneyCode, side: 'debit', amount },
       { code: COA_OWNERS_EQUITY, side: 'credit', amount },
     ];
   }
   return [
     { code: COA_OWNERS_DRAW, side: 'debit', amount },
-    { code: COA_CASH, side: 'credit', amount },
+    { code: moneyCode, side: 'credit', amount },
   ];
 }
 
@@ -571,7 +610,7 @@ export function ownerMoneyEventLines(kind: OwnerMoneyEventKind, amount: string):
 export async function postOwnerMoneyEvent(
   tx: Database | Transaction,
   args: {
-    event: { id: string; kind: OwnerMoneyEventKind; amount: string };
+    event: { id: string; kind: OwnerMoneyEventKind; amount: string; moneyCode?: string };
     accountId: string;
     companyId: string;
     postedAt: Date;
@@ -584,7 +623,7 @@ export async function postOwnerMoneyEvent(
     sourceEntityId: args.event.id,
     postedAt: args.postedAt,
     memo: args.event.kind === 'contribution' ? 'Owner contribution' : 'Owner draw',
-    lines: ownerMoneyEventLines(args.event.kind, args.event.amount),
+    lines: ownerMoneyEventLines(args.event.kind, args.event.amount, args.event.moneyCode),
   });
 }
 
@@ -593,13 +632,15 @@ export async function postOwnerMoneyEvent(
 export async function postOwnerMoneyEventReversal(
   tx: Database | Transaction,
   args: {
-    event: { id: string; kind: OwnerMoneyEventKind; amount: string };
+    event: { id: string; kind: OwnerMoneyEventKind; amount: string; moneyCode?: string };
     accountId: string;
     companyId: string;
     postedAt: Date;
   },
 ): Promise<string | null> {
-  const lines = reverseLedgerLines(ownerMoneyEventLines(args.event.kind, args.event.amount));
+  const lines = reverseLedgerLines(
+    ownerMoneyEventLines(args.event.kind, args.event.amount, args.event.moneyCode),
+  );
   return postJournalEntry(tx, {
     accountId: args.accountId,
     companyId: args.companyId,
@@ -637,12 +678,14 @@ export function simpleOpeningBalanceLines(args: {
   cash: string;
   receivables: string;
   payables: string;
+  // Which account that opening cash was sitting in. Omitted → primary cash.
+  moneyCode?: string;
 }): LedgerLine[] {
   const cents = (s: string) => Math.round(Number(s) * 100);
   const equityCents = cents(args.cash) + cents(args.receivables) - cents(args.payables);
   const fromCents = (c: number) => (Math.abs(c) / 100).toFixed(2);
   const lines: LedgerLine[] = [
-    { code: COA_CASH, side: 'debit', amount: args.cash },
+    { code: args.moneyCode ?? COA_CASH, side: 'debit', amount: args.cash },
     { code: COA_AR, side: 'debit', amount: args.receivables },
     { code: COA_AP, side: 'credit', amount: args.payables },
     equityCents >= 0
@@ -747,11 +790,18 @@ export function capitalPurchaseLines(args: {
   amount: string;
   paidNow: string;
   taxTreatment: CapitalPurchaseTaxTreatment;
+  // Which account the down payment came out of — a mower is as likely to go on
+  // the card as out of checking. Omitted → primary cash.
+  //
+  // postCapitalPurchaseReversal re-derives through this same function, so the
+  // caller MUST pass the value stored on the purchase row, not a fresh default,
+  // or the reversal credits the card and debits cash.
+  moneyCode?: string;
 }): LedgerLine[] {
   const financed = subtractMoney(args.amount, args.paidNow);
   const lines: LedgerLine[] = [
     { code: COA_EQUIPMENT, side: 'debit', amount: args.amount },
-    { code: COA_CASH, side: 'credit', amount: args.paidNow },
+    { code: args.moneyCode ?? COA_CASH, side: 'credit', amount: args.paidNow },
     { code: COA_LOANS_PAYABLE, side: 'credit', amount: financed },
   ];
   if (args.taxTreatment === 'deduct_now') {
@@ -772,6 +822,10 @@ export async function postCapitalPurchase(
       paidNow: string;
       taxTreatment: CapitalPurchaseTaxTreatment;
       description: string;
+      // Read from capital_purchases.payment_account_id by the caller. Carried
+      // on the purchase object precisely so the create and the reversal cannot
+      // pick different accounts.
+      moneyCode?: string;
     };
     accountId: string;
     companyId: string;
@@ -798,6 +852,10 @@ export async function postCapitalPurchaseReversal(
       paidNow: string;
       taxTreatment: CapitalPurchaseTaxTreatment;
       description: string;
+      // Read from capital_purchases.payment_account_id by the caller. Carried
+      // on the purchase object precisely so the create and the reversal cannot
+      // pick different accounts.
+      moneyCode?: string;
     };
     accountId: string;
     companyId: string;
@@ -822,12 +880,19 @@ export async function postCapitalPurchaseReversal(
 //   Cr Cash 1000               = amount
 // The loan leg is tagged with the purchase id (source group) so loanBalance
 // nets it against the original financed credit.
-export function loanPaymentLines(args: { amount: string; interest: string }): LedgerLine[] {
+export function loanPaymentLines(args: {
+  amount: string;
+  interest: string;
+  // Omitted → primary cash. Loan payments have no row of their own and no
+  // reversal path, so this is a parameter rather than a stored column; if a
+  // reversal is ever added it must read the original entry, NOT re-derive.
+  moneyCode?: string;
+}): LedgerLine[] {
   const principal = subtractMoney(args.amount, args.interest);
   return [
     { code: COA_LOANS_PAYABLE, side: 'debit', amount: principal },
     { code: COA_INTEREST_EXPENSE, side: 'debit', amount: args.interest },
-    { code: COA_CASH, side: 'credit', amount: args.amount },
+    { code: args.moneyCode ?? COA_CASH, side: 'credit', amount: args.amount },
   ];
 }
 
@@ -838,6 +903,8 @@ export async function postLoanPayment(
     description: string;
     amount: string;
     interest: string;
+    // Which account the payment went out of. Omitted → primary cash.
+    moneyCode?: string;
     accountId: string;
     companyId: string;
     postedAt: Date;
@@ -850,7 +917,11 @@ export async function postLoanPayment(
     sourceEntityId: args.purchaseId,
     postedAt: args.postedAt,
     memo: `Payment toward ${args.description}`,
-    lines: loanPaymentLines({ amount: args.amount, interest: args.interest }),
+    lines: loanPaymentLines({
+      amount: args.amount,
+      interest: args.interest,
+      moneyCode: args.moneyCode,
+    }),
     // Paying down a loan the business already owed is settlement, not new
     // borrowing (see company-lock.ts).
     intent: 'settlement',
@@ -1244,7 +1315,13 @@ export async function reverseManualJournalEntry(
 export async function postInvoiceTransition(
   tx: Database | Transaction,
   args: {
-    invoice: Pick<Invoice, 'id' | 'number' | 'subtotal' | 'tax' | 'total' | 'processingFee'>;
+    invoice: Pick<
+      Invoice,
+      'id' | 'number' | 'subtotal' | 'tax' | 'total' | 'processingFee' | 'depositAccountId'
+    >;
+    // Code for invoice.depositAccountId, resolved by the caller (the ledger
+    // posts by code). Omitted → primary cash.
+    moneyCode?: string;
     prevStatus: InvoiceStatusForPosting;
     nextStatus: InvoiceStatusForPosting;
     accountId: string;
@@ -1264,6 +1341,7 @@ export async function postInvoiceTransition(
     // Read off the invoice row rather than passed in, so the webhook only has
     // to persist the fee before posting and every other caller is unchanged.
     processingFee: args.invoice.processingFee,
+    moneyCode: args.moneyCode,
   });
   if (lines.length === 0) return null;
   return postJournalEntry(tx, {
@@ -1430,6 +1508,10 @@ export function invoicePaymentLines(args: {
   // Defaults to the receivable shape, so every existing call site and test is
   // unchanged and the cash-sale branch is inert until something asks for it.
   credit?: ReceiptCredit;
+  // Which money account this receipt banked into. Omitted → primary cash.
+  // postInvoicePaymentReversal re-derives through here, so the reversal path
+  // has to pass the receipt's stored account back in.
+  moneyCode?: string;
 }): LedgerLine[] {
   const cents = Math.round(Number(args.amount) * 100);
   const grossCents = Math.abs(cents);
@@ -1440,7 +1522,7 @@ export function invoicePaymentLines(args: {
   // Both shapes debit the same money — cash net of the processor's cut, plus
   // the cut as an expense. Only the credit side differs.
   const debits: LedgerLine[] = [
-    { code: COA_CASH, side: 'debit', amount: subtractMoney(gross, fee) },
+    { code: args.moneyCode ?? COA_CASH, side: 'debit', amount: subtractMoney(gross, fee) },
     { code: COA_MERCHANT_FEES, side: 'debit', amount: fee },
   ];
 
@@ -1465,7 +1547,18 @@ export function invoicePaymentLines(args: {
 }
 
 type InvoicePaymentPosting = {
-  payment: { id: string; amount: string; processingFee?: string | null };
+  payment: {
+    id: string;
+    amount: string;
+    processingFee?: string | null;
+    // The receipt's own deposit_account_id. Callers hand over the row and the
+    // code is resolved here rather than at each call site: there are four of
+    // them (manual receipt, deposit-on-issue, Stripe webhook, reversal) and the
+    // reversal re-derives its lines from this same object, so resolving in one
+    // place is what makes it impossible for a receipt to be banked into one
+    // account and reversed out of another.
+    depositAccountId?: string | null;
+  };
   invoice: { id: string; number: string };
   accountId: string;
   companyId: string;
@@ -1511,6 +1604,30 @@ export async function receiptCreditForInvoice(
 // entry for an invoice shares one source group and cashFlowNet's per-source
 // netting keeps working exactly as it does for the single-shot path. A payment
 // and its later reversal cancel inside that group for free.
+// Code for a receipt's stored deposit account. Null (a receipt written before
+// TMC-207, or one that took the default) resolves to the primary account, which
+// is where that money actually went. A stored id that fails to resolve is a
+// broken chart, not a silent default — the FK is RESTRICT, so it cannot happen
+// without the books being corrupted underneath.
+async function depositCodeFor(
+  tx: Database | Transaction,
+  args: { accountId: string; depositAccountId?: string | null },
+): Promise<string> {
+  if (!args.depositAccountId) return COA_CASH;
+  const [row] = await tx
+    .select({ code: chartOfAccounts.code })
+    .from(chartOfAccounts)
+    .where(
+      and(
+        eq(chartOfAccounts.accountId, args.accountId),
+        eq(chartOfAccounts.id, args.depositAccountId),
+      ),
+    )
+    .limit(1);
+  if (!row) throw new Error(`ledger: deposit account ${args.depositAccountId} missing`);
+  return row.code;
+}
+
 export async function postInvoicePayment(
   tx: Database | Transaction,
   args: InvoicePaymentPosting,
@@ -1522,7 +1639,14 @@ export async function postInvoicePayment(
     sourceEntityId: args.invoice.id,
     postedAt: args.postedAt,
     memo: `Invoice ${args.invoice.number} payment`,
-    lines: invoicePaymentLines({ ...args.payment, credit: args.credit }),
+    lines: invoicePaymentLines({
+      ...args.payment,
+      credit: args.credit,
+      moneyCode: await depositCodeFor(tx, {
+        accountId: args.accountId,
+        depositAccountId: args.payment.depositAccountId,
+      }),
+    }),
     // Collecting on an invoice already issued is settlement, so a retired
     // company can still bank the cheque for work it billed under the old name.
     intent: 'settlement',
@@ -1544,7 +1668,19 @@ export async function postInvoicePaymentReversal(
     sourceEntityId: args.invoice.id,
     postedAt: args.postedAt,
     memo: `Invoice ${args.invoice.number} payment reversal`,
-    lines: reverseLedgerLines(invoicePaymentLines({ ...args.payment, credit: args.credit })),
+    lines: reverseLedgerLines(
+      invoicePaymentLines({
+        ...args.payment,
+        credit: args.credit,
+        // Same resolution as the create, from the same field on the same row —
+        // which is what guarantees a receipt cannot be banked into one account
+        // and reversed out of another.
+        moneyCode: await depositCodeFor(tx, {
+          accountId: args.accountId,
+          depositAccountId: args.payment.depositAccountId,
+        }),
+      }),
+    ),
     intent: 'settlement',
   });
 }
@@ -1589,7 +1725,10 @@ export async function cashFlowNet(
       and(
         eq(journalEntries.companyId, scope.companyId),
         eq(journalEntries.accountId, scope.accountId),
-        eq(chartOfAccounts.code, COA_CASH),
+        // Every bank/cash account, not just the seeded one — otherwise a
+        // business banking anywhere else reports one account's movement as the
+        // whole company's. Cards are excluded: see CASH_ON_HAND_KINDS.
+        inArray(chartOfAccounts.moneyAccountKind, [...CASH_ON_HAND_KINDS]),
         gte(journalEntries.postedAt, scope.fromDate),
         lt(journalEntries.postedAt, scope.toExclusive),
       ),
@@ -1605,11 +1744,15 @@ export async function cashFlowNet(
   return { moneyIn: row?.moneyIn ?? '0.00', moneyOut: row?.moneyOut ?? '0.00' };
 }
 
-// Cash on hand: signed balance (debits − credits) on the Cash account (1000),
-// all-time. A point-in-time balance is reversal-safe by construction (reversal
-// pairs cancel), so no per-source netting is needed here. Pinned to the Cash
-// code for the same reason as cashFlowNet — a non-cash asset (e.g. accumulated
-// depreciation) must not count toward cash on hand.
+// Cash on hand: signed balance (debits − credits) across every bank/cash
+// account, all-time. A point-in-time balance is reversal-safe by construction
+// (reversal pairs cancel), so no per-source netting is needed here.
+//
+// Selected on money_account_kind rather than by code, and rather than by
+// account_type: the seed marks Accounts Receivable, Vehicles & Equipment and
+// Accumulated Depreciation as assets too, so a type test would read a manual
+// depreciation entry as cash leaving the business. Cards are excluded — a card
+// balance is money owed, not money held (CASH_ON_HAND_KINDS).
 export async function cashOnHand(tx: Database | Transaction, scope: LedgerScope): Promise<string> {
   const [row] = await tx
     .select({
@@ -1622,7 +1765,7 @@ export async function cashOnHand(tx: Database | Transaction, scope: LedgerScope)
       and(
         eq(journalEntries.companyId, scope.companyId),
         eq(journalEntries.accountId, scope.accountId),
-        eq(chartOfAccounts.code, COA_CASH),
+        inArray(chartOfAccounts.moneyAccountKind, [...CASH_ON_HAND_KINDS]),
       ),
     );
   return row?.balance ?? '0.00';

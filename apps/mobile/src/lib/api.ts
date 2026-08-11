@@ -13,6 +13,7 @@ import type {
   LedgerAppType,
   LocationsAppType,
   MileageAppType,
+  MoneyAccountsAppType,
   OwnerMoneyEventsAppType,
   PurchasesAppType,
   RecurringInvoicesAppType,
@@ -65,6 +66,7 @@ function buildClients(baseUrl: string) {
     jobs: hc<JobsAppType>(baseUrl, { headers: authHeaders }),
     mileage: hc<MileageAppType>(baseUrl, { headers: authHeaders }),
     taxPolicies: hc<TaxPoliciesAppType>(baseUrl, { headers: authHeaders }),
+    moneyAccounts: hc<MoneyAccountsAppType>(baseUrl, { headers: authHeaders }),
     socialProviders: hc<SocialProvidersAppType>(baseUrl, { headers: authHeaders }),
     locations: hc<LocationsAppType>(baseUrl, { headers: authHeaders }),
     auditEvents: hc<AuditEventsAppType>(baseUrl, { headers: authHeaders }),
@@ -115,6 +117,7 @@ function facadeApi() {
     jobs,
     mileage,
     taxPolicies,
+    moneyAccounts,
     socialProviders,
     locations,
     auditEvents,
@@ -142,6 +145,7 @@ function facadeApi() {
     'mileage-trips': mileage.api['mileage-trips'],
     vehicles: mileage.api.vehicles,
     'tax-policies': taxPolicies.api['tax-policies'],
+    'money-accounts': moneyAccounts.api['money-accounts'],
     'social-providers': socialProviders.api['social-providers'],
     locations: locations.api.locations,
     'audit-events': auditEvents.api['audit-events'],
@@ -176,6 +180,7 @@ type ItemsApi = ReturnType<typeof buildClients>['items']['api'];
 type JobsApi = ReturnType<typeof buildClients>['jobs']['api'];
 type MileageApi = ReturnType<typeof buildClients>['mileage']['api'];
 type TaxPoliciesApi = ReturnType<typeof buildClients>['taxPolicies']['api'];
+type MoneyAccountsApi = ReturnType<typeof buildClients>['moneyAccounts']['api'];
 type SocialProvidersApi = ReturnType<typeof buildClients>['socialProviders']['api'];
 type LocationsApi = ReturnType<typeof buildClients>['locations']['api'];
 type AuditEventsApi = ReturnType<typeof buildClients>['auditEvents']['api'];
@@ -202,6 +207,7 @@ type ApiClient = {
     'mileage-trips': MileageApi['mileage-trips'];
     vehicles: MileageApi['vehicles'];
     'tax-policies': TaxPoliciesApi['tax-policies'];
+    'money-accounts': MoneyAccountsApi['money-accounts'];
     'social-providers': SocialProvidersApi['social-providers'];
     locations: LocationsApi['locations'];
     'audit-events': AuditEventsApi['audit-events'];

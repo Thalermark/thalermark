@@ -16,6 +16,7 @@ import type {
   JobsAppType,
   LedgerAppType,
   MileageAppType,
+  MoneyAccountsAppType,
   OwnerMoneyEventsAppType,
   PurchasesAppType,
   RecurringInvoicesAppType,
@@ -47,6 +48,7 @@ const mkItems = (...a: Parameters<typeof hc>) => hc<ItemsAppType>(...a);
 const mkJobs = (...a: Parameters<typeof hc>) => hc<JobsAppType>(...a);
 const mkMileage = (...a: Parameters<typeof hc>) => hc<MileageAppType>(...a);
 const mkTaxPolicies = (...a: Parameters<typeof hc>) => hc<TaxPoliciesAppType>(...a);
+const mkMoneyAccounts = (...a: Parameters<typeof hc>) => hc<MoneyAccountsAppType>(...a);
 const mkAuditEvents = (...a: Parameters<typeof hc>) => hc<AuditEventsAppType>(...a);
 const mkCompanies = (...a: Parameters<typeof hc>) => hc<CompaniesAppType>(...a);
 const mkContacts = (...a: Parameters<typeof hc>) => hc<ContactsAppType>(...a);
@@ -68,6 +70,7 @@ type ItemsApi = ReturnType<typeof mkItems>['api'];
 type JobsApi = ReturnType<typeof mkJobs>['api'];
 type MileageApi = ReturnType<typeof mkMileage>['api'];
 type TaxPoliciesApi = ReturnType<typeof mkTaxPolicies>['api'];
+type MoneyAccountsApi = ReturnType<typeof mkMoneyAccounts>['api'];
 type AuditEventsApi = ReturnType<typeof mkAuditEvents>['api'];
 type CompaniesApi = ReturnType<typeof mkCompanies>['api'];
 type ContactsApi = ReturnType<typeof mkContacts>['api'];
@@ -121,6 +124,7 @@ export type ServerApiClient = {
     'mileage-trips': MileageApi['mileage-trips'];
     vehicles: MileageApi['vehicles'];
     'tax-policies': TaxPoliciesApi['tax-policies'];
+    'money-accounts': MoneyAccountsApi['money-accounts'];
     'audit-events': AuditEventsApi['audit-events'];
     // Three sub-apps serve /api/companies/:id/* — companies itself, reports, and
     // the mileage year summary — so the facade key is their intersection.
@@ -224,6 +228,9 @@ export function serverApiClient(event: RequestEvent): ServerApiClient {
     vehicles: hc<MileageAppType>(base, { headers, fetch: resilientFetch }).api.vehicles,
     'tax-policies': hc<TaxPoliciesAppType>(base, { headers, fetch: resilientFetch }).api[
       'tax-policies'
+    ],
+    'money-accounts': hc<MoneyAccountsAppType>(base, { headers, fetch: resilientFetch }).api[
+      'money-accounts'
     ],
     'audit-events': hc<AuditEventsAppType>(base, { headers, fetch: resilientFetch }).api[
       'audit-events'

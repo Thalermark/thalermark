@@ -10,6 +10,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 import { accounts } from './accounts.js';
+import { chartOfAccounts } from './chart_of_accounts.js';
 import { companies } from './companies.js';
 import { invoices } from './invoices.js';
 
@@ -102,6 +103,18 @@ export const invoicePayments = pgTable(
     // recorded. Nullable: every receipt written before this column existed, and
     // every Stripe one, leaves it null.
     idempotencyKey: text('idempotency_key'),
+    // Which of the company's money accounts this receipt landed in (TMC-207).
+    // Nullable: every receipt written before multiple accounts existed resolves
+    // to the primary cash account, which is where it actually went.
+    //
+    // Stored rather than passed at post time because postInvoicePaymentReversal
+    // RE-DERIVES its lines from this row and flips them — it never reads the
+    // original journal entry back. A create-time-only parameter would therefore
+    // reverse against the default account: money credited out of one account and
+    // debited back into another, balanced and wrong.
+    depositAccountId: uuid('deposit_account_id').references(() => chartOfAccounts.id, {
+      onDelete: 'restrict',
+    }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

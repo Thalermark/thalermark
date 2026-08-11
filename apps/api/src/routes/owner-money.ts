@@ -24,7 +24,12 @@ import {
   simpleOpeningBalanceLines,
 } from '../lib/ledger.js';
 import { applyCursor, keysetOrderBy, parseLimit, slicePage } from '../lib/pagination.js';
-import { UUID_RE, expenseDateToPostedAt } from '../lib/route-helpers.js';
+import {
+  UUID_RE,
+  expenseDateToPostedAt,
+  resolveMoneyAccount,
+  storedMoneyCode,
+} from '../lib/route-helpers.js';
 import { requireCapability } from '../middleware/authz.js';
 import type { RlsVariables } from '../middleware/rls-context.js';
 
@@ -58,7 +63,7 @@ export function ownerMoneyRoutes() {
 
         const tx = c.get('tx');
         const accountId = c.get('accountId');
-        const { companyId, kind, amount, occurredOn, memo } = parsed.data;
+        const { companyId, kind, amount, occurredOn, memo, moneyAccountId } = parsed.data;
 
         const [company] = await tx
           .select({ id: companies.id })
@@ -66,6 +71,12 @@ export function ownerMoneyRoutes() {
           .where(and(eq(companies.id, companyId), eq(companies.accountId, accountId)))
           .limit(1);
         if (!company) return c.json({ error: 'company_not_found' }, 404);
+
+        // Resolved once and STORED, because postOwnerMoneyEventReversal
+        // re-derives its lines from this row — an account passed only here
+        // would see a draw taken from savings reversed back into checking.
+        const money = await resolveMoneyAccount(tx, { accountId, companyId, moneyAccountId });
+        if ('error' in money) return c.json({ error: money.error }, 400);
 
         const eventId = uuidv7();
         const [created] = await tx
@@ -77,6 +88,7 @@ export function ownerMoneyRoutes() {
             kind,
             amount,
             occurredOn,
+            moneyAccountId: money.id,
             memo: memo ?? null,
           })
           .returning();
@@ -90,7 +102,7 @@ export function ownerMoneyRoutes() {
         });
 
         await postOwnerMoneyEvent(tx, {
-          event: { id: eventId, kind, amount },
+          event: { id: eventId, kind, amount, moneyCode: money.code },
           accountId,
           companyId,
           postedAt: expenseDateToPostedAt(occurredOn),
@@ -506,12 +518,34 @@ export function ownerMoneyRoutes() {
 
           // Edit = reverse the prior posting (old kind/amount at the old date) +
           // repost the new one. Keeps the GL append-only.
+          //
+          // The reversal MUST use the account the money originally moved
+          // through, not the newly chosen one — otherwise moving a draw from
+          // checking to savings would credit savings and debit checking, which
+          // balances while inventing a transfer that never happened.
+          const priorCode = await storedMoneyCode(tx, {
+            accountId,
+            companyId: current.companyId,
+            moneyAccountId: current.moneyAccountId,
+          });
           await postOwnerMoneyEventReversal(tx, {
-            event: { id, kind: current.kind as OwnerMoneyEventKind, amount: current.amount },
+            event: {
+              id,
+              kind: current.kind as OwnerMoneyEventKind,
+              amount: current.amount,
+              moneyCode: priorCode,
+            },
             accountId,
             companyId: current.companyId,
             postedAt: expenseDateToPostedAt(current.occurredOn),
           });
+
+          const nextMoney = await resolveMoneyAccount(tx, {
+            accountId,
+            companyId: current.companyId,
+            moneyAccountId: data.moneyAccountId ?? current.moneyAccountId,
+          });
+          if ('error' in nextMoney) return c.json({ error: nextMoney.error }, 400);
 
           const [updated] = await tx
             .update(ownerMoneyEvents)
@@ -519,6 +553,7 @@ export function ownerMoneyRoutes() {
               kind: next.kind,
               amount: next.amount,
               occurredOn: next.occurredOn,
+              moneyAccountId: nextMoney.id,
               memo: next.memo ?? null,
               updatedAt: new Date(),
             })
@@ -536,7 +571,7 @@ export function ownerMoneyRoutes() {
           });
 
           await postOwnerMoneyEvent(tx, {
-            event: { id, kind: next.kind, amount: next.amount },
+            event: { id, kind: next.kind, amount: next.amount, moneyCode: nextMoney.code },
             accountId,
             companyId: current.companyId,
             postedAt: expenseDateToPostedAt(next.occurredOn),
@@ -587,9 +622,20 @@ export function ownerMoneyRoutes() {
         });
 
         // Soft delete keeps the row for history (deleted_at) but reverses the
-        // original posting so the GL nets to zero for this event.
+        // original posting so the GL nets to zero for this event. Reversed
+        // against the account the money actually moved through — resolved even
+        // if that account has since been archived.
         await postOwnerMoneyEventReversal(tx, {
-          event: { id, kind: current.kind as OwnerMoneyEventKind, amount: current.amount },
+          event: {
+            id,
+            kind: current.kind as OwnerMoneyEventKind,
+            amount: current.amount,
+            moneyCode: await storedMoneyCode(tx, {
+              accountId,
+              companyId: current.companyId,
+              moneyAccountId: current.moneyAccountId,
+            }),
+          },
           accountId,
           companyId: current.companyId,
           postedAt: expenseDateToPostedAt(current.occurredOn),
@@ -640,8 +686,19 @@ export function ownerMoneyRoutes() {
           companyId: current.companyId,
         });
 
+        // Puts the entry back exactly where it was, including which account it
+        // moved through — restore is an undo, not a re-decision.
         await postOwnerMoneyEvent(tx, {
-          event: { id, kind: restored.kind as OwnerMoneyEventKind, amount: restored.amount },
+          event: {
+            id,
+            kind: restored.kind as OwnerMoneyEventKind,
+            amount: restored.amount,
+            moneyCode: await storedMoneyCode(tx, {
+              accountId,
+              companyId: current.companyId,
+              moneyAccountId: restored.moneyAccountId,
+            }),
+          },
           accountId,
           companyId: current.companyId,
           postedAt: expenseDateToPostedAt(restored.occurredOn),

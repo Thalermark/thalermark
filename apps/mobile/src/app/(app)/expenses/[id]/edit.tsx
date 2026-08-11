@@ -27,7 +27,7 @@ import { resolveVendor } from '../../../../lib/expense-vendor';
 // fresh posting, so editing the amount/category stays GL-clean. memo is sent
 // even when blank ('' is a valid clear) since sparse merge wouldn't otherwise
 // drop it. companyId is immutable, so the COA pickers stay within this company.
-type Account = { id: string; code: string; name: string };
+type Account = { id: string; code: string; name: string; kind?: string | null };
 type Seed = {
   companyId: string;
   merchant: string;
@@ -73,14 +73,17 @@ export default function EditExpense() {
             param: { id: e.companyId },
             query: { type: 'expense' },
           }),
-          api.api.companies[':id'].accounts.$get({
-            param: { id: e.companyId },
-            query: { type: 'asset' },
-          }),
+          // Money accounts, not `type=asset` — see the note on expenses/new.
+          api.api['money-accounts'].$get({ query: { companyId: e.companyId } }),
         ]);
         if (!active) return;
         if (catRes.ok) setCategories((await catRes.json()).accounts);
-        if (payRes.ok) setPayments((await payRes.json()).accounts);
+        if (payRes.ok) {
+          const { moneyAccounts } = await payRes.json();
+          setPayments(
+            moneyAccounts.map((a) => ({ id: a.id, code: a.code, name: a.name, kind: a.kind })),
+          );
+        }
         setSeed({
           companyId: e.companyId,
           merchant: e.merchant,

@@ -35,6 +35,15 @@ export const load: PageServerLoad = async (event) => {
   // customer their supplier hasn't sorted its admin is not the customer's
   // problem — so the owner has to learn it here, on the invoice they just sent.
   // Best-effort like the prompts above: a failed fetch drops the banner.
+  // Where a receipt can land (TMC-207). Bank accounts only — nothing is ever
+  // deposited into a credit card.
+  const moneyRes = await client.api['money-accounts'].$get({
+    query: { companyId: invoice.companyId },
+  });
+  const moneyAccounts = moneyRes.ok
+    ? (await moneyRes.json()).moneyAccounts.filter((a) => a.kind !== 'credit_card')
+    : [];
+
   let paymentsNotLive = false;
   if (company) {
     const connectRes = await client.api.companies[':id']['stripe-connect'].status.$get({
@@ -89,6 +98,7 @@ export const load: PageServerLoad = async (event) => {
     needsBusinessDetails,
     businessCompanyId,
     paymentsNotLive,
+    moneyAccounts,
     settlement,
     // Whether the BUSINESS has automatic reminders switched on. The per-invoice
     // control is meaningless without it — "stop reminding about this invoice"
@@ -160,11 +170,25 @@ async function postPayment(
     typeof referenceRaw === 'string' && referenceRaw.trim() ? referenceRaw.trim() : undefined;
   const paidOnRaw = formData.get('paidOn');
   const paidOn = typeof paidOnRaw === 'string' && paidOnRaw.trim() ? paidOnRaw.trim() : undefined;
-  const json = { method, reference, paidOn };
+  // Which account the money banked into (TMC-207). Omitted → the primary, which
+  // is where every receipt taken before there was a choice went.
+  //
+  // edit-payment does NOT take it: that endpoint moves a payment's DATE, and
+  // re-banking it into a different account is a different decision the ledger
+  // would have to reverse and repost for. Sending it there would be silently
+  // ignored, which is worse than not offering it.
+  const depositRaw = formData.get('depositAccountId');
+  const depositAccountId = typeof depositRaw === 'string' && depositRaw ? depositRaw : undefined;
   const res =
     endpoint === 'mark-paid'
-      ? await client.api.invoices[':id']['mark-paid'].$post({ param: { id }, json })
-      : await client.api.invoices[':id']['edit-payment'].$post({ param: { id }, json });
+      ? await client.api.invoices[':id']['mark-paid'].$post({
+          param: { id },
+          json: { method, reference, paidOn, depositAccountId },
+        })
+      : await client.api.invoices[':id']['edit-payment'].$post({
+          param: { id },
+          json: { method, reference, paidOn },
+        });
   if (res.status === 404) throw error(404, 'invoice not found');
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
@@ -290,7 +314,17 @@ async function runRecordPayment(event: Parameters<Actions[string]>[0]) {
     // Forwarded straight through from the hidden field the form rendered with.
     // The server's partial unique index is what actually prevents the second
     // receipt; this is the client keeping its half of the bargain (TMC-218).
-    json: { amount, receivedOn, method, reference, idempotencyKey },
+    json: {
+      amount,
+      receivedOn,
+      method,
+      reference,
+      idempotencyKey,
+      depositAccountId: (() => {
+        const raw = formData.get('depositAccountId');
+        return typeof raw === 'string' && raw ? raw : undefined;
+      })(),
+    },
   });
   if (res.status === 404) throw error(404, 'invoice not found');
   if (!res.ok) {

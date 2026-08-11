@@ -305,8 +305,20 @@ describe('reconcileChartOfAccounts', () => {
         accountType: r.accountType,
         normalBalance: r.normalBalance,
         taxMapping: r.taxMapping,
+        // Carried through the comparison deliberately: if a business-type switch
+        // dropped this marking, the company's Cash account would stop counting
+        // as a money account and cash on hand would silently read zero on a
+        // business with money in the bank (TMC-207).
+        moneyAccountKind: r.moneyAccountKind,
       }))
       .sort((a, b) => a.code.localeCompare(b.code));
-    expect(actual).toEqual(chartForBusinessType('partnership').map((a) => ({ ...a })));
+    expect(actual).toEqual(
+      // The seed constant leaves the field off every account that isn't a money
+      // account; the column is null for those. Normalise so the shapes match.
+      chartForBusinessType('partnership').map((a) => ({
+        ...a,
+        moneyAccountKind: a.moneyAccountKind ?? null,
+      })),
+    );
   });
 });

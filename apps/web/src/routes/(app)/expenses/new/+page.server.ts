@@ -7,14 +7,36 @@ import { expenseCreateSchema } from '@thalermark/validation';
 import type { Actions, PageServerLoad } from './$types';
 
 // Cash is the locked-default payment account (COA code 1000). The payment
-// picker only surfaces once the company has a second asset account; until
-// then every expense is "paid from Cash" and the field is a hidden input.
+// picker only surfaces once the company has a second MONEY account; until then
+// every expense is paid from the primary and the field is a hidden input.
 const CASH_CODE = '1000';
 
 type Account = { id: string; code: string; name: string; accountType: string };
 
 function accountOptions(accounts: Account[]) {
   return accounts.map((a) => ({ id: a.id, label: `${a.code} · ${a.name}` }));
+}
+
+const KIND_LABEL: Record<string, string> = {
+  checking: 'Checking',
+  savings: 'Savings',
+  cash: 'Cash',
+  credit_card: 'Credit card',
+};
+
+// Paid-from options come from the money accounts, NOT from `type=asset`.
+//
+// That query returns Accounts Receivable, Vehicles & Equipment and Accumulated
+// Depreciation as well as Cash, and this picker was offering all four — so
+// "paid for fuel out of Accumulated Depreciation" was selectable, and posted a
+// balanced entry that is nonsense (TMC-207). It also drops the numeric code
+// from the label: the user picks the account they actually have, and the chart
+// of accounts stays the system's business.
+function moneyOptions(accounts: { id: string; name: string; kind: string | null }[]) {
+  return accounts.map((a) => ({
+    id: a.id,
+    label: a.kind ? `${a.name} · ${KIND_LABEL[a.kind] ?? ''}` : a.name,
+  }));
 }
 
 export const load: PageServerLoad = async (event) => {
@@ -26,22 +48,19 @@ export const load: PageServerLoad = async (event) => {
   const company = pickActiveCompany(event.cookies, companies);
   if (!company) throw error(500, 'no company in this workspace');
 
-  const [expenseRes, assetRes] = await Promise.all([
+  const [expenseRes, moneyRes] = await Promise.all([
     client.api.companies[':id'].accounts.$get({
       param: { id: company.id },
       query: { type: 'expense' },
     }),
-    client.api.companies[':id'].accounts.$get({
-      param: { id: company.id },
-      query: { type: 'asset' },
-    }),
+    client.api['money-accounts'].$get({ query: { companyId: company.id } }),
   ]);
   if (!expenseRes.ok) throw error(expenseRes.status, 'failed to load categories');
-  if (!assetRes.ok) throw error(assetRes.status, 'failed to load payment accounts');
+  if (!moneyRes.ok) throw error(moneyRes.status, 'failed to load payment accounts');
   const expenseAccounts = (await expenseRes.json()).accounts;
-  const assetAccounts = (await assetRes.json()).accounts;
+  const moneyAccounts = (await moneyRes.json()).moneyAccounts;
 
-  const cash = assetAccounts.find((a) => a.code === CASH_CODE) ?? assetAccounts[0];
+  const cash = moneyAccounts.find((a) => a.code === CASH_CODE) ?? moneyAccounts[0];
 
   // Duplicate-as-template: ?duplicate=<id> seeds the form from an existing
   // expense (merchant / amount / category / paid-from / memo). The DATE is not
@@ -70,9 +89,10 @@ export const load: PageServerLoad = async (event) => {
 
   return {
     categories: accountOptions(expenseAccounts),
-    paymentAccounts: accountOptions(assetAccounts),
-    // Picker stays hidden while Cash is the only asset account.
-    paymentPickerVisible: assetAccounts.length > 1,
+    paymentAccounts: moneyOptions(moneyAccounts),
+    // Hidden while the seeded account is the only place money sits — asking
+    // someone to pick from a list of one is noise.
+    paymentPickerVisible: moneyAccounts.length > 1,
     defaultPaymentId: cash?.id ?? '',
     today: new Date().toISOString().slice(0, 10),
     prefill,
