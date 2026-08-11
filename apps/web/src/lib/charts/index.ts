@@ -5,4 +5,5 @@
 export { default as ChartFrame } from './ChartFrame.svelte';
 export { default as ColumnChart } from './ColumnChart.svelte';
 export { default as ShareBar } from './ShareBar.svelte';
+export { default as Sparkline } from './Sparkline.svelte';
 export { toneFill } from './tone.js';

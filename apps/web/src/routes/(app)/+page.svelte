@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { Sparkline } from '$lib/charts';
   import { trackEvent } from '$lib/telemetry';
   import type { PageProps } from './$types';
 
@@ -152,6 +153,15 @@
   <div class="rounded-sm border border-fg/10 bg-surface-2 p-6">
     <dt class="label">Money in</dt>
     <dd class="mt-2 font-serif text-3xl font-light tabular-nums text-fg">{fmt(d.moneyIn)}</dd>
+    <!-- Twelve months of billed revenue. The figure above answers "how much";
+         this answers "which way", which is the part a single number cannot.
+         Renders nothing until there are at least two months to join, so a new
+         account sees the tile exactly as it is today. -->
+    {#if data.revenueTrend.length > 1}
+      <div class="mt-3">
+        <Sparkline values={data.revenueTrend} label="Billed revenue, last 12 months" />
+      </div>
+    {/if}
     <p class="mt-1 text-xs text-fg/40">{flowLabel}</p>
   </div>
   <div class="rounded-sm border border-fg/10 bg-surface-2 p-6">

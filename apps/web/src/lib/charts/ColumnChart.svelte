@@ -109,6 +109,7 @@
                     y="{topPct}%"
                     width="{bandWidth / series.length}%"
                     height="{100 - topPct}%"
+                    rx="2"
                     fill={toneFill(s.tone ?? toneForIndex(seriesIndex))}
                   >
                     <title
