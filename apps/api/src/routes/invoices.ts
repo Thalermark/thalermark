@@ -8,6 +8,7 @@ import {
   expenses,
   invoiceLineItems,
   invoicePayments,
+  invoiceRevisions,
   invoices,
   timeEntries,
 } from '@thalermark/db';
@@ -32,6 +33,7 @@ import {
   gte,
   ilike,
   inArray,
+  isNotNull,
   isNull,
   lt,
   lte,
@@ -70,6 +72,7 @@ import {
 } from '../lib/ledger.js';
 import { mailerDelivers } from '../lib/mailer.js';
 import { applyCursor, keysetOrderBy, parseLimit, slicePage } from '../lib/pagination.js';
+import { closedThroughFor } from '../lib/period-lock.js';
 import {
   EMAIL_RE,
   UUID_RE,
@@ -133,21 +136,32 @@ async function paymentForIdempotencyKey(
 //   sent  → paid     (mark-paid)
 //   draft → voided   (void)
 //   sent  → voided   (void)
+//   sent  → draft    (revise — pull a sent invoice back to correct it)
 // `paid` and `voided` are terminal. Each transition stamps its dedicated
 // timestamp column; the stamps are write-once via the state machine. Driven
 // off a single table so the three endpoints below stay symmetric and any
 // future transition (e.g. `unvoid`) is a one-line addition here.
+//
+// REVISE IS THE ONE TRANSITION THAT STAMPS NOTHING (TMC-227), which is why
+// `stamp` is optional. It moves the row back to draft and deliberately LEAVES
+// sent_at set, because "this was issued once" stays true — the customer has the
+// document. That surviving stamp does three jobs: it keeps
+// receiptCreditForInvoice discriminating receivable-vs-cash-sale correctly, it
+// proves the invoice was issued, and `status = 'draft' AND sent_at IS NOT NULL`
+// is itself the derived "being revised" state the whole feature reads off.
+// Nothing else in the product can produce that pair.
 type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'voided';
-type TransitionKey = 'mark-sent' | 'mark-paid' | 'void';
+type TransitionKey = 'mark-sent' | 'mark-paid' | 'void' | 'revise';
 type TransitionSpec = {
   from: readonly InvoiceStatus[];
   to: InvoiceStatus;
-  stamp: 'sentAt' | 'paidAt' | 'voidedAt';
+  stamp?: 'sentAt' | 'paidAt' | 'voidedAt';
 };
 const INVOICE_TRANSITIONS: Record<TransitionKey, TransitionSpec> = {
   'mark-sent': { from: ['draft'], to: 'sent', stamp: 'sentAt' },
   'mark-paid': { from: ['draft', 'sent'], to: 'paid', stamp: 'paidAt' },
   void: { from: ['draft', 'sent'], to: 'voided', stamp: 'voidedAt' },
+  revise: { from: ['sent'], to: 'draft' },
 };
 
 // Which ledger date a transition belongs on.
@@ -162,17 +176,41 @@ const INVOICE_TRANSITIONS: Record<TransitionKey, TransitionSpec> = {
 // within a period by accident; moving only the first would swap a hidden bug for
 // a visible one — revenue in June, its reversal in July.
 //
+// sent→draft is the third member of the family, and the reason it can be this
+// simple (TMC-227). A correction is reverse-then-repost, split across two user
+// actions: pulling back reverses AT THE ORIGINAL ISSUE DATE while the row still
+// holds the values being reversed, and re-sending posts the corrected invoice at
+// its (possibly edited) issue date. Every reversal helper in this codebase
+// re-derives its lines from the entity row rather than reading the original
+// entry back, so a flow that edited first and reversed after would cancel the
+// NEW numbers against the OLD posting — balanced, wrong, and invisible to a
+// trial-balance check. Ordering the actions this way makes that unreachable
+// instead of merely guarded against.
+//
 // The cash transitions are deliberately NOT here. draft→paid and sent→paid
 // belong on the day the money actually arrived, which the caller already
 // supplies as `paidOn`.
 function postsOnIssueDate(from: InvoiceStatus, to: InvoiceStatus): boolean {
-  return (from === 'draft' && to === 'sent') || (from === 'sent' && to === 'voided');
+  return (
+    (from === 'draft' && to === 'sent') ||
+    (from === 'sent' && to === 'voided') ||
+    (from === 'sent' && to === 'draft')
+  );
 }
 
 type TransitionResult =
   | { ok: true; invoice: typeof invoices.$inferSelect; from: InvoiceStatus }
   | { ok: false; error: 'invoice_not_found' }
-  | { ok: false; error: 'invalid_transition'; from: string; to: InvoiceStatus };
+  // revision_in_progress rides the invalid_transition shape rather than a
+  // variant of its own: it IS a refused transition, just one that needs its own
+  // plain-language message ("resend the corrected invoice first"). Sharing the
+  // shape keeps every call site's error mapping unchanged.
+  | {
+      ok: false;
+      error: 'invalid_transition' | 'revision_in_progress';
+      from: string;
+      to: InvoiceStatus;
+    };
 
 // The ONE path that moves an invoice between statuses, status flip and ledger
 // posting welded together.
@@ -222,6 +260,22 @@ async function applyInvoiceTransition(
   }
   const from = current.status as InvoiceStatus;
 
+  // An invoice pulled back for correction may not be marked paid (TMC-227).
+  //
+  // mark-paid accepts a draft — that is the counter-sale path, and it posts a
+  // receipt whose shape receiptCreditForInvoice discriminates on sent_at ALONE.
+  // A revising draft has sent_at set, so it would take the receivable shape and
+  // credit AR — against a receivable this very feature just reversed. The books
+  // would carry a payment relieving a debt that is not on them.
+  //
+  // Enforced in the funnel rather than in the mark-paid route so it covers the
+  // deposit path, the webhook path and whatever calls this next. The carve-out
+  // is exact: a draft with sent_at NULL is a legitimate never-issued cash sale
+  // and is untouched.
+  if (key === 'mark-paid' && current.status === 'draft' && current.sentAt !== null) {
+    return { ok: false, error: 'revision_in_progress', from: current.status, to: spec.to };
+  }
+
   const now = new Date();
   // updatedAt is always record-time; the stamp (paidAt/sentAt/voidedAt) uses the
   // economic date, which a caller can backdate via effectiveAt.
@@ -232,10 +286,13 @@ async function applyInvoiceTransition(
   const postedAt = postsOnIssueDate(from, spec.to)
     ? expenseDateToPostedAt(current.issueDate)
     : effectiveAt;
+  // Conditional spread because `revise` has no stamp: it must leave sent_at
+  // exactly as it found it. A `[undefined]: effectiveAt` key would be a silent
+  // corruption of the derived revising state.
   const patch: Record<string, unknown> = {
     status: spec.to,
     updatedAt: now,
-    [spec.stamp]: effectiveAt,
+    ...(spec.stamp ? { [spec.stamp]: effectiveAt } : {}),
   };
   // mark-sent mints the public-view token if the invoice doesn't have one
   // yet. 32 random bytes hex matches the invitation token pattern (large
@@ -332,6 +389,38 @@ async function applyInvoiceTransition(
       companyId: updated.companyId,
       postedAt,
     });
+  }
+
+  // Re-issuing an invoice that already holds money has to re-derive settlement
+  // (TMC-227). Before corrections existed a draft could not carry receipts, so
+  // mark-sent never had to ask; now the ordinary flow is issue → take a deposit
+  // → pull back → correct → resend, and the resend flips the row to 'sent'
+  // knowing nothing about the $200 already banked.
+  //
+  // Without this, correcting a $450 invoice with $200 paid down to $150 leaves
+  // it 'sent' and apparently owing — reminders chase a settled invoice and the
+  // pay page's intent mint 400s on a zero balance.
+  //
+  // Deliberately rewriting the status the transition set one statement ago; the
+  // payment rows are the authority (TMC-187) and the mark-paid route already
+  // does exactly this for the same reason. `issued: true` is a fact here, not a
+  // guess — mark-sent just made it so.
+  //
+  // Accepted edge: when the corrected total is at or below what was already
+  // paid, the invoice lands on 'paid' while the resend email still reads as a
+  // request for payment. The amended preamble names the correction, and the
+  // customer's page shows the settled figure.
+  if (key === 'mark-sent') {
+    const paymentCount = await paymentCountForInvoice(tx, { accountId, invoiceId: id });
+    if (paymentCount > 0) {
+      const synced = await syncInvoiceSettlement(tx, {
+        accountId,
+        invoiceId: id,
+        totalCents: toCents(updated.total),
+        issued: true,
+      });
+      if (synced) return { ok: true, invoice: synced.invoice, from };
+    }
   }
 
   return { ok: true, invoice: updated, from };
@@ -691,6 +780,14 @@ export function invoicesRoutes(deps: AppDeps) {
           // biome-ignore lint/style/noNonNullAssertion: and() with >=1 arg is non-null
           conditions.push(and(eq(invoices.status, 'sent'), gte(invoices.dueDate, today))!);
         }
+        // Pulled back to be corrected and not yet resent (TMC-227) — a draft
+        // that has been issued before. Backs the "Being fixed" tile, whose whole
+        // job is to stop a half-finished correction being forgotten while the
+        // customer's page still says the invoice is being revised.
+        if (c.req.query('revising') === 'true') {
+          // biome-ignore lint/style/noNonNullAssertion: and() with >=1 arg is non-null
+          conditions.push(and(eq(invoices.status, 'draft'), isNotNull(invoices.sentAt))!);
+        }
         if (q) {
           const term = `%${escapeLike(q)}%`;
           // biome-ignore lint/style/noNonNullAssertion: or() with >=1 arg is non-null
@@ -758,6 +855,13 @@ export function invoicesRoutes(deps: AppDeps) {
             // record — the whole failure mode is that nobody goes looking.
             // Matches the partial index in migration 0037.
             undeliveredCount: sql<number>`(count(*) filter (where ${invoices.deliveryStatus} in ('failed','bounced','complained')))::int`,
+            // Invoices pulled back for correction and not yet resent (TMC-227).
+            // A SUBSET of draftCount rather than a partition of it: they really
+            // are drafts, and a correction the operator abandons should still be
+            // visible in the ordinary draft count. This tile is the nudge — the
+            // customer's link says "being revised" until the resend, so a
+            // forgotten correction is a customer left waiting.
+            revisingCount: sql<number>`(count(*) filter (where ${invoices.status} = 'draft' and ${invoices.sentAt} is not null))::int`,
           })
           .from(invoices)
           .leftJoin(paidPerInvoice, eq(paidPerInvoice.invoiceId, invoices.id))
@@ -767,6 +871,7 @@ export function invoicesRoutes(deps: AppDeps) {
           awaiting: { count: row?.awaitingCount ?? 0, total: row?.awaitingTotal ?? '0' },
           overdue: { count: row?.overdueCount ?? 0, total: row?.overdueTotal ?? '0' },
           undelivered: { count: row?.undeliveredCount ?? 0 },
+          revising: { count: row?.revisingCount ?? 0 },
         });
       })
       .get('/api/invoices/next-number', async (c) => {
@@ -859,7 +964,15 @@ export function invoicesRoutes(deps: AppDeps) {
           made: jobMade(billedCents, costCents, invoice.status === 'draft'),
           costCount: costRows.length,
         };
-        return c.json({ ...invoice, lineItems: lines, jobCosting });
+        // Every time this invoice was pulled back to be corrected (TMC-227),
+        // newest first. Empty for the overwhelming majority of invoices, and the
+        // read stays on the (account_id, invoice_id) index.
+        const revisions = await tx
+          .select()
+          .from(invoiceRevisions)
+          .where(and(eq(invoiceRevisions.accountId, accountId), eq(invoiceRevisions.invoiceId, id)))
+          .orderBy(desc(invoiceRevisions.revisedAt));
+        return c.json({ ...invoice, lineItems: lines, jobCosting, revisions });
       })
       .patch(
         '/api/invoices/:id',
@@ -1423,6 +1536,115 @@ export function invoicesRoutes(deps: AppDeps) {
         }
         return transitionInvoice(c, id, 'void', INVOICE_TRANSITIONS.void);
       })
+      // "Fix this invoice" — pull a sent invoice back to a draft you can edit
+      // (TMC-227).
+      //
+      // A landscaper types $450 instead of $4,500 and hits send. Until now there
+      // was no way back: PATCH is draft-only, there is no unvoid and no invoice
+      // DELETE, so the only recovery was void-and-duplicate — which burns the
+      // number, kills the link the customer already has, and leaves them holding
+      // a document the system says never happened.
+      //
+      // SAME ROW, SAME NUMBER, SAME PUBLIC LINK. The correction is three user
+      // actions in this order: pull back (here), edit through the ordinary draft
+      // PATCH, resend through the ordinary send. Nothing about editing or
+      // sending changes. What that ordering buys is the ledger reversal running
+      // while the row still holds the values it is reversing — see
+      // postsOnIssueDate above for why any other order is silently wrong.
+      //
+      // It also keeps the customer's URL alive. The public token is minted once
+      // and never re-minted, so the link in their inbox now shows "being
+      // revised" instead of a stale payable amount, and later shows the
+      // corrected invoice with an honest note about what changed.
+      .post('/api/invoices/:id/revise', requireCapability('sales:write'), async (c) => {
+        const id = c.req.param('id');
+        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+
+        const [current] = await tx
+          .select()
+          .from(invoices)
+          .where(and(eq(invoices.id, id), eq(invoices.accountId, accountId)))
+          .limit(1);
+        if (!current) return c.json({ error: 'invoice_not_found' }, 404);
+
+        // Only a sent invoice can be pulled back. 'draft' covers "already being
+        // revised" as well as "never issued", and the payload carries `from` so
+        // a client can tell the two apart against sent_at.
+        if (current.status !== 'sent') {
+          if (current.status === 'paid') {
+            // Refused rather than half-reversed. Money changed hands, and
+            // unwinding a receipt is a decision with its own audit trail — the
+            // honest sequence is remove or refund the payment (which
+            // re-derives the invoice back to 'sent'), then pull it back. The
+            // client turns this code into that instruction.
+            return c.json({ error: 'invoice_paid', status: current.status }, 409);
+          }
+          return c.json(
+            { error: 'invalid_transition', from: current.status, to: 'draft' as const },
+            409,
+          );
+        }
+
+        // Closed years are refused outright, checked BEFORE any write.
+        //
+        // The reversal has to post at the ORIGINAL issue date — that is the
+        // whole point — and a closed year will not take it. postJournalEntry
+        // would throw the same 409 a moment later and roll the transition back,
+        // but relying on throw-based rollback to protect the books is the kind
+        // of thing that works until someone adds a catch. Checked here, the row
+        // is never touched at all.
+        //
+        // Byte-compatible with the PeriodClosedError mapping in app.ts so both
+        // clients handle one shape. Correcting a closed year would mean a
+        // current-period adjustment, which is a real accounting decision and
+        // deliberately not in v1 — loosening this later is easy, tightening it
+        // never is.
+        const closedThrough = await closedThroughFor(tx, {
+          accountId,
+          companyId: current.companyId,
+        });
+        if (closedThrough && expenseDateToPostedAt(current.issueDate) < closedThrough) {
+          return c.json(
+            { error: 'period_closed', closedThrough: closedThrough.toISOString() },
+            409,
+          );
+        }
+
+        // The status flip, the reversal posting and the audit row, through the
+        // one funnel. Its compare-and-swap is what makes this safe against a
+        // Stripe webhook flipping sent → paid underneath us: the loser writes
+        // nothing and gets a clean 409.
+        const result = await applyInvoiceTransition(tx, c.var.audit, {
+          accountId,
+          id,
+          key: 'revise',
+          spec: INVOICE_TRANSITIONS.revise,
+        });
+        if (!result.ok) {
+          if (result.error === 'invoice_not_found') return c.json({ error: result.error }, 404);
+          return c.json({ error: result.error, from: result.from, to: result.to }, 409);
+        }
+
+        // What the customer was told, snapshotted from the row as it stood
+        // BEFORE the pull-back. Once the draft is edited nothing else remembers
+        // it, and this is what prints on their page as "the total was $450.00".
+        await tx.insert(invoiceRevisions).values({
+          id: uuidv7(),
+          accountId,
+          companyId: current.companyId,
+          invoiceId: id,
+          revisedAt: new Date(),
+          previousTotal: current.total,
+          previousIssueDate: current.issueDate,
+          previousDueDate: current.dueDate,
+        });
+
+        // No telemetry, matching void: TELEMETRY.md counts documents sent and
+        // paid, not the operator's corrections.
+        return c.json(result.invoice);
+      })
       // Edit the recorded payment on an already-paid invoice. Method/reference
       // are plain column updates. A changed payment date is an append-only
       // ledger correction (journal tables are insert-only, migration 0026):
@@ -1958,6 +2180,27 @@ export function invoicesRoutes(deps: AppDeps) {
             .where(and(eq(invoices.id, id), eq(invoices.accountId, accountId)))
             .limit(1);
           if (!invoice) return c.json({ error: 'invoice_not_found' }, 404);
+
+          // Not while the invoice is being corrected (TMC-227). This route had
+          // no status guard at all, which was fine while a draft could not be
+          // an issued document.
+          //
+          // The corruption is one line downstream: syncInvoiceSettlement below
+          // asks summarizeSettlement where the invoice stands, and its unpaid
+          // branch returns `issued ? 'sent' : 'draft'` — issued is TRUE here,
+          // because revise deliberately keeps sent_at. So removing a receipt
+          // mid-correction flips the row back to 'sent' with no revenue posting
+          // behind it: PATCH then refuses it as not-editable, /send skips its
+          // draft branch and posts nothing, and the invoice is permanently off
+          // the books with the customer holding the wrong figure. The partial
+          // branch is worse — it returns 'sent' unconditionally.
+          //
+          // Note this tests BOTH conditions. A draft with sent_at NULL and
+          // payment rows is a legitimate refunded counter sale, and deleting a
+          // receipt from it must keep working.
+          if (invoice.status === 'draft' && invoice.sentAt !== null) {
+            return c.json({ error: 'revision_in_progress', status: invoice.status }, 409);
+          }
 
           const [payment] = await tx
             .select()
