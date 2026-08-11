@@ -70,10 +70,20 @@ export const load: PageServerLoad = async (event) => {
   // Receipts against this invoice (TMC-187), with the derived settlement.
   // Best-effort like the audit trail: a failed fetch renders the page without
   // the payments panel rather than 500ing the whole invoice.
-  const paymentsRes = await client.api.invoices[':id'].payments.$get({
-    param: { id: event.params.id },
-  });
+  // The typo catcher (TMC-227) rides ALONGSIDE the payments fetch rather than
+  // after it. Both need only the id, so serialising them would add a round trip
+  // to every invoice view for a callout that is usually silent — and a check the
+  // user has to wait for is a check they learn to tap through.
+  //
+  // Best-effort like every other panel above: a failed fetch renders no callout
+  // rather than blocking the send. It warns, it does not gate, so it has no
+  // business on the critical path of getting paid.
+  const [paymentsRes, sendCheckRes] = await Promise.all([
+    client.api.invoices[':id'].payments.$get({ param: { id: event.params.id } }),
+    client.api.invoices[':id']['send-check'].$get({ param: { id: event.params.id } }),
+  ]);
   const settlement = paymentsRes.ok ? await paymentsRes.json() : null;
+  const sendCheck = sendCheckRes.ok ? await sendCheckRes.json() : null;
 
   // origin is what the recipient will see in the URL — derived from the
   // incoming request so it works behind any reverse-proxy / custom domain
@@ -94,6 +104,7 @@ export const load: PageServerLoad = async (event) => {
     // point: two $50 cash instalments on one day are two receipts, not a
     // mistake.
     paymentKey: crypto.randomUUID(),
+    sendCheck,
     auditEvents,
     needsBusinessDetails,
     businessCompanyId,

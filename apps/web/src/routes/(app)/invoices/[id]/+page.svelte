@@ -317,6 +317,26 @@
   </details>
 {/if}
 
+{#if canSend && data.sendCheck?.concern}
+  <!--
+    The typo catcher (TMC-227). Directly above the Send control, because that is
+    where the decision is made — anywhere else on the page and it is a fact
+    about the invoice rather than a question about the thing about to happen.
+
+    IT NEVER BLOCKS and it has no dismissal state. There is no "are you sure?",
+    no second tap, nothing to remember between page loads. It is a sentence and
+    a way to disagree with it, and an invoice that genuinely IS ten times the
+    usual one goes out on the first click exactly like any other.
+
+    Copper rather than the danger red Void wears: nothing is wrong yet, and
+    dressing a maybe as an error is how a warning gets trained out of someone.
+  -->
+  <div class="mt-6 max-w-2xl rounded-sm border border-warning/40 bg-warning/5 px-4 py-3 text-sm">
+    <p class="text-fg">{data.sendCheck.concern}</p>
+    <p class="mt-1 text-fg/50">Send anyway if that's right.</p>
+  </div>
+{/if}
+
 {#if hasActions}
   <div class="mt-6 flex flex-wrap items-center gap-3">
     {#if canSend}
