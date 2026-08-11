@@ -9,7 +9,7 @@ signup "$EMAIL" || exit 1
 
 CID=$(newco "Locks Landscaping" "sole_prop")
 CASH=$(coa "$CID" 1000)
-FUEL=$(coa "$CID" 6200)
+FUEL=$(coa "$CID" 6100)
 
 expense() { # expense <amount> <date>
   status POST /api/expenses \

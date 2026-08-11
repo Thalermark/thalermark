@@ -9,7 +9,7 @@ signup "$EMAIL" || exit 1
 
 CID=$(newco "Ridgeline Lawn Care" "sole_prop")
 CASH=$(coa "$CID" 1000)
-FUEL=$(coa "$CID" 6200)
+FUEL=$(coa "$CID" 6100)
 EFFECTIVE=2026-07-01
 
 section "A sole prop with something to hand over"
