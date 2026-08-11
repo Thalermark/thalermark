@@ -1841,8 +1841,32 @@ export function invoicesRoutes(deps: AppDeps) {
               invoice.companyId,
               'invoice',
             );
+
+            // Is this send re-issuing a correction (TMC-227)? Two conditions,
+            // both required: this request performed the draft → sent flip AND
+            // the invoice has been pulled back at least once.
+            //
+            // Requiring the flip is what keeps a later plain resend of the same
+            // invoice an ordinary email. Apologising every time someone forwards
+            // a corrected invoice to a second address would turn a one-off
+            // admission into background noise.
+            const [latestRevision] =
+              current.status === 'draft'
+                ? await tx
+                    .select({ previousTotal: invoiceRevisions.previousTotal })
+                    .from(invoiceRevisions)
+                    .where(
+                      and(
+                        eq(invoiceRevisions.accountId, accountId),
+                        eq(invoiceRevisions.invoiceId, id),
+                      ),
+                    )
+                    .orderBy(desc(invoiceRevisions.revisedAt))
+                    .limit(1)
+                : [];
             return {
               invoice: { ...invoice, publicToken: invoice.publicToken },
+              revision: latestRevision,
               customerName: customer.name,
               companyName,
               // Chain, not a bare column: an unset reply-to used to omit the
@@ -1855,7 +1879,16 @@ export function invoicesRoutes(deps: AppDeps) {
           });
           // A guard branch returned a built error response — pass it through.
           if (prep instanceof Response) return prep;
-          const { invoice, customerName, companyName, replyToEmail, template, to, wasDraft } = prep;
+          const {
+            invoice,
+            revision,
+            customerName,
+            companyName,
+            replyToEmail,
+            template,
+            to,
+            wasDraft,
+          } = prep;
 
           // Email send — no DB connection held. Shared builder (lib/invoice-
           // email.ts) so this route and the recurring-invoice sweeper emit
@@ -1875,6 +1908,7 @@ export function invoicesRoutes(deps: AppDeps) {
               emailFrom: deps.emailFrom,
               replyToEmail,
               template,
+              revision,
             }));
           } catch (err) {
             // Record the failure on the row before answering (TMC-226). The 502

@@ -1009,8 +1009,28 @@ export function estimatesRoutes(deps: AppDeps) {
               estimate.companyId,
               'estimate',
             );
+
+            // Amended framing, on the same two conditions as the invoice side
+            // (TMC-227): this request performed the draft → sent flip AND the
+            // estimate has been pulled back at least once. A later plain resend
+            // reverts to the ordinary email.
+            const [latestRevision] =
+              current.status === 'draft'
+                ? await tx
+                    .select({ previousTotal: estimateRevisions.previousTotal })
+                    .from(estimateRevisions)
+                    .where(
+                      and(
+                        eq(estimateRevisions.accountId, accountId),
+                        eq(estimateRevisions.estimateId, id),
+                      ),
+                    )
+                    .orderBy(desc(estimateRevisions.revisedAt))
+                    .limit(1)
+                : [];
             return {
               estimate: { ...estimate, publicToken: estimate.publicToken },
+              revision: latestRevision,
               customerName: customer.name,
               companyName,
               replyToEmail: resolveReplyTo(company ?? {}, deps.emailFrom ?? ''),
@@ -1020,7 +1040,8 @@ export function estimatesRoutes(deps: AppDeps) {
           });
           // A guard branch returned a built error response — pass it through.
           if (prep instanceof Response) return prep;
-          const { estimate, customerName, companyName, replyToEmail, template, to } = prep;
+          const { estimate, revision, customerName, companyName, replyToEmail, template, to } =
+            prep;
 
           // Email send — no DB connection held. Shared builder (lib/estimate-
           // email.ts) so this route and the template-preview endpoint emit
@@ -1039,6 +1060,7 @@ export function estimatesRoutes(deps: AppDeps) {
               emailFrom: deps.emailFrom,
               replyToEmail,
               template,
+              revision,
             }));
           } catch (err) {
             // On the row, not only in the response (TMC-226). An estimate that

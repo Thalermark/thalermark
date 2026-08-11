@@ -29,6 +29,10 @@ export type EstimateEmailInput = {
   replyToEmail?: string | null;
   // Resolved subject+body (override or default); omitted → DEFAULT_TEMPLATES.estimate.
   template?: { subject: string; body: string };
+  // Set only when THIS send is re-issuing an estimate that was pulled back and
+  // corrected (TMC-227). Fixed copy, not a fifth editable template — see
+  // invoice-email.ts for why the apology is not the business's to edit away.
+  revision?: { previousTotal: string };
 };
 
 export function buildEstimateEmail(input: EstimateEmailInput): {
@@ -36,7 +40,7 @@ export function buildEstimateEmail(input: EstimateEmailInput): {
   text: string;
   html: string;
 } {
-  const { estimate, customerName, companyName, publicAppUrl, template } = input;
+  const { estimate, customerName, companyName, publicAppUrl, template, revision } = input;
   const publicUrl = publicAppUrl
     ? `${publicAppUrl}/e/${estimate.publicToken}`
     : `/e/${estimate.publicToken}`;
@@ -51,20 +55,39 @@ export function buildEstimateEmail(input: EstimateEmailInput): {
     company_name: companyName,
   });
 
+  // Leads the message when this send is a re-issue, so a recipient who skims
+  // the first line learns the quote they already have is superseded. The second
+  // sentence appears only when the number actually moved — plenty of
+  // corrections are a wrong date or a wrong line description.
+  const correction = revision
+    ? [
+        'Sorry — the earlier estimate was wrong. This is the corrected one.',
+        ...(revision.previousTotal !== estimate.total
+          ? [
+              `The total changed from ${formatMoneyDisplay(revision.previousTotal, estimate.currency)} to ${amount}.`,
+            ]
+          : []),
+      ].join(' ')
+    : undefined;
+
   const validUntilText = expiresOn ? `\nThis estimate is valid until ${expiresOn}.` : '';
   const validUntilHtml = expiresOn
     ? `<p style="margin:14px 0 0;">This estimate is valid until ${escapeHtml(expiresOn)}.</p>`
     : '';
-  const text = `${textBody}${validUntilText}\n\nView the estimate: ${publicUrl}\n\n— ${companyName}\n\n${emailFooterText(true)}`;
+  const text = `${correction ? `${correction}\n\n` : ''}${textBody}${validUntilText}\n\nView the estimate: ${publicUrl}\n\n— ${companyName}\n\n${emailFooterText(true)}`;
   const html = renderEmailHtml({
     brandName: companyName,
-    preheader: `Estimate ${estimate.number} · ${amount}${expiresOn ? ` · valid until ${expiresOn}` : ''}`,
+    preheader: correction
+      ? `Corrected estimate ${estimate.number} · ${amount}${expiresOn ? ` · valid until ${expiresOn}` : ''}`
+      : `Estimate ${estimate.number} · ${amount}${expiresOn ? ` · valid until ${expiresOn}` : ''}`,
     heading: `Estimate ${estimate.number}`,
-    bodyHtml: `${htmlBody}${validUntilHtml}`,
+    bodyHtml: correction
+      ? `<p style="margin:0;">${escapeHtml(correction)}</p><div style="margin:14px 0 0;">${htmlBody}${validUntilHtml}</div>`
+      : `${htmlBody}${validUntilHtml}`,
     cta: { label: 'View estimate', url: publicUrl },
     poweredBy: true,
   });
-  return { subject, text, html };
+  return { subject: correction ? `Corrected: ${subject}` : subject, text, html };
 }
 
 // Build + send in one step. Throws on mailer failure (the caller maps it to a

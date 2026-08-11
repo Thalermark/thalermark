@@ -1,6 +1,7 @@
 import { formatDateDisplay, formatMoneyDisplay } from '@thalermark/validation';
 import { emailFooterText, renderEmailHtml } from './email-layout.js';
 import { DEFAULT_TEMPLATES, renderTemplate } from './email-templates.js';
+import { escapeHtml } from './html.js';
 import type { Mailer } from './mailer.js';
 import { formatSender } from './sender.js';
 
@@ -32,6 +33,15 @@ export type InvoiceEmailInput = {
   // Resolved subject+body (the company's override or the in-code default). The
   // route/recurring engine resolves it; omitted → DEFAULT_TEMPLATES.invoice.
   template?: { subject: string; body: string };
+  // Set only when THIS send is re-issuing an invoice that was pulled back and
+  // corrected (TMC-227). Turns the ordinary email into an amended one.
+  //
+  // Fixed copy rather than a fifth editable template type, deliberately. The
+  // apology and the changed figure are the honest core of the feature — a
+  // business editing them to say nothing changed would be using Thalermark to
+  // hide a correction, which is the opposite of the point. The editable
+  // template still renders inside it untouched.
+  revision?: { previousTotal: string };
 };
 
 export function buildInvoiceEmail(input: InvoiceEmailInput): {
@@ -39,7 +49,8 @@ export function buildInvoiceEmail(input: InvoiceEmailInput): {
   text: string;
   html: string;
 } {
-  const { invoice, customerName, companyName, publicAppUrl, replyToEmail, template } = input;
+  const { invoice, customerName, companyName, publicAppUrl, replyToEmail, template, revision } =
+    input;
   const publicUrl = publicAppUrl
     ? `${publicAppUrl}/i/${invoice.publicToken}`
     : `/i/${invoice.publicToken}`;
@@ -64,9 +75,29 @@ export function buildInvoiceEmail(input: InvoiceEmailInput): {
     ? `Questions about this invoice? Just reply to this email and it'll reach ${companyName}.`
     : undefined;
 
+  // The correction preamble, when this send is a re-issue. It leads — a
+  // recipient who skims the first line has to learn that the invoice they
+  // already have is superseded, and burying that under the greeting would let
+  // them pay the old figure.
+  //
+  // The second sentence appears only when the total actually moved. Plenty of
+  // corrections are a wrong date or a wrong description, and "the total changed
+  // from $450.00 to $450.00" would read as a mistake in its own right.
+  const correction = revision
+    ? [
+        'Sorry — the earlier invoice was wrong. This is the corrected one.',
+        ...(revision.previousTotal !== invoice.total
+          ? [
+              `The total changed from ${formatMoneyDisplay(revision.previousTotal, invoice.currency)} to ${amount}.`,
+            ]
+          : []),
+      ].join(' ')
+    : undefined;
+
   // The public link is the HTML CTA button; text has no button, so it carries
   // the URL as a line (also what the integration test asserts on).
   const text = [
+    ...(correction ? [correction, ''] : []),
     textBody,
     '',
     `View your invoice: ${publicUrl}`,
@@ -79,14 +110,25 @@ export function buildInvoiceEmail(input: InvoiceEmailInput): {
 
   const html = renderEmailHtml({
     brandName: companyName,
-    preheader: `Invoice ${invoice.number} · ${amount} · due ${dueDate}`,
+    preheader: correction
+      ? `Corrected invoice ${invoice.number} · ${amount} · due ${dueDate}`
+      : `Invoice ${invoice.number} · ${amount} · due ${dueDate}`,
     heading: `Invoice ${invoice.number}`,
-    bodyHtml: htmlBody,
+    // Escaped and styled like the template's own paragraphs, so it reads as
+    // part of the message rather than a system banner bolted above it. The
+    // template's own body is wrapped rather than string-edited — paragraphize
+    // owns those margins and this must not depend on their exact text.
+    bodyHtml: correction
+      ? `<p style="margin:0;">${escapeHtml(correction)}</p><div style="margin:14px 0 0;">${htmlBody}</div>`
+      : htmlBody,
     cta: { label: 'View invoice', url: publicUrl },
     footnote: replyNote,
     poweredBy: true,
   });
-  return { subject, text, html };
+  // Prefixed rather than replaced: the business's own subject line is how the
+  // customer recognises the thread, and "Corrected:" in front of it is what
+  // makes the new message win a skim of the inbox.
+  return { subject: correction ? `Corrected: ${subject}` : subject, text, html };
 }
 
 // Build + send in one step. Throws on mailer failure (the caller decides
