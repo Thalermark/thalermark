@@ -80,6 +80,7 @@ import {
   resolveMoneyAccount,
   storedMoneyCode,
 } from '../lib/route-helpers.js';
+import { resolveReplyTo } from '../lib/sender.js';
 import type { AuditWriter } from '../middleware/audit.js';
 import { requireCapability } from '../middleware/authz.js';
 import { requireEntitlement } from '../middleware/entitlement.js';
@@ -1573,7 +1574,11 @@ export function invoicesRoutes(deps: AppDeps) {
             if (!to || !EMAIL_RE.test(to)) return c.json({ error: 'invalid_recipient' }, 400);
 
             const [company] = await tx
-              .select({ name: companies.name, replyToEmail: companies.replyToEmail })
+              .select({
+                name: companies.name,
+                replyToEmail: companies.replyToEmail,
+                businessEmail: companies.businessEmail,
+              })
               .from(companies)
               .where(and(eq(companies.id, current.companyId), eq(companies.accountId, accountId)))
               .limit(1);
@@ -1618,7 +1623,9 @@ export function invoicesRoutes(deps: AppDeps) {
               invoice: { ...invoice, publicToken: invoice.publicToken },
               customerName: customer.name,
               companyName,
-              replyToEmail: company?.replyToEmail ?? null,
+              // Chain, not a bare column: an unset reply-to used to omit the
+              // header and send the customer's reply to the platform (TMC-225).
+              replyToEmail: resolveReplyTo(company ?? {}, deps.emailFrom ?? ''),
               template,
               to,
               wasDraft: current.status === 'draft',

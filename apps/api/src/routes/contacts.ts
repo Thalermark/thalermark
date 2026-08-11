@@ -16,6 +16,7 @@ import { resolveEmailTemplate } from '../lib/email-templates.js';
 import { mailerDelivers } from '../lib/mailer.js';
 import { applyCursor, keysetOrderBy, parseLimit, slicePage } from '../lib/pagination.js';
 import { EMAIL_RE, UUID_RE, escapeLike } from '../lib/route-helpers.js';
+import { resolveReplyTo } from '../lib/sender.js';
 import { sendStatementEmail } from '../lib/statement-email.js';
 import { requireCapability } from '../middleware/authz.js';
 import type { RlsVariables } from '../middleware/rls-context.js';
@@ -374,7 +375,11 @@ export function contactsRoutes(deps: AppDeps) {
           // companyId (for the audit) + replyToEmail in one join through the
           // customer (the statement object intentionally doesn't expose them).
           const [meta] = await tx
-            .select({ companyId: contacts.companyId, replyToEmail: companies.replyToEmail })
+            .select({
+              companyId: contacts.companyId,
+              replyToEmail: companies.replyToEmail,
+              businessEmail: companies.businessEmail,
+            })
             .from(contacts)
             .innerJoin(companies, eq(companies.id, contacts.companyId))
             .where(and(eq(contacts.id, id), eq(contacts.accountId, accountId)))
@@ -389,7 +394,7 @@ export function contactsRoutes(deps: AppDeps) {
             ({ subject } = await sendStatementEmail(deps.mailer, to, {
               statement,
               emailFrom: deps.emailFrom,
-              replyToEmail: meta?.replyToEmail ?? null,
+              replyToEmail: resolveReplyTo(meta ?? {}, deps.emailFrom ?? ''),
               template,
             }));
           } catch (err) {
