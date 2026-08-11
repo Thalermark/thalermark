@@ -138,6 +138,7 @@ export type InvoiceStatusForPosting = 'draft' | 'sent' | 'paid' | 'voided';
 //   draft  → paid    Dr Cash=total−fee, Dr Fees (if>0), Cr SvcRev, Cr ProdRev, Cr Tax (if>0)
 //   sent   → paid    Dr Cash=total−fee, Dr Fees (if>0), Cr AR=total (no revenue movement)
 //   sent   → voided  Dr SvcRev, Dr ProdRev, Dr Tax (if>0), Cr AR=total
+//   sent   → draft   the same reversal, for a correction rather than a kill
 //   draft  → voided  (nothing — no prior posting to reverse)
 //
 // Lines with amount=0 are dropped by postJournalEntry, so an all-service,
@@ -188,6 +189,28 @@ export function invoicePostingLines(
     ];
   }
   if (prevStatus === 'sent' && nextStatus === 'voided') {
+    return [
+      { code: COA_SERVICE_REVENUE, side: 'debit', amount: serviceSubtotal },
+      { code: COA_PRODUCT_REVENUE, side: 'debit', amount: productSubtotal },
+      { code: COA_SALES_TAX_PAYABLE, side: 'debit', amount: tax },
+      { code: COA_AR, side: 'credit', amount: total },
+    ];
+  }
+  // Pulling a sent invoice back to draft to correct it (TMC-227). Economically
+  // identical to voiding it — the receivable and the revenue the customer was
+  // told about both come off the books — so the lines are the exact flip of the
+  // issue posting, byte-for-byte the sent → voided shape above.
+  //
+  // Spelled out rather than folded into that branch on purpose. The matrix is
+  // the one place the whole posting policy is readable at a glance, and a
+  // correction and a kill are different business events that happen to net the
+  // same today; sharing a branch would hide the day they stop doing so.
+  //
+  // The re-issue that follows is an ordinary draft → sent posting at the
+  // (possibly edited) issue date. Reversal here, re-post there — never a single
+  // "adjust by the difference" entry, which would have to re-derive the old
+  // values from a row that no longer holds them.
+  if (prevStatus === 'sent' && nextStatus === 'draft') {
     return [
       { code: COA_SERVICE_REVENUE, side: 'debit', amount: serviceSubtotal },
       { code: COA_PRODUCT_REVENUE, side: 'debit', amount: productSubtotal },
@@ -1350,7 +1373,14 @@ export async function postInvoiceTransition(
     sourceEntityType: 'invoice',
     sourceEntityId: args.invoice.id,
     postedAt: args.postedAt,
-    memo: `Invoice ${args.invoice.number} ${args.nextStatus}`,
+    // The status name is the memo everywhere except a pull-back for correction,
+    // where it would read "Invoice INV-0007 draft" — which describes the row's
+    // new state, not the event. Someone reading the ledger months later needs
+    // the word the operator used.
+    memo:
+      args.nextStatus === 'draft'
+        ? `Invoice ${args.invoice.number} revised`
+        : `Invoice ${args.invoice.number} ${args.nextStatus}`,
     lines,
     // Collecting on an invoice the business had already sent is settlement, so a
     // retired company can still bank the cheque for work it billed under the old

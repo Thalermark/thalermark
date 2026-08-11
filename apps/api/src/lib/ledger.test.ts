@@ -169,6 +169,64 @@ describe('invoicePostingLines — draft → voided', () => {
   });
 });
 
+// TMC-227. Pulling a sent invoice back to draft to correct it takes the
+// receivable and the revenue off the books, exactly as voiding it would — the
+// difference is what happens next, not what posts now.
+describe('invoicePostingLines — sent → draft (pulled back to fix)', () => {
+  it('reverses mark-sent: Dr Service Rev / Dr Product Rev / Dr Sales Tax / Cr AR', () => {
+    expect(invoicePostingLines('sent', 'draft', taxed)).toEqual([
+      { code: '4000', side: 'debit', amount: '100.00' },
+      { code: '4100', side: 'debit', amount: '0.00' },
+      { code: '2200', side: 'debit', amount: '8.25' },
+      { code: '1200', side: 'credit', amount: '108.25' },
+    ]);
+  });
+
+  it('debits both revenue accounts on a mixed product/service invoice', () => {
+    expect(invoicePostingLines('sent', 'draft', mixed)).toEqual([
+      { code: '4000', side: 'debit', amount: '60.00' },
+      { code: '4100', side: 'debit', amount: '40.00' },
+      { code: '2200', side: 'debit', amount: '8.25' },
+      { code: '1200', side: 'credit', amount: '108.25' },
+    ]);
+  });
+
+  // The load-bearing property: issue then pull back must leave nothing behind.
+  // Every other check in this feature is downstream of this one. Compared by
+  // code because the reversal lists AR last (the flip preserves input order),
+  // and leg ORDER is not part of the posting's meaning.
+  it('is the exact flip of the issue posting, leg for leg', () => {
+    const byCode = (lines: LedgerLine[]) => [...lines].sort((a, b) => a.code.localeCompare(b.code));
+    const issued = invoicePostingLines('draft', 'sent', mixed);
+    expect(byCode(invoicePostingLines('sent', 'draft', mixed))).toEqual(
+      byCode(reverseLedgerLines(issued)),
+    );
+  });
+
+  it('an all-service, untaxed invoice collapses to two non-zero legs', () => {
+    const lines = invoicePostingLines('sent', 'draft', untaxed);
+    const { debit, credit, count } = nonZeroSides(lines);
+    expect(count).toBe(2);
+    expect(debit).toBe(credit);
+  });
+
+  // Symmetric with draft → sent: both legs of a zero-total document post
+  // nothing (postJournalEntry returns null below two non-zero lines), so the
+  // pair still nets to zero. A correction must not depend on an entry existing.
+  it('emits only zero-amount lines for a zero-total invoice', () => {
+    const lines = invoicePostingLines('sent', 'draft', zero);
+    expect(lines.every((l) => Number(l.amount) === 0)).toBe(true);
+  });
+
+  // A card fee belongs to a payment, and a paid invoice cannot be pulled back.
+  // Pinned so a future fee change cannot leak a 7950 leg into the reversal and
+  // leave the origin period non-zero.
+  it('ignores a stored processing fee — no Cash and no Merchant Fees leg', () => {
+    const lines = invoicePostingLines('sent', 'draft', { ...taxed, processingFee: '3.44' });
+    expect(lines.map((l) => l.code)).toEqual(['4000', '4100', '2200', '1200']);
+  });
+});
+
 describe('invoicePostingLines — degenerate zero-amount invoice', () => {
   it('emits zero-amount lines on draft → sent; postJournalEntry will skip', () => {
     const lines = invoicePostingLines('draft', 'sent', zero);

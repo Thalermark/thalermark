@@ -60,6 +60,9 @@ type PublicEstimateLine = {
 type PublicEstimate = {
   number: string;
   status: string;
+  // Pulled back by the business to be corrected, not yet resent (TMC-227).
+  beingRevised: boolean;
+  revisions: { revisedAt: string; previousTotal: string }[];
   issueDate: string;
   expiresOn: string | null;
   currency: string;

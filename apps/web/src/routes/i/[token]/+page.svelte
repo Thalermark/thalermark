@@ -1,6 +1,6 @@
 <script lang="ts">
   import { page } from '$app/state';
-  import { formatUnitPrice } from '@thalermark/validation';
+  import { formatDateDisplay, formatMoneyDisplay, formatUnitPrice } from '@thalermark/validation';
   import type { PageProps } from './$types';
 
   let { data }: PageProps = $props();
@@ -75,11 +75,26 @@
     <span
       class="rounded-sm border border-fg/15 px-3 py-1 font-mono text-xs uppercase tracking-widest text-fg/70"
     >
-      {inv.status}
+      {inv.beingRevised ? 'being revised' : inv.status}
     </span>
   </header>
 
-  {#if inv.status === 'paid'}
+  {#if inv.beingRevised}
+    <!--
+      The business pulled this back to fix it (TMC-227). Every payment path is
+      already closed by the API's 'sent' gates, so this exists to say WHY —
+      without it the recipient meets a document that quietly stopped working and
+      has to guess whether they still owe anything.
+
+      Deliberately unalarming. "The amount may change" is the honest warning;
+      "you don't need to do anything right now" is what stops them chasing an
+      invoice the business is already dealing with.
+    -->
+    <div class="mt-6 rounded-sm border border-fg/20 bg-surface-2 px-4 py-3 text-sm text-fg/70">
+      {inv.companyName ?? 'The business'} is revising this invoice — the amount may change. You
+      don't need to do anything right now.
+    </div>
+  {:else if inv.status === 'paid'}
     <div
       class="mt-6 rounded-sm border border-success/30 bg-success/5 px-4 py-3 text-sm text-success"
     >
@@ -124,6 +139,33 @@
         : inv.companyPhone
           ? ` on ${inv.companyPhone}`
           : ''}.
+    </div>
+  {/if}
+
+  {#if inv.revisions.length > 0 && !inv.beingRevised}
+    <!--
+      What changed, in plain sight. This is the differentiator: QuickBooks edits
+      a sent invoice silently and keeps its audit log private, so a customer's
+      only clue is that the number moved. Saying it out loud on the page they
+      pay from is worth more than the awkwardness costs.
+
+      Deliberately plain text with no heading and no styling flourish — it reads
+      as a note from the business, not a system warning. The amount clause is
+      omitted when the total did not move.
+
+      Hidden WHILE a correction is in flight. Mid-revision the figures on the
+      page are still the old ones, so "Revised Aug 11 — the total was $450.00"
+      sits above a $450 total and reads as though the change has already
+      happened. The banner above is the whole story until the resend lands.
+    -->
+    <div class="mt-6 space-y-1">
+      {#each inv.revisions as r (r.revisedAt)}
+        <p class="text-sm text-fg/60">
+          Revised {formatDateDisplay(r.revisedAt.slice(0, 10))}{r.previousTotal !== inv.total
+            ? ` — the total was ${formatMoneyDisplay(r.previousTotal, inv.currency)}`
+            : ''}.
+        </p>
+      {/each}
     </div>
   {/if}
 

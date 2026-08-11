@@ -66,10 +66,15 @@ export const API_ERROR_MESSAGES: Record<string, string> = {
   invoice_voided: 'This invoice was voided, so no more money can be recorded against it.',
   not_issued: 'Send this invoice first — there is nothing owed on a draft to pay down.',
   total_below_logged: 'That total is less than what has already been recorded against it.',
+  invoice_paid:
+    'This invoice has been paid. Remove or refund the payment first, then pull it back to fix it.',
 
   // --- The record is in the wrong state -----------------------------------
   not_editable: 'This can no longer be edited — it has already been sent.',
   bill_not_editable: 'This bill can no longer be edited — it has already been paid.',
+  revision_in_progress:
+    'This invoice is being fixed. Resend the corrected one first, then change its payments.',
+  already_converted: 'This estimate already became an invoice. Fix the invoice instead.',
   invalid_transition: "That isn't something this record can do from where it is now.",
   invoice_state_invalid: "That isn't something this invoice can do from where it is now.",
   estimate_state_invalid: "That isn't something this estimate can do from where it is now.",

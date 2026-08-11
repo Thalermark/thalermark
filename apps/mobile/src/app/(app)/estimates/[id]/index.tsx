@@ -1,7 +1,15 @@
 import { formatUnitPrice } from '@thalermark/validation';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { type AuditEvent, AuditHistory } from '../../../../components/AuditHistory';
 import { api } from '../../../../lib/api';
@@ -33,9 +41,13 @@ type Estimate = {
   tax: string | null;
   total: string;
   notes: string | null;
+  // Needed for the derived "being revised" state: 'draft' with a sent_at is an
+  // estimate pulled back to be corrected (TMC-227).
+  sentAt: string | null;
   publicToken: string | null;
   convertedInvoiceId: string | null;
   lineItems: LineItem[];
+  revisions: { revisedAt: string; previousTotal: string }[];
 };
 type DetailState =
   | { state: 'loading' }
@@ -52,6 +64,8 @@ const TRANSITION_ERRORS: Record<string, string> = {
   invalid_recipient: 'Add a contact email or enter one to send.',
   email_not_configured: "Email isn't configured on this server.",
   contact_not_found: 'The contact for this estimate no longer exists.',
+  // Correcting a sent estimate (TMC-227).
+  already_converted: 'This estimate already became an invoice. Fix the invoice instead.',
 };
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
@@ -104,9 +118,11 @@ export default function EstimateDetail() {
         tax: est.tax ?? null,
         total: est.total,
         notes: est.notes ?? null,
+        sentAt: est.sentAt ?? null,
         publicToken: est.publicToken ?? null,
         convertedInvoiceId: est.convertedInvoiceId ?? null,
         lineItems: est.lineItems,
+        revisions: est.revisions ?? [],
       },
     });
     // Audit trail — best-effort; refetched on every load() (focus + after each
@@ -143,7 +159,17 @@ export default function EstimateDetail() {
   const canMarkDeclined = canWrite && (status === 'draft' || status === 'sent');
   const canConvert = canWrite && status === 'accepted' && est?.convertedInvoiceId == null;
   const canEdit = canWrite && status === 'draft';
-  const hasActions = canSend || canMarkSent || canMarkAccepted || canMarkDeclined || canConvert;
+  // Pulled back to be corrected and not yet resent (TMC-227) — derived, like
+  // expiredNotice below, never a stored status. Not offered once converted: by
+  // then the invoice is the document that is wrong.
+  const isRevising = status === 'draft' && est?.sentAt != null;
+  const statusLabel = isRevising ? 'being revised' : status;
+  const pulledBackOn = est?.revisions?.[0]?.revisedAt
+    ? ` on ${est.revisions[0].revisedAt.slice(0, 10)}`
+    : '';
+  const canRevise = canWrite && status === 'sent' && est?.convertedInvoiceId == null;
+  const hasActions =
+    canSend || canMarkSent || canRevise || canMarkAccepted || canMarkDeclined || canConvert;
   const expiredNotice =
     status === 'sent' && est?.expiresOn != null && est.expiresOn < todayIso()
       ? est.expiresOn
@@ -208,6 +234,23 @@ export default function EstimateDetail() {
     }
   }
 
+  // "Fix this estimate" (TMC-227). Confirmed but not destructive — what the
+  // dialog exists for is that the CUSTOMER sees the withdrawal. Same copy as
+  // the web detail page.
+  function onRevise() {
+    Alert.alert(
+      'Fix this estimate?',
+      "It goes back to a draft you can edit. The customer's link will say it's being revised and they won't be able to accept it until you resend it.",
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Pull it back',
+          onPress: () => act(() => api.api.estimates[':id'].revise.$post({ param: { id } })),
+        },
+      ],
+    );
+  }
+
   function onConvert() {
     act(
       () => api.api.estimates[':id'].convert.$post({ param: { id } }),
@@ -263,10 +306,22 @@ export default function EstimateDetail() {
                   </Pressable>
                 ) : null}
                 <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
-                  {est.status}
+                  {statusLabel}
                 </Text>
               </View>
             </View>
+
+            {isRevising ? (
+              /* The stranded-draft nudge (TMC-227) — a correction stopped after
+                 the edit leaves a customer holding a quote they cannot accept. */
+              <View className="mt-4 rounded-sm border border-gold-deep/40 bg-gold-deep/5 px-4 py-3">
+                {/* One interpolated string — JSX strips each line's edge
+                    whitespace, which ran the date into the words either side. */}
+                <Text className="text-sm text-ink">
+                  {`You pulled this back${pulledBackOn} — the customer's link says it's being revised, and they can't accept it, until you resend the corrected estimate.`}
+                </Text>
+              </View>
+            ) : null}
 
             {transitionError ? (
               <View className="mt-4 rounded-sm border border-oxblood/30 bg-oxblood/5 px-4 py-3">
@@ -321,7 +376,11 @@ export default function EstimateDetail() {
                         className="flex-1 rounded-sm bg-ink px-4 py-3 active:bg-gold-deep disabled:opacity-50"
                       >
                         <Text className="text-center text-sm font-medium text-cream">
-                          {est.status === 'sent' ? 'Resend estimate' : 'Send estimate'}
+                          {isRevising
+                            ? 'Resend corrected estimate'
+                            : est.status === 'sent'
+                              ? 'Resend estimate'
+                              : 'Send estimate'}
                         </Text>
                       </Pressable>
                       <Pressable
@@ -369,6 +428,18 @@ export default function EstimateDetail() {
                       </Pressable>
                     ) : null}
                   </View>
+                ) : null}
+
+                {canRevise ? (
+                  <Pressable
+                    onPress={onRevise}
+                    disabled={acting}
+                    className="rounded-sm border border-ink/20 px-4 py-3 active:bg-ink/5 disabled:opacity-50"
+                  >
+                    <Text className="text-center text-sm font-medium text-ink">
+                      Fix this estimate
+                    </Text>
+                  </Pressable>
                 ) : null}
 
                 {canConvert ? (

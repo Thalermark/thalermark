@@ -21,6 +21,10 @@ export const ACTION_LABELS: Record<string, string> = {
   'mark-accepted': 'marked accepted',
   'mark-declined': 'marked declined',
   void: 'voided',
+  // TMC-227. "pulled back to fix" rather than "revised": the history tab has to
+  // read as the sequence the operator lived through — pulled back, edited,
+  // resent — and "revised" would collide with the "edited" row that follows it.
+  revise: 'pulled back to fix',
   'email-sent': 'emailed',
   convert: 'converted to invoice',
   'stripe-paid': 'paid via Stripe',

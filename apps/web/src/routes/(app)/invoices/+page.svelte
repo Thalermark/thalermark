@@ -20,7 +20,8 @@
         filters.to ||
         filters.contactId ||
         filters.overdue ||
-        filters.awaiting,
+        filters.awaiting ||
+        filters.revising,
     ),
   );
 
@@ -54,6 +55,22 @@
       active: filters.overdue === 'true',
       alert: (summary?.overdue.count ?? 0) > 0,
     },
+    // Only shown when there is one, like the dashboard's "Not delivered" tile —
+    // a permanent "0 being fixed" is one more number to ignore (TMC-227). It
+    // appears at the moment it matters: a correction that was started and never
+    // resent leaves the customer's link saying "being revised" indefinitely.
+    ...((summary?.revising.count ?? 0) > 0
+      ? [
+          {
+            label: 'Being fixed',
+            value: summary?.revising.count ?? 0,
+            sub: 'not resent yet',
+            href: '/invoices?revising=true',
+            active: filters.revising === 'true',
+            alert: true,
+          },
+        ]
+      : []),
   ]);
 
   // See /contacts for the untrack() seed-and-re-seed pattern.
@@ -85,6 +102,7 @@
         contactId: filters.contactId,
         overdue: filters.overdue,
         awaiting: filters.awaiting,
+        revising: filters.revising,
       });
       rows = [...rows, ...page.rows];
       cursor = page.nextCursor;
@@ -245,7 +263,11 @@
             <td class="px-5 py-4 text-fg/80">{inv.customerName ?? '—'}</td>
             <td class="px-5 py-4">
               <span class="label">
-                {inv.status}
+                <!-- Derived, like Overdue: a pulled-back invoice really is a
+                     draft, and reading "draft" in a list beside invoices the
+                     customer has never seen hides the half-finished
+                     correction (TMC-227). -->
+                {inv.status === 'draft' && inv.sentAt !== null ? 'being revised' : inv.status}
               </span>
             </td>
             <td class="px-5 py-4 text-fg/80">{inv.dueDate}</td>

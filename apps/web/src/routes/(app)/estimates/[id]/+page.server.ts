@@ -49,7 +49,7 @@ type AuditEvent = {
 // POST — no use:enhance, in line with the rest of the app.
 async function runTransition(
   event: Parameters<Actions[string]>[0],
-  endpoint: 'mark-sent' | 'mark-accepted' | 'mark-declined',
+  endpoint: 'mark-sent' | 'mark-accepted' | 'mark-declined' | 'revise',
 ) {
   const client = serverApiClient(event);
   const id = event.params.id;
@@ -58,7 +58,9 @@ async function runTransition(
       ? await client.api.estimates[':id']['mark-sent'].$post({ param: { id } })
       : endpoint === 'mark-accepted'
         ? await client.api.estimates[':id']['mark-accepted'].$post({ param: { id } })
-        : await client.api.estimates[':id']['mark-declined'].$post({ param: { id } });
+        : endpoint === 'revise'
+          ? await client.api.estimates[':id'].revise.$post({ param: { id } })
+          : await client.api.estimates[':id']['mark-declined'].$post({ param: { id } });
   if (res.status === 404) throw error(404, 'estimate not found');
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
@@ -147,6 +149,9 @@ export const actions: Actions = {
   markSent: (event) => runTransition(event, 'mark-sent'),
   markAccepted: (event) => runTransition(event, 'mark-accepted'),
   markDeclined: (event) => runTransition(event, 'mark-declined'),
+  // "Fix this estimate" (TMC-227). already_converted comes back as a plain
+  // code and becomes a sentence through the shared api-messages map.
+  revise: (event) => runTransition(event, 'revise'),
   convert: (event) => runConvert(event),
   duplicate: runDuplicate,
 };

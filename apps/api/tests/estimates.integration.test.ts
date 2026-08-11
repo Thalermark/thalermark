@@ -1495,3 +1495,240 @@ describe('GET /api/estimates/summary', () => {
     }
   });
 });
+
+// Correcting a sent estimate (TMC-227). The invoice half of this feature has a
+// ledger reversal to get right; here the whole problem is state, so these tests
+// are about what the transition refuses and what it deliberately preserves.
+describe('POST /api/estimates/:id/revise', () => {
+  beforeEach(resetDb);
+
+  async function seedSent(ctx: CtxApp, email: string, number = 'EST-100') {
+    const cookie = await signUp(ctx.app, email);
+    const { accountId, companyId } = await userContext(email);
+    const contactId = await createContact(ctx, cookie, accountId, companyId);
+    const headers = { cookie, 'x-account-id': accountId, 'content-type': 'application/json' };
+    const create = await ctx.app.request('/api/estimates', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(estimateBody(companyId, contactId, number)),
+    });
+    if (create.status !== 201) throw new Error(`seed failed: ${create.status}`);
+    const { id } = (await create.json()) as { id: string };
+    const sent = await ctx.app.request(`/api/estimates/${id}/mark-sent`, {
+      method: 'POST',
+      headers,
+    });
+    if (sent.status !== 200) throw new Error(`mark-sent failed: ${sent.status}`);
+    return { cookie, accountId, companyId, contactId, headers, estimateId: id };
+  }
+
+  it('returns a sent estimate to draft, keeping the link and the proof it was sent', async () => {
+    const ctx = buildApp();
+    try {
+      const { headers, estimateId } = await seedSent(ctx, 'estrevise@example.com');
+      const before = (await (
+        await ctx.app.request(`/api/estimates/${estimateId}`, { headers })
+      ).json()) as { publicToken: string; sentAt: string };
+
+      const res = await ctx.app.request(`/api/estimates/${estimateId}/revise`, {
+        method: 'POST',
+        headers,
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { status: string; publicToken: string; sentAt: string };
+      expect(body.status).toBe('draft');
+      // Same document: the customer's link still resolves, and sent_at is what
+      // makes 'draft' + sent_at the unambiguous "being revised" state.
+      expect(body.publicToken).toBe(before.publicToken);
+      expect(body.sentAt).toBe(before.sentAt);
+
+      const db = getTestDb();
+      const audits = await db
+        .select()
+        .from(auditEvents)
+        .where(eq(auditEvents.entityId, estimateId));
+      expect(audits.some((a) => a.action === 'revise')).toBe(true);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('records the quoted total, then lets the draft editor change it', async () => {
+    const ctx = buildApp();
+    try {
+      const { headers, contactId, estimateId } = await seedSent(ctx, 'estsnap@example.com');
+      await ctx.app.request(`/api/estimates/${estimateId}/revise`, { method: 'POST', headers });
+
+      const patched = await ctx.app.request(`/api/estimates/${estimateId}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({
+          contactId,
+          number: 'EST-100',
+          issueDate: '2026-05-23',
+          expiresOn: '2026-07-22',
+          subtotal: '250.00',
+          tax: '0.00',
+          total: '250.00',
+          lineItems: [
+            {
+              position: 1,
+              description: 'Quote — service',
+              quantity: '1',
+              unitPrice: '250.00',
+              amount: '250.00',
+            },
+          ],
+        }),
+      });
+      expect(patched.status).toBe(200);
+
+      const body = (await (
+        await ctx.app.request(`/api/estimates/${estimateId}`, { headers })
+      ).json()) as { total: string; revisions: { previousTotal: string }[] };
+      expect(body.total).toBe('250.00');
+      expect(body.revisions).toHaveLength(1);
+      expect(body.revisions[0]?.previousTotal).toBe('108.25');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('refuses a draft, an accepted and a declined estimate', async () => {
+    const ctx = buildApp();
+    try {
+      const { headers, estimateId } = await seedSent(ctx, 'estrefuse@example.com');
+      // Already being revised — the second pull-back is refused.
+      expect(
+        (await ctx.app.request(`/api/estimates/${estimateId}/revise`, { method: 'POST', headers }))
+          .status,
+      ).toBe(200);
+      const again = await ctx.app.request(`/api/estimates/${estimateId}/revise`, {
+        method: 'POST',
+        headers,
+      });
+      expect(again.status).toBe(409);
+      expect(((await again.json()) as { error: string }).error).toBe('invalid_transition');
+
+      // Accepted is terminal in v1: it is an agreement, and changing one needs
+      // re-acceptance semantics that do not exist yet.
+      await ctx.app.request(`/api/estimates/${estimateId}/mark-sent`, { method: 'POST', headers });
+      await ctx.app.request(`/api/estimates/${estimateId}/mark-accepted`, {
+        method: 'POST',
+        headers,
+      });
+      const accepted = await ctx.app.request(`/api/estimates/${estimateId}/revise`, {
+        method: 'POST',
+        headers,
+      });
+      expect(accepted.status).toBe(409);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('refuses an estimate that already became an invoice', async () => {
+    const ctx = buildApp();
+    try {
+      const { headers, estimateId } = await seedSent(ctx, 'estconverted@example.com');
+      await ctx.app.request(`/api/estimates/${estimateId}/mark-accepted`, {
+        method: 'POST',
+        headers,
+      });
+      const converted = await ctx.app.request(`/api/estimates/${estimateId}/convert`, {
+        method: 'POST',
+        headers,
+      });
+      expect(converted.status).toBe(201);
+
+      const res = await ctx.app.request(`/api/estimates/${estimateId}/revise`, {
+        method: 'POST',
+        headers,
+      });
+      expect(res.status).toBe(409);
+      // Named specifically so the client can say "fix the invoice instead"
+      // rather than leaving the user at a dead end.
+      expect(((await res.json()) as { error: string }).error).toBe('already_converted');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('tells the recipient on the link they already have', async () => {
+    const ctx = buildApp();
+    try {
+      const { headers, contactId, estimateId } = await seedSent(ctx, 'estpublic@example.com');
+      const token = (
+        (await (await ctx.app.request(`/api/estimates/${estimateId}`, { headers })).json()) as {
+          publicToken: string;
+        }
+      ).publicToken;
+
+      await ctx.app.request(`/api/estimates/${estimateId}/revise`, { method: 'POST', headers });
+      const during = (await (await ctx.app.request(`/api/public/estimates/${token}`)).json()) as {
+        beingRevised: boolean;
+        canRespond: boolean;
+      };
+      expect(during.beingRevised).toBe(true);
+      // Accept and decline were already gated on 'sent'; pinned so a future
+      // loosening cannot let someone accept a price the business has withdrawn.
+      expect(during.canRespond).toBe(false);
+
+      await ctx.app.request(`/api/estimates/${estimateId}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({
+          contactId,
+          number: 'EST-100',
+          issueDate: '2026-05-23',
+          expiresOn: '2026-06-22',
+          subtotal: '300.00',
+          tax: '0.00',
+          total: '300.00',
+          lineItems: [
+            {
+              position: 1,
+              description: 'Quote — service',
+              quantity: '1',
+              unitPrice: '300.00',
+              amount: '300.00',
+            },
+          ],
+        }),
+      });
+      await ctx.app.request(`/api/estimates/${estimateId}/mark-sent`, { method: 'POST', headers });
+
+      // Same URL, corrected number, and an honest note about the old one.
+      const after = (await (await ctx.app.request(`/api/public/estimates/${token}`)).json()) as {
+        beingRevised: boolean;
+        total: string;
+        revisions: { previousTotal: string }[];
+      };
+      expect(after.beingRevised).toBe(false);
+      expect(after.total).toBe('300.00');
+      expect(after.revisions.map((r) => r.previousTotal)).toEqual(['108.25']);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('lets exactly one of two concurrent pull-backs win', async () => {
+    const ctx = buildApp();
+    try {
+      const { headers, estimateId } = await seedSent(ctx, 'estrace@example.com');
+      const [a, b] = await Promise.all([
+        ctx.app.request(`/api/estimates/${estimateId}/revise`, { method: 'POST', headers }),
+        ctx.app.request(`/api/estimates/${estimateId}/revise`, { method: 'POST', headers }),
+      ]);
+      expect([a.status, b.status].sort()).toEqual([200, 409]);
+
+      // One snapshot, not two — the losing request wrote nothing at all.
+      const body = (await (
+        await ctx.app.request(`/api/estimates/${estimateId}`, { headers })
+      ).json()) as { revisions: unknown[] };
+      expect(body.revisions).toHaveLength(1);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+});

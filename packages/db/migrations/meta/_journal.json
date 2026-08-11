@@ -288,6 +288,13 @@
       "when": 1786452899247,
       "tag": "0040_money_accounts",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1786471818740,
+      "tag": "0041_document_revisions",
+      "breakpoints": true
     }
   ]
 }

@@ -58,14 +58,39 @@
   // disappear on terminal states so the UI doesn't tempt a 409 round-trip.
   // canSend covers both first-send (draft → sent + email) and resend
   // (sent → email only); the API handles the dispatch.
+  // Pulled back to be corrected and not yet resent (TMC-227). A DERIVED label,
+  // not a status — the same pattern as "Overdue", and for the same reason:
+  // adding a sixth value to the enum would have to be understood by the ledger,
+  // every report and both clients at once.
+  const isRevising = $derived(inv.status === 'draft' && inv.sentAt !== null);
+  // Built as a string rather than an inline {#if}: Svelte trims the whitespace
+  // at a block's edges, which ran the date into the previous word ("pulled this
+  // backon 2026-08-11"). Same trap the receipt-list helpers below document.
+  const pulledBackOn = $derived(
+    inv.revisions?.[0]?.revisedAt ? ` on ${inv.revisions[0].revisedAt.slice(0, 10)}` : '',
+  );
+  // What the user sees where the raw enum used to print. "draft" is wrong twice
+  // over on a pulled-back invoice: it undersells that the customer has it, and
+  // it says nothing about the half-finished correction.
+  const statusLabel = $derived(isRevising ? 'being revised' : inv.status);
+
   const canSend = $derived(canWrite && (inv.status === 'draft' || inv.status === 'sent'));
   const canMarkSent = $derived(canWrite && inv.status === 'draft');
-  const canMarkPaid = $derived(canWrite && (inv.status === 'draft' || inv.status === 'sent'));
+  const canRevise = $derived(canWrite && inv.status === 'sent');
+  // Refused server-side while a correction is in flight: mark-paid on a draft
+  // posts a counter-sale receipt, which would credit a receivable that has just
+  // been reversed. Hidden here so the button never offers a guaranteed 409.
+  const canMarkPaid = $derived(
+    canWrite && !isRevising && (inv.status === 'draft' || inv.status === 'sent'),
+  );
+  // Void stays available while revising, deliberately: "I pulled it back and
+  // then decided to kill it" is a real ending, and draft → voided posts nothing
+  // because the revenue was already reversed.
   const canVoid = $derived(canWrite && (inv.status === 'draft' || inv.status === 'sent'));
   // Edit gate matches the API's draft-only rule — once sent/paid/voided the
   // invoice belongs to the audit trail, not the editor.
   const canEdit = $derived(canWrite && inv.status === 'draft');
-  const hasActions = $derived(canSend || canMarkSent || canMarkPaid || canVoid);
+  const hasActions = $derived(canSend || canMarkSent || canRevise || canMarkPaid || canVoid);
 
   // Public share URL is available once mark-sent mints the token. Built
   // server-side off event.url.origin so it works behind any proxy. Shown
@@ -75,7 +100,9 @@
   // Send-form state: collapsed `to` override field, opens on a click.
   // Default `to` mirrors the contact's email when available.
   let showOverride = $state(false);
-  const sendLabel = $derived(inv.status === 'sent' ? 'Resend invoice' : 'Send invoice');
+  const sendLabel = $derived(
+    isRevising ? 'Resend corrected invoice' : inv.status === 'sent' ? 'Resend invoice' : 'Send invoice',
+  );
 
   // How a paid invoice was settled. 'stripe' is the webhook-stamped channel;
   // the rest come from the manual mark-paid picker. Falls back to the raw code
@@ -177,9 +204,24 @@
         />
       </form>
     {/if}
-    <span class="font-mono text-xs uppercase tracking-widest text-fg/60">{inv.status}</span>
+    <span class="font-mono text-xs uppercase tracking-widest text-fg/60">{statusLabel}</span>
   </div>
 </div>
+
+{#if isRevising}
+  <!--
+    The stranded-draft nudge (TMC-227). A correction is three actions, and the
+    middle one ends on the edit page — so it is entirely possible to pull an
+    invoice back, fix it, and never resend. Meanwhile the customer's link says
+    "being revised" and nothing is on the books.
+
+    A warning callout rather than a quiet note: this is a customer waiting.
+  -->
+  <div class="mt-6 rounded-sm border border-warning/40 bg-warning/5 px-4 py-3 text-sm text-fg">
+    You pulled this back{pulledBackOn} — the customer's link says it's being revised, and the
+    amount is off your books, until you resend the corrected invoice.
+  </div>
+{/if}
 
 {#if form?.transitionError}
   <div class="mt-6 rounded-sm border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger" data-form-error role="alert" tabindex="-1">
@@ -240,7 +282,7 @@
   </div>
 {/if}
 
-{#if data.needsBusinessDetails && inv.status === 'draft' && data.businessCompanyId && canManageSettings}
+{#if data.needsBusinessDetails && inv.status === 'draft' && !isRevising && data.businessCompanyId && canManageSettings}
   <details class="mt-6 rounded-sm border border-accent/30 bg-accent/5 px-4 py-3 text-sm text-fg">
     <summary class="cursor-pointer list-none font-medium">
       Your business address won't show on this invoice yet.
@@ -362,6 +404,27 @@
         {/snippet}
       </SplitButton>
     {/if}
+    {#if canRevise}
+      <!--
+        Corrective, not destructive — so the quiet outline rather than the
+        danger colouring Void wears. Nothing is lost by pulling an invoice back;
+        the risk being confirmed is that the CUSTOMER sees the change, which is
+        what the body sentence spells out.
+      -->
+      <ConfirmSubmit
+        action="?/revise"
+        label="Fix this invoice"
+        pendingLabel="Pulling back…"
+        title="Fix this invoice?"
+        confirmLabel="Pull it back"
+        triggerClass="rounded-sm border border-fg/20 px-4 py-2 text-sm font-medium text-fg transition-colors hover:border-accent hover:text-accent"
+      >
+        {#snippet body()}
+          It goes back to a draft you can edit. The customer's link will say it's being revised,
+          and the amount comes off your books until you resend it.
+        {/snippet}
+      </ConfirmSubmit>
+    {/if}
     {#if canVoid}
       <ConfirmSubmit
         action="?/void"
@@ -457,7 +520,12 @@
      Collapsed by default: most drafts never take a deposit, and an open form
      on every one of them is noise. The question IS the affordance — someone who
      took money recognises it immediately, and everyone else reads past it. -->
-{#if canWrite && inv.status === 'draft'}
+<!-- Not while a correction is in flight (TMC-227). This form issues the invoice
+     as a side effect of banking the money, so on a pulled-back draft "Received a
+     deposit?" would silently re-send the invoice at whatever total it currently
+     holds — finishing a correction the user is in the middle of, with the wrong
+     numbers. They can resend and then record the payment. -->
+{#if canWrite && inv.status === 'draft' && !isRevising}
   <section class="mt-8 rounded-sm border border-fg/10 bg-surface-2 p-5">
     <!-- One button that toggles, with a caret that turns — so it reads as an
          expandable section rather than a link that only goes one way. Closing
