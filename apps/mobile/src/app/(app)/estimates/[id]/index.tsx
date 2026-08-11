@@ -164,6 +164,9 @@ export default function EstimateDetail() {
   // then the invoice is the document that is wrong.
   const isRevising = status === 'draft' && est?.sentAt != null;
   const statusLabel = isRevising ? 'being revised' : status;
+  const pulledBackOn = est?.revisions?.[0]?.revisedAt
+    ? ` on ${est.revisions[0].revisedAt.slice(0, 10)}`
+    : '';
   const canRevise = canWrite && status === 'sent' && est?.convertedInvoiceId == null;
   const hasActions =
     canSend || canMarkSent || canRevise || canMarkAccepted || canMarkDeclined || canConvert;
@@ -312,13 +315,10 @@ export default function EstimateDetail() {
               /* The stranded-draft nudge (TMC-227) — a correction stopped after
                  the edit leaves a customer holding a quote they cannot accept. */
               <View className="mt-4 rounded-sm border border-gold-deep/40 bg-gold-deep/5 px-4 py-3">
+                {/* One interpolated string — JSX strips each line's edge
+                    whitespace, which ran the date into the words either side. */}
                 <Text className="text-sm text-ink">
-                  You pulled this back
-                  {est.revisions?.[0]?.revisedAt
-                    ? ` on ${est.revisions[0].revisedAt.slice(0, 10)}`
-                    : ''}
-                  — the customer's link says it's being revised, and they can't accept it, until you
-                  resend the corrected estimate.
+                  {`You pulled this back${pulledBackOn} — the customer's link says it's being revised, and they can't accept it, until you resend the corrected estimate.`}
                 </Text>
               </View>
             ) : null}

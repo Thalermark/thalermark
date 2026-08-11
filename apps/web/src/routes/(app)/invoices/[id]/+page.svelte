@@ -63,7 +63,12 @@
   // adding a sixth value to the enum would have to be understood by the ledger,
   // every report and both clients at once.
   const isRevising = $derived(inv.status === 'draft' && inv.sentAt !== null);
-  const latestRevisedAt = $derived(inv.revisions?.[0]?.revisedAt ?? null);
+  // Built as a string rather than an inline {#if}: Svelte trims the whitespace
+  // at a block's edges, which ran the date into the previous word ("pulled this
+  // backon 2026-08-11"). Same trap the receipt-list helpers below document.
+  const pulledBackOn = $derived(
+    inv.revisions?.[0]?.revisedAt ? ` on ${inv.revisions[0].revisedAt.slice(0, 10)}` : '',
+  );
   // What the user sees where the raw enum used to print. "draft" is wrong twice
   // over on a pulled-back invoice: it undersells that the customer has it, and
   // it says nothing about the half-finished correction.
@@ -213,9 +218,8 @@
     A warning callout rather than a quiet note: this is a customer waiting.
   -->
   <div class="mt-6 rounded-sm border border-warning/40 bg-warning/5 px-4 py-3 text-sm text-fg">
-    You pulled this back{#if latestRevisedAt} on {latestRevisedAt.slice(0, 10)}{/if} — the
-    customer's link says it's being revised, and the amount is off your books, until you resend
-    the corrected invoice.
+    You pulled this back{pulledBackOn} — the customer's link says it's being revised, and the
+    amount is off your books, until you resend the corrected invoice.
   </div>
 {/if}
 
@@ -278,7 +282,7 @@
   </div>
 {/if}
 
-{#if data.needsBusinessDetails && inv.status === 'draft' && data.businessCompanyId && canManageSettings}
+{#if data.needsBusinessDetails && inv.status === 'draft' && !isRevising && data.businessCompanyId && canManageSettings}
   <details class="mt-6 rounded-sm border border-accent/30 bg-accent/5 px-4 py-3 text-sm text-fg">
     <summary class="cursor-pointer list-none font-medium">
       Your business address won't show on this invoice yet.
@@ -516,7 +520,12 @@
      Collapsed by default: most drafts never take a deposit, and an open form
      on every one of them is noise. The question IS the affordance — someone who
      took money recognises it immediately, and everyone else reads past it. -->
-{#if canWrite && inv.status === 'draft'}
+<!-- Not while a correction is in flight (TMC-227). This form issues the invoice
+     as a side effect of banking the money, so on a pulled-back draft "Received a
+     deposit?" would silently re-send the invoice at whatever total it currently
+     holds — finishing a correction the user is in the middle of, with the wrong
+     numbers. They can resend and then record the payment. -->
+{#if canWrite && inv.status === 'draft' && !isRevising}
   <section class="mt-8 rounded-sm border border-fg/10 bg-surface-2 p-5">
     <!-- One button that toggles, with a caret that turns — so it reads as an
          expandable section rather than a link that only goes one way. Closing

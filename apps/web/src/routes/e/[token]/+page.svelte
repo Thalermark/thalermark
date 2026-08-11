@@ -52,8 +52,9 @@
     </div>
   {/if}
 
-  {#if est.revisions.length > 0}
-    <!-- What changed, said out loud — see the invoice page for the reasoning. -->
+  {#if est.revisions.length > 0 && !est.beingRevised}
+    <!-- What changed, said out loud — see the invoice page for the reasoning,
+         including why this is hidden while a correction is still in flight. -->
     <div class="mt-6 space-y-1">
       {#each est.revisions as r (r.revisedAt)}
         <p class="text-sm text-fg/60">

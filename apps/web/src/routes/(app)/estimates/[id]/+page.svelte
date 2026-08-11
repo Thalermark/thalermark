@@ -38,7 +38,11 @@
   // Pulled back to be corrected and not yet resent (TMC-227) — derived, not a
   // stored status, exactly like isExpired below.
   const isRevising = $derived(est.status === 'draft' && est.sentAt !== null);
-  const latestRevisedAt = $derived(est.revisions?.[0]?.revisedAt ?? null);
+  // A string, not an inline {#if}: Svelte trims block-edge whitespace and ran
+  // the date into the preceding word ("pulled this backon 2026-08-11").
+  const pulledBackOn = $derived(
+    est.revisions?.[0]?.revisedAt ? ` on ${est.revisions[0].revisedAt.slice(0, 10)}` : '',
+  );
   const statusLabel = $derived(isRevising ? 'being revised' : est.status);
   // Never converted: the invoice is the document that is wrong by then, and
   // the API refuses with already_converted.
@@ -133,9 +137,8 @@
        middle one ends on the edit page, so it is easy to stop after two —
        leaving a customer holding a quote they cannot accept. -->
   <div class="mt-6 rounded-sm border border-warning/40 bg-warning/5 px-4 py-3 text-sm text-fg">
-    You pulled this back{#if latestRevisedAt} on {latestRevisedAt.slice(0, 10)}{/if} — the
-    customer's link says it's being revised, and they can't accept it, until you resend the
-    corrected estimate.
+    You pulled this back{pulledBackOn} — the customer's link says it's being revised, and they
+    can't accept it, until you resend the corrected estimate.
   </div>
 {/if}
 

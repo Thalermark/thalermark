@@ -236,6 +236,9 @@ export default function InvoiceDetail() {
   // report and both clients at once.
   const isRevising = status === 'draft' && inv?.sentAt != null;
   const statusLabel = isRevising ? 'being revised' : status;
+  const pulledBackOn = inv?.revisions?.[0]?.revisedAt
+    ? ` on ${inv.revisions[0].revisedAt.slice(0, 10)}`
+    : '';
   const canSend = canWrite && (status === 'draft' || status === 'sent');
   const canMarkSent = canWrite && status === 'draft';
   const canRevise = canWrite && status === 'sent';
@@ -481,13 +484,12 @@ export default function InvoiceDetail() {
                  after two — leaving a customer holding a link that says the
                  invoice is being revised and money off the books. */
               <View className="mt-4 rounded-sm border border-gold-deep/40 bg-gold-deep/5 px-4 py-3">
+                {/* One interpolated string, not text interleaved with
+                    expressions: JSX strips the whitespace at each line's edge,
+                    which ran the date into the words on both sides ("pulled
+                    this backon 2026-08-11— the customer's"). */}
                 <Text className="text-sm text-ink">
-                  You pulled this back
-                  {inv.revisions?.[0]?.revisedAt
-                    ? ` on ${inv.revisions[0].revisedAt.slice(0, 10)}`
-                    : ''}
-                  — the customer's link says it's being revised, and the amount is off your books,
-                  until you resend the corrected invoice.
+                  {`You pulled this back${pulledBackOn} — the customer's link says it's being revised, and the amount is off your books, until you resend the corrected invoice.`}
                 </Text>
               </View>
             ) : null}
@@ -662,7 +664,12 @@ export default function InvoiceDetail() {
                 for someone holding a deposit. The rule stays; saying so is what
                 was missing. This client matters most: it is the one being used
                 standing in a customer's yard. */}
-            {canWrite && status === 'draft' ? (
+            {/* Not while a correction is in flight (TMC-227): this copy tells
+                the user to issue the invoice and offers Mark paid, and on a
+                pulled-back draft neither applies — it has been issued, Mark
+                paid is hidden, and it may already hold a deposit. The nudge at
+                the top says the one thing that IS true: resend it. */}
+            {canWrite && status === 'draft' && !isRevising ? (
               <View className="mt-8 rounded-sm border border-ink/10 bg-cream-warm p-4">
                 <Text className="font-serif text-lg font-light text-ink">Payments</Text>
                 <Text className="mt-2 text-sm text-ink/70">
