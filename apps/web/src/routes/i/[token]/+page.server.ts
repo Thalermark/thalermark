@@ -34,6 +34,11 @@ type PublicInvoiceLine = {
 type PublicInvoice = {
   number: string;
   status: string;
+  // Pulled back by the business to be corrected, not yet resent (TMC-227).
+  beingRevised: boolean;
+  // Every correction so far, newest first. The honest half of the feature —
+  // this is what the recipient is shown instead of a number that silently moved.
+  revisions: { revisedAt: string; previousTotal: string }[];
   issueDate: string;
   dueDate: string;
   currency: string;

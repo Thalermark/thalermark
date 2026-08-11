@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { formatUnitPrice } from '@thalermark/validation';
+  import { formatDateDisplay, formatMoneyDisplay, formatUnitPrice } from '@thalermark/validation';
   import type { PageProps } from './$types';
 
   let { data, form }: PageProps = $props();
@@ -26,11 +26,21 @@
     <span
       class="rounded-sm border border-fg/15 px-3 py-1 font-mono text-xs uppercase tracking-widest text-fg/70"
     >
-      {est.status}
+      {est.beingRevised ? 'being revised' : est.status}
     </span>
   </header>
 
-  {#if est.status === 'accepted'}
+  {#if est.beingRevised}
+    <!--
+      Pulled back to be corrected (TMC-227). Accept and decline are already
+      refused for anything but a sent estimate, so this says why the buttons are
+      gone rather than leaving the recipient at a quote that stopped working.
+    -->
+    <div class="mt-6 rounded-sm border border-fg/20 bg-surface-2 px-4 py-3 text-sm text-fg/70">
+      {est.companyName ?? 'The business'} is revising this estimate — the price may change. You'll
+      get the corrected version shortly.
+    </div>
+  {:else if est.status === 'accepted'}
     <div
       class="mt-6 rounded-sm border border-success/30 bg-success/5 px-4 py-3 text-sm text-success"
     >
@@ -39,6 +49,19 @@
   {:else if est.status === 'declined'}
     <div class="mt-6 rounded-sm border border-fg/20 bg-surface-2 px-4 py-3 text-sm text-fg/70">
       Declined{#if est.declinedAt} on {est.declinedAt.slice(0, 10)}{/if}.
+    </div>
+  {/if}
+
+  {#if est.revisions.length > 0}
+    <!-- What changed, said out loud — see the invoice page for the reasoning. -->
+    <div class="mt-6 space-y-1">
+      {#each est.revisions as r (r.revisedAt)}
+        <p class="text-sm text-fg/60">
+          Revised {formatDateDisplay(r.revisedAt.slice(0, 10))}{r.previousTotal !== est.total
+            ? ` — the total was ${formatMoneyDisplay(r.previousTotal, est.currency)}`
+            : ''}.
+        </p>
+      {/each}
     </div>
   {/if}
 

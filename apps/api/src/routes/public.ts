@@ -5,14 +5,16 @@ import {
   companies,
   contacts,
   estimateLineItems,
+  estimateRevisions,
   estimates,
   invoiceLineItems,
   invoicePayments,
+  invoiceRevisions,
   invoices,
 } from '@thalermark/db';
 import { getLogger } from '@thalermark/logger';
 import { centsToMoney } from '@thalermark/validation';
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { v7 as uuidv7 } from 'uuid';
@@ -286,9 +288,39 @@ export function publicRoutes(deps: AppDeps) {
           issued: invoice.sentAt !== null,
         });
 
+        // The correction history, shown to the RECIPIENT (TMC-227). This is the
+        // differentiator: QuickBooks edits a sent invoice silently and keeps its
+        // audit log private, so the customer's only clue is that the number
+        // moved. Thalermark says "Revised Aug 11, 2026 — the total was $450.00"
+        // on the page they were going to pay from.
+        //
+        // account_id is filtered explicitly as well as invoice_id. Public routes
+        // skip rlsContext and read through bootstrapDb, so there is no tenant
+        // context here and this is the only thing scoping the read — the same
+        // defence-in-depth every authenticated SELECT applies.
+        const revisions = await bootstrapDb
+          .select({
+            revisedAt: invoiceRevisions.revisedAt,
+            previousTotal: invoiceRevisions.previousTotal,
+          })
+          .from(invoiceRevisions)
+          .where(
+            and(
+              eq(invoiceRevisions.accountId, invoice.accountId),
+              eq(invoiceRevisions.invoiceId, invoice.id),
+            ),
+          )
+          .orderBy(desc(invoiceRevisions.revisedAt));
+
         return c.json({
           number: invoice.number,
           status: invoice.status,
+          // Mid-correction: the business has pulled this back and has not
+          // resent it yet. Every payment path is already closed by the 'sent'
+          // gates below, so this exists to tell the recipient WHY the page went
+          // quiet rather than leaving them at a document that stopped working.
+          beingRevised: invoice.status === 'draft' && invoice.sentAt !== null,
+          revisions,
           issueDate: invoice.issueDate,
           dueDate: invoice.dueDate,
           currency: invoice.currency,
@@ -496,9 +528,31 @@ export function publicRoutes(deps: AppDeps) {
             .catch(() => null);
         }
 
+        // The correction history, same contract as the invoice page (TMC-227) —
+        // account_id filtered explicitly because there is no tenant context on
+        // a public route.
+        const revisions = await bootstrapDb
+          .select({
+            revisedAt: estimateRevisions.revisedAt,
+            previousTotal: estimateRevisions.previousTotal,
+          })
+          .from(estimateRevisions)
+          .where(
+            and(
+              eq(estimateRevisions.accountId, estimate.accountId),
+              eq(estimateRevisions.estimateId, estimate.id),
+            ),
+          )
+          .orderBy(desc(estimateRevisions.revisedAt));
+
         return c.json({
           number: estimate.number,
           status: estimate.status,
+          // Pulled back to be corrected and not yet resent. Accept and decline
+          // already refuse anything but 'sent', so this only has to explain the
+          // silence.
+          beingRevised: estimate.status === 'draft' && estimate.sentAt !== null,
+          revisions,
           issueDate: estimate.issueDate,
           expiresOn: estimate.expiresOn,
           currency: estimate.currency,

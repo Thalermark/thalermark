@@ -829,3 +829,90 @@ describe('finding a half-finished correction', () => {
     }
   });
 });
+
+// The old link in the customer's inbox. It never re-mints, so whatever it shows
+// is what someone who was sent the WRONG invoice sees when they open it — which
+// makes "it must never show a payable stale amount" the load-bearing property
+// of this whole surface.
+describe('what the recipient sees on the same URL', () => {
+  beforeEach(resetDb);
+
+  it('says the invoice is being revised, and closes every way to pay', async () => {
+    const ctx = await setup('publicrevising@test.com');
+    try {
+      const { id } = await makeInvoice(ctx, 'INV-050', '450.00');
+      const token = (await getInvoice(ctx, id)).publicToken as string;
+
+      const before = (await (await ctx.app.request(`/api/public/invoices/${token}`)).json()) as {
+        beingRevised: boolean;
+        payable: boolean;
+        offlinePayment: unknown;
+      };
+      expect(before.beingRevised).toBe(false);
+
+      await revise(ctx, id);
+
+      const during = (await (await ctx.app.request(`/api/public/invoices/${token}`)).json()) as {
+        beingRevised: boolean;
+        payable: boolean;
+        offlinePayment: unknown;
+        total: string;
+      };
+      expect(during.beingRevised).toBe(true);
+      // The stale $450 is still the row's total — what matters is that no path
+      // exists to pay it. Both were already gated on 'sent'; pinned here
+      // because a future loosening would make the old link payable again.
+      expect(during.payable).toBe(false);
+      expect(during.offlinePayment).toBeNull();
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('shows the corrected amount and says what it used to be', async () => {
+    const ctx = await setup('publicrevised@test.com');
+    try {
+      const { id, contactId } = await makeInvoice(ctx, 'INV-051', '450.00');
+      const token = (await getInvoice(ctx, id)).publicToken as string;
+      await revise(ctx, id);
+      await editTotal(ctx, id, contactId, 'INV-051', '4500.00');
+      await markSent(ctx, id);
+
+      // The SAME url — the token is minted once and never re-minted, so the
+      // link already in the customer's inbox is the one that resolves.
+      const after = (await (await ctx.app.request(`/api/public/invoices/${token}`)).json()) as {
+        beingRevised: boolean;
+        total: string;
+        revisions: { previousTotal: string; revisedAt: string }[];
+      };
+      expect(after.beingRevised).toBe(false);
+      expect(after.total).toBe('4500.00');
+      expect(after.revisions).toHaveLength(1);
+      expect(after.revisions[0]?.previousTotal).toBe('450.00');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('lists every correction, newest first', async () => {
+    const ctx = await setup('publicmulti@test.com');
+    try {
+      const { id, contactId } = await makeInvoice(ctx, 'INV-052', '100.00');
+      const token = (await getInvoice(ctx, id)).publicToken as string;
+
+      await revise(ctx, id);
+      await editTotal(ctx, id, contactId, 'INV-052', '200.00');
+      await markSent(ctx, id);
+      await revise(ctx, id);
+      await editTotal(ctx, id, contactId, 'INV-052', '300.00');
+      await markSent(ctx, id);
+
+      const body = (await (await ctx.app.request(`/api/public/invoices/${token}`)).json()) as {
+        revisions: { previousTotal: string }[];
+      };
+      expect(body.revisions.map((r) => r.previousTotal)).toEqual(['200.00', '100.00']);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+});

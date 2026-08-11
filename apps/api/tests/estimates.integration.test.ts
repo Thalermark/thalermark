@@ -1654,6 +1654,64 @@ describe('POST /api/estimates/:id/revise', () => {
     }
   });
 
+  it('tells the recipient on the link they already have', async () => {
+    const ctx = buildApp();
+    try {
+      const { headers, contactId, estimateId } = await seedSent(ctx, 'estpublic@example.com');
+      const token = (
+        (await (await ctx.app.request(`/api/estimates/${estimateId}`, { headers })).json()) as {
+          publicToken: string;
+        }
+      ).publicToken;
+
+      await ctx.app.request(`/api/estimates/${estimateId}/revise`, { method: 'POST', headers });
+      const during = (await (await ctx.app.request(`/api/public/estimates/${token}`)).json()) as {
+        beingRevised: boolean;
+        canRespond: boolean;
+      };
+      expect(during.beingRevised).toBe(true);
+      // Accept and decline were already gated on 'sent'; pinned so a future
+      // loosening cannot let someone accept a price the business has withdrawn.
+      expect(during.canRespond).toBe(false);
+
+      await ctx.app.request(`/api/estimates/${estimateId}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({
+          contactId,
+          number: 'EST-100',
+          issueDate: '2026-05-23',
+          expiresOn: '2026-06-22',
+          subtotal: '300.00',
+          tax: '0.00',
+          total: '300.00',
+          lineItems: [
+            {
+              position: 1,
+              description: 'Quote — service',
+              quantity: '1',
+              unitPrice: '300.00',
+              amount: '300.00',
+            },
+          ],
+        }),
+      });
+      await ctx.app.request(`/api/estimates/${estimateId}/mark-sent`, { method: 'POST', headers });
+
+      // Same URL, corrected number, and an honest note about the old one.
+      const after = (await (await ctx.app.request(`/api/public/estimates/${token}`)).json()) as {
+        beingRevised: boolean;
+        total: string;
+        revisions: { previousTotal: string }[];
+      };
+      expect(after.beingRevised).toBe(false);
+      expect(after.total).toBe('300.00');
+      expect(after.revisions.map((r) => r.previousTotal)).toEqual(['108.25']);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
   it('lets exactly one of two concurrent pull-backs win', async () => {
     const ctx = buildApp();
     try {
