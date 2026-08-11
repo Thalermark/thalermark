@@ -8,7 +8,9 @@ import type { RequestHandler } from './$types';
 // the why: keeps auth server-side, avoids browser CORS). Forwards the cursor +
 // active filters to the keyset-paginated GET /api/contacts and normalizes the
 // response to the uniform { rows, nextCursor } the page's fetchMore() expects.
-const FILTER_KEYS = ['q', 'openInvoices', 'role'] as const;
+// includeArchived rides along with the filters: without it, page 1 of the
+// show-archived view lists archived contacts and page 2 quietly stops doing so.
+const FILTER_KEYS = ['q', 'openInvoices', 'role', 'includeArchived'] as const;
 
 export const GET: RequestHandler = async (event) => {
   const sp = event.url.searchParams;

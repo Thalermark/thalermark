@@ -11,6 +11,9 @@
 
   const { filters, summary } = $derived(data);
   const anyFilter = $derived(Boolean(filters.q || filters.openInvoices || filters.role));
+  // Same gate the New-contact button uses; the API enforces it regardless, this
+  // just keeps a dead control off the screen for a read-only member.
+  const canWrite = $derived(may(data.role, 'contacts:write'));
 
   // Point-in-time roster strip (counts only — no money on the contacts page).
   // A contact can be both a customer and a vendor, so those slices overlap by
@@ -64,6 +67,7 @@
         q: filters.q,
         openInvoices: filters.openInvoices ? 'true' : '',
         role: filters.role,
+        includeArchived: data.showArchived ? 'true' : '',
       });
       rows = [...rows, ...page.rows];
       cursor = page.nextCursor;
@@ -132,6 +136,15 @@
   {/if}
 </form>
 
+<div class="mt-6">
+  <a
+    href={data.showArchived ? '/contacts' : '/contacts?archived=1'}
+    class="label hover:text-accent"
+  >
+    {data.showArchived ? '← Hide archived' : 'Show archived'}
+  </a>
+</div>
+
 {#if rows.length === 0}
   <p class="mt-8 text-fg/70">
     {anyFilter ? 'No contacts match these filters.' : 'No contacts yet.'}
@@ -139,16 +152,36 @@
 {:else}
   <ul class="mt-8 divide-y divide-fg/10 rounded-sm border border-fg/10 bg-surface-2">
     {#each rows as c (c.id)}
-      <li>
-        <a
-          href="/contacts/{c.id}"
-          class="flex items-center justify-between px-5 py-4 transition-colors hover:bg-surface"
-        >
+      <!--
+        The row is a flex container rather than one big <a>: the archive control
+        is a form, and a form nested inside an anchor is invalid HTML. Same
+        layout the items list uses.
+      -->
+      <li class="flex items-center justify-between gap-4 px-5 py-4">
+        <a href="/contacts/{c.id}" class="min-w-0 flex-1 transition-colors hover:opacity-70">
           <span class="font-serif text-lg text-fg">{c.name}</span>
-          <span class="label">
-            {c.email ?? ''}
-          </span>
+          {#if c.archivedAt}
+            <span
+              class="ml-2 rounded-sm border border-fg/15 px-1.5 py-0.5 font-mono text-[0.6rem] uppercase tracking-widest text-fg/50"
+            >
+              Archived
+            </span>
+          {/if}
         </a>
+        <span class="label">
+          {c.email ?? ''}
+        </span>
+        {#if canWrite}
+          <form method="post" action={c.archivedAt ? '?/restore' : '?/archive'}>
+            <input type="hidden" name="id" value={c.id} />
+            <button
+              type="submit"
+              class="rounded-sm border border-fg/15 px-2 py-1 font-mono text-xs uppercase tracking-widest text-fg/60 transition-colors hover:border-accent hover:text-accent"
+            >
+              {c.archivedAt ? 'Restore' : 'Archive'}
+            </button>
+          </form>
+        {/if}
       </li>
     {/each}
   </ul>

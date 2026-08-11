@@ -23,7 +23,7 @@ type ContactRoleFilter = '' | 'customer' | 'vendor';
 // /contacts/new shows when we navigate back, and reloads whenever a filter
 // flips (fetchPage identity changes). Filters: search (q, name OR email) and
 // an "Open invoices" toggle (contacts with an issued-but-unpaid invoice).
-type ContactRow = { id: string; name: string; email: string | null };
+type ContactRow = { id: string; name: string; email: string | null; archivedAt: string | null };
 
 export default function ContactsList() {
   const router = useRouter();
@@ -34,6 +34,11 @@ export default function ContactsList() {
   const [openInvoices, setOpenInvoices] = useState(false);
   const [role, setRole] = useState<ContactRoleFilter>('');
   const [summary, setSummary] = useState<ContactSummary | null>(null);
+  // Archived contacts are hidden by default (TMC-232). The toggle is not
+  // optional polish on mobile: archiving removes the row from this list, and
+  // the detail screen is only reachable THROUGH this list — without a way back
+  // in, archive would be a one-way door on a phone.
+  const [showArchived, setShowArchived] = useState(false);
 
   useEffect(() => {
     const t = setTimeout(() => setAppliedQ(q.trim()), 300);
@@ -64,15 +69,23 @@ export default function ContactsList() {
       if (appliedQ) query.q = appliedQ;
       if (openInvoices) query.openInvoices = 'true';
       if (role) query.role = role;
+      if (showArchived) query.includeArchived = 'true';
       const res = await api.api.contacts.$get({ query });
       if (!res.ok) return null;
       const { contacts, nextCursor } = await res.json();
       return {
-        rows: contacts.map((c): ContactRow => ({ id: c.id, name: c.name, email: c.email ?? null })),
+        rows: contacts.map(
+          (c): ContactRow => ({
+            id: c.id,
+            name: c.name,
+            email: c.email ?? null,
+            archivedAt: c.archivedAt ?? null,
+          }),
+        ),
         nextCursor,
       };
     },
-    [appliedQ, openInvoices, role],
+    [appliedQ, openInvoices, role, showArchived],
   );
 
   const { list, loadingMore, loadMore } = usePaginatedList(fetchPage);
@@ -170,6 +183,12 @@ export default function ContactsList() {
         </Pressable>
       </View>
 
+      <Pressable onPress={() => setShowArchived((s) => !s)} className="mt-4 self-start px-6">
+        <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+          {showArchived ? '← Hide archived' : 'Show archived'}
+        </Text>
+      </Pressable>
+
       {list.state === 'loading' ? (
         <View className="mt-12 items-center">
           <ActivityIndicator color="#0f1626" />
@@ -202,7 +221,14 @@ export default function ContactsList() {
               onPress={() => router.push(`/contacts/${item.id}`)}
               className="flex-row items-center justify-between bg-cream-warm px-5 py-4 active:bg-cream"
             >
-              <Text className="font-serif text-lg text-ink">{item.name}</Text>
+              <View className="flex-1 flex-row flex-wrap items-center gap-2">
+                <Text className="font-serif text-lg text-ink">{item.name}</Text>
+                {item.archivedAt ? (
+                  <Text className="rounded-sm border border-ink/15 px-1.5 py-0.5 font-mono text-[0.6rem] uppercase tracking-widest text-ink/50">
+                    Archived
+                  </Text>
+                ) : null}
+              </View>
               <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
                 {item.email ?? ''}
               </Text>

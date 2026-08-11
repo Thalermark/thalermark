@@ -38,6 +38,13 @@ export const contacts = pgTable(
     // expense vendor link. Both are plain booleans, not mutually exclusive.
     isCustomer: boolean('is_customer').notNull().default(true),
     isVendor: boolean('is_vendor').notNull().default(false),
+    // Contacts archive, never hard-delete (TMC-232). A typo'd name or an import
+    // duplicate has to be removable, but invoices.contact_id is RESTRICT on
+    // delete and history must keep naming who it was billed to — so archiving
+    // drops the row out of every picker (WHERE archived_at IS NULL) while the
+    // documents that reference it stay intact and readable. Same shape as the
+    // items catalog.
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

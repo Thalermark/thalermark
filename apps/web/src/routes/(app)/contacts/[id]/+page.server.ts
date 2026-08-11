@@ -1,6 +1,7 @@
+import { apiErrorMessage } from '$lib/api-errors';
 import { serverApiClient } from '$lib/api.server';
-import { error } from '@sveltejs/kit';
-import type { PageServerLoad } from './$types';
+import { error, fail, redirect } from '@sveltejs/kit';
+import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async (event) => {
   const client = serverApiClient(event);
@@ -24,6 +25,30 @@ export const load: PageServerLoad = async (event) => {
   const reliability = reliabilityRes.ok ? await reliabilityRes.json() : null;
 
   return { contact, auditEvents, reliability };
+};
+
+// Archive / restore from the detail page. Redirects back to the same page
+// rather than the list: the user is looking at this contact, and the change is
+// reversible from the button that replaces the one they just pressed.
+async function setArchived(event: Parameters<Actions[string]>[0], archived: boolean) {
+  const client = serverApiClient(event);
+  const id = event.params.id;
+  const res = archived
+    ? await client.api.contacts[':id'].archive.$post({ param: { id } })
+    : await client.api.contacts[':id'].restore.$post({ param: { id } });
+  if (res.status === 404) throw error(404, 'contact not found');
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { error?: string } | null;
+    return fail(res.status, {
+      actionError: apiErrorMessage(body?.error, 'That did not work. Try again.', body),
+    });
+  }
+  redirect(303, `/contacts/${id}`);
+}
+
+export const actions: Actions = {
+  archive: (event) => setArchived(event, true),
+  restore: (event) => setArchived(event, false),
 };
 
 type AuditEvent = {

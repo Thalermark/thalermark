@@ -5,7 +5,8 @@ import {
   contactImportSchema,
   contactUpdateSchema,
 } from '@thalermark/validation';
-import { and, eq, ilike, inArray, or, sql } from 'drizzle-orm';
+import { and, eq, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
+import type { Context } from 'hono';
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 import { v7 as uuidv7 } from 'uuid';
@@ -18,6 +19,62 @@ import { EMAIL_RE, UUID_RE, escapeLike } from '../lib/route-helpers.js';
 import { sendStatementEmail } from '../lib/statement-email.js';
 import { requireCapability } from '../middleware/authz.js';
 import type { RlsVariables } from '../middleware/rls-context.js';
+
+// Contact archive/restore — an idempotent, audit-on-change transition, the same
+// shape as the items catalog (see setItemArchived in routes/items.ts).
+//
+// Archive rather than delete, and there is deliberately no DELETE endpoint to
+// go with it: invoices.contact_id is RESTRICT, so a contact with any history
+// physically cannot be removed, and one without history is not worth a second
+// destructive path that behaves differently depending on what the row happens
+// to be attached to. Archiving is the one answer for both (TMC-232).
+//
+// No guard on archiving a contact with open invoices. Archiving is filing, not
+// deleting: the invoice keeps its reference, still appears in A/R, and still
+// chases for payment. Refusing here would leave someone unable to tidy a picker
+// until every last invoice settled, which is the clutter this exists to fix.
+async function setContactArchived(
+  c: Context<{ Variables: RlsVariables }>,
+  id: string,
+  archived: boolean,
+) {
+  if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+  const tx = c.get('tx');
+  const accountId = c.get('accountId');
+
+  const [current] = await tx
+    .select()
+    .from(contacts)
+    .where(and(eq(contacts.id, id), eq(contacts.accountId, accountId)))
+    .limit(1);
+  if (!current) return c.json({ error: 'contact_not_found' }, 404);
+
+  // Idempotent: archiving an archived contact is a no-op that writes no audit
+  // event, so a double-tap doesn't litter the history tab.
+  const isArchived = current.archivedAt !== null;
+  if (isArchived === archived) return c.json(current);
+
+  const now = new Date();
+  const [updated] = await tx
+    .update(contacts)
+    .set({ archivedAt: archived ? now : null, updatedAt: now })
+    .where(and(eq(contacts.id, id), eq(contacts.accountId, accountId)))
+    .returning();
+  if (!updated) return c.json({ error: 'contact_not_found' }, 404);
+
+  // The audit write is also the search-reprojection signal (TMC-198), so this
+  // is what re-marks the indexed document archived / active.
+  await c.var.audit({
+    entityType: 'contact',
+    entityId: id,
+    action: archived ? 'archive' : 'restore',
+    before: { archivedAt: current.archivedAt },
+    after: { archivedAt: updated.archivedAt },
+    companyId: updated.companyId,
+  });
+
+  return c.json(updated);
+}
 
 // contacts — customers + vendors (one unified table; role flags is_customer /
 // is_vendor). Full CRUD within the tenant plus reads layered on top: the GET
@@ -129,6 +186,12 @@ export function contactsRoutes(deps: AppDeps) {
         // role narrows to one side of the relationship: 'customer' (is_customer)
         // or 'vendor' (is_vendor). Omitted = all contacts.
         const role = c.req.query('role');
+        // Archived contacts are excluded by DEFAULT, which is the whole point:
+        // every picker in the product reads this endpoint, and none of them
+        // passes the flag, so archiving takes effect everywhere without a
+        // single caller changing. Only the contacts management page opts in,
+        // for its show-archived toggle. Same contract as items.
+        const includeArchived = c.req.query('includeArchived') === 'true';
         const limit = parseLimit(c.req.query('limit'));
         if (limit === null) return c.json({ error: 'invalid_limit' }, 400);
         const keys = [
@@ -139,6 +202,7 @@ export function contactsRoutes(deps: AppDeps) {
         if (keyset === 'invalid') return c.json({ error: 'invalid_cursor' }, 400);
         const conditions = [eq(contacts.accountId, accountId)];
         if (companyId) conditions.push(eq(contacts.companyId, companyId));
+        if (!includeArchived) conditions.push(isNull(contacts.archivedAt));
         if (role === 'customer') conditions.push(eq(contacts.isCustomer, true));
         else if (role === 'vendor') conditions.push(eq(contacts.isVendor, true));
         if (q) {
@@ -174,7 +238,11 @@ export function contactsRoutes(deps: AppDeps) {
         const tx = c.get('tx');
         const accountId = c.get('accountId');
         const companyId = c.req.query('companyId');
-        const conditions = [eq(contacts.accountId, accountId)];
+        // Archived contacts are out of every count, including withOpenInvoices.
+        // The strip sits above a list that hides them by default, and a total
+        // that disagrees with the rows underneath it reads as a bug — the tile
+        // doubles as that list's filter (see the entity-metrics work).
+        const conditions = [eq(contacts.accountId, accountId), isNull(contacts.archivedAt)];
         if (companyId) conditions.push(eq(contacts.companyId, companyId));
         const [row] = await tx
           .select({
@@ -412,6 +480,16 @@ export function contactsRoutes(deps: AppDeps) {
 
           return c.json(after);
         },
+      )
+      // Archive / restore. Two routes rather than a PATCH field so the audit
+      // trail records the transition by name, and so archiving can never be a
+      // side effect of an ordinary edit — PATCH deliberately doesn't touch
+      // archived_at, meaning editing an archived contact keeps it archived.
+      .post('/api/contacts/:id/archive', requireCapability('contacts:write'), (c) =>
+        setContactArchived(c, c.req.param('id'), true),
+      )
+      .post('/api/contacts/:id/restore', requireCapability('contacts:write'), (c) =>
+        setContactArchived(c, c.req.param('id'), false),
       )
   );
 }

@@ -75,9 +75,30 @@
       >
         Edit
       </a>
+      <!--
+        Archive, not delete. There is no delete: an invoice keeps naming who it
+        was billed to, so a contact with any history can never go away. This
+        takes the name out of the pickers and nothing else, and the button that
+        replaces it puts it straight back.
+      -->
+      <form method="post" action={c.archivedAt ? '?/restore' : '?/archive'}>
+        <button
+          type="submit"
+          class="rounded-sm border border-fg/20 px-3 py-1 font-mono text-xs uppercase tracking-widest text-fg/70 hover:border-accent hover:text-accent"
+        >
+          {c.archivedAt ? 'Restore' : 'Archive'}
+        </button>
+      </form>
     {/if}
   </div>
 </div>
+
+{#if c.archivedAt}
+  <p class="mt-4 rounded-sm border border-fg/15 bg-surface-2 px-4 py-3 text-sm text-fg/70">
+    Archived — hidden from the customer and vendor pickers. Existing invoices,
+    estimates and expenses are untouched and still name them.
+  </p>
+{/if}
 
 <dl class="mt-8 grid grid-cols-1 gap-x-12 gap-y-6 sm:grid-cols-2">
   {#if c.email}
