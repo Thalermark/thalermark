@@ -27,9 +27,15 @@ export const load: PageServerLoad = async (event) => {
       param: { id: bill.companyId },
       query: { type: 'expense' },
     }),
-    client.api.companies[':id'].accounts.$get({
-      param: { id: bill.companyId },
-      query: { type: 'asset' },
+    // Money accounts rather than `type=asset`: a credit card is a liability, so
+    // an asset query misses it and the label lookup below would print a raw
+    // uuid for anything paid from a card — or for a card STATEMENT bill, whose
+    // category is the card itself (TMC-207).
+    //
+    // includeArchived because this is a read of something already recorded: a
+    // bill paid from an account since archived still has to name it.
+    client.api['money-accounts'].$get({
+      query: { companyId: bill.companyId, includeArchived: 'true' },
     }),
   ]);
   const labelById = new Map<string, string>();
@@ -37,7 +43,8 @@ export const load: PageServerLoad = async (event) => {
     for (const a of (await catRes.json()).accounts) labelById.set(a.id, `${a.code} · ${a.name}`);
   }
   if (assetRes.ok) {
-    for (const a of (await assetRes.json()).accounts) labelById.set(a.id, `${a.code} · ${a.name}`);
+    // Name only — the user picked "Chase Sapphire", not "2100 · Chase Sapphire".
+    for (const a of (await assetRes.json()).moneyAccounts) labelById.set(a.id, a.name);
   }
 
   const auditRes = await client.api['audit-events'].$get({
@@ -54,14 +61,13 @@ export const load: PageServerLoad = async (event) => {
   });
   const settlement = paymentsRes.ok ? await paymentsRes.json() : null;
 
-  // Where the money can be paid FROM (TMC-207). Every active money account,
-  // cards included: paying one card off with another is unusual but real, and
-  // the ledger handles it the same way.
-  const moneyRes = await client.api['money-accounts'].$get({
+  // Where the money can be paid FROM (TMC-207). ACTIVE accounts only — this is
+  // the picker for new work, unlike the label map above which has to resolve
+  // archived accounts too.
+  const payFromRes = await client.api['money-accounts'].$get({
     query: { companyId: bill.companyId },
   });
-  const moneyAccounts = moneyRes.ok ? (await moneyRes.json()).moneyAccounts : [];
-  for (const a of moneyAccounts) labelById.set(a.id, a.name);
+  const moneyAccounts = payFromRes.ok ? (await payFromRes.json()).moneyAccounts : [];
 
   return {
     bill,
