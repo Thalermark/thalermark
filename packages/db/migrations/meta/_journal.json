@@ -274,6 +274,13 @@
       "when": 1786328100548,
       "tag": "0038_delivery_message_id",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1786415943396,
+      "tag": "0039_contacts_archived_at",
+      "breakpoints": true
     }
   ]
 }

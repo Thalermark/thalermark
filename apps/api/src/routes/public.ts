@@ -31,6 +31,7 @@ import { estimateAcceptedNotice, invoicePaidNotice, notifyOwner } from '../lib/o
 import { mapResendEvent, verifyResendSignature } from '../lib/resend-webhook.js';
 import { UUID_RE } from '../lib/route-helpers.js';
 import { reindexEntities } from '../lib/search/reindex.js';
+import { connectState } from '../lib/stripe-connect.js';
 import {
   constructWebhookEvent,
   decimalDollarsToCents,
@@ -221,24 +222,23 @@ export function publicRoutes(deps: AppDeps) {
           .where(eq(invoiceLineItems.invoiceId, invoice.id))
           .orderBy(asc(invoiceLineItems.position));
 
-        // Connect routing: if the company has onboarded a connected account,
-        // the pay button requires Stripe to have flipped charges_enabled on
-        // their side. Self-host companies (no connectAccountId) pay through
-        // the platform's STRIPE_SECRET_KEY — 8.5c behavior preserved, unless
-        // requireConnectedAccount turns that fallback off (TMC-175), in which
-        // case charges_enabled is the bar for everyone and a company that never
-        // onboarded is simply not payable.
-        // connectPending surfaces the not-ready state to the recipient so the
-        // page can render a friendly "setting up payments" banner rather than
-        // just hiding the Pay button without explanation. Note it widens with
-        // the requirement: under it, never-onboarded is a pending state too, and
-        // without that the recipient would get a silently missing button.
-        const hasConnect = !!company?.stripeConnectAccountId;
-        const chargesEnabled = company?.stripeConnectChargesEnabled === true;
-        const connectReady = deps.requireConnectedAccount
-          ? chargesEnabled
-          : !hasConnect || chargesEnabled;
-        const connectPending = (deps.requireConnectedAccount || hasConnect) && !connectReady;
+        // Connect routing lives in lib/stripe-connect.ts because the owner's
+        // own invoice page asks the same question and the two answers must
+        // agree — see the note there.
+        //
+        // connectPending is NOT rendered to the recipient as "this business
+        // hasn't set up payments". A customer should never be shown their
+        // supplier's unfinished admin; it reads as an outfit that can't get its
+        // house in order, and it is not the recipient's problem to solve. The
+        // owner gets told instead. All the public page does with it is fall
+        // back to a neutral "contact them to arrange payment" line, and only
+        // when there is no offline method to offer either.
+        const { connectReady } = connectState({
+          requireConnectedAccount: deps.requireConnectedAccount === true,
+          stripeConfigured: deps.stripe != null,
+          connectAccountId: company?.stripeConnectAccountId ?? null,
+          chargesEnabled: company?.stripeConnectChargesEnabled === true,
+        });
 
         // Offline "pay me directly" instructions — only the enabled methods,
         // with their display values, so the public page renders nothing it
@@ -318,7 +318,18 @@ export function publicRoutes(deps: AppDeps) {
           // separate config probe; the recipient's page can branch on this
           // alone without inferring from a 503 on the session-mint call.
           payable: deps.stripe != null && invoice.status === 'sent' && connectReady,
-          connectPending,
+          // Deliberately NOT connectPending. The recipient is told what they
+          // can do, never why the business can't do it — the reason is the
+          // owner's to see and fix. This says only "there is no way to pay from
+          // this page", which is the one fact the recipient needs in order to
+          // go and ask. False whenever a card or any offline method is offered.
+          noPaymentMethod:
+            invoice.status === 'sent' &&
+            !(deps.stripe != null && connectReady) &&
+            !offlinePayment.cash &&
+            !offlinePayment.check &&
+            !offlinePayment.venmo &&
+            !offlinePayment.zelle,
           // Offline methods show whenever the invoice is still open, regardless
           // of Stripe — they're how an un-Connected business gets paid at all.
           offlinePayment: invoice.status === 'sent' ? offlinePayment : null,

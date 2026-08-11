@@ -587,7 +587,7 @@ describe('POST /api/public/invoices/:token/payment-intent — slice 8.5e', () =>
 describe('GET /api/public/invoices/:token — payable gate on Connect (slice 8.5e)', () => {
   beforeEach(resetDb);
 
-  it('reports payable=false and connectPending=true when Connect is mid-onboarding', async () => {
+  it('is unpayable mid-onboarding, and says so without naming the reason', async () => {
     const stripe = makeStubStripe();
     const { app, handle } = buildApp(stripe);
     try {
@@ -597,15 +597,45 @@ describe('GET /api/public/invoices/:token — payable gate on Connect (slice 8.5
       });
       const res = await app.request(`/api/public/invoices/${publicToken}`);
       expect(res.status).toBe(200);
-      const body = (await res.json()) as { payable: boolean; connectPending: boolean };
+      const body = (await res.json()) as Record<string, unknown>;
       expect(body.payable).toBe(false);
-      expect(body.connectPending).toBe(true);
+      // The seeded company lists no offline method either, so this page offers
+      // the recipient no way to pay at all — the one fact they need.
+      expect(body.noPaymentMethod).toBe(true);
+      // The WHY must not cross to the recipient. A customer being shown their
+      // supplier's unfinished payment setup reads as an outfit that can't run
+      // itself, and there is nothing they can do with the information.
+      expect(body).not.toHaveProperty('connectPending');
     } finally {
       await handle.close();
     }
   });
 
-  it('reports payable=true and connectPending=false when Connect is enabled', async () => {
+  // The branch that decides whether the recipient sees any notice at all. A
+  // business that takes checks is not "unable to be paid" just because card
+  // isn't wired — telling that customer to get in touch would be noise.
+  it('stays silent when card is unavailable but an offline method is offered', async () => {
+    const { app, handle } = buildApp(makeStubStripe());
+    try {
+      const { publicToken, companyId } = await seedPayableInvoice({
+        accountId: 'acct_offline_fallback',
+        chargesEnabled: false,
+      });
+      await getTestDb()
+        .update(companies)
+        .set({ paymentCheckEnabled: true, paymentCheckPayableTo: 'Co' })
+        .where(eq(companies.id, companyId));
+
+      const res = await app.request(`/api/public/invoices/${publicToken}`);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.payable).toBe(false);
+      expect(body.noPaymentMethod).toBe(false);
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('is payable when Connect is enabled', async () => {
     const stripe = makeStubStripe();
     const { app, handle } = buildApp(stripe);
     try {
@@ -615,9 +645,10 @@ describe('GET /api/public/invoices/:token — payable gate on Connect (slice 8.5
       });
       const res = await app.request(`/api/public/invoices/${publicToken}`);
       expect(res.status).toBe(200);
-      const body = (await res.json()) as { payable: boolean; connectPending: boolean };
+      const body = (await res.json()) as Record<string, unknown>;
       expect(body.payable).toBe(true);
-      expect(body.connectPending).toBe(false);
+      expect(body.noPaymentMethod).toBe(false);
+      expect(body).not.toHaveProperty('connectPending');
     } finally {
       await handle.close();
     }
@@ -635,25 +666,26 @@ describe('requireConnectedAccount — platform-account fallback gate (TMC-175)',
     try {
       const { publicToken } = await seedPayableInvoice({ accountId: null, chargesEnabled: false });
       const res = await app.request(`/api/public/invoices/${publicToken}`);
-      const body = (await res.json()) as { payable: boolean; connectPending: boolean };
+      const body = (await res.json()) as Record<string, unknown>;
       // Self-host default: the platform account IS the operator's account.
       expect(body.payable).toBe(true);
-      expect(body.connectPending).toBe(false);
+      expect(body.noPaymentMethod).toBe(false);
     } finally {
       await handle.close();
     }
   });
 
-  it('reports payable=false and connectPending=true for a never-onboarded company when on', async () => {
+  it('is unpayable for a never-onboarded company when the flag is on', async () => {
     const { app, handle } = buildApp(makeStubStripe(), true);
     try {
       const { publicToken } = await seedPayableInvoice({ accountId: null, chargesEnabled: false });
       const res = await app.request(`/api/public/invoices/${publicToken}`);
-      const body = (await res.json()) as { payable: boolean; connectPending: boolean };
+      const body = (await res.json()) as Record<string, unknown>;
       expect(body.payable).toBe(false);
-      // Pending too, not just unpayable — otherwise the recipient gets a missing
-      // Pay button with no explanation anywhere on the page.
-      expect(body.connectPending).toBe(true);
+      // The recipient is told there is no way to pay from this page — not that
+      // the business never onboarded. The owner sees that half, in the app.
+      expect(body.noPaymentMethod).toBe(true);
+      expect(body).not.toHaveProperty('connectPending');
     } finally {
       await handle.close();
     }

@@ -40,6 +40,7 @@ import { buildEmailPreview } from '../lib/email-preview.js';
 import { DEFAULT_TEMPLATES } from '../lib/email-templates.js';
 import { mailerDelivers } from '../lib/mailer.js';
 import { UUID_RE, mimeForKey } from '../lib/route-helpers.js';
+import { connectState } from '../lib/stripe-connect.js';
 import { requireCapability } from '../middleware/authz.js';
 import type { RlsVariables } from '../middleware/rls-context.js';
 
@@ -1041,11 +1042,24 @@ export function companiesRoutes(deps: AppDeps) {
           .limit(1);
         if (!company) return c.json({ error: 'company_not_found' }, 404);
 
+        // Same helper the public invoice page routes on, so what the owner is
+        // told and what their customer can actually do cannot drift.
+        const { connectPending } = connectState({
+          requireConnectedAccount: deps.requireConnectedAccount === true,
+          stripeConfigured: deps.stripe != null,
+          connectAccountId: company.stripeConnectAccountId,
+          chargesEnabled: company.stripeConnectChargesEnabled,
+        });
+
         return c.json({
           stripeConfigured: deps.stripe != null,
           stripeConnectAccountId: company.stripeConnectAccountId,
           stripeConnectChargesEnabled: company.stripeConnectChargesEnabled,
           stripeConnectDetailsSubmitted: company.stripeConnectDetailsSubmitted,
+          // Onboarding started-but-unfinished, or required-and-absent: this
+          // company's invoices cannot be paid by card. The owner sees this;
+          // the recipient never does.
+          connectPending,
         });
       })
       // Slice L4 — GL / trial-balance export. Tenant-scoped read of every

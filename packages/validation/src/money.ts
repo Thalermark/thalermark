@@ -70,6 +70,58 @@ export const isoDateString = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, 'Enter a date like 2026-08-10.');
 
+// Render an isoDateString the way a customer reads it: "September 15, 2026",
+// not "2026-09-15".
+//
+// The parse is deliberately NOT `new Date('2026-09-15')`. That form is spec'd
+// as UTC midnight, so `toLocaleDateString` in any negative-offset zone renders
+// the DAY BEFORE — an invoice due the 15th telling the customer it's due the
+// 14th. The three-argument constructor builds LOCAL midnight instead, which
+// cannot cross a day boundary. These are bare calendar dates with no zone of
+// their own (TMC-411 keeps zone-aware reporting to the report boundaries), so
+// local midnight is the correct reading: the 15th means the 15th.
+//
+// Anything that isn't a bare ISO date falls through unchanged, matching how the
+// other display helpers here tolerate malformed input rather than throwing
+// inside an email build.
+export function formatDateDisplay(isoDate: string, locale = 'en-US'): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate);
+  if (!m) return isoDate;
+  const [, y, mo, d] = m;
+  const local = new Date(Number(y), Number(mo) - 1, Number(d));
+  try {
+    return local.toLocaleDateString(locale, { year: 'numeric', month: 'long', day: 'numeric' });
+  } catch {
+    return isoDate;
+  }
+}
+
+// Render a stored money string as currency: "1500.00" → "$1,500.00". Every
+// customer-facing surface (emails, the public invoice, reminders) goes through
+// this so a raw "1500.00 USD" can't reach someone who isn't an accountant.
+//
+// Display only — never feed the result back into the decimal-string math above.
+// Number() is safe here precisely because nothing downstream computes on it.
+//
+// The currency code comes from a column that defaults to 'USD' but is free
+// text, so a bad value would make Intl throw RangeError mid-email-build. It is
+// validated before use and falls back to a plain 2-dp amount rather than
+// taking down the send.
+export function formatMoneyDisplay(amount: string, currency = 'USD', locale = 'en-US'): string {
+  // Blank is passed through, NOT read as zero the way the arithmetic helpers
+  // above read it. Those feed a calculation where zero is the identity; this
+  // feeds a sentence a customer reads, and "$0.00" for a missing amount is a
+  // plausible-looking lie where "" is visibly broken.
+  if (amount.trim() === '') return amount;
+  const n = Number(amount);
+  if (!Number.isFinite(n)) return amount;
+  try {
+    return n.toLocaleString(locale, { style: 'currency', currency });
+  } catch {
+    return n.toFixed(MONEY_SCALE);
+  }
+}
+
 // Decimal-string math. The invoice schema is locked on "client computes,
 // server stores as-sent" — both the SvelteKit action and the Svelte page
 // preview need identical arithmetic, so the helpers live here next to the

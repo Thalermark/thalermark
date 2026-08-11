@@ -21,6 +21,7 @@ type Contact = {
   postalCode: string | null;
   country: string | null;
   notes: string | null;
+  archivedAt: string | null;
 };
 type Reliability = {
   paidCount: number;
@@ -76,14 +77,17 @@ export default function ContactDetail() {
   const [detail, setDetail] = useState<DetailState>({ state: 'loading' });
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [reliability, setReliability] = useState<Reliability | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  useFocusEffect(
-    useCallback(() => {
-      let active = true;
+  // One loader, called on focus and again after archive/restore — the same
+  // shape the items detail screen uses. `active` is a getter rather than a
+  // captured boolean so an unmount mid-flight still cancels the setState.
+  const load = useCallback(
+    (active: () => boolean) => {
       api.api.contacts[':id']
         .$get({ param: { id } })
         .then(async (res) => {
-          if (!active) return;
+          if (!active()) return;
           if (!res.ok) {
             setDetail({ state: 'error' });
             return;
@@ -102,37 +106,67 @@ export default function ContactDetail() {
               postalCode: c.postalCode ?? null,
               country: c.country ?? null,
               notes: c.notes ?? null,
+              archivedAt: c.archivedAt ?? null,
             },
           });
         })
         .catch(() => {
-          if (active) setDetail({ state: 'error' });
+          if (active()) setDetail({ state: 'error' });
         });
-      // Audit trail — best-effort sidebar; a non-OK response degrades to an
-      // empty list rather than failing the screen.
+      // Audit trail — best-effort sidebar; refetched on every load() (focus +
+      // after archive/restore) so the new entry shows without a manual back-and-
+      // forth. A non-OK response degrades to an empty list.
       api.api['audit-events']
         .$get({ query: { entityType: 'contact', entityId: id } })
         .then(async (res) => {
-          if (active && res.ok) setAuditEvents((await res.json()).events);
+          if (active() && res.ok) setAuditEvents((await res.json()).events);
         })
         .catch(() => {});
       // Payment reliability — best-effort, same degrade-to-null contract.
       api.api.contacts[':id']['payment-reliability']
         .$get({ param: { id } })
         .then(async (res) => {
-          if (active && res.ok) setReliability(await res.json());
+          if (active() && res.ok) setReliability(await res.json());
         })
         .catch(() => {});
+    },
+    [id],
+  );
+
+  // Refetch on focus so an edit on the child screen shows on return.
+  useFocusEffect(
+    useCallback(() => {
+      let alive = true;
+      load(() => alive);
       return () => {
-        active = false;
+        alive = false;
       };
-    }, [id]),
+    }, [load]),
   );
 
   // Role gate (UX only — the API is authoritative). Editing a contact is
   // `contacts:write`.
   const canWrite = useMay('contacts:write');
   const c = detail.state === 'ready' ? detail.contact : null;
+  const archived = c?.archivedAt != null;
+
+  // Archive, never delete: an invoice keeps naming who it was billed to, so a
+  // contact with history cannot go away. This only takes the name out of the
+  // pickers (TMC-232), and the button that replaces it puts it back.
+  async function toggleArchive() {
+    if (!c) return;
+    setBusy(true);
+    try {
+      const res = archived
+        ? await api.api.contacts[':id'].restore.$post({ param: { id } })
+        : await api.api.contacts[':id'].archive.$post({ param: { id } });
+      if (res.ok) load(() => true);
+    } catch {
+      // A focus refetch will reconcile.
+    } finally {
+      setBusy(false);
+    }
+  }
   const reliabilityView = deriveReliability(reliability);
   const addressLines = c
     ? [
@@ -162,18 +196,45 @@ export default function ContactDetail() {
         ) : (
           <>
             <View className="mt-3 flex-row items-start justify-between gap-3">
-              <Text className="flex-1 font-serif text-3xl font-light text-ink">{c.name}</Text>
-              {canWrite ? (
+              <View className="flex-1 flex-row flex-wrap items-center gap-2">
+                <Text className="font-serif text-3xl font-light text-ink">{c.name}</Text>
+                {archived ? (
+                  <Text className="rounded-sm border border-ink/15 px-1.5 py-0.5 font-mono text-[0.6rem] uppercase tracking-widest text-ink/50">
+                    Archived
+                  </Text>
+                ) : null}
+              </View>
+            </View>
+
+            {canWrite ? (
+              <View className="mt-4 flex-row gap-2">
                 <Pressable
                   onPress={() => router.push(`/contacts/${id}/edit`)}
-                  className="mt-1 rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep"
+                  className="rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep"
                 >
                   <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
                     Edit
                   </Text>
                 </Pressable>
-              ) : null}
-            </View>
+                <Pressable
+                  onPress={toggleArchive}
+                  disabled={busy}
+                  className="rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep disabled:opacity-50"
+                >
+                  <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
+                    {archived ? 'Restore' : 'Archive'}
+                  </Text>
+                </Pressable>
+              </View>
+            ) : null}
+
+            {archived ? (
+              <Text className="mt-6 rounded-sm border border-ink/15 bg-cream-warm px-4 py-3 text-sm text-ink/70">
+                Archived — hidden from the customer and vendor pickers. Existing invoices, estimates
+                and expenses are untouched and still name them.
+              </Text>
+            ) : null}
+
             <View className="mt-8 space-y-6">
               {c.email ? <DetailRow label="Email" value={c.email} /> : null}
               {c.phone ? <DetailRow label="Phone" value={c.phone} /> : null}

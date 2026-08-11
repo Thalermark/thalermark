@@ -643,3 +643,149 @@ describe('GET /api/contacts/summary', () => {
     }
   });
 });
+
+// TMC-232. Hard delete is impossible for a contact with history (invoices
+// .contact_id is RESTRICT) and undesirable for one without, so archive is the
+// single answer. These pin the two halves that matter: it leaves the pickers,
+// and it does not leave the documents.
+describe('POST /api/contacts/:id/archive | /restore', () => {
+  beforeEach(resetDb);
+
+  async function seedContact(
+    app: ReturnType<typeof createApp>,
+    hdrs: Record<string, string>,
+    companyId: string,
+    name: string,
+  ): Promise<string> {
+    const res = await app.request('/api/contacts', {
+      method: 'POST',
+      headers: hdrs,
+      body: JSON.stringify({ companyId, name }),
+    });
+    return ((await res.json()) as { id: string }).id;
+  }
+
+  it('drops the contact out of the default list and puts it back on restore', async () => {
+    const { app, handle } = buildApp();
+    try {
+      const cookie = await signUp(app, 'arch@example.com');
+      const { accountId, companyId } = await userContext('arch@example.com');
+      const hdrs = { cookie, 'x-account-id': accountId, 'content-type': 'application/json' };
+      const keepId = await seedContact(app, hdrs, companyId, 'Keep');
+      const dropId = await seedContact(app, hdrs, companyId, 'Typo Dupe');
+
+      const names = async (query = '') => {
+        const res = await app.request(`/api/contacts${query}`, {
+          headers: { cookie, 'x-account-id': accountId },
+        });
+        expect(res.status).toBe(200);
+        return ((await res.json()) as { contacts: { name: string }[] }).contacts
+          .map((c) => c.name)
+          .sort();
+      };
+
+      expect(await names()).toEqual(['Keep', 'Typo Dupe']);
+
+      const arch = await app.request(`/api/contacts/${dropId}/archive`, {
+        method: 'POST',
+        headers: hdrs,
+      });
+      expect(arch.status).toBe(200);
+
+      // Gone from every picker, because every picker reads this default.
+      expect(await names()).toEqual(['Keep']);
+      // ...and still reachable for the management page's toggle.
+      expect(await names('?includeArchived=true')).toEqual(['Keep', 'Typo Dupe']);
+      // Still directly addressable — an invoice links to its detail page.
+      const detail = await app.request(`/api/contacts/${dropId}`, {
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(detail.status).toBe(200);
+
+      const restored = await app.request(`/api/contacts/${dropId}/restore`, {
+        method: 'POST',
+        headers: hdrs,
+      });
+      expect(restored.status).toBe(200);
+      expect(await names()).toEqual(['Keep', 'Typo Dupe']);
+      expect(keepId).not.toBe(dropId);
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('leaves an existing invoice intact and still naming the archived contact', async () => {
+    const { app, handle } = buildApp();
+    try {
+      const cookie = await signUp(app, 'archinv@example.com');
+      const { accountId, companyId } = await userContext('archinv@example.com');
+      const hdrs = { cookie, 'x-account-id': accountId, 'content-type': 'application/json' };
+      const contactId = await seedContact(app, hdrs, companyId, 'Mrs Patel');
+
+      const invRes = await app.request('/api/invoices', {
+        method: 'POST',
+        headers: hdrs,
+        body: JSON.stringify({
+          companyId,
+          contactId,
+          number: 'INV-900',
+          issueDate: '2026-06-02',
+          dueDate: '2026-07-02',
+          subtotal: '900.00',
+          tax: '0.00',
+          total: '900.00',
+          lineItems: [
+            {
+              position: 1,
+              description: 'Spring cleanup',
+              quantity: '1',
+              unitPrice: '900.00',
+              amount: '900.00',
+            },
+          ],
+        }),
+      });
+      expect(invRes.status).toBe(201);
+      const invoiceId = ((await invRes.json()) as { id: string }).id;
+
+      expect(
+        (await app.request(`/api/contacts/${contactId}/archive`, { method: 'POST', headers: hdrs }))
+          .status,
+      ).toBe(200);
+
+      // The invoice still exists and still points at the same contact. This is
+      // why archive exists instead of delete: history has to keep naming who it
+      // was billed to.
+      const after = await app.request(`/api/invoices/${invoiceId}`, {
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(after.status).toBe(200);
+      expect(((await after.json()) as { contactId: string }).contactId).toBe(contactId);
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('is idempotent, and writes one audit row per real transition', async () => {
+    const { app, handle } = buildApp();
+    try {
+      const cookie = await signUp(app, 'archidem@example.com');
+      const { accountId, companyId } = await userContext('archidem@example.com');
+      const hdrs = { cookie, 'x-account-id': accountId, 'content-type': 'application/json' };
+      const id = await seedContact(app, hdrs, companyId, 'Dupe');
+
+      await app.request(`/api/contacts/${id}/archive`, { method: 'POST', headers: hdrs });
+      await app.request(`/api/contacts/${id}/archive`, { method: 'POST', headers: hdrs });
+      await app.request(`/api/contacts/${id}/restore`, { method: 'POST', headers: hdrs });
+
+      const audits = await getTestDb()
+        .select()
+        .from(auditEvents)
+        .where(eq(auditEvents.entityId, id));
+      // The second archive is a no-op: no duplicate row littering the history.
+      expect(audits.map((a) => a.action)).toEqual(['create', 'archive', 'restore']);
+    } finally {
+      await handle.close();
+    }
+  });
+});

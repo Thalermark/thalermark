@@ -54,7 +54,7 @@ type PublicInvoice = {
   customerName: string | null;
   lineItems: PublicInvoiceLine[];
   payable: boolean;
-  connectPending: boolean;
+  noPaymentMethod: boolean;
   offlinePayment: {
     cash: boolean;
     check: { payableTo: string | null; address: string | null } | null;

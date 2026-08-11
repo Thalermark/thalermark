@@ -5,7 +5,12 @@ import {
   withAccountContext,
 } from '@thalermark/db';
 import { getLogger } from '@thalermark/logger';
-import { centsToMoney, toCents } from '@thalermark/validation';
+import {
+  centsToMoney,
+  formatDateDisplay,
+  formatMoneyDisplay,
+  toCents,
+} from '@thalermark/validation';
 import { sql } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
 import { recordSendFailed } from './delivery.js';
@@ -275,9 +280,10 @@ export async function sweepInvoiceReminders(args: {
             customer_name: item.customerName,
             invoice_number: item.number,
             // OUTSTANDING, never the invoice total. Same shape the invoice
-            // email uses for its own amount.
-            outstanding: `${item.outstanding} ${item.currency}`,
-            due_date: item.dueDate,
+            // email uses for its own amount — including the formatting, so a
+            // reminder and the original invoice read alike.
+            outstanding: formatMoneyDisplay(item.outstanding, item.currency),
+            due_date: formatDateDisplay(item.dueDate),
             company_name: item.companyName,
           });
           // No mailer configured (a self-host without SMTP) must NOT bank the

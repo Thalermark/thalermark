@@ -219,6 +219,27 @@
   <p class="mt-3 text-sm text-fg/60">Opened by the customer on {inv.viewedAt.slice(0, 10)}.</p>
 {/if}
 
+<!--
+  The owner's half of the online-payment story. The public invoice says nothing
+  about unfinished Stripe onboarding — a customer should not be shown their
+  supplier's admin — so this is the only place the fact surfaces, and it sits on
+  a sent invoice because that is the moment it costs something: the customer is
+  looking at a page with no Pay button right now.
+
+  Gated on canManageSettings: someone who can't finish the onboarding is only
+  being nagged about a job that isn't theirs.
+-->
+{#if data.paymentsNotLive && inv.status === 'sent' && canManageSettings}
+  <div class="mt-6 rounded-sm border border-accent/30 bg-accent/5 px-4 py-3 text-sm text-fg">
+    <p>
+      <span class="font-medium">Card payment isn't live yet.</span>
+      This invoice went out without a Pay button, so {contact?.name ?? 'your customer'} can only pay
+      by the methods you list. Your customer isn't told why.
+    </p>
+    <a class="link mt-2 inline-block" href="/settings/payments">Finish payment setup →</a>
+  </div>
+{/if}
+
 {#if data.needsBusinessDetails && inv.status === 'draft' && data.businessCompanyId && canManageSettings}
   <details class="mt-6 rounded-sm border border-accent/30 bg-accent/5 px-4 py-3 text-sm text-fg">
     <summary class="cursor-pointer list-none font-medium">

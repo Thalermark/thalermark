@@ -17,7 +17,7 @@
     customer_name: "the customer's name",
     invoice_number: 'invoice number',
     estimate_number: 'estimate number',
-    amount: 'total amount with currency',
+    amount: 'total amount, e.g. $1,500.00',
     // Deliberately worded to contrast with `amount` above. A reminder chases
     // what is STILL OWED — after any deposit — and the two stop being the same
     // number the moment a customer pays part of an invoice (TMC-189).

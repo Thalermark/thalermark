@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   addMoney,
   centsToMoney,
+  formatDateDisplay,
+  formatMoneyDisplay,
   formatUnitPrice,
   multiplyMoney,
   priceString,
@@ -219,5 +221,59 @@ describe('toCents / centsToMoney', () => {
     // A long run of cents that would accumulate error as floats.
     const many = Array.from({ length: 1000 }, () => '0.01');
     expect(centsToMoney(many.reduce((s, v) => s + toCents(v), 0))).toBe('10.00');
+  });
+});
+
+describe('formatMoneyDisplay', () => {
+  it('renders a stored money string as currency, with a thousands separator', () => {
+    expect(formatMoneyDisplay('1500.00')).toBe('$1,500.00');
+    expect(formatMoneyDisplay('0.00')).toBe('$0.00');
+    expect(formatMoneyDisplay('75.50')).toBe('$75.50');
+    expect(formatMoneyDisplay('1234567.89')).toBe('$1,234,567.89');
+  });
+
+  it('renders a credit as a negative amount', () => {
+    expect(formatMoneyDisplay('-50.00')).toBe('-$50.00');
+  });
+
+  it('honours a non-USD currency code', () => {
+    expect(formatMoneyDisplay('1500.00', 'EUR')).toBe('€1,500.00');
+  });
+
+  // currency is free text on the column. A bad value must not throw inside an
+  // email build — the send matters more than the symbol.
+  it('falls back to a bare 2-dp amount rather than throwing on a bad code', () => {
+    expect(formatMoneyDisplay('1500.00', 'NOTACODE')).toBe('1500.00');
+  });
+
+  it('passes unparseable input through unchanged', () => {
+    expect(formatMoneyDisplay('')).toBe('');
+    expect(formatMoneyDisplay('abc')).toBe('abc');
+  });
+});
+
+describe('formatDateDisplay', () => {
+  it('renders an ISO date the way a customer reads it', () => {
+    expect(formatDateDisplay('2026-09-15')).toBe('September 15, 2026');
+    expect(formatDateDisplay('2026-01-01')).toBe('January 1, 2026');
+  });
+
+  // The regression this helper exists to prevent: `new Date('2026-09-15')` is
+  // UTC midnight, so formatting it in any negative-offset zone yields the 14th.
+  // A due date that shifts a day in the customer's inbox is a billing dispute.
+  it('does not shift the day in a negative-offset timezone', () => {
+    const tz = process.env.TZ;
+    process.env.TZ = 'America/Los_Angeles';
+    try {
+      expect(formatDateDisplay('2026-09-15')).toBe('September 15, 2026');
+      expect(formatDateDisplay('2026-01-01')).toBe('January 1, 2026');
+    } finally {
+      process.env.TZ = tz;
+    }
+  });
+
+  it('passes a non-ISO string through unchanged', () => {
+    expect(formatDateDisplay('')).toBe('');
+    expect(formatDateDisplay('not a date')).toBe('not a date');
   });
 });

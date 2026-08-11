@@ -185,7 +185,11 @@ const projectContacts: Projector = async (handle, accountId, ids) => {
       r.country,
       r.notes,
     ]),
-    status: null,
+    // Archived contacts stay indexed and are marked so the results page can
+    // grey them, matching items. Archiving takes a name out of the pickers, not
+    // out of the past — someone searching an old customer's name is asking
+    // about the work, and hiding the answer would be the wrong kind of tidy.
+    status: r.archivedAt ? 'archived' : null,
     amountCents: null,
     occurredOn: null,
     entityUpdatedAt: r.updatedAt,

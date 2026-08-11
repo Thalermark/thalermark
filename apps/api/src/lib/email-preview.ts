@@ -67,7 +67,12 @@ export function buildEmailPreview(
     return buildInvoiceEmail({
       invoice: {
         number: 'INV-0007',
-        total: '1,250.00',
+        // A stored-shape money string, exactly as the column holds it — the
+        // builder does the comma/symbol formatting. Pre-formatting it here
+        // ("1,250.00") is what the preview must never do: it isn't a valid
+        // money string, so the formatter passes it through untouched and the
+        // preview silently renders something a real send never would.
+        total: '1250.00',
         currency: 'USD',
         dueDate: '2026-07-01',
         publicToken: 'preview',
