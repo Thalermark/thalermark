@@ -24,6 +24,9 @@ export const load: PageServerLoad = async (event) => {
     // 'true'/'' so they ride the generic filters→query loop below.
     overdue: sp.get('overdue') === 'true' ? 'true' : '',
     awaiting: sp.get('awaiting') === 'true' ? 'true' : '',
+    // Pulled back to be corrected and not yet resent (TMC-227). Same shape as
+    // the two above — a derived pool with no stored status behind it.
+    revising: sp.get('revising') === 'true' ? 'true' : '',
   };
   // Scope both the list and the contact-filter dropdown to the active company
   // (the nav switcher's pick), resolved by the (app) layout load. Without it the

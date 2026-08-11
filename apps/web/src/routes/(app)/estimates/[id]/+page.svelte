@@ -35,12 +35,28 @@
   const canConvert = $derived(
     canWrite && est.status === 'accepted' && est.convertedInvoiceId == null,
   );
+  // Pulled back to be corrected and not yet resent (TMC-227) — derived, not a
+  // stored status, exactly like isExpired below.
+  const isRevising = $derived(est.status === 'draft' && est.sentAt !== null);
+  const latestRevisedAt = $derived(est.revisions?.[0]?.revisedAt ?? null);
+  const statusLabel = $derived(isRevising ? 'being revised' : est.status);
+  // Never converted: the invoice is the document that is wrong by then, and
+  // the API refuses with already_converted.
+  const canRevise = $derived(
+    canWrite && est.status === 'sent' && est.convertedInvoiceId == null,
+  );
   const hasActions = $derived(
-    canSend || canMarkSent || canMarkAccepted || canMarkDeclined || canConvert,
+    canSend || canMarkSent || canRevise || canMarkAccepted || canMarkDeclined || canConvert,
   );
 
   let showOverride = $state(false);
-  const sendLabel = $derived(est.status === 'sent' ? 'Resend estimate' : 'Send estimate');
+  const sendLabel = $derived(
+    isRevising
+      ? 'Resend corrected estimate'
+      : est.status === 'sent'
+        ? 'Resend estimate'
+        : 'Send estimate',
+  );
 
   // Advisory expiry: status doesn't flip to 'expired' in MVP (no background
   // sweep yet). Read sites compute the warning off expires_on < today, but
@@ -83,7 +99,7 @@
         />
       </form>
     {/if}
-    <span class="font-mono text-xs uppercase tracking-widest text-fg/60">{est.status}</span>
+    <span class="font-mono text-xs uppercase tracking-widest text-fg/60">{statusLabel}</span>
   </div>
 </div>
 
@@ -109,6 +125,17 @@
 {#if isExpired}
   <div class="mt-6 rounded-sm border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
     This estimate's validity expired on <span class="font-medium">{est.expiresOn}</span>.
+  </div>
+{/if}
+
+{#if isRevising}
+  <!-- The stranded-draft nudge (TMC-227). Correcting is three actions and the
+       middle one ends on the edit page, so it is easy to stop after two —
+       leaving a customer holding a quote they cannot accept. -->
+  <div class="mt-6 rounded-sm border border-warning/40 bg-warning/5 px-4 py-3 text-sm text-fg">
+    You pulled this back{#if latestRevisedAt} on {latestRevisedAt.slice(0, 10)}{/if} — the
+    customer's link says it's being revised, and they can't accept it, until you resend the
+    corrected estimate.
   </div>
 {/if}
 
@@ -174,6 +201,24 @@
           class="btn-ghost bg-surface-2"
         />
       </form>
+    {/if}
+    {#if canRevise}
+      <!-- Corrective rather than destructive, so the quiet outline. What is
+           being confirmed is that the CUSTOMER sees the withdrawal, not that
+           anything is lost. -->
+      <ConfirmSubmit
+        action="?/revise"
+        label="Fix this estimate"
+        pendingLabel="Pulling back…"
+        title="Fix this estimate?"
+        confirmLabel="Pull it back"
+        triggerClass="rounded-sm border border-fg/20 px-4 py-2 text-sm font-medium text-fg transition-colors hover:border-accent hover:text-accent"
+      >
+        {#snippet body()}
+          It goes back to a draft you can edit. The customer's link will say it's being revised and
+          they won't be able to accept it until you resend it.
+        {/snippet}
+      </ConfirmSubmit>
     {/if}
     {#if canMarkDeclined}
       <!-- `declined` is terminal in MVP: nothing transitions out of it, edit

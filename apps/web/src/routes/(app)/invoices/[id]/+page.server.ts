@@ -124,14 +124,18 @@ type AuditEvent = {
 // use:enhance, in line with the rest of the app's no-JS path.
 async function runTransition(
   event: Parameters<Actions[string]>[0],
-  endpoint: 'mark-sent' | 'void',
+  endpoint: 'mark-sent' | 'void' | 'revise',
 ) {
   const client = serverApiClient(event);
   const id = event.params.id;
+  // Branched rather than a dynamic index so the typed client keeps its
+  // per-route signatures.
   const res =
     endpoint === 'mark-sent'
       ? await client.api.invoices[':id']['mark-sent'].$post({ param: { id } })
-      : await client.api.invoices[':id'].void.$post({ param: { id } });
+      : endpoint === 'revise'
+        ? await client.api.invoices[':id'].revise.$post({ param: { id } })
+        : await client.api.invoices[':id'].void.$post({ param: { id } });
   if (res.status === 404) throw error(404, 'invoice not found');
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
@@ -434,6 +438,10 @@ export const actions: Actions = {
   markSent: (event) => runTransition(event, 'mark-sent'),
   markPaid: (event) => postPayment(event, 'mark-paid'),
   void: (event) => runTransition(event, 'void'),
+  // "Fix this invoice" (TMC-227). period_closed, invoice_paid and
+  // revision_in_progress all arrive as plain error codes and are turned into
+  // sentences by the shared api-messages map, like every other refusal here.
+  revise: (event) => runTransition(event, 'revise'),
   editPayment: (event) => postPayment(event, 'edit-payment'),
   recordPayment: runRecordPayment,
   removePayment: runRemovePayment,
