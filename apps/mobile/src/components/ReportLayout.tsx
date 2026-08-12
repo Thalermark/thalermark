@@ -132,7 +132,18 @@ export function EmptyRow({ text }: { text: string }) {
   );
 }
 
-// ShareBar moved to components/charts (TMC charts module). It lives with the
-// real charts now so "show a proportion" has one home on both clients and
-// shares their tone vocabulary — and it takes 0..1 rather than 0..100, which is
-// the contract the shared type defines.
+// Share bar + percentage, used by the expenses-by-category + sales-by-customer
+// breakdowns.
+export function ShareBar({ pct }: { pct: number }) {
+  const w = Math.max(0, Math.min(100, pct));
+  return (
+    <View className="mt-2 flex-row items-center gap-2">
+      <View className="h-2 flex-1 overflow-hidden rounded-full bg-ink/10">
+        <View className="h-full rounded-full bg-gold-deep" style={{ width: `${w}%` }} />
+      </View>
+      <Text className="w-9 text-right font-mono text-xs tabular-nums text-ink/50">
+        {w.toFixed(0)}%
+      </Text>
+    </View>
+  );
+}

@@ -5,9 +5,9 @@ import {
   ReportBody,
   ReportCard,
   ReportScaffold,
+  ShareBar,
   TotalRow,
 } from '../../../../components/ReportLayout';
-import { ShareBar } from '../../../../components/charts';
 import { api } from '../../../../lib/api';
 import { fmt, ytdWindow } from '../../../../lib/report-periods';
 import { useReport } from '../../../../lib/use-report';
@@ -55,7 +55,7 @@ export default function ExpensesByCategoryReport() {
                     </View>
                     <Text className="font-mono text-sm tabular-nums text-ink">{fmt(e.amount)}</Text>
                   </View>
-                  <ShareBar value={total > 0 ? Number(e.amount) / total : 0} />
+                  <ShareBar pct={total > 0 ? (Number(e.amount) / total) * 100 : 0} />
                 </View>
               ))}
               <TotalRow label="Total" amount={fmt(d.totalExpenses)} />

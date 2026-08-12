@@ -6,9 +6,9 @@ import {
   ReportBody,
   ReportCard,
   ReportScaffold,
+  ShareBar,
   TotalRow,
 } from '../../../../components/ReportLayout';
-import { ShareBar } from '../../../../components/charts';
 import { api } from '../../../../lib/api';
 import { fmt, ytdWindow } from '../../../../lib/report-periods';
 import { useReport } from '../../../../lib/use-report';
@@ -58,7 +58,7 @@ export default function SalesByCustomerReport() {
                     </View>
                     <Text className="font-mono text-sm tabular-nums text-ink">{fmt(c.sales)}</Text>
                   </View>
-                  <ShareBar value={total > 0 ? Number(c.sales) / total : 0} />
+                  <ShareBar pct={total > 0 ? (Number(c.sales) / total) * 100 : 0} />
                 </Pressable>
               ))}
               <TotalRow label="Total" amount={fmt(d.totalSales)} />
