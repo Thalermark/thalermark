@@ -10,21 +10,25 @@ export const load: PageServerLoad = async (event) => {
   if (!res.ok) throw error(res.status, 'failed to load contact');
   const contact = await res.json();
 
-  // Audit trail (8.8a) + payment reliability (late-payer detection) — both
-  // best-effort read-only sidebars; a non-OK response degrades to empty/null
-  // rather than failing the page.
-  const [auditRes, reliabilityRes] = await Promise.all([
+  // Audit trail (8.8a) + customer insights — both best-effort read-only
+  // sidebars; a non-OK response degrades to empty/null rather than failing the
+  // page. A slow aggregate must never take the contact page down with it.
+  //
+  // `insights` carries the reliability figures, so payment-reliability is no
+  // longer fetched here — same object, same field names, produced by the same
+  // code on the server.
+  const [auditRes, insightsRes] = await Promise.all([
     client.api['audit-events'].$get({
       query: { entityType: 'contact', entityId: event.params.id },
     }),
-    client.api.contacts[':id']['payment-reliability'].$get({ param: { id: event.params.id } }),
+    client.api.contacts[':id'].insights.$get({ param: { id: event.params.id } }),
   ]);
   const auditEvents = auditRes.ok
     ? ((await auditRes.json()) as { events: AuditEvent[] }).events
     : [];
-  const reliability = reliabilityRes.ok ? await reliabilityRes.json() : null;
+  const insights = insightsRes.ok ? await insightsRes.json() : null;
 
-  return { contact, auditEvents, reliability };
+  return { contact, auditEvents, insights, reliability: insights?.reliability ?? null };
 };
 
 // Archive / restore from the detail page. Redirects back to the same page
