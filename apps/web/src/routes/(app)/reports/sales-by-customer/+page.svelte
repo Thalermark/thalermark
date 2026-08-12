@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { ShareBar } from '$lib/charts';
   import ExportCsvButton from '$lib/components/ExportCsvButton.svelte';
   import PeriodSelector from '$lib/components/PeriodSelector.svelte';
   import type { CsvCell } from '$lib/csv';
@@ -70,14 +71,7 @@
               </a>
             </td>
             <td class="px-5 py-3">
-              <div class="flex items-center gap-2">
-                <div class="h-2 flex-1 overflow-hidden rounded-full bg-fg/10">
-                  <div class="h-full rounded-full bg-accent" style="width: {c.share}%"></div>
-                </div>
-                <span class="w-10 text-right font-mono text-xs tabular-nums text-fg/50">
-                  {c.share.toFixed(0)}%
-                </span>
-              </div>
+              <ShareBar value={c.share / 100} />
             </td>
             <td class="px-5 py-3 text-right font-mono tabular-nums text-fg/70">{c.invoiceCount}</td>
             <td class="px-5 py-3 text-right font-mono tabular-nums text-fg">{fmt(c.sales)}</td>

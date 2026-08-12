@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { ColumnChart } from '$lib/charts';
   import ExportCsvButton from '$lib/components/ExportCsvButton.svelte';
   import PeriodSelector from '$lib/components/PeriodSelector.svelte';
   import type { CsvCell } from '$lib/csv';
@@ -11,13 +12,16 @@
     Number(s).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 
   const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const shortMonth = (key: string) => {
-    const [, m] = key.split('-').map(Number);
-    return MONTHS[(m ?? 1) - 1];
+  // The tick now carries the year whenever the window spans more than one.
+  // Before this it was always a bare 'Jan', so a range crossing a year end read
+  // "Jan … Dec Jan … Dec" with nothing to tell the two years apart.
+  const spansYears = $derived(new Set(series.map((m) => m.month.slice(0, 4))).size > 1);
+  const monthTick = (key: string) => {
+    const [y, m] = key.split('-').map(Number);
+    const name = MONTHS[(m ?? 1) - 1];
+    return spansYears ? `${name} ${String(y).slice(2)}` : (name ?? key);
   };
 
-  const max = $derived(Math.max(0, ...series.map((m) => Number(m.revenue))));
-  const pct = (v: string) => (max > 0 ? (Number(v) / max) * 100 : 0);
   const hasRevenue = $derived(Number(report.total) > 0);
 
   // The gap-filled month series (every month in range, zero-filled) — what the
@@ -50,23 +54,13 @@
   <p class="mt-8 text-fg/70">No revenue in this period.</p>
 {:else}
   <div class="mt-8 rounded-sm border border-fg/10 bg-surface-2 p-5">
-    <div class="flex h-56 items-end gap-1.5 overflow-x-auto">
-      {#each series as m (m.month)}
-        <div
-          class="flex h-full min-w-6 flex-1 flex-col justify-end"
-          title="{m.month}: {fmt(m.revenue)}"
-        >
-          <div class="w-full rounded-t-sm bg-accent transition-all" style="height: {pct(m.revenue)}%"></div>
-        </div>
-      {/each}
-    </div>
-    <div class="mt-2 flex gap-1.5 overflow-x-auto">
-      {#each series as m (m.month)}
-        <div class="min-w-6 flex-1 text-center font-mono text-[10px] uppercase tracking-wide text-fg/50">
-          {shortMonth(m.month)}
-        </div>
-      {/each}
-    </div>
+    <ColumnChart
+      data={series}
+      x={{ key: 'month', label: (m) => monthTick(m.month), title: 'Month' }}
+      series={[{ key: 'revenue', label: 'Revenue' }]}
+      caption="Revenue by month, {report.from} to {report.to}."
+      empty="No revenue in this period."
+    />
     <div class="mt-5 flex items-baseline justify-between border-t border-fg/10 pt-4 font-mono text-xs uppercase tracking-widest text-fg/60">
       <span>Total</span>
       <span class="text-base tabular-nums text-fg">{fmt(report.total)}</span>

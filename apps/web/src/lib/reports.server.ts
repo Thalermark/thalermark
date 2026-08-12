@@ -113,7 +113,7 @@ export type RevenueOverTime = {
 
 // Fill the gaps between from..to so the trend is a continuous month series
 // (the API only returns months that had sales). Months are 'YYYY-MM'.
-function fillMonths(from: string, to: string, months: { month: string; revenue: string }[]) {
+export function fillMonths(from: string, to: string, months: { month: string; revenue: string }[]) {
   const byMonth = new Map(months.map((m) => [m.month, m.revenue]));
   const [fy, fm] = from.split('-').map(Number);
   const [ty, tm] = to.split('-').map(Number);

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { Sparkline } from '$lib/charts';
   import { trackEvent } from '$lib/telemetry';
   import type { PageProps } from './$types';
 
@@ -170,6 +171,31 @@
     <p class="mt-1 text-xs text-fg/40">unpaid bills</p>
   </a>
 </dl>
+
+<!--
+  Its OWN row, with its own label, deliberately not inside the "Money in" tile.
+  It was there first and it was misleading: "Money in" is CASH RECEIVED in the
+  selected period (cashFlowNet), while this is REVENUE BILLED by the month it
+  was issued. A trend line sitting under a number is read as that number's
+  history, so a $200 cash month with a line peaking at a $6,000 billing month
+  invited exactly the wrong conclusion — in an accounting product, of all
+  places. Separated and labelled, it says only what it measures. It is also
+  always twelve months, where the tiles follow the period toggle.
+-->
+{#if data.revenueTrend.length > 1}
+  <a
+    href="/reports/revenue-over-time"
+    class="mt-6 flex items-end gap-6 rounded-sm border border-fg/10 bg-surface-2 p-5 transition-colors hover:border-fg/25"
+  >
+    <div class="shrink-0">
+      <span class="label">Billed by month</span>
+      <p class="mt-1 text-xs text-fg/40">last 12 months</p>
+    </div>
+    <div class="min-w-0 flex-1">
+      <Sparkline values={data.revenueTrend} label="Revenue billed by month, last 12 months" />
+    </div>
+  </a>
+{/if}
 
 <h2 class="label mt-8 text-fg/60">Right now</h2>
 <dl class="mt-3 grid grid-cols-2 gap-4 lg:grid-cols-4">

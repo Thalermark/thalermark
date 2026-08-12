@@ -1,5 +1,6 @@
 import { pickActiveCompany } from '$lib/active-company';
 import { serverApiClient } from '$lib/api.server';
+import { fillMonths } from '$lib/reports.server';
 import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 
@@ -67,6 +68,32 @@ export const load: PageServerLoad = async (event) => {
     undelivered: invSummary?.undelivered.count ?? 0,
   };
 
+  // Twelve months of billed revenue, for the sparkline under "Money in".
+  //
+  // The dashboard's own figures are point-in-time scalars — they answer "how
+  // much", never "which way". A single number is the one thing a business
+  // owner cannot act on: $6,000 is good news or bad news entirely depending on
+  // what the last few months looked like.
+  //
+  // Reuses the revenue-over-time report rather than growing a dashboard
+  // endpoint: it is the same arithmetic, already gap-filled, and sharing it
+  // means the tile and the report can never disagree. Best-effort like the
+  // summaries above — a failed fetch drops the sparkline, not the dashboard.
+  const trendTo = new Date();
+  const trendFrom = new Date(trendTo.getFullYear(), trendTo.getMonth() - 11, 1);
+  const iso = (d: Date) => d.toISOString().slice(0, 10);
+  const trendRes = await client.api.companies[':id']['revenue-over-time'].$get({
+    param: { id: company.id },
+    query: { from: iso(trendFrom), to: iso(trendTo) },
+  });
+  // GAP-FILLED, which is not optional. The API returns only months that had
+  // sales, so feeding `months` straight in would draw June and August as
+  // adjacent points and hide the empty July between them — a trend line that
+  // silently omits the bad months is worse than no trend line.
+  const revenueTrend = trendRes.ok
+    ? await trendRes.json().then((r) => fillMonths(r.from, r.to, r.months).map((m) => m.revenue))
+    : ([] as string[]);
+
   // Cash-flow nudges (AI) stream in separately: the position tiles render
   // immediately while this promise resolves. A cache hit on the API returns
   // instantly; a regeneration shows the page's spinner. Any non-OK (no AI
@@ -103,5 +130,6 @@ export const load: PageServerLoad = async (event) => {
     nudges,
     anomalies,
     counts,
+    revenueTrend,
   };
 };
