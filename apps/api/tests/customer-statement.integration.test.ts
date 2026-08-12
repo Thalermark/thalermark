@@ -633,6 +633,10 @@ describe('POST /api/contacts/:id/statement/send', () => {
       expect(mail?.text).toContain('Balance due: $250.00');
       // The number that was being demanded of a customer who had already paid.
       expect(mail?.text).not.toContain('Balance due: $450.00');
+      // Every dated line holds its date on one line. An email card is narrow
+      // enough to break "2026-03-05" across two rows, which reads as a broken
+      // document rather than a tight one.
+      expect(mail?.html).toContain('white-space:nowrap;">2026-03-05<');
     } finally {
       await close();
     }
