@@ -174,6 +174,50 @@ async function createContact(ctx: Ctx): Promise<string> {
   return ((await res.json()) as { id: string }).id;
 }
 
+// An invoice settled through the REAL path on an asserted calendar date, rather
+// than by poking invoices.paid_at with an instant the app cannot produce.
+// mark-paid writes a receipt row carrying `received_on` exactly as given.
+async function paidInvoiceOn(
+  ctx: Ctx,
+  contactId: string,
+  opts: { number: string; subtotal: string; paidOn: string },
+) {
+  const res = await ctx.app.request('/api/invoices', {
+    method: 'POST',
+    headers: headers(ctx),
+    body: JSON.stringify({
+      companyId: ctx.companyId,
+      contactId,
+      number: opts.number,
+      issueDate: '2026-12-20',
+      dueDate: '2026-12-20',
+      subtotal: opts.subtotal,
+      tax: '0.00',
+      total: opts.subtotal,
+      lineItems: [
+        {
+          position: 1,
+          description: 'Service',
+          quantity: '1',
+          unitPrice: opts.subtotal,
+          amount: opts.subtotal,
+        },
+      ],
+    }),
+  });
+  if (res.status !== 201)
+    throw new Error(`invoice create failed: ${res.status} ${await res.text()}`);
+  const id = ((await res.json()) as { id: string }).id;
+  await ctx.app.request(`/api/invoices/${id}/mark-sent`, { method: 'POST', headers: headers(ctx) });
+  const paid = await ctx.app.request(`/api/invoices/${id}/mark-paid`, {
+    method: 'POST',
+    headers: headers(ctx),
+    body: JSON.stringify({ method: 'cash', paidOn: opts.paidOn }),
+  });
+  if (paid.status !== 200) throw new Error(`mark-paid failed: ${paid.status}`);
+  return id;
+}
+
 async function grossReceipts(ctx: Ctx, year: number): Promise<string> {
   const res = await ctx.app.request(
     `/api/companies/${ctx.companyId}/schedule-c?year=${year}&basis=cash`,
@@ -197,64 +241,73 @@ describe('company timezone drives report day boundaries', () => {
     }
   });
 
-  // The headline case. 8pm on 31 Dec 2026 in America/Chicago is 02:00Z on
-  // 1 Jan 2027 — under the old UTC-only windows this money showed up on the
-  // 2027 return.
-  it('keeps a 31 Dec evening payment in that year for a US company', async () => {
+  // CASH RECEIPTS STOPPED BEING A ZONE QUESTION (TMC-254).
+  //
+  // These three tests used to assert that the company's zone moved a payment
+  // between tax years, by writing an instant straight into invoices.paid_at and
+  // watching the window catch or miss it. Gross receipts now come off
+  // invoice_payments.received_on, which is a bare calendar DATE the payer
+  // asserts — 31 December is 31 December in every zone, so there is no
+  // projection to get wrong and nothing for a boundary to shift. That is the
+  // same reasoning the schema gives for the column being a date rather than a
+  // timestamp, and the same call the bill-payment read already made.
+  //
+  // What they assert now is the stronger property that replaced it: the year is
+  // stable across zones. The zone-sensitive reads in this file — the GL ones,
+  // which genuinely record instants — are untouched below.
+  it('keeps a 31 Dec payment in that year whatever the company zone', async () => {
     const { ctx, close } = await setup('tz-newyear@example.com');
     try {
-      expect(await setTimezone(ctx, 'America/Chicago')).toBe(200);
       const cust = await createContact(ctx);
-      await paidInvoiceAt(ctx, cust, {
+      await paidInvoiceOn(ctx, cust, {
         number: 'INV-1',
         subtotal: '8000.00',
-        instant: '2027-01-01T02:00:00Z',
+        paidOn: '2026-12-31',
       });
 
-      expect(await grossReceipts(ctx, 2026)).toBe('8000.00');
-      expect(await grossReceipts(ctx, 2027)).toBe('0.00');
+      for (const zone of ['America/Chicago', 'UTC', 'Asia/Tokyo']) {
+        expect(await setTimezone(ctx, zone)).toBe(200);
+        expect(await grossReceipts(ctx, 2026)).toBe('8000.00');
+        expect(await grossReceipts(ctx, 2027)).toBe('0.00');
+      }
     } finally {
       await close();
     }
   });
 
-  // Same row, same instant — only the company's zone differs. This is what
-  // isolates the fix: nothing about the data changed, so the year can only have
-  // moved because the boundary did.
-  it('places the identical instant in different years by zone', async () => {
-    const { ctx, close } = await setup('tz-contrast@example.com');
+  // The case the old instant-projected window got WRONG, and the reason this is
+  // a fix rather than a trade. mark-paid stores the asserted date as midnight
+  // UTC, so a payment on 1 January sat at 00:00Z — before the 06:00Z start of
+  // that tax year in Chicago. A US business recording a New Year's Day payment
+  // had it counted on the PREVIOUS year's return.
+  it('puts a 1 Jan payment in the new year, including west of UTC', async () => {
+    const { ctx, close } = await setup('tz-jan1@example.com');
     try {
+      expect(await setTimezone(ctx, 'America/Chicago')).toBe(200);
       const cust = await createContact(ctx);
-      await paidInvoiceAt(ctx, cust, {
+      await paidInvoiceOn(ctx, cust, {
         number: 'INV-1',
         subtotal: '500.00',
-        instant: '2027-01-01T02:00:00Z',
+        paidOn: '2027-01-01',
       });
 
-      expect(await setTimezone(ctx, 'UTC')).toBe(200);
-      expect(await grossReceipts(ctx, 2026)).toBe('0.00');
       expect(await grossReceipts(ctx, 2027)).toBe('500.00');
-
-      expect(await setTimezone(ctx, 'America/Chicago')).toBe(200);
-      expect(await grossReceipts(ctx, 2026)).toBe('500.00');
-      expect(await grossReceipts(ctx, 2027)).toBe('0.00');
+      expect(await grossReceipts(ctx, 2026)).toBe('0.00');
     } finally {
       await close();
     }
   });
 
-  // The mirror case: a zone ahead of UTC pulls early-January money back into
-  // the previous year if the boundary is wrong.
-  it('handles a zone ahead of UTC', async () => {
+  // The mirror, east of UTC.
+  it('puts a 1 Jan payment in the new year, including east of UTC', async () => {
     const { ctx, close } = await setup('tz-tokyo@example.com');
     try {
       expect(await setTimezone(ctx, 'Asia/Tokyo')).toBe(200);
       const cust = await createContact(ctx);
-      // 08:00 on 1 Jan 2027 in Tokyo is 23:00Z on 31 Dec 2026.
-      await paidInvoiceAt(ctx, cust, {
+      await paidInvoiceOn(ctx, cust, {
         number: 'INV-1',
         subtotal: '300.00',
-        instant: '2026-12-31T23:00:00Z',
+        paidOn: '2027-01-01',
       });
 
       expect(await grossReceipts(ctx, 2027)).toBe('300.00');

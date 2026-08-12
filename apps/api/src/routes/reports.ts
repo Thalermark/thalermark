@@ -601,14 +601,76 @@ async function buildTaxWorksheet(
     // also sweep in owner contributions and loan proceeds, which are cash in
     // but not revenue. Querying invoices excludes them structurally rather than
     // by blocklist. subtotal is pre-tax — sales tax collected is not income.
-    // Safe against later edits because 'paid' is a terminal status, so a filed
-    // year can't be retroactively altered.
     //
-    // NOTE: this assumes payment is all-or-nothing (there is no partial payment
-    // or deposit model today). If deposits land, this silently becomes wrong —
-    // it must move to a payments table at that point. All four forms inherit
-    // this.
+    // TWO SOURCES, DELIBERATELY DISJOINT (TMC-254) — the same shape the paid-bill
+    // block above uses, and for the same reason.
+    //
+    // This used to be one query: sum subtotal where status = 'paid' and paid_at
+    // lands in the year. The note that stood here said it assumed payment was
+    // all-or-nothing and would silently become wrong if deposits landed. They
+    // landed in TMC-187 and this was not revisited. A part-paid invoice is still
+    // 'sent', so the money received against it counted for nothing until the
+    // invoice settled — and then the WHOLE subtotal landed in whatever year that
+    // happened to be. Deposit in December, balance in January, and a year of
+    // income moved. Worse, an invoice that never settles never contributed its
+    // cash at all: the business banked it and the return never saw it.
+    //
+    // The receipts are now the source, at the date each one arrived. Refunds are
+    // negative rows, so they reduce receipts in the year the money went back —
+    // which is what cash basis means.
     const [row] = await tx
+      .select({
+        // PROPORTIONAL ALLOCATION, decided 2026-08-11. An invoice total is
+        // subtotal + sales tax, and tax collected is not income, so a partial
+        // receipt has to be split. There is no IRS rule for this; IRC 446 asks
+        // only that the method clearly reflect income and be applied
+        // consistently. Proportional is the one option that invents nothing:
+        // income-first and tax-first each require asserting a payment-application
+        // rule that no statute, contract or customer instruction supplies, while
+        // pro rata just says a half-paid invoice is half-earned.
+        //
+        // Note the tax liability itself is NOT what is being split here and does
+        // not move — issuing the invoice credits Sales Tax Payable in full, and a
+        // receipt posts Dr Cash / Cr AR, touching neither revenue nor the tax. So
+        // this is a question about the income side alone.
+        //
+        // Rounded ONCE over the whole sum rather than per receipt. Per-receipt
+        // rounding would let a fully-paid invoice report a cent off its own
+        // subtotal, which would be a regression on the overwhelmingly common
+        // case; summed exactly first, a fully-paid invoice contributes precisely
+        // its subtotal because the fractions add back to one.
+        //
+        // nullif is the zero-total guard: the term goes NULL and sum skips it. A
+        // zero-total invoice carries no revenue to allocate, so contributing
+        // nothing is the honest answer rather than a division by zero.
+        gross: sql<string>`round(coalesce(sum(${invoicePayments.amount} * ${invoices.subtotal} / nullif(${invoices.total}, 0)), 0), 2)::numeric(15,2)`,
+      })
+      .from(invoicePayments)
+      .innerJoin(invoices, eq(invoicePayments.invoiceId, invoices.id))
+      .where(
+        and(
+          eq(invoicePayments.accountId, accountId),
+          eq(invoicePayments.companyId, id),
+          // Bare-date comparison against received_on, matching the bill-payment
+          // read above and for the same reason: the date money arrived is a
+          // calendar date the payer asserts, not an instant with a zone.
+          gte(invoicePayments.receivedOn, from),
+          lt(invoicePayments.receivedOn, toExclusiveDate),
+        ),
+      );
+    grossReceiptsCents = toCents(row?.gross ?? '0.00');
+
+    // The legacy header-only path, kept disjoint by NOT EXISTS exactly as the
+    // bills half keeps its two sources from double-counting.
+    //
+    // Honest about what this is: a backstop, not a live path. Migration 0032
+    // backfilled a payment row for every invoice settled before TMC-187, and
+    // mark-paid has written rows ever since, so the only invoices that can reach
+    // here are the zero-total ones 0032 deliberately skipped — and they
+    // contribute zero. It stays because the alternative is a report that is
+    // correct only as long as that reasoning holds, and because a filed tax
+    // figure is the wrong place to be clever about a query one can simply keep.
+    const [legacy] = await tx
       .select({
         gross: sql<string>`coalesce(sum(${invoices.subtotal}), 0)::numeric(15,2)`,
       })
@@ -620,9 +682,10 @@ async function buildTaxWorksheet(
           eq(invoices.status, 'paid'),
           gte(invoices.paidAt, fromInstant),
           lt(invoices.paidAt, toExclusiveInstant),
+          sql`not exists (select 1 from ${invoicePayments} where ${invoicePayments.invoiceId} = ${invoices.id})`,
         ),
       );
-    grossReceiptsCents = toCents(row?.gross ?? '0.00');
+    grossReceiptsCents += toCents(legacy?.gross ?? '0.00');
 
     // Plus revenue carried in on a conversion balance (TMC-169).
     //
