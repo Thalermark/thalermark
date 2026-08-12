@@ -1,5 +1,6 @@
 import { authUser, chartOfAccounts, companies, memberships } from '@thalermark/db';
-import { and, eq } from 'drizzle-orm';
+import { centsToMoney, toCents } from '@thalermark/validation';
+import { and, eq, sql } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
@@ -181,6 +182,59 @@ async function invoice(
     await post(ctx, `/api/invoices/${id}/mark-paid`, { method: 'cash', paidOn: opts.paidOn });
   }
   return id;
+}
+
+// An issued, unpaid invoice carrying sales tax, so the proportional split has
+// something to split. `invoice()` above always bills tax 0.00.
+async function taxedInvoice(
+  ctx: Ctx,
+  contactId: string,
+  opts: { number: string; subtotal: string; tax: string; issueDate: string },
+): Promise<string> {
+  const total = centsToMoney(toCents(opts.subtotal) + toCents(opts.tax));
+  const res = await ctx.app.request('/api/invoices', {
+    method: 'POST',
+    headers: headers(ctx),
+    body: JSON.stringify({
+      companyId: ctx.companyId,
+      contactId,
+      number: opts.number,
+      issueDate: opts.issueDate,
+      dueDate: opts.issueDate,
+      subtotal: opts.subtotal,
+      tax: opts.tax,
+      total,
+      lineItems: [
+        {
+          position: 1,
+          description: 'Service',
+          quantity: '1',
+          unitPrice: opts.subtotal,
+          amount: opts.subtotal,
+        },
+      ],
+    }),
+  });
+  if (res.status !== 201)
+    throw new Error(`taxed invoice create failed: ${res.status} ${await res.text()}`);
+  const id = ((await res.json()) as { id: string }).id;
+  await post(ctx, `/api/invoices/${id}/mark-sent`);
+  return id;
+}
+
+// One receipt against an invoice. A negative amount is a refund.
+async function receipt(
+  ctx: Ctx,
+  invoiceId: string,
+  opts: { amount: string; receivedOn: string },
+): Promise<void> {
+  const res = await ctx.app.request(`/api/invoices/${invoiceId}/payments`, {
+    method: 'POST',
+    headers: headers(ctx),
+    body: JSON.stringify({ method: 'check', ...opts }),
+  });
+  if (res.status !== 201 && res.status !== 200)
+    throw new Error(`receipt failed: ${res.status} ${await res.text()}`);
 }
 
 async function bill(
@@ -631,6 +685,148 @@ type Worksheet = {
     }[];
   };
 };
+
+// TMC-254. Cash-basis gross receipts used to come off the invoice HEADER —
+// subtotal where status = 'paid' and paid_at landed in the year — so money
+// received against a part-paid invoice counted for nothing until the invoice
+// settled, then arrived whole in whatever year that was. These assert the
+// receipts are the source, and that the proportional allocation keeps sales tax
+// out of income.
+describe('cash-basis gross receipts follow the money (TMC-254)', () => {
+  beforeEach(resetDb);
+
+  // The headline case, with the numbers from the decision: $1,000 of work plus
+  // $80 sales tax, half down in December, the rest in February.
+  it('counts a deposit in the year it arrived, net of sales tax', async () => {
+    const { ctx, close } = await setup('gr-deposit@example.com');
+    try {
+      const cust = await createContact(ctx);
+      const inv = await taxedInvoice(ctx, cust, {
+        number: 'INV-1',
+        subtotal: '1000.00',
+        tax: '80.00',
+        issueDate: '2026-12-01',
+      });
+      await receipt(ctx, inv, { amount: '540.00', receivedOn: '2026-12-15' });
+      await receipt(ctx, inv, { amount: '540.00', receivedOn: '2027-02-20' });
+
+      // 540 × 1000/1080 = 500.00. Not 540 (that would tax the state's money as
+      // income) and not 0 (which is what this reported before).
+      const y2026 = await getScheduleC(ctx, '?year=2026&basis=cash');
+      expect(y2026.body.partI.grossReceipts).toBe('500.00');
+      const y2027 = await getScheduleC(ctx, '?year=2027&basis=cash');
+      expect(y2027.body.partI.grossReceipts).toBe('500.00');
+    } finally {
+      await close();
+    }
+  });
+
+  // The worse half of the bug: this money was banked and the return never saw
+  // it, permanently — not merely in the wrong year.
+  it('counts the cash from an invoice that never settles', async () => {
+    const { ctx, close } = await setup('gr-defaulted@example.com');
+    try {
+      const cust = await createContact(ctx);
+      const inv = await taxedInvoice(ctx, cust, {
+        number: 'INV-1',
+        subtotal: '1000.00',
+        tax: '80.00',
+        issueDate: '2026-03-01',
+      });
+      await receipt(ctx, inv, { amount: '540.00', receivedOn: '2026-03-10' });
+
+      const { body } = await getScheduleC(ctx, '?year=2026&basis=cash');
+      expect(body.partI.grossReceipts).toBe('500.00');
+      // Still open, so accrual still recognises the whole thing at issue.
+      const accrual = await getScheduleC(ctx, '?year=2026&basis=accrual');
+      expect(accrual.body.partI.grossReceipts).toBe('1000.00');
+    } finally {
+      await close();
+    }
+  });
+
+  // Rounding guard, and the reason the sum is rounded once rather than per
+  // receipt. An 8.25% rate on $100 divides badly: allocate-then-round each of
+  // three receipts and the year can land a cent off the subtotal, which would be
+  // a regression on the commonest case in the product.
+  it('reports exactly the subtotal for an invoice paid off within the year', async () => {
+    const { ctx, close } = await setup('gr-rounding@example.com');
+    try {
+      const cust = await createContact(ctx);
+      const inv = await taxedInvoice(ctx, cust, {
+        number: 'INV-1',
+        subtotal: '100.00',
+        tax: '8.25',
+        issueDate: '2026-01-10',
+      });
+      await receipt(ctx, inv, { amount: '36.08', receivedOn: '2026-02-01' });
+      await receipt(ctx, inv, { amount: '36.08', receivedOn: '2026-03-01' });
+      await receipt(ctx, inv, { amount: '36.09', receivedOn: '2026-04-01' });
+
+      const { body } = await getScheduleC(ctx, '?year=2026&basis=cash');
+      expect(body.partI.grossReceipts).toBe('100.00');
+    } finally {
+      await close();
+    }
+  });
+
+  it('takes a refund back out in the year the money went back', async () => {
+    const { ctx, close } = await setup('gr-refund@example.com');
+    try {
+      const cust = await createContact(ctx);
+      const inv = await taxedInvoice(ctx, cust, {
+        number: 'INV-1',
+        subtotal: '1000.00',
+        tax: '80.00',
+        issueDate: '2026-06-01',
+      });
+      await receipt(ctx, inv, { amount: '1080.00', receivedOn: '2026-06-05' });
+      await receipt(ctx, inv, { amount: '-540.00', receivedOn: '2027-01-20' });
+
+      const y2026 = await getScheduleC(ctx, '?year=2026&basis=cash');
+      expect(y2026.body.partI.grossReceipts).toBe('1000.00');
+      // The refund reduces receipts where it happened, rather than restating a
+      // year that may already be filed.
+      const y2027 = await getScheduleC(ctx, '?year=2027&basis=cash');
+      expect(y2027.body.partI.grossReceipts).toBe('-500.00');
+    } finally {
+      await close();
+    }
+  });
+
+  // The two sources must not overlap. An invoice settled through payment rows
+  // has to be counted by the receipts query alone, and one settled on the header
+  // before TMC-187 by the legacy query alone.
+  it('counts an invoice exactly once, whichever path settled it', async () => {
+    const { ctx, close } = await setup('gr-legacy@example.com');
+    try {
+      const cust = await createContact(ctx);
+      // Modern: rows behind it.
+      await invoice(ctx, cust, {
+        number: 'INV-1',
+        subtotal: '300.00',
+        issueDate: '2026-05-01',
+        paidOn: '2026-05-02',
+      });
+      const modern = await getScheduleC(ctx, '?year=2026&basis=cash');
+      expect(modern.body.partI.grossReceipts).toBe('300.00');
+
+      // Legacy: header stamps, no rows — the pre-TMC-187 shape.
+      const old = await invoice(ctx, cust, {
+        number: 'INV-2',
+        subtotal: '200.00',
+        issueDate: '2026-06-01',
+        paidOn: '2026-06-02',
+      });
+      await getTestDb().execute(sql`delete from invoice_payments where invoice_id = ${old}`);
+
+      const { body } = await getScheduleC(ctx, '?year=2026&basis=cash');
+      expect(body.partI.grossReceipts).toBe('500.00');
+    } finally {
+      await close();
+    }
+  });
+});
 
 type WorksheetRow = {
   line: string;
