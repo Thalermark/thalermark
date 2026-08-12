@@ -48,7 +48,13 @@ const config = {
         'connect-src': ['self', 'https://api.stripe.com', ...(apiOrigin ? [apiOrigin] : [])],
         'frame-src': ['https://js.stripe.com', 'https://hooks.stripe.com'],
         'base-uri': ['self'],
-        'form-action': ['self'],
+        // Chrome (unlike Firefox) re-checks `form-action` against the redirect
+        // target, not just the form's action URL. Settings → Payments posts to
+        // its own `?/onboard` action, which 303s to the Stripe Account Link, so
+        // 'self' alone blocks Connect onboarding at the redirect — and the
+        // console blames the same-origin action URL, which reads as nonsense.
+        // This is the only off-site form redirect in the app.
+        'form-action': ['self', 'https://connect.stripe.com'],
         'frame-ancestors': ['none'],
         'object-src': ['none'],
       },
