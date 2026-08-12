@@ -54,6 +54,7 @@ import {
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 import type { AppDeps } from '../app.js';
+import { acceptRate, estimateLapsed, estimateTodayYmd } from '../lib/estimate-outcomes.js';
 import {
   displayHours,
   effectiveHourly,
@@ -1325,9 +1326,25 @@ export function reportsRoutes(deps: AppDeps) {
         },
       )
       // Estimate win rate (insight set). Estimate counts + pre-tax value grouped
-      // by status for estimates issued in the window. Win rate = accepted /
-      // (accepted + declined + expired) by count — "decided" excludes still-open
-      // draft/sent. Null when nothing has been decided yet.
+      // by status for estimates issued in the window.
+      //
+      // TWO THINGS WERE WRONG HERE, AND THEY WERE THE SAME THING (TMC-255).
+      //
+      // The rate divided by `accepted + declined + expired`, and `expired` is
+      // never a stored status — so the term was permanently zero, arithmetic on
+      // a column that cannot have a value. Worse, the fixed status set emitted
+      // an `expired: 0` row, which is not a zero state: it is a number the
+      // system is structurally incapable of producing, printed as if it were a
+      // measurement. A company with five lapsed quotes read "0 expired".
+      //
+      // Both are fixed by grouping on a DERIVED status rather than the stored
+      // one, so `sent` means genuinely still open and `expired` means what a
+      // person means by it. The denominator then drops expired deliberately —
+      // see the note on acceptRate for why a lapsed quote is not a decision.
+      //
+      // This is also what makes the report agree with the contact page, which
+      // ships its own lapsed count. Two screens answering "do they say yes"
+      // differently is the defect class this codebase kept producing.
       .get(
         '/api/companies/:id/estimate-win-rate',
         validator('query', (v) => ({
@@ -1350,9 +1367,15 @@ export function reportsRoutes(deps: AppDeps) {
           const win = parseReportWindow(fromRaw, toRaw, company.timezone);
           if ('error' in win) return c.json({ error: win.error }, 400);
 
+          // The status a PERSON would name, not the one the column happens to
+          // hold: a sent quote past its expiry date reads 'expired'. Derived
+          // through the shared predicate so this report and the contact page
+          // cannot disagree about whether a given quote lapsed.
+          const today = estimateTodayYmd();
+          const derivedStatus = sql<string>`case when ${estimateLapsed(today)} then 'expired' else ${estimates.status} end`;
           const rows = await tx
             .select({
-              status: estimates.status,
+              status: derivedStatus,
               count: sql<number>`count(*)::int`,
               value: sql<string>`sum(${estimates.subtotal})::numeric(15,2)`,
             })
@@ -1365,7 +1388,14 @@ export function reportsRoutes(deps: AppDeps) {
                 lte(estimates.issueDate, win.to),
               ),
             )
-            .groupBy(estimates.status);
+            // GROUP BY the ORDINAL, not the expression. `derivedStatus` carries
+            // a bound parameter for today's date, and drizzle emits a fresh
+            // placeholder each time the fragment is interpolated — $1 in the
+            // select, $6 in the group by — so Postgres sees two different
+            // expressions and refuses the column. Same footgun the report
+            // timezone work hit (TMC-168): a parameterized GROUP BY does not
+            // match its SELECT.
+            .groupBy(sql`1`);
 
           // Normalize to a fixed status set (zeros for absent statuses) so the
           // page renders consistently.
@@ -1377,15 +1407,23 @@ export function reportsRoutes(deps: AppDeps) {
           });
           const countFor = (s: string) => byStatus.find((b) => b.status === s)?.count ?? 0;
           const accepted = countFor('accepted');
-          const decided = accepted + countFor('declined') + countFor('expired');
+          const declined = countFor('declined');
+          // ANSWERED, not "decided". A lapsed quote is reported beside the rate
+          // rather than inside it.
+          const answered = accepted + declined;
           return c.json({
             from: win.from,
             to: win.to,
             byStatus,
             acceptedCount: accepted,
-            decidedCount: decided,
-            // 4-dp ratio (e.g. "0.6667"); null when nothing decided yet.
-            winRate: decided > 0 ? (accepted / decided).toFixed(4) : null,
+            declinedCount: declined,
+            lapsedCount: countFor('expired'),
+            // Kept under its original name so the existing clients keep reading
+            // a field that still means what they render it as — how many quotes
+            // this rate is computed over.
+            decidedCount: answered,
+            // 4-dp ratio (e.g. "0.6667"); null when nothing has been answered.
+            winRate: acceptRate(accepted, declined),
           });
         },
       )

@@ -45,8 +45,8 @@
 <PeriodSelector {presets} {activeKey} from={report.from} to={report.to} />
 
 <p class="mt-4 text-sm text-fg/60">
-  {report.from} → {report.to}. Of the estimates you've heard back on (accepted, declined, or
-  expired), how many turned into work.
+  {report.from} → {report.to}. Of the estimates you've had an answer on, how many turned into work.
+  Quotes that ran out without a reply are counted separately — nobody said no, they said nothing.
 </p>
 
 <div class="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -57,12 +57,28 @@
     </div>
     <div class="mt-1 text-xs text-fg/50">
       {#if winPct === null}
-        Nothing decided yet
+        No answers yet
       {:else}
-        {report.acceptedCount} of {report.decidedCount} decided
+        {report.acceptedCount} of {report.decidedCount} answered
       {/if}
     </div>
   </div>
+  <!--
+    Only when it has happened. A tile reading "0 expired without an answer" is
+    the same empty statement the report used to make with its permanently-zero
+    expired row.
+  -->
+  {#if report.lapsedCount > 0}
+    <div class="rounded-sm border border-fg/10 bg-surface-2 p-5">
+      <div class="label">No answer</div>
+      <div class="mt-2 font-serif text-4xl font-light text-fg tabular-nums">
+        {report.lapsedCount}
+      </div>
+      <div class="mt-1 text-xs text-fg/50">
+        {report.lapsedCount === 1 ? 'quote ran out' : 'quotes ran out'} unanswered
+      </div>
+    </div>
+  {/if}
 </div>
 
 <div class="mt-4 overflow-hidden rounded-sm border border-fg/10 bg-surface-2">

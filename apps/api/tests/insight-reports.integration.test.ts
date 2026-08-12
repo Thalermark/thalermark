@@ -147,9 +147,20 @@ async function createInvoice(
 
 async function createEstimate(
   ctx: Ctx,
-  opts: { number: string; issueDate: string; subtotal: string },
+  // expiresOn defaults to the issue date, which is what every caller written
+  // before TMC-255 relied on — and is also why those fixtures were quietly
+  // testing LAPSED quotes while calling them sent. Pass it explicitly when the
+  // difference matters. contactId lets several estimates share one customer,
+  // which the per-contact agreement check needs.
+  opts: {
+    number: string;
+    issueDate: string;
+    subtotal: string;
+    expiresOn?: string;
+    contactId?: string;
+  },
 ): Promise<string> {
-  const contactId = await createContact(ctx, `Cust ${opts.number}`);
+  const contactId = opts.contactId ?? (await createContact(ctx, `Cust ${opts.number}`));
   const res = await ctx.app.request('/api/estimates', {
     method: 'POST',
     headers: headers(ctx),
@@ -158,7 +169,7 @@ async function createEstimate(
       contactId,
       number: opts.number,
       issueDate: opts.issueDate,
-      expiresOn: opts.issueDate,
+      expiresOn: opts.expiresOn ?? opts.issueDate,
       subtotal: opts.subtotal,
       tax: '0.00',
       total: opts.subtotal,
@@ -325,18 +336,119 @@ describe('GET /api/companies/:id/estimate-win-rate', () => {
       const body = (await res.json()) as {
         byStatus: { status: string; count: number; value: string }[];
         acceptedCount: number;
+        declinedCount: number;
+        lapsedCount: number;
         decidedCount: number;
         winRate: string | null;
       };
       const byStatus = Object.fromEntries(body.byStatus.map((s) => [s.status, s]));
       expect(byStatus.accepted).toEqual({ status: 'accepted', count: 2, value: '200.00' });
       expect(byStatus.declined).toEqual({ status: 'declined', count: 1, value: '50.00' });
-      expect(byStatus.sent).toEqual({ status: 'sent', count: 1, value: '200.00' });
+      // S1 was sent with an expiry of 2026-03-03 and never answered, so it is
+      // LAPSED, not still open. This test previously asserted `sent: 1` and
+      // `expired: 0` — reporting a quote that ran out five months ago as live
+      // work, and printing a zero for the bucket it actually belonged in
+      // (TMC-255).
+      expect(byStatus.sent).toEqual({ status: 'sent', count: 0, value: '0.00' });
+      expect(byStatus.expired).toEqual({ status: 'expired', count: 1, value: '200.00' });
       expect(byStatus.draft).toEqual({ status: 'draft', count: 1, value: '30.00' });
-      expect(byStatus.expired).toEqual({ status: 'expired', count: 0, value: '0.00' });
       expect(body.acceptedCount).toBe(2);
+      expect(body.declinedCount).toBe(1);
+      expect(body.lapsedCount).toBe(1);
+      // The rate is off ANSWERED quotes. The lapsed one is reported beside it,
+      // not inside it: the customer said nothing, and the expiry date was the
+      // operator's own choice.
       expect(body.decidedCount).toBe(3);
       expect(body.winRate).toBe('0.6667');
+    } finally {
+      await close();
+    }
+  });
+
+  // The case the suite never had: a quote that is genuinely still out. The
+  // fixture dates every estimate's expiry to its issue date, so before TMC-255
+  // every "sent" estimate in these tests was silently a lapsed one.
+  it('keeps a live quote in sent and out of the rate', async () => {
+    const { ctx, close } = await setup('ewr-live@example.com');
+    try {
+      const live = await createEstimate(ctx, {
+        number: 'L1',
+        issueDate: '2026-03-01',
+        subtotal: '400.00',
+        expiresOn: '2099-01-01',
+      });
+      await post(ctx, `/api/estimates/${live}/mark-sent`);
+      const won = await createEstimate(ctx, {
+        number: 'W1',
+        issueDate: '2026-03-01',
+        subtotal: '100.00',
+        expiresOn: '2099-01-01',
+      });
+      await post(ctx, `/api/estimates/${won}/mark-sent`);
+      await post(ctx, `/api/estimates/${won}/mark-accepted`);
+
+      const res = await ctx.app.request(
+        `/api/companies/${ctx.companyId}/estimate-win-rate${WINDOW}`,
+        { headers: headers(ctx) },
+      );
+      const body = (await res.json()) as {
+        byStatus: { status: string; count: number; value: string }[];
+        lapsedCount: number;
+        decidedCount: number;
+        winRate: string | null;
+      };
+      const byStatus = Object.fromEntries(body.byStatus.map((s) => [s.status, s]));
+      expect(byStatus.sent).toEqual({ status: 'sent', count: 1, value: '400.00' });
+      expect(byStatus.expired).toEqual({ status: 'expired', count: 0, value: '0.00' });
+      expect(body.lapsedCount).toBe(0);
+      // One accepted, nothing declined, and the live quote is not an answer.
+      expect(body.decidedCount).toBe(1);
+      expect(body.winRate).toBe('1.0000');
+    } finally {
+      await close();
+    }
+  });
+
+  // The whole point of extracting the predicate: two screens asking "did they
+  // say yes" cannot answer differently for the same quotes.
+  it('agrees with the contact page about what lapsed', async () => {
+    const { ctx, close } = await setup('ewr-agree@example.com');
+    try {
+      // Both on ONE customer, so the contact page and the company report are
+      // looking at the same two quotes.
+      const cust = await createContact(ctx, 'Agreement Co');
+      const lapsed = await createEstimate(ctx, {
+        number: 'X1',
+        issueDate: '2026-03-01',
+        subtotal: '100.00',
+        expiresOn: '2026-03-15',
+        contactId: cust,
+      });
+      await post(ctx, `/api/estimates/${lapsed}/mark-sent`);
+      const open = await createEstimate(ctx, {
+        number: 'X2',
+        issueDate: '2026-03-01',
+        subtotal: '100.00',
+        expiresOn: '2099-01-01',
+        contactId: cust,
+      });
+      await post(ctx, `/api/estimates/${open}/mark-sent`);
+
+      const reportRes = await ctx.app.request(
+        `/api/companies/${ctx.companyId}/estimate-win-rate${WINDOW}`,
+        { headers: headers(ctx) },
+      );
+      const report = (await reportRes.json()) as { lapsedCount: number };
+      const insightsRes = await ctx.app.request(`/api/contacts/${cust}/insights`, {
+        headers: headers(ctx),
+      });
+      const insights = (await insightsRes.json()) as {
+        estimates: { lapsed: number; open: number };
+      };
+
+      expect(report.lapsedCount).toBe(1);
+      expect(insights.estimates.lapsed).toBe(report.lapsedCount);
+      expect(insights.estimates.open).toBe(1);
     } finally {
       await close();
     }
