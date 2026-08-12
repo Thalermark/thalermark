@@ -11,6 +11,7 @@ import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 import { v7 as uuidv7 } from 'uuid';
 import type { AppDeps } from '../app.js';
+import { buildCustomerInsights, buildCustomerReliability } from '../lib/customer-insights.js';
 import { buildCustomerStatement } from '../lib/customer-statement.js';
 import { resolveEmailTemplate } from '../lib/email-templates.js';
 import { mailerDelivers } from '../lib/mailer.js';
@@ -288,48 +289,29 @@ export function contactsRoutes(deps: AppDeps) {
       // early). overdue* count invoices still unpaid past due. One aggregate
       // pass; no LLM — the numbers are the insight. The customer page renders a
       // plain-English line from these and decides the "enough history" floor.
+      //
+      // The SQL now lives in lib/customer-insights.ts and this route delegates,
+      // so this endpoint and /insights cannot answer "pays late 3 of 7 times"
+      // differently. Nothing outside this repo consumes it — the commercial repo
+      // was searched — so once both clients move to /insights it can be retired
+      // rather than maintained forever.
       .get('/api/contacts/:id/payment-reliability', async (c) => {
         const id = c.req.param('id');
         if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
-
-        const [customer] = await tx
-          .select({ id: contacts.id })
-          .from(contacts)
-          .where(and(eq(contacts.id, id), eq(contacts.accountId, accountId)))
-          .limit(1);
-        if (!customer) return c.json({ error: 'contact_not_found' }, 404);
-
-        const todayYmd = new Date().toISOString().slice(0, 10);
-        const [stats] = await tx
-          .select({
-            paidCount: sql<number>`count(*) filter (where ${invoices.paidAt} is not null)::int`,
-            lateCount: sql<number>`count(*) filter (where ${invoices.paidAt} is not null and (${invoices.paidAt} at time zone 'UTC')::date > ${invoices.dueDate})::int`,
-            // Average days past due over the LATE invoices only ("when late,
-            // about N days late"). Averaging over all paid invoices would let a
-            // far-out due date swing it wildly; this stays the intuitive figure
-            // and is always >= 1. Null when nothing was paid late.
-            avgDaysLate: sql<
-              number | null
-            >`round(avg((${invoices.paidAt} at time zone 'UTC')::date - ${invoices.dueDate}) filter (where ${invoices.paidAt} is not null and (${invoices.paidAt} at time zone 'UTC')::date > ${invoices.dueDate}))::int`,
-            overdueCount: sql<number>`count(*) filter (where ${invoices.status} = 'sent' and ${invoices.dueDate} < ${todayYmd})::int`,
-            overdueTotal: sql<string>`coalesce(sum(${invoices.total}) filter (where ${invoices.status} = 'sent' and ${invoices.dueDate} < ${todayYmd}), 0)::numeric(15,2)`,
-          })
-          .from(invoices)
-          .where(and(eq(invoices.accountId, accountId), eq(invoices.contactId, id)));
-
-        const paidCount = stats?.paidCount ?? 0;
-        const lateCount = stats?.lateCount ?? 0;
-        return c.json({
-          paidCount,
-          lateCount,
-          onTimeCount: paidCount - lateCount,
-          latePct: paidCount > 0 ? Math.round((lateCount / paidCount) * 100) : null,
-          avgDaysLate: stats?.avgDaysLate ?? null,
-          overdueCount: stats?.overdueCount ?? 0,
-          overdueTotal: stats?.overdueTotal ?? '0.00',
-        });
+        const reliability = await buildCustomerReliability(c.get('tx'), c.get('accountId'), id);
+        if (!reliability) return c.json({ error: 'contact_not_found' }, 404);
+        return c.json(reliability);
+      })
+      // Customer insights — what this one customer is worth and whether they
+      // pay, for the contact page. Five index-backed reads; see the long note in
+      // lib/customer-insights.ts for what each figure means and which of them is
+      // pre-tax. Degrades to null on the client rather than 500ing the page.
+      .get('/api/contacts/:id/insights', async (c) => {
+        const id = c.req.param('id');
+        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+        const insights = await buildCustomerInsights(c.get('tx'), c.get('accountId'), id);
+        if (!insights) return c.json({ error: 'contact_not_found' }, 404);
+        return c.json(insights);
       })
       // Customer statement — a send-to-customer account document (not a /reports
       // analytics page): the customer's issued invoices as a chronological

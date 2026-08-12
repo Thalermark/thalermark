@@ -43,6 +43,11 @@
   // this constant have to agree.
   const LABEL_BAND = 22;
 
+  // Widest a single band may be drawn, as a percentage of the plot. Twelve
+  // months land near 6%, so the usual case never meets this; it exists to stop a
+  // three-row series rendering as three slabs.
+  const MAX_SLOT_PCT = 10;
+
   const rows = $derived([...data]);
 
   // The domain is the x key's value per row, so the band scale and the labels
@@ -97,6 +102,15 @@
             {#each rows as row, rowIndex (domain[rowIndex])}
               {@const bandStart = xScale(domain[rowIndex]) ?? 0}
               {@const bandWidth = xScale.bandwidth()}
+              <!-- A band scale divides the full width among however many rows
+                   there are, so three months produce bars a third of the chart
+                   wide — slabs rather than columns, which reads as a different
+                   kind of graphic entirely. Cap the drawn slot and centre it in
+                   its band: a twelve-month series is already narrower than the
+                   cap and is untouched, while a sparse one stays legible as a
+                   bar chart. -->
+              {@const slot = Math.min(bandWidth, MAX_SLOT_PCT)}
+              {@const slotStart = bandStart + (bandWidth - slot) / 2}
               {#each series as s, seriesIndex (s.key)}
                 {@const value = toNumber((row as Record<string, unknown>)[s.key] as string | null)}
                 {#if value !== null && ceiling !== null && ceiling > 0}
@@ -105,9 +119,9 @@
                        With one series that is the whole band, so the common
                        case pays nothing for the general one. -->
                   <rect
-                    x="{bandStart + (bandWidth / series.length) * seriesIndex}%"
+                    x="{slotStart + (slot / series.length) * seriesIndex}%"
                     y="{topPct}%"
-                    width="{bandWidth / series.length}%"
+                    width="{slot / series.length}%"
                     height="{100 - topPct}%"
                     rx="2"
                     fill={toneFill(s.tone ?? toneForIndex(seriesIndex))}
