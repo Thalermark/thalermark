@@ -63,12 +63,25 @@ export function buildStatementEmail(input: StatementEmailInput): {
     emailFooterText(true),
   ].join('\n');
 
-  const cell = (v: string, right = false) =>
-    `<td style="padding:6px 8px;border-bottom:1px solid #ece3cf;${right ? 'text-align:right;white-space:nowrap;' : ''}">${v}</td>`;
+  // The description is the ONLY cell allowed to wrap. An email client renders
+  // this table into a card a few hundred pixels wide, and a date left to wrap
+  // breaks mid-value — "2026-03-" on one line and "01" on the next — which reads
+  // as two columns of garbage down the left edge of a document the customer is
+  // meant to trust. The money cells already said nowrap for the same reason; the
+  // date was simply missed. Prose is what should absorb a narrow viewport.
+  const cell = (v: string, opts: { right?: boolean; nowrap?: boolean } = {}) => {
+    const style = [
+      'padding:6px 8px',
+      'border-bottom:1px solid #ece3cf',
+      ...(opts.right ? ['text-align:right'] : []),
+      ...(opts.right || opts.nowrap ? ['white-space:nowrap'] : []),
+    ].join(';');
+    return `<td style="${style};">${v}</td>`;
+  };
   const rows = statement.lines
     .map(
       (l) =>
-        `<tr>${cell(escapeHtml(l.date))}${cell(escapeHtml(l.description))}${cell(l.charge ? escapeHtml(money(l.charge)) : '', true)}${cell(l.payment ? escapeHtml(money(l.payment)) : '', true)}${cell(escapeHtml(money(l.balance)), true)}</tr>`,
+        `<tr>${cell(escapeHtml(l.date), { nowrap: true })}${cell(escapeHtml(l.description))}${cell(l.charge ? escapeHtml(money(l.charge)) : '', { right: true })}${cell(l.payment ? escapeHtml(money(l.payment)) : '', { right: true })}${cell(escapeHtml(money(l.balance)), { right: true })}</tr>`,
     )
     .join('');
   const head =
