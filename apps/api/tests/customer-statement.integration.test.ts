@@ -1,5 +1,5 @@
-import { authUser, companies, memberships } from '@thalermark/db';
-import { eq } from 'drizzle-orm';
+import { authUser, companies, invoices, memberships } from '@thalermark/db';
+import { eq, sql } from 'drizzle-orm';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
 import type { Env } from '../src/env.js';
@@ -184,6 +184,31 @@ async function post(ctx: Ctx, path: string, body?: unknown): Promise<void> {
   if (res.status !== 200) throw new Error(`POST ${path} failed: ${res.status} ${await res.text()}`);
 }
 
+// Record a receipt against an invoice. A NEGATIVE amount is a refund — the
+// column is signed and the API takes a signedMoneyString.
+async function pay(
+  ctx: Ctx,
+  invoiceId: string,
+  opts: { amount: string; receivedOn: string; method?: string },
+): Promise<void> {
+  const res = await ctx.app.request(`/api/invoices/${invoiceId}/payments`, {
+    method: 'POST',
+    headers: headers(ctx),
+    body: JSON.stringify({ method: 'check', ...opts }),
+  });
+  if (res.status !== 201 && res.status !== 200) {
+    throw new Error(`payment failed: ${res.status} ${await res.text()}`);
+  }
+}
+
+async function getStatement(ctx: Ctx, customerId: string): Promise<Statement> {
+  const res = await ctx.app.request(`/api/contacts/${customerId}/statement`, {
+    headers: headers(ctx),
+  });
+  if (res.status !== 200) throw new Error(`statement failed: ${res.status}`);
+  return (await res.json()) as Statement;
+}
+
 type Statement = {
   statementDate: string;
   company: { name: string };
@@ -304,6 +329,254 @@ describe('GET /api/contacts/:id/statement', () => {
   });
 });
 
+// TMC-253. The statement used to read settlement off the invoice header, so a
+// deposit was invisible and the customer was billed the whole amount again.
+describe('statement payment lines come from the receipts (TMC-253)', () => {
+  beforeEach(resetDb);
+
+  it('shows a deposit as its own dated line and owes only the rest', async () => {
+    const { ctx, close } = await setup('stmt-deposit@example.com');
+    try {
+      const cust = await createContact(ctx);
+      const inv = await createInvoice(ctx, cust, {
+        number: 'INV-1',
+        issueDate: '2026-03-01',
+        total: '450.00',
+      });
+      await post(ctx, `/api/invoices/${inv}/mark-sent`);
+      await pay(ctx, inv, { amount: '200.00', receivedOn: '2026-03-05' });
+
+      const body = await getStatement(ctx, cust);
+
+      expect(body.lines).toHaveLength(2);
+      expect(body.lines[0]).toMatchObject({
+        date: '2026-03-01',
+        description: 'Invoice INV-1',
+        charge: '450.00',
+        balance: '450.00',
+      });
+      // The line that did not exist before this fix: dated when the money
+      // arrived, for what actually arrived.
+      expect(body.lines[1]).toMatchObject({
+        date: '2026-03-05',
+        description: 'Payment received — INV-1',
+        charge: null,
+        payment: '200.00',
+        balance: '250.00',
+      });
+      expect(body.totalPayments).toBe('200.00');
+      expect(body.balanceDue).toBe('250.00');
+    } finally {
+      await close();
+    }
+  });
+
+  it('lists every instalment separately, in the order the money arrived', async () => {
+    const { ctx, close } = await setup('stmt-instalments@example.com');
+    try {
+      const cust = await createContact(ctx);
+      const inv = await createInvoice(ctx, cust, {
+        number: 'INV-1',
+        issueDate: '2026-03-01',
+        total: '450.00',
+      });
+      await post(ctx, `/api/invoices/${inv}/mark-sent`);
+      await pay(ctx, inv, { amount: '200.00', receivedOn: '2026-03-05' });
+      await pay(ctx, inv, { amount: '150.00', receivedOn: '2026-03-20' });
+
+      const body = await getStatement(ctx, cust);
+
+      expect(body.lines.map((l) => [l.date, l.payment, l.balance])).toEqual([
+        ['2026-03-01', null, '450.00'],
+        ['2026-03-05', '200.00', '250.00'],
+        ['2026-03-20', '150.00', '100.00'],
+      ]);
+      expect(body.balanceDue).toBe('100.00');
+    } finally {
+      await close();
+    }
+  });
+
+  it('credits an overpayment in full, so the balance goes negative', async () => {
+    const { ctx, close } = await setup('stmt-over@example.com');
+    try {
+      const cust = await createContact(ctx);
+      const inv = await createInvoice(ctx, cust, {
+        number: 'INV-1',
+        issueDate: '2026-03-01',
+        total: '450.00',
+      });
+      await post(ctx, `/api/invoices/${inv}/mark-sent`);
+      await pay(ctx, inv, { amount: '500.00', receivedOn: '2026-03-05' });
+
+      const body = await getStatement(ctx, cust);
+
+      // The old code emitted the INVOICE total here, so a customer who overpaid
+      // saw 450.00 credited and a zero balance — the 50.00 owed back to them
+      // simply absent.
+      expect(body.lines[1]).toMatchObject({ payment: '500.00', balance: '-50.00' });
+      expect(body.totalPayments).toBe('500.00');
+      expect(body.balanceDue).toBe('-50.00');
+    } finally {
+      await close();
+    }
+  });
+
+  it('shows a refund as its own line and puts the money back on the balance', async () => {
+    const { ctx, close } = await setup('stmt-refund@example.com');
+    try {
+      const cust = await createContact(ctx);
+      const inv = await createInvoice(ctx, cust, {
+        number: 'INV-1',
+        issueDate: '2026-03-01',
+        total: '450.00',
+      });
+      await post(ctx, `/api/invoices/${inv}/mark-sent`);
+      await pay(ctx, inv, { amount: '450.00', receivedOn: '2026-03-05' });
+      await pay(ctx, inv, { amount: '-200.00', receivedOn: '2026-03-20' });
+
+      const body = await getStatement(ctx, cust);
+
+      expect(body.lines).toHaveLength(3);
+      // Charge-side: money handed back is money owed again.
+      expect(body.lines[2]).toMatchObject({
+        date: '2026-03-20',
+        description: 'Refund issued — INV-1',
+        charge: '200.00',
+        payment: null,
+        balance: '200.00',
+      });
+      // The refund is not something the customer was invoiced for, so it does
+      // not inflate "total invoiced"; it reduces what was received.
+      expect(body.totalCharges).toBe('450.00');
+      expect(body.totalPayments).toBe('250.00');
+      expect(body.balanceDue).toBe('200.00');
+      // The footer identity the document depends on.
+      expect(body.lines.at(-1)?.balance).toBe(body.balanceDue);
+    } finally {
+      await close();
+    }
+  });
+
+  // The refund above reopened the invoice, which clears paid_at. Under the old
+  // header-driven build that erased the payment line altogether and the
+  // statement showed the original charge with nothing against it.
+  it('keeps the payment line after a refund reopens the invoice', async () => {
+    const { ctx, close } = await setup('stmt-reopen@example.com');
+    try {
+      const cust = await createContact(ctx);
+      const inv = await createInvoice(ctx, cust, {
+        number: 'INV-1',
+        issueDate: '2026-03-01',
+        total: '450.00',
+      });
+      await post(ctx, `/api/invoices/${inv}/mark-sent`);
+      await pay(ctx, inv, { amount: '450.00', receivedOn: '2026-03-05' });
+      await pay(ctx, inv, { amount: '-450.00', receivedOn: '2026-03-20' });
+
+      // Precondition: the refund really did clear the header stamp the old
+      // build depended on.
+      const [header] = await getTestDb()
+        .select({ paidAt: invoices.paidAt, status: invoices.status })
+        .from(invoices)
+        .where(eq(invoices.id, inv));
+      expect(header).toMatchObject({ paidAt: null, status: 'sent' });
+
+      const body = await getStatement(ctx, cust);
+      expect(body.lines).toHaveLength(3);
+      expect(body.lines[1]?.payment).toBe('450.00');
+      expect(body.balanceDue).toBe('450.00');
+    } finally {
+      await close();
+    }
+  });
+
+  // Pre-TMC-187 invoices carry their settlement on the header with no receipt
+  // rows behind it. Migration 0032 backfilled a row for every one with a total
+  // above zero, so what is left is the case it deliberately skipped — but the
+  // rendering must not change for any of them.
+  it('renders a legacy header-only settlement exactly as before', async () => {
+    const { ctx, close } = await setup('stmt-legacy@example.com');
+    try {
+      const cust = await createContact(ctx);
+      const inv = await createInvoice(ctx, cust, {
+        number: 'INV-1',
+        issueDate: '2026-03-01',
+        total: '450.00',
+      });
+      await post(ctx, `/api/invoices/${inv}/mark-sent`);
+      await post(ctx, `/api/invoices/${inv}/mark-paid`, {
+        method: 'check',
+        paidAt: '2026-03-05',
+      });
+      // Strip the receipt rows, leaving the header stamps — exactly the state an
+      // invoice settled before TMC-187 is in.
+      await getTestDb().execute(sql`delete from invoice_payments where invoice_id = ${inv}`);
+
+      const body = await getStatement(ctx, cust);
+
+      expect(body.lines).toHaveLength(2);
+      expect(body.lines[1]).toMatchObject({
+        description: 'Payment received — INV-1',
+        payment: '450.00',
+        balance: '0.00',
+      });
+      expect(body.balanceDue).toBe('0.00');
+    } finally {
+      await close();
+    }
+  });
+
+  // Two screens in the same product answering "what does this customer owe".
+  // The one that was wrong is the one the customer actually receives.
+  it('agrees with the A/R aging report on what is outstanding', async () => {
+    const { ctx, close } = await setup('stmt-aging@example.com');
+    try {
+      const cust = await createContact(ctx);
+      const a = await createInvoice(ctx, cust, {
+        number: 'INV-1',
+        issueDate: '2026-03-01',
+        total: '450.00',
+      });
+      await post(ctx, `/api/invoices/${a}/mark-sent`);
+      await pay(ctx, a, { amount: '200.00', receivedOn: '2026-03-05' });
+      const b = await createInvoice(ctx, cust, {
+        number: 'INV-2',
+        issueDate: '2026-04-01',
+        total: '120.00',
+      });
+      await post(ctx, `/api/invoices/${b}/mark-sent`);
+      // A settled invoice contributes nothing to either number.
+      const c = await createInvoice(ctx, cust, {
+        number: 'INV-3',
+        issueDate: '2026-04-02',
+        total: '80.00',
+      });
+      await post(ctx, `/api/invoices/${c}/mark-sent`);
+      await pay(ctx, c, { amount: '80.00', receivedOn: '2026-04-03' });
+
+      const statement = await getStatement(ctx, cust);
+      const agingRes = await ctx.app.request(
+        `/api/companies/${ctx.companyId}/ar-aging?asOf=2026-05-01`,
+        { headers: headers(ctx) },
+      );
+      const aging = (await agingRes.json()) as {
+        total: string;
+        invoices: { number: string; amount: string }[];
+      };
+
+      expect(statement.balanceDue).toBe('370.00');
+      expect(aging.total).toBe(statement.balanceDue);
+      expect(aging.invoices.map((i) => [i.number, i.amount]).sort()).toEqual([
+        ['INV-1', '250.00'],
+        ['INV-2', '120.00'],
+      ]);
+    } finally {
+      await close();
+    }
+  });
+});
+
 describe('POST /api/contacts/:id/statement/send', () => {
   beforeEach(resetDb);
 
@@ -330,6 +603,36 @@ describe('POST /api/contacts/:id/statement/send', () => {
       expect(rec.sent[0]?.to).toBe('billing@acme.test');
       expect(rec.sent[0]?.subject).toContain('$100.00');
       expect(rec.sent[0]?.html).toContain('Invoice A');
+    } finally {
+      await close();
+    }
+  });
+
+  // The bug in TMC-253 was only ever visible because this document leaves the
+  // building. The emailed copy is the artifact the customer reads, so the
+  // deposit has to be in it — not merely in the JSON the app renders from.
+  it('carries the deposit and the remaining balance into the email', async () => {
+    const rec = makeRecorder();
+    const { ctx, close } = await setup('send-deposit@example.com', { mailer: rec.mailer });
+    try {
+      const cust = await createContact(ctx, 'Acme', 'billing@acme.test');
+      const inv = await createInvoice(ctx, cust, {
+        number: 'A',
+        issueDate: '2026-03-01',
+        total: '450.00',
+      });
+      await post(ctx, `/api/invoices/${inv}/mark-sent`);
+      await pay(ctx, inv, { amount: '200.00', receivedOn: '2026-03-05' });
+
+      await post(ctx, `/api/contacts/${cust}/statement/send`, {});
+
+      const mail = rec.sent[0];
+      expect(mail?.subject).toContain('$250.00');
+      expect(mail?.html).toContain('Payment received — A');
+      expect(mail?.html).toContain('$200.00');
+      expect(mail?.text).toContain('Balance due: $250.00');
+      // The number that was being demanded of a customer who had already paid.
+      expect(mail?.text).not.toContain('Balance due: $450.00');
     } finally {
       await close();
     }
