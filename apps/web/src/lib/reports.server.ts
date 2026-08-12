@@ -150,6 +150,12 @@ export type EstimateWinRate = {
   to: string;
   byStatus: { status: string; count: number; value: string }[];
   acceptedCount: number;
+  declinedCount: number;
+  // Quotes that ran out without a reply. Counted, but NOT part of decidedCount
+  // — the customer said nothing, and the expiry date was the operator's own
+  // choice (TMC-255).
+  lapsedCount: number;
+  // How many answers the rate is computed over: accepted + declined.
   decidedCount: number;
   winRate: string | null;
 };

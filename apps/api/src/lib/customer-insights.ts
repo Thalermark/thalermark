@@ -8,6 +8,7 @@ import {
 } from '@thalermark/db';
 import { centsToMoney, toCents } from '@thalermark/validation';
 import { and, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm';
+import { estimateLapsed, estimateStillOpen } from './estimate-outcomes.js';
 import { medianCents } from './send-check.js';
 
 // What one customer is actually worth, and whether they pay.
@@ -250,8 +251,8 @@ export async function buildCustomerInsights(
     .select({
       accepted: sql<number>`count(*) filter (where ${estimates.status} = 'accepted')::int`,
       declined: sql<number>`count(*) filter (where ${estimates.status} = 'declined')::int`,
-      lapsed: sql<number>`count(*) filter (where ${estimates.status} = 'sent' and ${estimates.expiresOn} is not null and ${estimates.expiresOn} < ${today})::int`,
-      open: sql<number>`count(*) filter (where ${estimates.status} = 'sent' and (${estimates.expiresOn} is null or ${estimates.expiresOn} >= ${today}))::int`,
+      lapsed: sql<number>`count(*) filter (where ${estimateLapsed(today)})::int`,
+      open: sql<number>`count(*) filter (where ${estimateStillOpen(today)})::int`,
     })
     .from(estimates)
     .where(
