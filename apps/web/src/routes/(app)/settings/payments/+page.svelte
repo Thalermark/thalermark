@@ -3,10 +3,15 @@
 
   let { data, form }: PageProps = $props();
 
-  // The three states the page distinguishes:
+  // The four states the page distinguishes:
   //   notStarted  — no stripe_connect_account_id yet, Connect button kicks off Express onboarding
-  //   submitted   — details_submitted but not yet charges_enabled, Stripe is reviewing
+  //   started     — account exists but details_submitted is still false: they opened Stripe's
+  //                 form and backed out, so there is nothing in review yet
+  //   inReview    — details_submitted but not yet charges_enabled, Stripe is verifying
   //   enabled     — charges_enabled, contacts can pay this company
+  // started and inReview are both "can't take card payments yet" but they need opposite
+  // copy: one is waiting on the user, the other on Stripe. Deriving the stage from the
+  // account id alone collapsed them and told abandoners their details were under review.
   // stripeNotConfigured is a separate state: the operator hasn't wired
   // STRIPE_* env vars (self-host without payments), nothing to do here.
   const stripeConfigured = $derived(data.status.stripeConfigured);
@@ -15,14 +20,18 @@
       ? 'notStarted'
       : data.status.stripeConnectChargesEnabled
         ? 'enabled'
-        : 'submitted',
+        : data.status.stripeConnectDetailsSubmitted
+          ? 'inReview'
+          : 'started',
   );
   const buttonLabel = $derived(
     stage === 'notStarted'
       ? 'Connect with Stripe'
-      : stage === 'submitted'
+      : stage === 'started'
         ? 'Continue onboarding'
-        : 'Update payout details',
+        : stage === 'inReview'
+          ? 'Update details with Stripe'
+          : 'Update payout details',
   );
 </script>
 
@@ -62,7 +71,12 @@
             Connect a Stripe account so contacts can pay your invoices online. Stripe runs the
             onboarding — bank, ID, the lot. Takes a few minutes.
           </p>
-        {:else if stage === 'submitted'}
+        {:else if stage === 'started'}
+          <p class="text-sm text-fg/70">
+            You started setting up with Stripe but didn't finish, so card payments are still off.
+            Nothing's lost — pick up where you left off and Stripe will keep what you've entered.
+          </p>
+        {:else if stage === 'inReview'}
           <p class="text-sm text-fg/70">
             Your details are with Stripe. They're verifying everything and will switch payments on
             automatically when they're done — no further action needed unless they email you.

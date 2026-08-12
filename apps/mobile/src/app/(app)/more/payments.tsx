@@ -115,17 +115,25 @@ export default function PaymentsSettings() {
 
   const company = load.state === 'ready' ? load.company : null;
   const status = load.state === 'ready' ? load.status : null;
+  // Four states, mirroring web's settings/payments: started (account exists, details
+  // not submitted — waiting on the user) is deliberately distinct from inReview
+  // (submitted, waiting on Stripe). Keying off the account id alone told people who
+  // backed out of Stripe's form that their details were under review.
   const stage = !status?.stripeConnectAccountId
     ? 'notStarted'
     : status.stripeConnectChargesEnabled
       ? 'enabled'
-      : 'submitted';
+      : status.stripeConnectDetailsSubmitted
+        ? 'inReview'
+        : 'started';
   const buttonLabel =
     stage === 'notStarted'
       ? 'Connect with Stripe'
-      : stage === 'submitted'
+      : stage === 'started'
         ? 'Continue onboarding'
-        : 'Update payout details';
+        : stage === 'inReview'
+          ? 'Update details with Stripe'
+          : 'Update payout details';
 
   async function onOnboard() {
     if (!company) return;
@@ -211,9 +219,11 @@ export default function PaymentsSettings() {
                 <Text className="mt-3 text-sm text-ink/70">
                   {stage === 'notStarted'
                     ? 'Connect a Stripe account so contacts can pay your invoices online. Stripe runs the onboarding — bank, ID, the lot.'
-                    : stage === 'submitted'
-                      ? "Your details are with Stripe. They're verifying everything and will switch payments on automatically when they're done."
-                      : 'Payments are live. Contacts can pay invoices using the pay link on the public invoice page.'}
+                    : stage === 'started'
+                      ? "You started setting up with Stripe but didn't finish, so card payments are still off. Pick up where you left off — Stripe keeps what you've entered."
+                      : stage === 'inReview'
+                        ? "Your details are with Stripe. They're verifying everything and will switch payments on automatically when they're done."
+                        : 'Payments are live. Contacts can pay invoices using the pay link on the public invoice page.'}
                 </Text>
                 <View className="mt-4 flex-row justify-between">
                   <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
