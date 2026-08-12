@@ -79,7 +79,10 @@ function money(cents: number, currency: string): string {
 // drag a mean far enough to make every subsequent invoice look normal — which
 // is precisely backwards, since that outlier is the shape of the thing being
 // looked for.
-function medianCents(values: number[]): number {
+// Exported so customer-insights can state the same figure this warning compares
+// against. Two implementations of "what you usually bill them" is how the page
+// and the warning end up disagreeing in front of the user.
+export function medianCents(values: number[]): number {
   const sorted = [...values].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
   if (sorted.length % 2 === 1) return sorted[mid] as number;
