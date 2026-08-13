@@ -13,7 +13,7 @@ import {
   invoices,
 } from '@thalermark/db';
 import { getLogger } from '@thalermark/logger';
-import { centsToMoney } from '@thalermark/validation';
+import { centsToMoney, localDay } from '@thalermark/validation';
 import { and, asc, desc, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
@@ -725,7 +725,18 @@ export function publicRoutes(deps: AppDeps) {
           const processingFee = feeCents === null ? null : centsToMoney(feeCents);
 
           const now = new Date();
-          const receivedOn = now.toISOString().slice(0, 10);
+          // The day the money arrived, in the BUSINESS's zone (TMC-258). The
+          // manual mark-paid path has resolved this through company.timezone
+          // since TMC-196; the Stripe path never did, so two routes to the same
+          // invoice_payments table disagreed about what day it was. A card paid
+          // at 9:13pm US Central was filed on tomorrow — and on 31 December
+          // that is income booked into the wrong tax year.
+          const [payee] = await bootstrapDb
+            .select({ timezone: companies.timezone })
+            .from(companies)
+            .where(eq(companies.id, current.companyId))
+            .limit(1);
+          const receivedOn = localDay(now, payee?.timezone ?? 'UTC');
           // Wrap the payment insert + audit + ledger posting in one tx so the
           // deferred sum-to-zero trigger on journal_lines fires at commit
           // (auto-commit per statement would fail mid-posting) and a posting

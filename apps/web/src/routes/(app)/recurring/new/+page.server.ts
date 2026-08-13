@@ -10,6 +10,7 @@ import {
   type RecurringInvoiceLineItemInput,
   addMoney,
   contactCreateSchema,
+  localToday,
   multiplyMoney,
   recurringInvoiceCreateSchema,
   sumMoney,
@@ -50,6 +51,9 @@ export const load: PageServerLoad = async (event) => {
 
   return {
     companyId: company.id,
+    // Resolved through the company's timezone (TMC-258) — the browser clock
+    // in UTC dated an evening document tomorrow.
+    today: localToday(company.timezone),
     taxPolicies: taxPolicies.map((p) => ({
       id: p.id,
       name: p.name,

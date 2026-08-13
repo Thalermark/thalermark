@@ -57,15 +57,9 @@
     row.taxPolicyId = taxable ? resolvePolicyId(taxPolicyId ?? '') : '';
   }
 
-  function todayIso(): string {
-    return new Date().toISOString().slice(0, 10);
-  }
+  // Dates come from the server, resolved through the company's timezone
+  // (TMC-258). The browser clock in UTC dated an evening document tomorrow.
 
-  function plusDaysIso(days: number): string {
-    const d = new Date();
-    d.setUTCDate(d.getUTCDate() + days);
-    return d.toISOString().slice(0, 10);
-  }
 
   // Seeding strategy mirrors /invoices/new (8.4c). Static inputs render via
   // value={form?.values?.X ?? default}; live-preview inputs (tax + rows)
@@ -180,7 +174,7 @@
           name="issueDate"
           type="date"
           required
-          value={values?.issueDate ?? todayIso()}
+          value={values?.issueDate ?? data.today}
           class="field mt-1"
         />
         {#if err('issueDate')}
@@ -196,7 +190,7 @@
           id="expiresOn"
           name="expiresOn"
           type="date"
-          value={values?.expiresOn ?? plusDaysIso(30)}
+          value={values?.expiresOn ?? data.expiresDefault}
           class="field mt-1"
         />
         {#if err('expiresOn')}

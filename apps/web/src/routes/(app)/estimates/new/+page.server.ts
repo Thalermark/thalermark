@@ -11,6 +11,8 @@ import {
   addMoney,
   contactCreateSchema,
   estimateCreateSchema,
+  localDayPlus,
+  localToday,
   multiplyMoney,
   sumMoney,
 } from '@thalermark/validation';
@@ -62,6 +64,10 @@ export const load: PageServerLoad = async (event) => {
 
   return {
     companyId: company.id,
+    // Resolved through the company's timezone (TMC-258) — the browser clock
+    // in UTC dated an evening document tomorrow.
+    today: localToday(company.timezone),
+    expiresDefault: localDayPlus(company.timezone, 30),
     suggestedNumber,
     // Company-level estimate "show" defaults — seed the from-block checkboxes on
     // a fresh estimate. Separate from the invoice defaults (per-document-type).

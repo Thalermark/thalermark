@@ -78,9 +78,11 @@ import { closedThroughFor } from '../lib/period-lock.js';
 import {
   EMAIL_RE,
   UUID_RE,
+  companyTimezone,
   escapeLike,
   expenseDateToPostedAt,
   isValidDateParam,
+  localDayPlus,
   localToday,
   resolveMoneyAccount,
   storedMoneyCode,
@@ -633,11 +635,12 @@ export function invoicesRoutes(deps: AppDeps) {
           .where(and(eq(invoiceLineItems.invoiceId, id), eq(invoiceLineItems.accountId, accountId)))
           .orderBy(asc(invoiceLineItems.position));
 
-        const today = new Date();
-        const todayIso = today.toISOString().slice(0, 10);
-        const dueIso = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000)
-          .toISOString()
-          .slice(0, 10);
+        // Issue date drives revenue recognition, so it has to be the business's
+        // today, not UTC's (TMC-258). Net 30 is calendar arithmetic on that
+        // local day — adding 30 * 86400s to an instant drifts across DST.
+        const tz = await companyTimezone(tx, { accountId, companyId: source.companyId });
+        const todayIso = localToday(tz);
+        const dueIso = localDayPlus(tz, 30);
 
         const [latest] = await tx
           .select({ number: invoices.number })

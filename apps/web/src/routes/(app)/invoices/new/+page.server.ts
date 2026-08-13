@@ -11,6 +11,8 @@ import {
   contactCreateSchema,
   hoursFromMinutes,
   invoiceCreateSchema,
+  localDayPlus,
+  localToday,
   sumMoney,
 } from '@thalermark/validation';
 import type { Actions, PageServerLoad } from './$types';
@@ -126,6 +128,12 @@ export const load: PageServerLoad = async (event) => {
 
   return {
     companyId: company.id,
+    // Resolved server-side through the company's timezone (TMC-258). The form
+    // used to seed these from the browser clock in UTC, so an invoice raised in
+    // the evening was issued on tomorrow — and the issue date is what revenue
+    // recognition posts on, so the ledger inherited the mistake.
+    today: localToday(company.timezone),
+    dueDefault: localDayPlus(company.timezone, 30),
     suggestedNumber,
     jobs,
     jobId: jobs.some((j) => j.id === jobId) ? jobId : '',

@@ -57,9 +57,8 @@
     row.taxPolicyId = taxable ? resolvePolicyId(taxPolicyId ?? '') : '';
   }
 
-  function todayIso(): string {
-    return new Date().toISOString().slice(0, 10);
-  }
+  // Dates come from the server, resolved through the company's timezone
+  // (TMC-258). The browser clock in UTC dated an evening document tomorrow.
 
   // Seeding mirrors /estimates/new: static inputs render value={values?.X ??
   // default}; the live-preview line rows use $state with untrack() initializers.
@@ -147,7 +146,7 @@
           name="startDate"
           type="date"
           required
-          value={values?.startDate ?? todayIso()}
+          value={values?.startDate ?? data.today}
           class="field mt-1"
         />
         {#if err('startDate')}

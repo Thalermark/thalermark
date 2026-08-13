@@ -4,6 +4,7 @@
 export * from './messages.js';
 export * from './api-messages.js';
 export * from './bill.js';
+export * from './business-day.js';
 export * from './capital-purchase.js';
 export * from './company.js';
 export * from './company-copy.js';
