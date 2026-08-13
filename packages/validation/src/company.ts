@@ -149,6 +149,22 @@ export const timezoneSchema = z
   .max(64)
   .refine(isValidTimeZone, { message: 'That is not a time zone we recognise.' });
 
+// Options for a timezone <select>, guaranteed to contain `current`.
+//
+// `Intl.supportedValuesOf('timeZone')` does NOT include 'UTC' — and 'UTC' is
+// exactly what `companies.timezone` defaults to. A select whose value matches no
+// option falls back to the FIRST one, so every untouched company rendered as
+// Africa/Abidjan, and saving without touching the field would have filed its
+// books there. `current` is honoured for the same reason: the schema accepts any
+// zone Intl can build a formatter for, which is a wider set than this list
+// (aliases like 'US/Central' pass validation but are absent here).
+export function timezoneOptions(current?: string | null): string[] {
+  const zones = Intl.supportedValuesOf('timeZone');
+  const known = new Set(zones);
+  const missing = ['UTC', current ?? ''].filter((z) => z && !known.has(z));
+  return [...new Set(missing), ...zones];
+}
+
 // Input schema for PATCH /api/companies/:id. Sparse on purpose — the L3
 // wizard updates name + businessType together, but follow-on flows (rename
 // from settings, accountant updates business type alone) only touch one

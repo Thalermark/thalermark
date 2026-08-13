@@ -25,6 +25,37 @@
   let businessPhone = $state(
     untrack(() => formValue('businessPhone') ?? data.company.businessPhone ?? ''),
   );
+  // Asked here, next to the address, because this is the only moment everyone
+  // passes through — and because the column is notNull default 'UTC', which is
+  // silently wrong for almost everyone. It decides what day a document is
+  // filed on: an invoice raised at 9pm US Central under UTC is dated tomorrow,
+  // and on 31 December that is income in the wrong tax year (TMC-258).
+  //
+  // Detected from the browser rather than guessed from the address above: that
+  // address is free text with no state or postcode to key off, and even
+  // structured US addresses do not map cleanly (Florida, Indiana, Tennessee and
+  // Kentucky each straddle two zones, Arizona opts out of DST). The browser
+  // simply knows.
+  //
+  // The initial value is the STORED one, deliberately — `Intl` during SSR
+  // reports the SERVER's zone, which is UTC in the container and is nobody's
+  // answer. Reading it there would render one stranger's timezone as every
+  // user's default, and it looks correct in dev only because the dev server is
+  // the developer's own laptop. Detection is applied on mount instead, below.
+  let timezone = $state(
+    untrack(() => formValue('timezone') || data.company.timezone || 'UTC'),
+  );
+
+  // Client-only, once. Skipped when the user is coming back from a failed
+  // submit with a zone already chosen — their pick outranks the guess.
+  let detectionApplied = false;
+  $effect(() => {
+    if (detectionApplied) return;
+    detectionApplied = true;
+    if (formValue('timezone')) return;
+    const detected = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (detected) timezone = detected;
+  });
   // Defaults to the address they signed up with (TMC-225), the same way the
   // company name is guessed from the person at signup and corrected here. It is
   // what customer replies route to, and what prints on the invoice — so it is
@@ -123,6 +154,17 @@
         placeholder="123 Main St&#10;Springfield, IL 62704"
         class="field mt-2 text-sm"
       ></textarea>
+    </label>
+    <label class="block">
+      <span class="label">Time zone</span>
+      <select name="timezone" bind:value={timezone} class="field mt-2 text-sm">
+        {#each data.timezones as tz (tz)}
+          <option value={tz}>{tz}</option>
+        {/each}
+      </select>
+      <span class="mt-2 block text-sm text-fg/50">
+        Decides what day your invoices and payments are recorded on.
+      </span>
     </label>
     <label class="block">
       <span class="label">Phone</span>
