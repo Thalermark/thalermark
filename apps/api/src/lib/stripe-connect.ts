@@ -26,6 +26,80 @@ export type ConnectState = {
   connectPending: boolean;
 };
 
+// The slice of Stripe's Account we persist (TMC-256). Structural rather than
+// Stripe.Account so the webhook, the read-time reconcile and the tests all agree
+// on one projection without any of them owning the SDK type.
+export type StripeAccountLike = {
+  charges_enabled?: boolean | null;
+  details_submitted?: boolean | null;
+  payouts_enabled?: boolean | null;
+  requirements?: {
+    currently_due?: string[] | null;
+    past_due?: string[] | null;
+    disabled_reason?: string | null;
+  } | null;
+};
+
+export type ConnectAccountFacts = {
+  chargesEnabled: boolean;
+  detailsSubmitted: boolean;
+  payoutsEnabled: boolean;
+  requirementsDue: boolean;
+  disabledReason: string | null;
+};
+
+// Stripe -> our columns, in one place. Two writers keep these fresh (the
+// account.updated webhook and the read-time reconcile) and they must not
+// disagree about what "Stripe needs something" means.
+export function accountFacts(account: StripeAccountLike): ConnectAccountFacts {
+  const req = account.requirements ?? null;
+  return {
+    chargesEnabled: account.charges_enabled === true,
+    detailsSubmitted: account.details_submitted === true,
+    payoutsEnabled: account.payouts_enabled === true,
+    // Either bucket means the ball is in the owner's court. past_due is just
+    // currently_due that blew its deadline, and both are answered by the same
+    // "go finish it at Stripe" button.
+    requirementsDue: (req?.currently_due?.length ?? 0) > 0 || (req?.past_due?.length ?? 0) > 0,
+    disabledReason: req?.disabled_reason ?? null,
+  };
+}
+
+// What the owner should be told, decided once on the server so web and mobile
+// cannot drift (they already did — both shipped the same wrong derivation).
+//
+//   notStarted   — no account yet
+//   started      — account exists, they backed out before submitting
+//   actionNeeded — Stripe is blocked on them
+//   inReview     — Stripe is verifying; genuinely nothing to do
+//   stopped      — Stripe rejected the account; not a wait
+//   payoutsHeld  — charges work, money isn't reaching the bank
+//   enabled      — fully live
+//
+// Order is the point. `rejected` is checked before everything because it is the
+// one state no amount of waiting fixes, but the OTHER disabled_reason values
+// (requirements.past_due, pending_verification) deliberately fall through — they
+// describe a stage the states below already name, and better.
+export type OnboardingStage =
+  | 'notStarted'
+  | 'started'
+  | 'actionNeeded'
+  | 'inReview'
+  | 'stopped'
+  | 'payoutsHeld'
+  | 'enabled';
+
+export function onboardingStage(
+  input: ConnectAccountFacts & { connectAccountId: string | null },
+): OnboardingStage {
+  if (!input.connectAccountId) return 'notStarted';
+  if (input.disabledReason?.startsWith('rejected')) return 'stopped';
+  if (!input.detailsSubmitted) return 'started';
+  if (!input.chargesEnabled) return input.requirementsDue ? 'actionNeeded' : 'inReview';
+  if (!input.payoutsEnabled) return 'payoutsHeld';
+  return 'enabled';
+}
+
 export function connectState(input: ConnectInputs): ConnectState {
   const hasConnect = !!input.connectAccountId;
   // Without the requirement, a company with no connected account falls back to

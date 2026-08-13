@@ -146,6 +146,23 @@ export const companies = pgTable(
     stripeConnectDetailsSubmitted: boolean('stripe_connect_details_submitted')
       .notNull()
       .default(false),
+    // details_submitted + !charges_enabled is not one state (TMC-256). It can mean
+    // Stripe is verifying, that Stripe is blocked on the OWNER, or that the account
+    // was rejected outright — and telling all three "sit tight, we'll email you" is
+    // wrong for two of them. These three mirror the rest of the Account so the copy
+    // can name whose turn it is. requirements_due is deliberately a boolean, not the
+    // field list: Stripe's own onboarding page already renders the checklist better
+    // than we would, and we'd owe a translation of names like
+    // individual.verification.document forever.
+    stripeConnectPayoutsEnabled: boolean('stripe_connect_payouts_enabled').notNull().default(false),
+    stripeConnectRequirementsDue: boolean('stripe_connect_requirements_due')
+      .notNull()
+      .default(false),
+    stripeConnectDisabledReason: text('stripe_connect_disabled_reason'),
+    // Last time we heard the truth from Stripe, by webhook or by read-time
+    // reconcile (TMC-257). Null = never. Throttles the reconcile so an unfinished
+    // account doesn't mean a Stripe call on every page load.
+    stripeConnectSyncedAt: timestamp('stripe_connect_synced_at', { withTimezone: true }),
     // Offline / manual payment methods, surfaced as "pay me directly"
     // instructions on the public invoice. Display-only — the app can't process
     // or verify these (Venmo/Zelle have no usable third-party API), so the

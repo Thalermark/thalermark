@@ -92,6 +92,7 @@ type ConnectStubs = {
   createAccount?: ReturnType<typeof vi.fn>;
   createAccountLink?: ReturnType<typeof vi.fn>;
   createPaymentIntent?: ReturnType<typeof vi.fn>;
+  retrieveAccount?: ReturnType<typeof vi.fn>;
 };
 
 function makeStubStripe(stubs: ConnectStubs = {}): StripeBundle {
@@ -102,8 +103,20 @@ function makeStubStripe(stubs: ConnectStubs = {}): StripeBundle {
   const createPaymentIntent =
     stubs.createPaymentIntent ??
     vi.fn(async () => ({ client_secret: 'pi_secret_test', id: 'pi_test' }));
+  // Default retrieve mirrors a fully-live account. Tests that care about the
+  // read-time reconcile (TMC-257) pass their own and assert the call count —
+  // "did we ask Stripe" is half of what these tests are checking.
+  const retrieveAccount =
+    stubs.retrieveAccount ??
+    vi.fn(async (id: string) => ({
+      id,
+      charges_enabled: true,
+      details_submitted: true,
+      payouts_enabled: true,
+      requirements: { currently_due: [], past_due: [], disabled_reason: null },
+    }));
   const client = {
-    accounts: { create: createAccount },
+    accounts: { create: createAccount, retrieve: retrieveAccount },
     accountLinks: { create: createAccountLink },
     paymentIntents: { create: createPaymentIntent },
   } as unknown as Stripe;
@@ -324,6 +337,186 @@ describe('GET /api/companies/:id/stripe-connect/status', () => {
       });
       expect(res.status).toBe(200);
       expect(await res.json()).toMatchObject({ stripeConfigured: false });
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('never calls Stripe for a company that has no connected account', async () => {
+    // notStarted is not drift — there is nothing to reconcile against, and a
+    // round-trip per settings load for every company that never onboarded is
+    // the cost this throttle exists to avoid.
+    const retrieveAccount = vi.fn();
+    const { app, handle } = buildApp(makeStubStripe({ retrieveAccount }));
+    try {
+      const cookie = await signUp(app, 'gina@connect.test');
+      const { accountId, companyId } = await userContext('gina@connect.test');
+      const res = await app.request(`/api/companies/${companyId}/stripe-connect/status`, {
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ onboardingStage: 'notStarted' });
+      expect(retrieveAccount).not.toHaveBeenCalled();
+    } finally {
+      await handle.close();
+    }
+  });
+});
+
+// TMC-257. These columns had exactly one writer — the account.updated webhook —
+// and its no-op guard means only a CHANGED event can repair a row that missed a
+// delivery. Nothing triggered one. So a single miss (deploy restart, rotated
+// signing secret, exhausted retries) left a company permanently wrong while the
+// page rendered that wrong answer with total confidence. Observed for real in
+// dev on 2026-08-12 with the forwarding proxy switched off.
+describe('GET /api/companies/:id/stripe-connect/status — read-time reconcile', () => {
+  beforeEach(resetDb);
+
+  async function connectedCompany(email: string, patch: Record<string, unknown>) {
+    const db = getTestDb();
+    const { accountId, companyId } = await userContext(email);
+    await db
+      .update(companies)
+      .set({ stripeConnectAccountId: 'acct_drift', ...patch })
+      .where(eq(companies.id, companyId));
+    return { accountId, companyId };
+  }
+
+  it('repairs a row that missed its webhook, and persists the repair', async () => {
+    const retrieveAccount = vi.fn(async (id: string) => ({
+      id,
+      charges_enabled: true,
+      details_submitted: true,
+      payouts_enabled: true,
+      requirements: { currently_due: [], past_due: [], disabled_reason: null },
+    }));
+    const { app, handle } = buildApp(makeStubStripe({ retrieveAccount }));
+    try {
+      const cookie = await signUp(app, 'hank@connect.test');
+      // The exact shape of the drift: onboarding really finished at Stripe, our
+      // copy still says nothing was ever submitted, synced_at never set.
+      const { accountId, companyId } = await connectedCompany('hank@connect.test', {
+        stripeConnectChargesEnabled: false,
+        stripeConnectDetailsSubmitted: false,
+        stripeConnectSyncedAt: null,
+      });
+      const res = await app.request(`/api/companies/${companyId}/stripe-connect/status`, {
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({
+        stripeConnectChargesEnabled: true,
+        stripeConnectDetailsSubmitted: true,
+        stripeConnectPayoutsEnabled: true,
+        onboardingStage: 'enabled',
+      });
+      expect(retrieveAccount).toHaveBeenCalledWith('acct_drift');
+
+      // Written back, not just answered — otherwise every reader re-pays for the
+      // repair and the public invoice page, which never calls this route, stays
+      // wrong forever.
+      const [row] = await getTestDb().select().from(companies).where(eq(companies.id, companyId));
+      expect(row?.stripeConnectChargesEnabled).toBe(true);
+      expect(row?.stripeConnectSyncedAt).toBeInstanceOf(Date);
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('does not re-ask Stripe about an answer it heard a moment ago', async () => {
+    const retrieveAccount = vi.fn();
+    const { app, handle } = buildApp(makeStubStripe({ retrieveAccount }));
+    try {
+      const cookie = await signUp(app, 'iris@connect.test');
+      const { accountId, companyId } = await connectedCompany('iris@connect.test', {
+        stripeConnectDetailsSubmitted: true,
+        stripeConnectSyncedAt: new Date(),
+      });
+      const res = await app.request(`/api/companies/${companyId}/stripe-connect/status`, {
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ onboardingStage: 'inReview' });
+      expect(retrieveAccount).not.toHaveBeenCalled();
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('leaves a fully-live account alone however stale it is', async () => {
+    // enabled is terminal in the direction that matters. Re-reading it on every
+    // load would be a Stripe call per page for every healthy company forever.
+    const retrieveAccount = vi.fn();
+    const { app, handle } = buildApp(makeStubStripe({ retrieveAccount }));
+    try {
+      const cookie = await signUp(app, 'jack@connect.test');
+      const { accountId, companyId } = await connectedCompany('jack@connect.test', {
+        stripeConnectChargesEnabled: true,
+        stripeConnectDetailsSubmitted: true,
+        stripeConnectPayoutsEnabled: true,
+        stripeConnectSyncedAt: new Date('2020-01-01T00:00:00Z'),
+      });
+      const res = await app.request(`/api/companies/${companyId}/stripe-connect/status`, {
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(await res.json()).toMatchObject({ onboardingStage: 'enabled' });
+      expect(retrieveAccount).not.toHaveBeenCalled();
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('serves the last known answer when Stripe is unreachable', async () => {
+    // Stripe being down must not take the settings page with it. Degrading to
+    // the stored answer is exactly the behaviour before the reconcile existed.
+    const retrieveAccount = vi.fn(async () => {
+      throw new Error('stripe is down');
+    });
+    const { app, handle } = buildApp(makeStubStripe({ retrieveAccount }));
+    try {
+      const cookie = await signUp(app, 'kate@connect.test');
+      const { accountId, companyId } = await connectedCompany('kate@connect.test', {
+        stripeConnectDetailsSubmitted: true,
+        stripeConnectSyncedAt: null,
+      });
+      const res = await app.request(`/api/companies/${companyId}/stripe-connect/status`, {
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({
+        stripeConnectDetailsSubmitted: true,
+        onboardingStage: 'inReview',
+      });
+      expect(retrieveAccount).toHaveBeenCalled();
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('surfaces a rejection it learns about at read time', async () => {
+    // The case that motivated TMC-256: without this the page tells a rejected
+    // account that Stripe is verifying everything and will email them.
+    const retrieveAccount = vi.fn(async (id: string) => ({
+      id,
+      charges_enabled: false,
+      details_submitted: true,
+      payouts_enabled: false,
+      requirements: { currently_due: [], past_due: [], disabled_reason: 'rejected.fraud' },
+    }));
+    const { app, handle } = buildApp(makeStubStripe({ retrieveAccount }));
+    try {
+      const cookie = await signUp(app, 'lena@connect.test');
+      const { accountId, companyId } = await connectedCompany('lena@connect.test', {
+        stripeConnectDetailsSubmitted: true,
+        stripeConnectSyncedAt: null,
+      });
+      const res = await app.request(`/api/companies/${companyId}/stripe-connect/status`, {
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      expect(await res.json()).toMatchObject({
+        onboardingStage: 'stopped',
+        stripeConnectDisabledReason: 'rejected.fraud',
+      });
     } finally {
       await handle.close();
     }

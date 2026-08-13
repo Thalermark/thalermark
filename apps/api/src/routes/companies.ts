@@ -40,7 +40,7 @@ import { buildEmailPreview } from '../lib/email-preview.js';
 import { DEFAULT_TEMPLATES } from '../lib/email-templates.js';
 import { mailerDelivers } from '../lib/mailer.js';
 import { UUID_RE, mimeForKey } from '../lib/route-helpers.js';
-import { connectState } from '../lib/stripe-connect.js';
+import { accountFacts, connectState, onboardingStage } from '../lib/stripe-connect.js';
 import { requireCapability } from '../middleware/authz.js';
 import type { RlsVariables } from '../middleware/rls-context.js';
 
@@ -62,6 +62,11 @@ import type { RlsVariables } from '../middleware/rls-context.js';
 // invoice page. Same mime → extension shape as the receipt upload allowlist
 // (RECEIPT_MIME_EXT, in the expenses sub-app).
 const log = getLogger(['api', 'companies']);
+
+// How long a Connect answer is trusted before the status read re-asks Stripe
+// (TMC-257). Long enough that opening the page twice costs one round-trip, short
+// enough that a drifted row self-heals the first time anyone looks at it.
+const CONNECT_SYNC_STALE_MS = 5 * 60 * 1000;
 
 const LOGO_MAX_BYTES = 2 * 1024 * 1024;
 const LOGO_MIME_EXT: Record<string, string> = {
@@ -1036,11 +1041,69 @@ export function companiesRoutes(deps: AppDeps) {
             stripeConnectAccountId: companies.stripeConnectAccountId,
             stripeConnectChargesEnabled: companies.stripeConnectChargesEnabled,
             stripeConnectDetailsSubmitted: companies.stripeConnectDetailsSubmitted,
+            stripeConnectPayoutsEnabled: companies.stripeConnectPayoutsEnabled,
+            stripeConnectRequirementsDue: companies.stripeConnectRequirementsDue,
+            stripeConnectDisabledReason: companies.stripeConnectDisabledReason,
+            stripeConnectSyncedAt: companies.stripeConnectSyncedAt,
           })
           .from(companies)
           .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
           .limit(1);
         if (!company) return c.json({ error: 'company_not_found' }, 404);
+
+        let facts = {
+          chargesEnabled: company.stripeConnectChargesEnabled,
+          detailsSubmitted: company.stripeConnectDetailsSubmitted,
+          payoutsEnabled: company.stripeConnectPayoutsEnabled,
+          requirementsDue: company.stripeConnectRequirementsDue,
+          disabledReason: company.stripeConnectDisabledReason,
+        };
+
+        // Read-time reconcile (TMC-257). These columns had one writer — the
+        // account.updated webhook — and its no-op guard means only a CHANGED
+        // event repairs a row that missed a delivery. Nothing triggered one, so
+        // a single miss (deploy restart, rotated signing secret, exhausted
+        // retries) left a company wrong forever, and the page rendered the wrong
+        // answer with total confidence. Ask Stripe directly when the answer is
+        // both stale and still moving.
+        //
+        // Bounded twice over: a fully-live account is never re-read (its answer
+        // cannot get more final), and anything heard within the window is left
+        // alone, so this is not a Stripe round-trip per page load.
+        const fullyLive = facts.chargesEnabled && facts.payoutsEnabled;
+        const staleSince = Date.now() - CONNECT_SYNC_STALE_MS;
+        const stale =
+          company.stripeConnectSyncedAt == null ||
+          company.stripeConnectSyncedAt.getTime() < staleSince;
+        if (deps.stripe && company.stripeConnectAccountId && !fullyLive && stale) {
+          try {
+            const account = await deps.stripe.client.accounts.retrieve(
+              company.stripeConnectAccountId,
+            );
+            facts = accountFacts(account);
+            const now = new Date();
+            await tx
+              .update(companies)
+              .set({
+                stripeConnectChargesEnabled: facts.chargesEnabled,
+                stripeConnectDetailsSubmitted: facts.detailsSubmitted,
+                stripeConnectPayoutsEnabled: facts.payoutsEnabled,
+                stripeConnectRequirementsDue: facts.requirementsDue,
+                stripeConnectDisabledReason: facts.disabledReason,
+                stripeConnectSyncedAt: now,
+                updatedAt: now,
+              })
+              .where(and(eq(companies.id, id), eq(companies.accountId, accountId)));
+          } catch (err) {
+            // Stripe being unreachable is not a reason to fail the settings
+            // page. Fall through on what we last knew — which is exactly the
+            // behaviour before this block existed.
+            log.warn('stripe connect reconcile failed', {
+              companyId: id,
+              err: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
 
         // Same helper the public invoice page routes on, so what the owner is
         // told and what their customer can actually do cannot drift.
@@ -1048,14 +1111,24 @@ export function companiesRoutes(deps: AppDeps) {
           requireConnectedAccount: deps.requireConnectedAccount === true,
           stripeConfigured: deps.stripe != null,
           connectAccountId: company.stripeConnectAccountId,
-          chargesEnabled: company.stripeConnectChargesEnabled,
+          chargesEnabled: facts.chargesEnabled,
         });
 
         return c.json({
           stripeConfigured: deps.stripe != null,
           stripeConnectAccountId: company.stripeConnectAccountId,
-          stripeConnectChargesEnabled: company.stripeConnectChargesEnabled,
-          stripeConnectDetailsSubmitted: company.stripeConnectDetailsSubmitted,
+          stripeConnectChargesEnabled: facts.chargesEnabled,
+          stripeConnectDetailsSubmitted: facts.detailsSubmitted,
+          stripeConnectPayoutsEnabled: facts.payoutsEnabled,
+          stripeConnectRequirementsDue: facts.requirementsDue,
+          stripeConnectDisabledReason: facts.disabledReason,
+          // Decided on the server so the two clients cannot derive it
+          // differently — which is precisely how they both came to tell people
+          // who had submitted nothing that their details were under review.
+          onboardingStage: onboardingStage({
+            ...facts,
+            connectAccountId: company.stripeConnectAccountId,
+          }),
           // Onboarding started-but-unfinished, or required-and-absent: this
           // company's invoices cannot be paid by card. The owner sees this;
           // the recipient never does.
