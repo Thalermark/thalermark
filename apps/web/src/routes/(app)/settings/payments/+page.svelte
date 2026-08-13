@@ -3,35 +3,32 @@
 
   let { data, form }: PageProps = $props();
 
-  // The four states the page distinguishes:
-  //   notStarted  — no stripe_connect_account_id yet, Connect button kicks off Express onboarding
-  //   started     — account exists but details_submitted is still false: they opened Stripe's
-  //                 form and backed out, so there is nothing in review yet
-  //   inReview    — details_submitted but not yet charges_enabled, Stripe is verifying
-  //   enabled     — charges_enabled, contacts can pay this company
-  // started and inReview are both "can't take card payments yet" but they need opposite
-  // copy: one is waiting on the user, the other on Stripe. Deriving the stage from the
-  // account id alone collapsed them and told abandoners their details were under review.
+  // The stage is decided by the API (onboardingStage in lib/stripe-connect.ts) and
+  // rendered here. It used to be derived client-side off the account id alone, which
+  // is how this page and the mobile one independently arrived at the same bug: an
+  // owner who backed out of Stripe's form was told their details were under review.
+  // One server-side answer is the fix for two clients disagreeing.
+  //   notStarted   — no account yet
+  //   started      — account exists, they backed out before submitting
+  //   actionNeeded — Stripe is blocked on them
+  //   inReview     — Stripe is verifying; genuinely nothing to do
+  //   stopped      — Stripe rejected the account
+  //   payoutsHeld  — charges work, the money isn't reaching the bank
+  //   enabled      — fully live
   // stripeNotConfigured is a separate state: the operator hasn't wired
   // STRIPE_* env vars (self-host without payments), nothing to do here.
   const stripeConfigured = $derived(data.status.stripeConfigured);
-  const stage = $derived(
-    !data.status.stripeConnectAccountId
-      ? 'notStarted'
-      : data.status.stripeConnectChargesEnabled
-        ? 'enabled'
-        : data.status.stripeConnectDetailsSubmitted
-          ? 'inReview'
-          : 'started',
-  );
+  const stage = $derived(data.status.onboardingStage);
   const buttonLabel = $derived(
     stage === 'notStarted'
       ? 'Connect with Stripe'
-      : stage === 'started'
+      : stage === 'started' || stage === 'actionNeeded'
         ? 'Continue onboarding'
-        : stage === 'inReview'
-          ? 'Update details with Stripe'
-          : 'Update payout details',
+        : stage === 'stopped'
+          ? 'Open Stripe'
+          : stage === 'inReview'
+            ? 'Update details with Stripe'
+            : 'Update payout details',
   );
 </script>
 
@@ -76,10 +73,25 @@
             You started setting up with Stripe but didn't finish, so card payments are still off.
             Nothing's lost — pick up where you left off and Stripe will keep what you've entered.
           </p>
+        {:else if stage === 'actionNeeded'}
+          <p class="text-sm text-fg/70">
+            Stripe needs something else from you before card payments can switch on — usually ID,
+            a bank account or business details. They'll show you exactly what when you continue.
+          </p>
         {:else if stage === 'inReview'}
           <p class="text-sm text-fg/70">
             Your details are with Stripe. They're verifying everything and will switch payments on
             automatically when they're done — no further action needed unless they email you.
+          </p>
+        {:else if stage === 'stopped'}
+          <p class="text-sm text-fg/70">
+            Stripe has stopped this account, so card payments can't be switched on. That decision
+            is theirs to explain and to reverse — they'll have emailed the details.
+          </p>
+        {:else if stage === 'payoutsHeld'}
+          <p class="text-sm text-fg/70">
+            Contacts can pay you, but Stripe is holding the money rather than paying it out —
+            usually a missing bank account or an ID check. Worth clearing before the next invoice.
           </p>
         {:else}
           <p class="text-sm text-fg/70">
@@ -92,6 +104,8 @@
           <dd class="text-fg/80">{data.status.stripeConnectDetailsSubmitted ? 'yes' : 'no'}</dd>
           <dt>Charges enabled</dt>
           <dd class="text-fg/80">{data.status.stripeConnectChargesEnabled ? 'yes' : 'no'}</dd>
+          <dt>Payouts enabled</dt>
+          <dd class="text-fg/80">{data.status.stripeConnectPayoutsEnabled ? 'yes' : 'no'}</dd>
         </dl>
       </div>
       <form method="POST" action="?/onboard">

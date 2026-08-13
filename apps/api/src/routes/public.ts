@@ -33,7 +33,7 @@ import { estimateAcceptedNotice, invoicePaidNotice, notifyOwner } from '../lib/o
 import { mapResendEvent, verifyResendSignature } from '../lib/resend-webhook.js';
 import { UUID_RE } from '../lib/route-helpers.js';
 import { reindexEntities } from '../lib/search/reindex.js';
-import { connectState } from '../lib/stripe-connect.js';
+import { accountFacts, connectState } from '../lib/stripe-connect.js';
 import {
   constructWebhookEvent,
   decimalDollarsToCents,
@@ -868,23 +868,37 @@ export function publicRoutes(deps: AppDeps) {
           // retrying; we'll catch up on the next event.
           if (!company) return c.json({ received: true });
 
-          const nextCharges = account.charges_enabled === true;
-          const nextDetails = account.details_submitted === true;
-          if (
-            company.stripeConnectChargesEnabled === nextCharges &&
-            company.stripeConnectDetailsSubmitted === nextDetails
-          ) {
-            // No-op delivery (Stripe re-fires events liberally). Idempotent,
-            // no audit row.
+          const facts = accountFacts(account);
+          const now = new Date();
+          const unchanged =
+            company.stripeConnectChargesEnabled === facts.chargesEnabled &&
+            company.stripeConnectDetailsSubmitted === facts.detailsSubmitted &&
+            company.stripeConnectPayoutsEnabled === facts.payoutsEnabled &&
+            company.stripeConnectRequirementsDue === facts.requirementsDue &&
+            company.stripeConnectDisabledReason === facts.disabledReason;
+
+          if (unchanged) {
+            // No-op delivery (Stripe re-fires events liberally). Nothing to
+            // audit — but this IS a fresh confirmation from Stripe, so the sync
+            // stamp still moves. Leaving it stale here would make the read-time
+            // reconcile (TMC-257) re-ask Stripe about an account it just heard
+            // about, on every page load, forever.
+            await bootstrapDb
+              .update(companies)
+              .set({ stripeConnectSyncedAt: now })
+              .where(eq(companies.id, company.id));
             return c.json({ received: true });
           }
 
-          const now = new Date();
           const [updated] = await bootstrapDb
             .update(companies)
             .set({
-              stripeConnectChargesEnabled: nextCharges,
-              stripeConnectDetailsSubmitted: nextDetails,
+              stripeConnectChargesEnabled: facts.chargesEnabled,
+              stripeConnectDetailsSubmitted: facts.detailsSubmitted,
+              stripeConnectPayoutsEnabled: facts.payoutsEnabled,
+              stripeConnectRequirementsDue: facts.requirementsDue,
+              stripeConnectDisabledReason: facts.disabledReason,
+              stripeConnectSyncedAt: now,
               updatedAt: now,
             })
             .where(eq(companies.id, company.id))
@@ -907,10 +921,16 @@ export function publicRoutes(deps: AppDeps) {
             before: {
               stripeConnectChargesEnabled: company.stripeConnectChargesEnabled,
               stripeConnectDetailsSubmitted: company.stripeConnectDetailsSubmitted,
+              stripeConnectPayoutsEnabled: company.stripeConnectPayoutsEnabled,
+              stripeConnectRequirementsDue: company.stripeConnectRequirementsDue,
+              stripeConnectDisabledReason: company.stripeConnectDisabledReason,
             },
             after: {
               stripeConnectChargesEnabled: updated.stripeConnectChargesEnabled,
               stripeConnectDetailsSubmitted: updated.stripeConnectDetailsSubmitted,
+              stripeConnectPayoutsEnabled: updated.stripeConnectPayoutsEnabled,
+              stripeConnectRequirementsDue: updated.stripeConnectRequirementsDue,
+              stripeConnectDisabledReason: updated.stripeConnectDisabledReason,
             },
           });
 

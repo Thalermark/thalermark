@@ -34,6 +34,15 @@ type Status = {
   stripeConnectAccountId: string | null;
   stripeConnectChargesEnabled: boolean;
   stripeConnectDetailsSubmitted: boolean;
+  stripeConnectPayoutsEnabled: boolean;
+  onboardingStage:
+    | 'notStarted'
+    | 'started'
+    | 'actionNeeded'
+    | 'inReview'
+    | 'stopped'
+    | 'payoutsHeld'
+    | 'enabled';
 };
 type LoadState =
   | { state: 'loading' }
@@ -115,25 +124,22 @@ export default function PaymentsSettings() {
 
   const company = load.state === 'ready' ? load.company : null;
   const status = load.state === 'ready' ? load.status : null;
-  // Four states, mirroring web's settings/payments: started (account exists, details
-  // not submitted — waiting on the user) is deliberately distinct from inReview
-  // (submitted, waiting on Stripe). Keying off the account id alone told people who
-  // backed out of Stripe's form that their details were under review.
-  const stage = !status?.stripeConnectAccountId
-    ? 'notStarted'
-    : status.stripeConnectChargesEnabled
-      ? 'enabled'
-      : status.stripeConnectDetailsSubmitted
-        ? 'inReview'
-        : 'started';
+  // Decided by the API (onboardingStage in the api's lib/stripe-connect.ts), not
+  // re-derived here. This screen and web's settings/payments each used to compute it
+  // off the account id alone, and both independently told owners who had submitted
+  // nothing that their details were under review — the exact drift a second client
+  // is supposed to avoid.
+  const stage = status?.onboardingStage ?? 'notStarted';
   const buttonLabel =
     stage === 'notStarted'
       ? 'Connect with Stripe'
-      : stage === 'started'
+      : stage === 'started' || stage === 'actionNeeded'
         ? 'Continue onboarding'
-        : stage === 'inReview'
-          ? 'Update details with Stripe'
-          : 'Update payout details';
+        : stage === 'stopped'
+          ? 'Open Stripe'
+          : stage === 'inReview'
+            ? 'Update details with Stripe'
+            : 'Update payout details';
 
   async function onOnboard() {
     if (!company) return;
@@ -221,9 +227,15 @@ export default function PaymentsSettings() {
                     ? 'Connect a Stripe account so contacts can pay your invoices online. Stripe runs the onboarding — bank, ID, the lot.'
                     : stage === 'started'
                       ? "You started setting up with Stripe but didn't finish, so card payments are still off. Pick up where you left off — Stripe keeps what you've entered."
-                      : stage === 'inReview'
-                        ? "Your details are with Stripe. They're verifying everything and will switch payments on automatically when they're done."
-                        : 'Payments are live. Contacts can pay invoices using the pay link on the public invoice page.'}
+                      : stage === 'actionNeeded'
+                        ? "Stripe needs something else from you before card payments can switch on — usually ID, a bank account or business details. They'll show you exactly what when you continue."
+                        : stage === 'inReview'
+                          ? "Your details are with Stripe. They're verifying everything and will switch payments on automatically when they're done."
+                          : stage === 'stopped'
+                            ? "Stripe has stopped this account, so card payments can't be switched on. That decision is theirs to explain and to reverse — they'll have emailed the details."
+                            : stage === 'payoutsHeld'
+                              ? 'Contacts can pay you, but Stripe is holding the money rather than paying it out — usually a missing bank account or an ID check.'
+                              : 'Payments are live. Contacts can pay invoices using the pay link on the public invoice page.'}
                 </Text>
                 <View className="mt-4 flex-row justify-between">
                   <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">

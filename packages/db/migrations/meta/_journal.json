@@ -295,6 +295,13 @@
       "when": 1786471818740,
       "tag": "0041_document_revisions",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1786558218740,
+      "tag": "0042_stripe_connect_account_truth",
+      "breakpoints": true
     }
   ]
 }
