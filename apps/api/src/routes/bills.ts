@@ -28,7 +28,9 @@ import {
 import { applyCursor, keysetOrderBy, parseLimit, slicePage } from '../lib/pagination.js';
 import {
   UUID_RE,
+  companyTimezone,
   expenseDateToPostedAt,
+  localToday,
   resolveCoaAccounts,
   resolveMoneyAccount,
   resolveVendorLink,
@@ -327,7 +329,9 @@ export function billsRoutes() {
           for (const s of sums) paidByBill.set(s.billId, toCents(s.paid));
         }
 
-        const asOf = new Date().toISOString().slice(0, 10);
+        // The company's today, not UTC's (TMC-258) — after 7pm US Central a bill
+        // due today dropped out of `current` into the 1-30 overdue bucket.
+        const asOf = localToday(await companyTimezone(tx, { accountId, companyId }));
         const todayMs = Date.parse(`${asOf}T00:00:00Z`);
         const bucketCents: Record<ApAgingBucket, number> = {
           current: 0,

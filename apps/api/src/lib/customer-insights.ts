@@ -251,8 +251,8 @@ export async function buildCustomerInsights(
     .select({
       accepted: sql<number>`count(*) filter (where ${estimates.status} = 'accepted')::int`,
       declined: sql<number>`count(*) filter (where ${estimates.status} = 'declined')::int`,
-      lapsed: sql<number>`count(*) filter (where ${estimateLapsed(today)})::int`,
-      open: sql<number>`count(*) filter (where ${estimateStillOpen(today)})::int`,
+      lapsed: sql<number>`count(*) filter (where ${estimateLapsed()})::int`,
+      open: sql<number>`count(*) filter (where ${estimateStillOpen()})::int`,
     })
     .from(estimates)
     .where(

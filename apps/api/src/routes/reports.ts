@@ -54,7 +54,7 @@ import {
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 import type { AppDeps } from '../app.js';
-import { acceptRate, estimateLapsed, estimateTodayYmd } from '../lib/estimate-outcomes.js';
+import { acceptRate, estimateLapsed } from '../lib/estimate-outcomes.js';
 import {
   displayHours,
   effectiveHourly,
@@ -1371,8 +1371,7 @@ export function reportsRoutes(deps: AppDeps) {
           // hold: a sent quote past its expiry date reads 'expired'. Derived
           // through the shared predicate so this report and the contact page
           // cannot disagree about whether a given quote lapsed.
-          const today = estimateTodayYmd();
-          const derivedStatus = sql<string>`case when ${estimateLapsed(today)} then 'expired' else ${estimates.status} end`;
+          const derivedStatus = sql<string>`case when ${estimateLapsed()} then 'expired' else ${estimates.status} end`;
           const rows = await tx
             .select({
               status: derivedStatus,

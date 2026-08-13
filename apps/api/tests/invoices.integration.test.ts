@@ -2204,6 +2204,78 @@ describe('GET /api/invoices/summary + derived overdue/awaiting filters', () => {
     return id;
   }
 
+  // TMC-258. Overdue was compared against UTC's today, so from 7pm US Central an
+  // invoice DUE TODAY was listed as overdue and counted in the Overdue tile —
+  // inviting the owner to chase a customer who was not late.
+  //
+  // The clock here belongs to Postgres (the comparison is `now() AT TIME ZONE
+  // c.timezone`), so faking the JS Date cannot reach it. Instead: two zones 25
+  // hours apart are on different calendar days at every instant, so the SAME
+  // invoice at the SAME moment must classify differently in each. Under the old
+  // single-UTC-today code both answers were identical, which is exactly the bug.
+  it('classifies due-today by the company zone, not one UTC today for everyone', async () => {
+    const ctx = buildApp();
+    try {
+      const cookie = await signUp(ctx.app, 'tzsummary@example.com');
+      const { accountId, companyId } = await userContext('tzsummary@example.com');
+      const contactId = await createContact(ctx, cookie, accountId, companyId);
+      const db = getTestDb();
+
+      const dayRes = await db.execute(sql`
+        select (now() AT TIME ZONE 'Pacific/Midway')::date::text     as behind,
+               (now() AT TIME ZONE 'Pacific/Kiritimati')::date::text as ahead
+      `);
+      const dayRow = (dayRes as unknown as { rows: { behind: string; ahead: string }[] }).rows[0];
+      if (!dayRow) throw new Error('timezone probe returned no row');
+      const { behind, ahead } = dayRow;
+      // Guard the premise rather than assume it.
+      expect(behind).not.toBe(ahead);
+
+      // Due on the LATE zone's today. In Midway that is today (awaiting); in
+      // Kiritimati today has already moved past it (overdue).
+      await makeInvoice(ctx, cookie, accountId, companyId, contactId, {
+        number: 'INV-TZ',
+        issueDate: '2026-01-01',
+        dueDate: behind,
+        total: '100.00',
+        send: true,
+      });
+
+      const summaryFor = async (timezone: string) => {
+        await db.update(companies).set({ timezone }).where(eq(companies.id, companyId));
+        const res = await ctx.app.request(`/api/invoices/summary?companyId=${companyId}`, {
+          headers: { cookie, 'x-account-id': accountId },
+        });
+        expect(res.status).toBe(200);
+        return (await res.json()) as {
+          awaiting: { count: number };
+          overdue: { count: number };
+        };
+      };
+
+      const midway = await summaryFor('Pacific/Midway');
+      expect(midway.awaiting.count).toBe(1);
+      expect(midway.overdue.count).toBe(0);
+
+      const kiritimati = await summaryFor('Pacific/Kiritimati');
+      expect(kiritimati.overdue.count).toBe(1);
+      expect(kiritimati.awaiting.count).toBe(0);
+
+      // And the tile's click-through list must agree with the count it backs —
+      // the pair looking consistent while both were wrong is what made the old
+      // behaviour convincing.
+      const listRes = await ctx.app.request(`/api/invoices?companyId=${companyId}&overdue=true`, {
+        headers: { cookie, 'x-account-id': accountId },
+      });
+      const { invoices: overdueList } = (await listRes.json()) as {
+        invoices: { number: string }[];
+      };
+      expect(overdueList.map((i) => i.number)).toEqual(['INV-TZ']);
+    } finally {
+      ctx.handle.close();
+    }
+  });
+
   it('buckets draft / awaiting / overdue with outstanding $, and the tile filters match', async () => {
     const ctx = buildApp();
     try {

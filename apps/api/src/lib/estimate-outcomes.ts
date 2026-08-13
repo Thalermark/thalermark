@@ -1,5 +1,6 @@
 import { estimates } from '@thalermark/db';
 import { sql } from 'drizzle-orm';
+import { companyToday } from './company-today.js';
 
 // "This quote ran out without an answer" — in one place, because two surfaces
 // ask it (TMC-255).
@@ -16,24 +17,26 @@ import { sql } from 'drizzle-orm';
 // company whose quotes had in fact lapsed. Meanwhile the contact page derived
 // its own lapsed count and got a different answer for the same customer.
 //
-// UTC, matching the two surfaces that already derive expiry this way rather
-// than introducing a third basis. A quote's expiry is a calendar date the
-// operator chose, so the worst a zone can cost is a few hours at a boundary —
-// where resolving one caller through the company timezone and not the other
-// would guarantee they disagree.
-export function estimateTodayYmd(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-// Sent, unanswered, and past its expiry date.
-export function estimateLapsed(todayYmd: string) {
-  return sql`${estimates.status} = 'sent' and ${estimates.expiresOn} is not null and ${estimates.expiresOn} < ${todayYmd}`;
+// Measured against the quote's OWN company clock (TMC-258). This used to be
+// UTC, chosen deliberately: with the date passed in as a string, the risk worth
+// designing against was the two callers passing DIFFERENT strings, and one
+// shared basis — even a slightly wrong one — beat two right-ish ones that
+// disagreed. That reasoning was sound and its conclusion is now obsolete,
+// because the basis no longer travels as an argument. The predicates carry it
+// themselves, so the callers cannot diverge by construction, which is what the
+// original comment actually wanted.
+//
+// The cost of UTC was not theoretical: a quote expiring today read as expired
+// from 7pm US Central the evening before it ran out, and since the win rate
+// counts lapsed quotes, the headline metric moved with it.
+export function estimateLapsed() {
+  return sql`${estimates.status} = 'sent' and ${estimates.expiresOn} is not null and ${estimates.expiresOn} < ${companyToday(estimates.companyId)}`;
 }
 
 // Sent and still live — the complement of lapsed within 'sent', so the two can
 // never both claim the same row or both disclaim it.
-export function estimateStillOpen(todayYmd: string) {
-  return sql`${estimates.status} = 'sent' and (${estimates.expiresOn} is null or ${estimates.expiresOn} >= ${todayYmd})`;
+export function estimateStillOpen() {
+  return sql`${estimates.status} = 'sent' and (${estimates.expiresOn} is null or ${estimates.expiresOn} >= ${companyToday(estimates.companyId)})`;
 }
 
 // A LAPSED QUOTE IS COUNTED BUT IS NOT A DECISION (owner call, 2026-08-11).
