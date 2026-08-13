@@ -8,7 +8,7 @@ import { v7 as uuidv7 } from 'uuid';
 import type { AppDeps } from '../app.js';
 import { applyCursor, keysetOrderBy, parseLimit, slicePage } from '../lib/pagination.js';
 import { generateOnce } from '../lib/recurring.js';
-import { UUID_RE } from '../lib/route-helpers.js';
+import { UUID_RE, companyTimezone, localToday } from '../lib/route-helpers.js';
 import { requireCapability } from '../middleware/authz.js';
 import { requireEntitlement } from '../middleware/entitlement.js';
 import type { RlsVariables } from '../middleware/rls-context.js';
@@ -69,7 +69,11 @@ async function transitionRecurringInvoice(
   // date compare. The sweeper's own catch-up collapse (slice R3) covers
   // server-downtime gaps; this covers the deliberate pause case.
   if (key === 'resume') {
-    const todayIso = now.toISOString().slice(0, 10);
+    // Today in the business's zone (TMC-258) — resuming in the evening used to
+    // schedule the next run for tomorrow, skipping a day of billing.
+    const todayIso = localToday(
+      await companyTimezone(tx, { accountId, companyId: current.companyId }),
+    );
     if (current.nextRunDate < todayIso) patch.nextRunDate = todayIso;
   }
 

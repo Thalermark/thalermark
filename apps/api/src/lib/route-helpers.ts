@@ -2,7 +2,7 @@
 // sub-apps (apps/api/src/routes/*). Lives in lib/ — not app.ts — so a sub-app
 // can import it without a cycle back through app.ts.
 
-import { type Transaction, chartOfAccounts, contacts } from '@thalermark/db';
+import { type Transaction, chartOfAccounts, companies, contacts } from '@thalermark/db';
 import { and, eq, inArray, isNotNull } from 'drizzle-orm';
 import { reindexEntities } from './search/reindex.js';
 
@@ -60,14 +60,28 @@ export function expenseDateToPostedAt(d: string): Date {
 // invoice mark-paid path uses it to date a receipt whose caller didn't supply a
 // date, where truncating `now` to a UTC date would file a Tokyo morning under
 // yesterday (TMC-196).
-export function localToday(tz: string): string {
-  // en-CA formats as YYYY-MM-DD, which is the shape we want everywhere else.
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: tz,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date());
+//
+// Re-exported from @thalermark/validation rather than defined here (TMC-258):
+// web and mobile have to answer the same question for their date inputs, and
+// this route's copy being right while the client's was wrong is exactly how
+// INV-0008 got issued on a day its business had not reached yet.
+export { localDay, localDayPlus, localToday } from '@thalermark/validation';
+
+// The zone a company keeps its books in, for the write paths that need to date
+// something as of today (TMC-258). Falls back to UTC when the company can't be
+// read, which is the column's own default — a missing row should not be the
+// difference between a date and a 500. Account-scoped for defense in depth per
+// [[architecture_account_id_explicit_filter]].
+export async function companyTimezone(
+  tx: Transaction,
+  ids: { accountId: string; companyId: string },
+): Promise<string> {
+  const [row] = await tx
+    .select({ timezone: companies.timezone })
+    .from(companies)
+    .where(and(eq(companies.id, ids.companyId), eq(companies.accountId, ids.accountId)))
+    .limit(1);
+  return row?.timezone ?? 'UTC';
 }
 
 // Resolves chart_of_accounts row ids to their shape within one company (scoped

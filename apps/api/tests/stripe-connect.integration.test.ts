@@ -1069,4 +1069,66 @@ describe('Stripe webhook — payment_intent.succeeded from a connected account (
       await handle.close();
     }
   });
+
+  // TMC-258, found on the first real card payment the product ever took. Stripe
+  // recorded the charge at 9:13 PM on 12 Aug US Central; the app filed it on the
+  // 13th, because this path truncated `new Date()` to a UTC day while the manual
+  // mark-paid path had been resolving through company.timezone since TMC-196.
+  // Two routes to the same table, disagreeing about what day it was.
+  it('dates the receipt by the company timezone, not UTC', async () => {
+    // The actual instant of that charge: still the 12th in Chicago, already the
+    // 13th in UTC. Only Date is faked — the DB driver's timers must keep running.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-08-13T02:13:00Z'));
+    const { app, handle, stripe } = buildAppWithRealStripe();
+    try {
+      const { invoiceId, companyId } = await seedPayableInvoice({
+        accountId: 'acct_tz',
+        chargesEnabled: true,
+      });
+      await getTestDb()
+        .update(companies)
+        .set({ timezone: 'America/Chicago' })
+        .where(eq(companies.id, companyId));
+
+      const payload = JSON.stringify({
+        id: 'evt_tz',
+        object: 'event',
+        type: 'payment_intent.succeeded',
+        account: 'acct_tz',
+        data: {
+          object: {
+            id: 'pi_tz_intent',
+            object: 'payment_intent',
+            status: 'succeeded',
+            amount_received: 10000,
+            currency: 'usd',
+            metadata: { invoiceId },
+          },
+        },
+      });
+      const res = await app.request('/api/webhooks/stripe', {
+        method: 'POST',
+        headers: {
+          'stripe-signature': stripe.client.webhooks.generateTestHeaderString({
+            payload,
+            secret: TEST_WEBHOOK_SECRET,
+          }),
+        },
+        body: payload,
+      });
+      expect(res.status).toBe(200);
+
+      const [payment] = await getTestDb()
+        .select()
+        .from(invoicePayments)
+        .where(eq(invoicePayments.invoiceId, invoiceId));
+      // The business's day. UTC would say 2026-08-13, and on 31 December that
+      // same hour would book the money into the following tax year.
+      expect(payment?.receivedOn).toBe('2026-08-12');
+    } finally {
+      vi.useRealTimers();
+      await handle.close();
+    }
+  });
 });

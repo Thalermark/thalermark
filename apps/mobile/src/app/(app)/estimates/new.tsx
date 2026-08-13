@@ -5,6 +5,7 @@ import {
   contactCreateSchema,
   estimateCreateSchema,
   formatUnitPrice,
+  localToday,
   multiplyMoney,
   sumMoney,
   unitPriceFromTotal,
@@ -116,6 +117,11 @@ export default function NewEstimate() {
           const company = await pickActiveCompany(companies);
           if (company) {
             setCompanyId(company.id);
+            // Re-date through the company's timezone (TMC-258) — the useState
+            // seed above can only use the device clock in UTC, which dates an
+            // evening document tomorrow. One-shot bootstrap, so no user edit
+            // is at risk.
+            setIssueDate(localToday(company.timezone));
             setShowAddress(company.showAddressOnEstimate);
             setShowPhone(company.showPhoneOnEstimate);
             setShowEmail(company.showEmailOnEstimate);

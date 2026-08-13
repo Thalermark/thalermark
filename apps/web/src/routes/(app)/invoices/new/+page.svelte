@@ -114,15 +114,10 @@
     row.taxPolicyId = taxable ? resolvePolicyId(taxPolicyId ?? '') : '';
   }
 
-  function todayIso(): string {
-    return new Date().toISOString().slice(0, 10);
-  }
-
-  function plusDaysIso(days: number): string {
-    const d = new Date();
-    d.setUTCDate(d.getUTCDate() + days);
-    return d.toISOString().slice(0, 10);
-  }
+  // Dates come from the server, resolved through the company's timezone
+  // (TMC-258). Computing them here meant the browser's clock in UTC: an invoice
+  // raised at 9pm US Central was issued on tomorrow's date, and since revenue
+  // recognition posts on the issue date, the ledger followed it there.
 
   // Re-seeding values into the form after a fail() re-render needs to happen
   // in SSR — without use:enhance, SK responds with a freshly server-rendered
@@ -264,7 +259,7 @@
         name="issueDate"
         type="date"
         required
-        value={values?.issueDate ?? todayIso()}
+        value={values?.issueDate ?? data.today}
         class="field mt-1"
       />
       {#if err('issueDate')}
@@ -281,7 +276,7 @@
         name="dueDate"
         type="date"
         required
-        value={values?.dueDate ?? plusDaysIso(30)}
+        value={values?.dueDate ?? data.dueDefault}
         class="field mt-1"
       />
       {#if err('dueDate')}

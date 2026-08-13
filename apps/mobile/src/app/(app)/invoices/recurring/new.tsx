@@ -4,6 +4,7 @@ import {
   addMoney,
   contactCreateSchema,
   formatUnitPrice,
+  localToday,
   multiplyMoney,
   recurringInvoiceCreateSchema,
   sumMoney,
@@ -113,6 +114,11 @@ export default function NewRecurring() {
           const company = await pickActiveCompany(companies);
           if (company) {
             setCompanyId(company.id);
+            // Re-date through the company's timezone (TMC-258) — the useState
+            // seed above can only use the device clock in UTC, which dates an
+            // evening document tomorrow. One-shot bootstrap, so no user edit
+            // is at risk.
+            setStartDate(localToday(company.timezone));
             const polRes = await api.api['tax-policies'].$get({
               query: { companyId: company.id },
             });

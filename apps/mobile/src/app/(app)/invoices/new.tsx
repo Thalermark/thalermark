@@ -6,6 +6,8 @@ import {
   formatUnitPrice,
   hoursFromMinutes,
   invoiceCreateSchema,
+  localDayPlus,
+  localToday,
   multiplyMoney,
   sumMoney,
   unitPriceFromTotal,
@@ -145,6 +147,14 @@ export default function NewInvoice() {
           const company = await pickActiveCompany(companies);
           if (company) {
             setCompanyId(company.id);
+            // Re-date through the company's timezone now that we know it
+            // (TMC-258). The useState seeds above run before this fetch
+            // resolves and can only use the device clock in UTC, which dates an
+            // evening invoice tomorrow — and the issue date is what revenue
+            // recognition posts on. Safe to overwrite: this bootstrap runs once,
+            // guarded by didBootstrap, before the form is usable.
+            setIssueDate(localToday(company.timezone));
+            setDueDate(localDayPlus(company.timezone, 30));
             setShowAddress(company.showAddressOnInvoice);
             setShowPhone(company.showPhoneOnInvoice);
             setShowEmail(company.showEmailOnInvoice);

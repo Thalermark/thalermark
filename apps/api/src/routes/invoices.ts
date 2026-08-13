@@ -46,6 +46,7 @@ import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 import { v7 as uuidv7 } from 'uuid';
 import type { AppDeps } from '../app.js';
+import { companyToday } from '../lib/company-today.js';
 import { recordSendAccepted, recordSendFailed } from '../lib/delivery.js';
 import { resolveEmailTemplate } from '../lib/email-templates.js';
 import { sendInvoiceEmail } from '../lib/invoice-email.js';
@@ -78,9 +79,11 @@ import { closedThroughFor } from '../lib/period-lock.js';
 import {
   EMAIL_RE,
   UUID_RE,
+  companyTimezone,
   escapeLike,
   expenseDateToPostedAt,
   isValidDateParam,
+  localDayPlus,
   localToday,
   resolveMoneyAccount,
   storedMoneyCode,
@@ -633,11 +636,12 @@ export function invoicesRoutes(deps: AppDeps) {
           .where(and(eq(invoiceLineItems.invoiceId, id), eq(invoiceLineItems.accountId, accountId)))
           .orderBy(asc(invoiceLineItems.position));
 
-        const today = new Date();
-        const todayIso = today.toISOString().slice(0, 10);
-        const dueIso = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000)
-          .toISOString()
-          .slice(0, 10);
+        // Issue date drives revenue recognition, so it has to be the business's
+        // today, not UTC's (TMC-258). Net 30 is calendar arithmetic on that
+        // local day — adding 30 * 86400s to an instant drifts across DST.
+        const tz = await companyTimezone(tx, { accountId, companyId: source.companyId });
+        const todayIso = localToday(tz);
+        const dueIso = localDayPlus(tz, 30);
 
         const [latest] = await tx
           .select({ number: invoices.number })
@@ -773,15 +777,27 @@ export function invoicesRoutes(deps: AppDeps) {
         // yet due. Back the Overdue / Awaiting metric tiles' click-through so
         // the filtered list matches the tile count exactly. Compose with the
         // keyset scan like the other conditions.
+        // Measured against each invoice's OWN company clock (TMC-258). A UTC
+        // today flips at 7pm US Central, so an invoice due today was listed as
+        // overdue all evening — and this list backs the Overdue tile, so the
+        // count agreed with it and the pair looked authoritative.
         if (c.req.query('overdue') === 'true') {
-          const today = new Date().toISOString().slice(0, 10);
-          // biome-ignore lint/style/noNonNullAssertion: and() with >=1 arg is non-null
-          conditions.push(and(eq(invoices.status, 'sent'), lt(invoices.dueDate, today))!);
+          conditions.push(
+            // biome-ignore lint/style/noNonNullAssertion: and() with >=1 arg is non-null
+            and(
+              eq(invoices.status, 'sent'),
+              lt(invoices.dueDate, companyToday(invoices.companyId)),
+            )!,
+          );
         }
         if (c.req.query('awaiting') === 'true') {
-          const today = new Date().toISOString().slice(0, 10);
-          // biome-ignore lint/style/noNonNullAssertion: and() with >=1 arg is non-null
-          conditions.push(and(eq(invoices.status, 'sent'), gte(invoices.dueDate, today))!);
+          conditions.push(
+            // biome-ignore lint/style/noNonNullAssertion: and() with >=1 arg is non-null
+            and(
+              eq(invoices.status, 'sent'),
+              gte(invoices.dueDate, companyToday(invoices.companyId)),
+            )!,
+          );
         }
         // Pulled back to be corrected and not yet resent (TMC-227) — a draft
         // that has been issued before. Backs the "Being fixed" tile, whose whole
@@ -824,11 +840,14 @@ export function invoicesRoutes(deps: AppDeps) {
         const tx = c.get('tx');
         const accountId = c.get('accountId');
         const companyId = c.req.query('companyId');
-        const today = new Date().toISOString().slice(0, 10);
         const conditions = [eq(invoices.accountId, accountId)];
         if (companyId) conditions.push(eq(invoices.companyId, companyId));
-        const awaiting = sql`${invoices.status} = 'sent' and ${invoices.dueDate} >= ${today}::date`;
-        const overdue = sql`${invoices.status} = 'sent' and ${invoices.dueDate} < ${today}::date`;
+        // Per-row company clock (TMC-258). This endpoint is account-scoped when
+        // companyId is omitted, so a single request-level today would have to
+        // pick one company's zone and be wrong for every other.
+        const today = companyToday(invoices.companyId);
+        const awaiting = sql`${invoices.status} = 'sent' and ${invoices.dueDate} >= ${today}`;
+        const overdue = sql`${invoices.status} = 'sent' and ${invoices.dueDate} < ${today}`;
         // Receipts per invoice, grouped once and LEFT JOINed, so the strip
         // reports what is still owed rather than what was originally billed
         // (TMC-216). One row per invoice, so the join cannot multiply the

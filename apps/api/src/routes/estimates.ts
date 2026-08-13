@@ -26,7 +26,15 @@ import { sendEstimateEmail } from '../lib/estimate-email.js';
 import { suggestNextEstimateNumber, suggestNextInvoiceNumber } from '../lib/invoice-number.js';
 import { mailerDelivers } from '../lib/mailer.js';
 import { applyCursor, keysetOrderBy, parseLimit, slicePage } from '../lib/pagination.js';
-import { EMAIL_RE, UUID_RE, escapeLike, isValidDateParam } from '../lib/route-helpers.js';
+import {
+  EMAIL_RE,
+  UUID_RE,
+  companyTimezone,
+  escapeLike,
+  isValidDateParam,
+  localDayPlus,
+  localToday,
+} from '../lib/route-helpers.js';
 import { resolveReplyTo } from '../lib/sender.js';
 import { requireCapability } from '../middleware/authz.js';
 import { requireEntitlement } from '../middleware/entitlement.js';
@@ -252,11 +260,11 @@ export function estimatesRoutes(deps: AppDeps) {
           )
           .orderBy(asc(estimateLineItems.position));
 
-        const today = new Date();
-        const todayIso = today.toISOString().slice(0, 10);
-        const expiresIso = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000)
-          .toISOString()
-          .slice(0, 10);
+        // The business's today, not UTC's (TMC-258) — an estimate raised in the
+        // evening was dated tomorrow and expired a day late to match.
+        const tz = await companyTimezone(tx, { accountId, companyId: source.companyId });
+        const todayIso = localToday(tz);
+        const expiresIso = localDayPlus(tz, 30);
 
         const [latest] = await tx
           .select({ number: estimates.number })
@@ -763,12 +771,15 @@ export function estimatesRoutes(deps: AppDeps) {
 
         // Server-side defaults for the new invoice. Issue date is today,
         // due date is today + 30d (Net 30). Operator can edit either via
-        // the draft invoice's PATCH path before sending.
-        const today = new Date();
-        const todayIso = today.toISOString().slice(0, 10);
-        const dueIso = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000)
-          .toISOString()
-          .slice(0, 10);
+        // the draft invoice's PATCH path before sending. Today is the
+        // business's, not UTC's (TMC-258): this issue date is what revenue
+        // recognition posts on.
+        const tz = await companyTimezone(tx, { accountId, companyId: estimate.companyId });
+        const todayIso = localToday(tz);
+        const dueIso = localDayPlus(tz, 30);
+        // Row timestamps stay instants — only the DATE columns above are
+        // calendar days that need the business's zone.
+        const now = new Date();
 
         const [latest] = await tx
           .select({ number: invoices.number })
@@ -853,7 +864,7 @@ export function estimatesRoutes(deps: AppDeps) {
 
         await tx
           .update(estimates)
-          .set({ convertedInvoiceId: invoiceId, updatedAt: today })
+          .set({ convertedInvoiceId: invoiceId, updatedAt: now })
           .where(and(eq(estimates.id, id), eq(estimates.accountId, accountId)));
 
         await c.var.audit({
