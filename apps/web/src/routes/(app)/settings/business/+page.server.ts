@@ -2,7 +2,7 @@ import { pickActiveCompany, setActiveCompany } from '$lib/active-company';
 import { apiErrorMessage } from '$lib/api-errors';
 import { apiBaseUrl, apiFetch, serverApiClient, serverApiHeaders } from '$lib/api.server';
 import { error, fail, redirect } from '@sveltejs/kit';
-import { BUSINESS_TYPES } from '@thalermark/validation';
+import { BUSINESS_TYPES, timezoneOptions } from '@thalermark/validation';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async (event) => {
@@ -26,7 +26,9 @@ export const load: PageServerLoad = async (event) => {
   // client can't disagree about which zones exist. ~400 entries is chunky HTML
   // for one settings page, but it beats a hand-curated list going stale and
   // rejecting somebody's real zone.
-  const timezones = Intl.supportedValuesOf('timeZone');
+  // Must contain the stored value or the select silently shows Africa/Abidjan
+  // for every company still on the 'UTC' default (TMC-258 follow-up).
+  const timezones = timezoneOptions(company.timezone);
 
   // Did this business take over from another, and can that still be undone?
   // Asked here because Business settings is where someone who has just realised

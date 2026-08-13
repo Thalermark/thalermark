@@ -5,6 +5,7 @@ import {
   businessTypeSchema,
   companyUpdateSchema,
   filesScheduleC,
+  timezoneOptions,
 } from './company.js';
 
 describe('businessTypeSchema', () => {
@@ -140,5 +141,39 @@ describe('companyUpdateSchema', () => {
 
   it('accepts a single offline boolean as the only field (sparse refine)', () => {
     expect(companyUpdateSchema.safeParse({ paymentCashEnabled: false }).success).toBe(true);
+  });
+});
+
+// The picker showed Africa/Abidjan for every untouched company, because
+// Intl.supportedValuesOf('timeZone') omits 'UTC' and 'UTC' is what
+// companies.timezone defaults to. A select whose value matches no option falls
+// back to the first one, so saving without touching the field would have filed
+// a business's books in Côte d'Ivoire.
+describe('timezoneOptions', () => {
+  it("includes 'UTC', which Intl's own list does not", () => {
+    expect(Intl.supportedValuesOf('timeZone')).not.toContain('UTC');
+    expect(timezoneOptions()).toContain('UTC');
+  });
+
+  it('puts the fallback first so an unmatched value cannot silently pick Abidjan', () => {
+    expect(timezoneOptions()[0]).toBe('UTC');
+  });
+
+  it('carries a stored zone that is a valid alias but absent from the list', () => {
+    // The schema accepts anything Intl can build a formatter for, which is a
+    // wider set than supportedValuesOf returns.
+    const opts = timezoneOptions('US/Central');
+    expect(opts).toContain('US/Central');
+    expect(opts).toContain('UTC');
+  });
+
+  it('does not duplicate a zone already in the list', () => {
+    const opts = timezoneOptions('America/Chicago');
+    expect(opts.filter((z) => z === 'America/Chicago')).toHaveLength(1);
+  });
+
+  it('still offers the real zones', () => {
+    expect(timezoneOptions().length).toBeGreaterThan(400);
+    expect(timezoneOptions()).toContain('America/Chicago');
   });
 });
