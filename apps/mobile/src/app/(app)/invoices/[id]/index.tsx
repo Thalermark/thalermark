@@ -6,6 +6,7 @@ import {
   Alert,
   Pressable,
   ScrollView,
+  Share,
   Text,
   TextInput,
   View,
@@ -18,6 +19,7 @@ import { api } from '../../../../lib/api';
 import { apiErrorMessage } from '../../../../lib/api-errors';
 import { useMay } from '../../../../lib/role';
 import { getServerUrl } from '../../../../lib/server-url';
+import { shareLink } from '../../../../lib/share-link';
 
 // Invoice detail + status actions (mirror of apps/web's /invoices/[id]):
 // mark-sent / mark-paid / void / send-by-email, gated by the same state
@@ -897,15 +899,22 @@ export default function InvoiceDetail() {
 
             {/* Share link */}
             {publicUrl ? (
-              <View className="mt-6 rounded-sm border border-ink/10 bg-cream-warm p-4">
+              <Pressable
+                onPress={() => shareLink(publicUrl, 'Your invoice')}
+                accessibilityRole="button"
+                accessibilityLabel="Send the invoice link"
+                className="mt-6 rounded-sm border border-ink/10 bg-cream-warm p-4 active:opacity-70"
+              >
                 <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
                   Share link
                 </Text>
-                <Text className="mt-2 text-sm text-gold-deep">{publicUrl}</Text>
-                <Text className="mt-2 text-xs text-ink/50">
-                  Anyone with this link can view the invoice.
+                <Text selectable className="mt-2 text-sm text-gold-deep">
+                  {publicUrl}
                 </Text>
-              </View>
+                <Text className="mt-2 text-xs text-ink/50">
+                  Tap to send it. Anyone with this link can view the invoice.
+                </Text>
+              </Pressable>
             ) : null}
 
             {/* Meta */}
