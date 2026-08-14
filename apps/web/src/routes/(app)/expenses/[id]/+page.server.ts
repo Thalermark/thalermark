@@ -43,8 +43,7 @@ export const load: PageServerLoad = async (event) => {
   ]);
   const labelById = new Map<string, string>();
   if (expenseAccRes.ok) {
-    for (const a of (await expenseAccRes.json()).accounts)
-      labelById.set(a.id, `${a.code} · ${a.name}`);
+    for (const a of (await expenseAccRes.json()).accounts) labelById.set(a.id, a.name);
   }
   if (moneyRes.ok) {
     // Name only — the user picked "Chase Sapphire", not "2100 · Chase Sapphire".

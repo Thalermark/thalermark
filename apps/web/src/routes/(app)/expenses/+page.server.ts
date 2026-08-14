@@ -51,13 +51,13 @@ export const load: PageServerLoad = async (event) => {
 
   const { expenses, nextCursor } = await expensesRes.json();
   const { accounts } = await accountsRes.json();
-  const categoryNameById = new Map(accounts.map((a) => [a.id, `${a.code} · ${a.name}`]));
+  const categoryNameById = new Map(accounts.map((a) => [a.id, a.name]));
 
   return {
     rows: mapExpenseRows(expenses, categoryNameById),
     nextCursor,
     companyId: company.id,
-    categories: accounts.map((a) => ({ id: a.id, label: `${a.code} · ${a.name}` })),
+    categories: accounts.map((a) => ({ id: a.id, label: a.name })),
     filters: { from, to, category, q, needsReview },
     showDeleted,
   };

@@ -37,7 +37,7 @@ export const GET: RequestHandler = async (event) => {
   if (!expensesRes.ok) return json({ rows: [], nextCursor: null }, { status: expensesRes.status });
   const { expenses, nextCursor } = await expensesRes.json();
   const categoryNameById = accountsRes.ok
-    ? new Map((await accountsRes.json()).accounts.map((a) => [a.id, `${a.code} · ${a.name}`]))
+    ? new Map((await accountsRes.json()).accounts.map((a) => [a.id, a.name]))
     : new Map<string, string>();
 
   return json({ rows: mapExpenseRows(expenses, categoryNameById), nextCursor });

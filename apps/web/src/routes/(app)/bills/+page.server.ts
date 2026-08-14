@@ -34,7 +34,7 @@ export const load: PageServerLoad = async (event) => {
 
   const { bills, nextCursor } = await billsRes.json();
   const { accounts } = await accountsRes.json();
-  const categoryNameById = new Map(accounts.map((a) => [a.id, `${a.code} · ${a.name}`]));
+  const categoryNameById = new Map(accounts.map((a) => [a.id, a.name]));
 
   return {
     rows: mapBillRows(bills, categoryNameById),
