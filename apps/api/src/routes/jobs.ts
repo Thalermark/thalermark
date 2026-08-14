@@ -509,8 +509,12 @@ export function jobsRoutes() {
           const tx = c.get('tx');
           const accountId = c.get('accountId');
 
+          // The name rides along because all four invoice forms that seed rows
+          // from these entries need it for the line label, and they all already
+          // make this call. Threading it separately would be four more fetches
+          // for a string this query is already holding.
           const [job] = await tx
-            .select({ id: jobs.id })
+            .select({ id: jobs.id, name: jobs.name })
             .from(jobs)
             .where(and(eq(jobs.id, jobId), eq(jobs.accountId, accountId)))
             .limit(1);
@@ -530,6 +534,7 @@ export function jobsRoutes() {
           const totalMinutes = rows.reduce((sum, r) => sum + r.minutes, 0);
           return c.json({
             timeEntries: rows,
+            jobName: job.name,
             totalMinutes,
             totalHours: displayHours(totalMinutes),
           });

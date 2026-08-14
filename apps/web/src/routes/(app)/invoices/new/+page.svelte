@@ -10,8 +10,10 @@
     type LineItemType,
     addMoney,
     formatUnitPrice,
+    hoursUnitLabel,
     multiplyMoney,
     sumMoney,
+    timeEntryLineDescription,
     unitPriceFromTotal,
   } from '@thalermark/validation';
   import type { PageProps } from './$types';
@@ -71,9 +73,9 @@
     return data.unbilledTime.map((t) => {
       const unitPrice = t.rate ?? '0';
       return {
-        description: t.note?.trim() || `${jobName} — hours`.trim(),
+        description: timeEntryLineDescription({ entryDate: t.entryDate, note: t.note, jobName }),
         quantity: t.hours,
-        unitLabel: 'hour',
+        unitLabel: hoursUnitLabel(t.hours),
         unitPrice: formatUnitPrice(unitPrice),
         amount: multiplyMoney(t.hours, unitPrice),
         sourceItemId: null,

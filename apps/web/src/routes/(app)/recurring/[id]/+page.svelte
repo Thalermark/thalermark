@@ -3,7 +3,7 @@
   import ConfirmSubmit from '$lib/components/ConfirmSubmit.svelte';
   import { may } from '$lib/perms';
   import { cadenceLabel } from '$lib/recurring';
-  import { formatUnitPrice } from '@thalermark/validation';
+  import { formatQuantity, formatUnitPrice } from '@thalermark/validation';
   import type { PageProps } from './$types';
 
   let { data, form }: PageProps = $props();
@@ -170,7 +170,7 @@
         <tr>
           <td class="px-5 py-4 text-fg">{li.description}</td>
           <td class="px-5 py-4 text-right font-mono tabular-nums text-fg/80"
-            >{li.quantity}{#if li.unitLabel}&nbsp;{li.unitLabel}{/if}</td
+            >{formatQuantity(li.quantity)}{#if li.unitLabel}&nbsp;{li.unitLabel}{/if}</td
           >
           <td class="px-5 py-4 text-right font-mono tabular-nums text-fg/80">{formatUnitPrice(li.unitPrice)}</td>
           <td class="px-5 py-4 text-right font-mono tabular-nums text-fg">{li.amount}</td>

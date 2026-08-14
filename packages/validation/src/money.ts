@@ -85,15 +85,40 @@ export const isoDateString = z
 // other display helpers here tolerate malformed input rather than throwing
 // inside an email build.
 export function formatDateDisplay(isoDate: string, locale = 'en-US'): string {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate);
-  if (!m) return isoDate;
-  const [, y, mo, d] = m;
-  const local = new Date(Number(y), Number(mo) - 1, Number(d));
+  const local = localMidnight(isoDate);
+  if (!local) return isoDate;
   try {
     return local.toLocaleDateString(locale, { year: 'numeric', month: 'long', day: 'numeric' });
   } catch {
     return isoDate;
   }
+}
+
+// The same bare-calendar-date reading as above, in the short form a line item
+// wants: "Aug 12", not "August 12, 2026". Long-form dates are for the top of a
+// document; this one sits inside a table row next to a quantity and a price.
+//
+// No year, deliberately. The invoice carries its own dates, and work is billed
+// close to when it happened. December work invoiced in January is the case that
+// loses information — if that turns up in practice, add the year rather than
+// widening this everywhere.
+export function formatDateShort(isoDate: string, locale = 'en-US'): string {
+  const local = localMidnight(isoDate);
+  if (!local) return isoDate;
+  try {
+    return local.toLocaleDateString(locale, { month: 'short', day: 'numeric' });
+  } catch {
+    return isoDate;
+  }
+}
+
+// Shared by the two date helpers above. Null for anything that isn't a bare ISO
+// date, so both callers fall through to returning their input unchanged.
+function localMidnight(isoDate: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate);
+  if (!m) return null;
+  const [, y, mo, d] = m;
+  return new Date(Number(y), Number(mo) - 1, Number(d));
 }
 
 // Render a stored money string as currency: "1500.00" → "$1,500.00". Every
@@ -253,4 +278,24 @@ export function formatUnitPrice(price: string): string {
   while (frac.length > MONEY_SCALE && frac.endsWith('0')) frac = frac.slice(0, -1);
   if (frac.length < MONEY_SCALE) frac = frac.padEnd(MONEY_SCALE, '0');
   return `${price.slice(0, dot)}.${frac}`;
+}
+
+// Display a stored quantity (numeric(15,4), so "3.0000") the way a person reads
+// a count: "3.0000"→"3", "1.5000"→"1.5", "0.8333"→"0.8333". Same trimming rule
+// as formatUnitPrice above, but with a floor of ZERO decimals rather than two —
+// three of something is just "3", while ten dollars is "10.00" and no cents.
+//
+// TRIMS, and must never round. Rounding 0.8333 to 0.83 makes the invoice stop
+// multiplying out in the customer's hands: 0.83 × $15.00 comes to $12.45 against
+// a line that says $12.50. A trimmed value is arithmetically identical to the
+// stored one, so it cannot introduce that disagreement. PR #450 already paid for
+// this lesson one layer in, where a 2dp display helper was used to price an
+// entry; this is the same mistake with the customer holding the evidence.
+export function formatQuantity(quantity: string): string {
+  if (!DECIMAL_RE.test(quantity)) return quantity;
+  const dot = quantity.indexOf('.');
+  if (dot === -1) return quantity;
+  let frac = quantity.slice(dot + 1);
+  while (frac.endsWith('0')) frac = frac.slice(0, -1);
+  return frac.length > 0 ? `${quantity.slice(0, dot)}.${frac}` : quantity.slice(0, dot);
 }

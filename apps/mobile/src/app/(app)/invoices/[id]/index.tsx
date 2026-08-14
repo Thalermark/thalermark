@@ -1,4 +1,4 @@
-import { formatUnitPrice } from '@thalermark/validation';
+import { formatQuantity, formatUnitPrice } from '@thalermark/validation';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
@@ -936,7 +936,7 @@ export default function InvoiceDetail() {
                   ) : null}
                   <View className="mt-1 flex-row justify-between">
                     <Text className="font-mono text-xs text-ink/50">
-                      {String(Number(li.quantity))}
+                      {formatQuantity(li.quantity)}
                       {li.unitLabel ? ` ${li.unitLabel}` : ''} × {formatUnitPrice(li.unitPrice)}
                     </Text>
                     <Text className="font-mono tabular-nums text-ink">{li.amount}</Text>

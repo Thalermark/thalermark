@@ -74,13 +74,16 @@ export const load: PageServerLoad = async (event) => {
     note: string | null;
     rate: string | null;
   }[] = [];
+  // Names the job on a seeded line when the entry carries no note of its own.
+  let jobName = '';
   if (invoice.jobId) {
     const timeRes = await client.api.jobs[':id'].time.$get({
       param: { id: invoice.jobId },
       query: { unbilled: undefined },
     });
     if (timeRes.ok) {
-      const { timeEntries } = await timeRes.json();
+      const { timeEntries, jobName: name } = await timeRes.json();
+      jobName = name;
       unbilledTime = timeEntries
         .filter((t) => t.billedInvoiceId === null)
         .map((t) => ({
@@ -98,6 +101,7 @@ export const load: PageServerLoad = async (event) => {
     invoice,
     initialContact,
     unbilledTime,
+    jobName,
     taxPolicies: taxPolicies.map((p) => ({
       id: p.id,
       name: p.name,
