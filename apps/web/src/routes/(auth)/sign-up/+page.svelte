@@ -133,7 +133,12 @@
   }
 </script>
 
-<span class="eyebrow">{invite ? 'Accept invitation' : 'Get early access'}</span>
+<!-- Was "Get early access", which promised a waitlist that has never existed:
+     the form below creates a live account on submit, and the heading under this
+     line already says so. Pairs with sign-in's "Welcome back" as a greeting
+     rather than a call to action, which is what the eyebrow slot is for
+     (TMC-234). The invite branch is unchanged and still accurate. -->
+<span class="eyebrow">{invite ? 'Accept invitation' : 'First time here'}</span>
 <h1 class="mt-3 font-serif text-3xl font-light leading-tight tracking-tight text-fg">
   {COPY.signUp.title}
 </h1>
