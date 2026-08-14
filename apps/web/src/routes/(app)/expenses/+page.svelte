@@ -83,14 +83,21 @@
       All expenses<span class="text-accent">.</span>
     </h1>
   </div>
-  {#if may(data.role, 'expenses:write')}
-    <a
-      href="/expenses/new"
-      class="btn"
-    >
-      + New expense
-    </a>
-  {/if}
+  <!-- The read-side twin of the fork on /expenses/new: durable gear is logged
+       through the big-purchase flow, so its list hangs off Expenses too rather
+       than floating as a page nothing points at. Ungated like /bills' aging
+       link — the list is viewable by all, the API gates writes. -->
+  <div class="flex items-center gap-4">
+    <a href="/purchases" class="text-sm text-fg/60 hover:text-fg">Big purchases →</a>
+    {#if may(data.role, 'expenses:write')}
+      <a
+        href="/expenses/new"
+        class="btn"
+      >
+        + New expense
+      </a>
+    {/if}
+  </div>
 </div>
 
 <!-- Filter bar. Plain GET form so filters live in the URL (shareable,

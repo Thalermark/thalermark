@@ -84,6 +84,16 @@
     content: "— ";
     color: rgb(var(--accent));
   }
+  /* The rule above dresses a section label. Back-links reuse .eyebrow for the
+     type treatment but bring their own lead-in glyph, so the dash doubled up
+     ("— ← BILLS"). Every anchor carrying .eyebrow in this app is a back-link,
+     which is what makes targeting the element safe rather than clever. Mobile
+     mirrors these screens with explicit classes, never inherited the dash, and
+     has always read "← EXPENSES"; this is web catching up to it. If you ever
+     add an .eyebrow anchor that is NOT a back-link, give it its own class. */
+  a.eyebrow::before {
+    content: none;
+  }
 
   /* Struck-mark wordmark — horizontal strike with end-dot terminals
      above the Fraunces wordmark. Three sizes match the template. */
