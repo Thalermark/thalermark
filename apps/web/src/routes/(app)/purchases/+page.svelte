@@ -53,13 +53,16 @@
   }
 </script>
 
-<div class="flex items-baseline justify-between gap-6">
-  <div>
-    <span class="eyebrow">Big purchases</span>
-    <h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-fg">
-      Things you bought<span class="text-accent">.</span>
-    </h1>
-  </div>
+<!-- Declares Expenses as home, the way every other child surface here does
+     (/bills/aging, /expenses/new, /owner-money/new). The back-link takes the
+     eyebrow slot rather than sitting beside it: the h1 and the line under it
+     already say what the page is. -->
+<a href="/expenses" class="eyebrow text-fg/60 hover:text-fg">← Expenses</a>
+
+<div class="mt-3 flex items-baseline justify-between gap-6">
+  <h1 class="font-serif text-4xl font-light leading-none tracking-tight text-fg">
+    Things you bought<span class="text-accent">.</span>
+  </h1>
   {#if canWrite}
     <a href="/purchases/new" class="btn">+ Log a purchase</a>
   {/if}

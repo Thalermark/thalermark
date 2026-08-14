@@ -68,6 +68,17 @@ export default function ExpensesList() {
         ) : null}
       </View>
 
+      {/* Mirrors web's /expenses header link. The tab bar hides purchases on
+          purpose, so Expenses is the only way back to the list after logging
+          one through the New-expense fork. */}
+      <Pressable
+        onPress={() => router.push('/purchases')}
+        className="mt-4 flex-row items-center justify-between px-6 py-1"
+      >
+        <Text className="text-sm font-medium text-gold-deep">Big purchases</Text>
+        <Text className="text-gold-deep">→</Text>
+      </Pressable>
+
       <View className="px-6 pt-4">
         <Pressable
           onPress={() => setNeedsReview((v) => !v)}

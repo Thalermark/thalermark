@@ -51,21 +51,27 @@ export default function PurchasesList() {
 
   return (
     <SafeAreaView className="flex-1 bg-cream" edges={['top']}>
-      <View className="flex-row items-end justify-between px-6 pt-6">
-        <View>
-          <Text className="font-mono text-xs uppercase tracking-widest text-gold-deep">
-            Big purchases
+      {/* Expenses is this screen's parent, same as on web. Load-bearing here
+          rather than cosmetic: the tab bar hides purchases (href: null), so
+          without this there is no way out except the OS back gesture. */}
+      <View className="px-6 pt-6">
+        <Pressable onPress={() => router.push('/expenses')}>
+          <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+            ← Expenses
           </Text>
-          <Text className="mt-2 font-serif text-3xl font-light text-ink">Things you bought</Text>
+        </Pressable>
+
+        <View className="mt-3 flex-row items-end justify-between">
+          <Text className="font-serif text-3xl font-light text-ink">Things you bought</Text>
+          {canCreate ? (
+            <Pressable
+              onPress={() => router.push('/purchases/new')}
+              className="rounded-sm bg-ink px-4 py-2 active:bg-gold-deep"
+            >
+              <Text className="text-sm font-medium text-cream">+ Log</Text>
+            </Pressable>
+          ) : null}
         </View>
-        {canCreate ? (
-          <Pressable
-            onPress={() => router.push('/purchases/new')}
-            className="rounded-sm bg-ink px-4 py-2 active:bg-gold-deep"
-          >
-            <Text className="text-sm font-medium text-cream">+ Log</Text>
-          </Pressable>
-        ) : null}
       </View>
 
       {list.state === 'loading' ? (
