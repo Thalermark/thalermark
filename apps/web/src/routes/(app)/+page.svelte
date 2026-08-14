@@ -241,8 +241,27 @@
   </div>
 {:then result}
   {#if result.nudges.length > 0}
+    <!--
+      Labelled with its own window, for the same reason the revenue sparkline
+      above carries "last 12 months": the tiles follow the period toggle and this
+      does not. The nudge signals are always month-to-date (reports.ts builds
+      monthToDate plus three trailing months, and takes no period argument), so
+      on the "this year" toggle a tile read $84,000 while the nudge under it said
+      $6,200. Both figures are right and together they read as the product
+      contradicting itself — on the one feature people pay for, whose whole
+      architecture rests on the model quoting ledger figures rather than
+      inventing them (TMC-229).
+
+      Making the nudge follow the toggle is the fuller answer and is deliberately
+      NOT done here: companies.cash_flow_nudges is a single cached value per
+      company, so three toggle states sharing one slot would regenerate on every
+      switch and triple the model spend for one page view. That belongs with the
+      signals rework on TMC-229, which is already changing what the cache key is
+      made of.
+    -->
     <section class="mt-8">
       <h2 class="label">What to watch</h2>
+      <p class="mt-1 text-xs text-fg/40">this month so far</p>
       <ul class="mt-3 space-y-3">
         {#each result.nudges as nudge (nudge.text)}
           <li class="rounded-sm border px-4 py-3 text-sm text-fg/80 {toneClass(nudge.tone)}">
