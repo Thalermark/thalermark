@@ -3,12 +3,12 @@
   import { type BusinessType, TAX_FORM_BY_BUSINESS_TYPE } from '@thalermark/validation';
   import type { PageProps } from './$types';
 
-  // Reports hub. Static index of the available reports — no data fetch; each
+  // Reports hub. Static index of the available reports. No data fetch; each
   // card links to a report that loads its own data.
   let { data }: PageProps = $props();
 
   // All five business types have a worksheet as of TMC-162, so the card is
-  // always shown — but it's named for the return this business actually files,
+  // always shown, but it's named for the return this business actually files,
   // because "Schedule C worksheet" means nothing to an S-corp. An unresolved
   // business type falls back to the generic wording; the page itself always
   // names the form. `activeBusinessType` comes from the (app) layout load.
@@ -19,7 +19,7 @@
     {
       href: '/reports/profit-and-loss',
       title: 'Profit & loss',
-      blurb: 'Revenue minus expenses — what you actually made over a period.',
+      blurb: 'Revenue minus expenses. What you actually made over a period.',
     },
     {
       href: '/reports/expenses-by-category',
@@ -34,12 +34,12 @@
     {
       href: '/reports/balance-sheet',
       title: 'Balance sheet',
-      blurb: 'What you own and owe — assets, liabilities, and equity.',
+      blurb: 'What you own and owe: assets, liabilities, and equity.',
     },
     {
       href: '/reports/ar-aging',
-      title: 'A/R aging',
-      blurb: 'Unpaid invoices by how overdue they are — who to chase.',
+      title: 'Who owes you',
+      blurb: 'Unpaid invoices by how overdue they are. Who to chase.',
     },
     {
       href: '/reports/sales-tax',
@@ -82,7 +82,7 @@
 </div>
 
 <!-- Year-end close prompt. The action lives behind The Ledger's airlock, which
-     someone who never opens that portal would never find — so the reminder goes
+     someone who never opens that portal would never find, so the reminder goes
      where people actually land at tax time. Only rendered for roles that can act
      on it (see the loader). -->
 {#if data.unclosedYear}
@@ -96,7 +96,7 @@
 {/if}
 
 <!-- Part IV can't be filed without these, and unlike the close nudge above this
-     one is NOT gated on ledger:adjust — the person who drives the truck is
+     one is NOT gated on ledger:adjust. The person who drives the truck is
      usually the person who has to answer it. -->
 {#if data.vehiclesNeedingAnswers > 0}
   <div class="callout mt-4">
@@ -124,7 +124,7 @@
     </a>
   {/each}
 
-  <!-- The general ledger surfaces the hidden double-entry — only for roles that
+  <!-- The general ledger surfaces the hidden double-entry, and only for roles that
        can export it (owner / admin / accountant), the same gate the API enforces. -->
   {#if may(data.role, 'reports:export')}
     <a
@@ -133,7 +133,7 @@
     >
       <h2 class="font-serif text-xl text-fg group-hover:text-accent">General ledger</h2>
       <p class="mt-2 text-sm text-fg/60">
-        Every journal entry behind your books — the full double-entry detail, ready for your
+        Every journal entry behind your books. The full double-entry detail, ready for your
         accountant or tax software.
       </p>
     </a>

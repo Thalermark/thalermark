@@ -73,9 +73,15 @@
     <h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-fg">
       What you owe<span class="text-accent">.</span>
     </h1>
+    <!-- A byline rather than a second item in the button row. As a grey link at
+         the same baseline as a solid "+ New bill" it read as a weak competing
+         CTA, and the arrow made it look like the primary action's sibling. Under
+         the title it reads as what it is: more detail about this page. -->
+    <p class="mt-2">
+      <a href="/bills/aging" class="text-sm text-fg/60 hover:text-fg">Who to pay first →</a>
+    </p>
   </div>
   <div class="flex items-center gap-4">
-    <a href="/bills/aging" class="text-sm text-fg/60 hover:text-fg">Aging report →</a>
     {#if may(data.role, 'expenses:write')}
       <a href="/bills/new" class="btn">+ New bill</a>
     {/if}

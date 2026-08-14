@@ -70,7 +70,7 @@
 </p>
 
 {#if data.products.length === 0}
-  <p class="mt-8 text-fg/70">No sales yet on this basis.</p>
+  <p class="mt-8 text-fg/70">No sales yet.</p>
 {:else}
   <div class="mt-8 overflow-hidden rounded-sm border border-fg/10 bg-surface-2">
     <table class="w-full text-left text-sm">

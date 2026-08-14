@@ -46,6 +46,13 @@
   // on a signed return is worse than a visible gap.
   const yesNo = (v: boolean | null) => (v === null ? '—' : v ? 'Yes' : 'No');
 
+  // The words a user picked in Settings, which never says "cash" or "accrual":
+  // "When you get paid" / "When you send the invoice". Prose about the basis
+  // borrows those rather than surfacing the term raw (TMC-233). basisLabel below
+  // keeps the accountant word on purpose: it labels the toggle, where the term
+  // is the thing being switched.
+  const basisPlain = (b: string) => (b === 'cash' ? 'when you get paid' : 'when you send the invoice');
+
   const basisLabel = $derived(
     report.basis === 'cash' ? 'Cash — counted when paid' : 'Accrual — counted when invoiced',
   );
@@ -234,8 +241,8 @@
 
 {#if overridden}
   <p class="mt-4 callout print:hidden">
-    You're viewing <strong>{report.basis}</strong> figures, but this business is set to
-    <strong>{report.companyAccountingMethod}</strong>. Change the saved setting in
+    You're counting these <strong>{basisPlain(report.basis)}</strong>, but this business is set to
+    count <strong>{basisPlain(report.companyAccountingMethod)}</strong>. Change the saved setting in
     <a href="/settings/business" class="link">Settings → Business</a> if that's wrong.
   </p>
 {/if}
@@ -636,7 +643,7 @@
   <footer class="mt-8 border-t border-fg/10 pt-5 text-xs leading-relaxed text-fg/60">
     <p>
       A worksheet to hand to whoever prepares your return — not a filing, and not tax advice.
-      Figures come from your own records on a <strong>{report.basis}</strong> basis.
+      Figures come from your own records, counted <strong>{basisPlain(report.basis)}</strong>.
     </p>
     <p class="mt-2">
       Anything marked <span class="text-accent">you must supply this</span> is blank because

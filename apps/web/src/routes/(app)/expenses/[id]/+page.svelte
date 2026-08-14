@@ -65,8 +65,7 @@
         triggerClass="rounded-sm border border-danger/30 px-3 py-1 font-mono text-xs uppercase tracking-widest text-danger/80 hover:border-danger hover:text-danger"
       >
         {#snippet body()}
-          It comes off your books and its ledger entry is reversed, so your totals and any tax
-          worksheet change. You can put it back: deleted expenses stay on the Expenses list behind
+          It is taken back off your books, so your totals and any tax worksheet change. You can put it back: deleted expenses stay on the Expenses list behind
           "Show deleted". The receipt image, if there is one, is kept.
         {/snippet}
       </ConfirmSubmit>

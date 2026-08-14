@@ -31,7 +31,7 @@ export default function ArAgingReport() {
 
   return (
     <ReportScaffold
-      title="A/R aging"
+      title="Who owes you"
       selector={<AsOfSelector asOf={asOf} onChange={setAsOf} />}
       note={`As of ${asOf}. Sent invoices that haven't been paid, by how overdue they are.`}
     >

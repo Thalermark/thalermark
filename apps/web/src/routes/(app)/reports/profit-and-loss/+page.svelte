@@ -37,7 +37,7 @@
 <PeriodSelector {presets} {activeKey} from={report.from} to={report.to} />
 
 <p class="mt-4 text-sm text-fg/60">
-  {report.from} → {report.to}. Accrual basis: revenue is counted when an invoice is sent (or paid),
+  {report.from} → {report.to}. Revenue is counted when an invoice is sent (or paid),
   expenses when recorded. This may differ from cash actually received.
 </p>
 

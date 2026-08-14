@@ -233,9 +233,9 @@
                   triggerClass="text-xs uppercase tracking-widest text-fg/40 hover:text-accent"
                 >
                   {#snippet body()}
-                    The {paymentAmount(p.amount)} recorded on {p.paidOn} is deleted and its ledger entry
-                    reversed, so the bill goes back to owing that much. The reference and method are
-                    not kept anywhere else — you would re-enter them by hand.
+                    The {paymentAmount(p.amount)} recorded on {p.paidOn} is taken back off your
+                    books, so the bill goes back to owing that much. The reference and method are
+                    not kept anywhere else, so you would re-enter them by hand.
                   {/snippet}
                 </ConfirmSubmit>
               {/if}

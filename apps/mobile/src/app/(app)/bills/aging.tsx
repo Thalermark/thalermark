@@ -91,7 +91,7 @@ export default function BillsAging() {
         </Pressable>
 
         <View className="mt-3 flex-row items-end justify-between">
-          <Text className="font-serif text-3xl font-light text-ink">AP aging</Text>
+          <Text className="font-serif text-3xl font-light text-ink">Who to pay first</Text>
           {aging ? (
             <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
               as of {aging.asOf}

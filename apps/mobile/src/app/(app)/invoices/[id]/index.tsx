@@ -368,7 +368,7 @@ export default function InvoiceDetail() {
   }
 
   function onRemovePayment(paymentId: string) {
-    Alert.alert('Remove this payment?', 'The ledger entry is reversed, not erased.', [
+    Alert.alert('Remove this payment?', 'It is undone, not deleted. The record stays.', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Remove',
