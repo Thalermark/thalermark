@@ -950,7 +950,38 @@ export function reportsRoutes(deps: AppDeps) {
           // `owed`. Zero until the first bill is recorded.
           const owing = await apBalance(tx, { accountId, companyId: id });
 
+          // Has this company started, at all? The dashboard shows a getting-
+          // started panel instead of four $0.00 tiles until one of these exists
+          // (TMC-234). Owner's definition: a contact, an invoice or an estimate.
+          // Expenses deliberately do not count — recording a cost is not being
+          // set up to get paid, and the panel's whole job is to point at the
+          // first invoice.
+          //
+          // Three EXISTS in ONE round trip, each stopping at the first row it
+          // finds, rather than three COUNTs that would scan to total something
+          // nobody displays. It has to be existence rather than the count tiles
+          // the dashboard already has: those partition OPEN invoices (overdue /
+          // awaiting / draft), so a company whose only invoice is paid reads as
+          // zero across all of them and would be told to start over.
+          const [started] = await tx
+            .select({
+              hasContacts: sql<boolean>`exists (
+                select 1 from ${contacts}
+                where ${contacts.accountId} = ${accountId} and ${contacts.companyId} = ${id}
+              )`,
+              hasInvoices: sql<boolean>`exists (
+                select 1 from ${invoices}
+                where ${invoices.accountId} = ${accountId} and ${invoices.companyId} = ${id}
+              )`,
+              hasEstimates: sql<boolean>`exists (
+                select 1 from ${estimates}
+                where ${estimates.accountId} = ${accountId} and ${estimates.companyId} = ${id}
+              )`,
+            })
+            .from(sql`(select 1) as _`);
+
           return c.json({
+            isNewCompany: !(started?.hasContacts || started?.hasInvoices || started?.hasEstimates),
             moneyIn: cash.moneyIn,
             moneyOut: cash.moneyOut,
             owed,

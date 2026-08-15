@@ -190,7 +190,14 @@ async function createExpense(
   if (res.status !== 201) throw new Error(`expense create failed: ${res.status}`);
 }
 
-type Dashboard = { moneyIn: string; moneyOut: string; owed: string; from: string; to: string };
+type Dashboard = {
+  isNewCompany: boolean;
+  moneyIn: string;
+  moneyOut: string;
+  owed: string;
+  from: string;
+  to: string;
+};
 
 async function dashboard(
   app: ReturnType<typeof createApp>,
@@ -322,6 +329,45 @@ describe('position dashboard', () => {
         await dashboard(ctx.app, cookie, accountId, companyId, YEAR)
       ).json()) as Dashboard;
       expect(body).toMatchObject({ moneyIn: '0.00', moneyOut: '0.00', owed: '0.00' });
+      // A company that has never had a contact, an invoice or an estimate gets
+      // the getting-started panel rather than four $0.00 tiles (TMC-234).
+      expect(body.isNewCompany).toBe(true);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('stops calling a company new once it has a contact', async () => {
+    const ctx = buildApp();
+    try {
+      const cookie = await signUp(ctx.app, 'dash-started@example.com');
+      const { accountId, companyId } = await userContext('dash-started@example.com');
+
+      const before = (await (
+        await dashboard(ctx.app, cookie, accountId, companyId, YEAR)
+      ).json()) as Dashboard;
+      expect(before.isNewCompany).toBe(true);
+
+      const created = await ctx.app.request('/api/contacts', {
+        method: 'POST',
+        headers: {
+          cookie,
+          'content-type': 'application/json',
+          'x-account-id': accountId,
+          origin: 'http://localhost:5173',
+        },
+        body: JSON.stringify({ companyId, name: 'First Customer' }),
+      });
+      expect(created.status).toBe(201);
+
+      const after = (await (
+        await dashboard(ctx.app, cookie, accountId, companyId, YEAR)
+      ).json()) as Dashboard;
+      // A contact alone flips it. The money is all still zero, which is the
+      // point: the flag tracks whether the company has STARTED, not whether it
+      // has earned anything, so a first invoice that is still a draft counts.
+      expect(after.isNewCompany).toBe(false);
+      expect(after).toMatchObject({ moneyIn: '0.00', moneyOut: '0.00', owed: '0.00' });
     } finally {
       await ctx.handle.close();
     }

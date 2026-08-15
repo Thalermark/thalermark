@@ -2,10 +2,10 @@
   import { beforeNavigate } from '$app/navigation';
   import { page } from '$app/state';
   import {
-    ONBOARDING_FINISHED_FROM,
-    ONBOARDING_STEPS,
-    onboardingStepNumber,
-  } from '$lib/onboarding-steps';
+    WELCOME_FINISHED_FROM,
+    WELCOME_STEPS,
+    welcomeStepNumber,
+  } from '$lib/welcome-steps';
   import { flushTelemetry, trackEvent } from '$lib/telemetry';
 
   let { children } = $props();
@@ -13,8 +13,8 @@
   // Steps live in $lib so a test can pin them against the routes directory. They
   // were inline here, drifted out of date, and took the counter and the
   // abandonment event down together (TMC-234 — the reasoning is recorded there).
-  const STEPS = ONBOARDING_STEPS;
-  const current = $derived(onboardingStepNumber(page.url.pathname));
+  const STEPS = WELCOME_STEPS;
+  const current = $derived(welcomeStepNumber(page.url.pathname));
 
   // onboarding_abandoned: fire when the user leaves the wizard (any non-/welcome
   // destination, incl. a tab unload where `to` is null) before finishing.
@@ -27,7 +27,7 @@
     const from = page.url.pathname;
     const to = nav.to?.url.pathname;
     if (to?.startsWith('/welcome')) return; // still inside the wizard
-    if (ONBOARDING_FINISHED_FROM.has(from)) return;
+    if (WELCOME_FINISHED_FROM.has(from)) return;
     abandonmentFired = true;
     trackEvent({
       name: 'onboarding_abandoned',
