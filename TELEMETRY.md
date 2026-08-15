@@ -136,20 +136,35 @@ No query content is ever collected. Only the length bucket.
 
 ### Performance Events
 
-| Event | Fields | Purpose |
-|---|---|---|
-| `page_load_time` | `page`: enum of page names, `duration_ms`: rounded to nearest 100ms | Performance regression detection |
-| `api_response_time` | `endpoint_category`: enum, `duration_ms`: rounded to nearest 100ms | Backend performance |
+**Not yet collected.** These are designed and typed, and nothing emits them. Listed
+here because the shape is settled, not because the data is being gathered.
+
+| Event | Fields | Purpose | Status |
+|---|---|---|---|
+| `page_load_time` | `page`: enum of page names, `duration_ms`: rounded to nearest 100ms | Performance regression detection | Not collected |
+| `api_response_time` | `endpoint_category`: enum, `duration_ms`: rounded to nearest 100ms | Backend performance | Not collected |
+
+Both fire on every navigation or request, so they need a sampling strategy before
+they can land without dominating the stream. Nothing else in the stack measures
+latency today either, which is the actual gap: error tracking runs with
+performance tracing switched off.
 
 ---
 
 ### Error Events
 
-| Event | Fields | Purpose |
-|---|---|---|
-| `error_occurred` | `error_code`, `component`: enum, `product_version` | Bug prioritisation |
+**Not yet collected.** Errors are captured by the operational error tracker
+instead, which records stack traces and request context that this event
+deliberately would not. This stays defined for the case the tracker cannot serve:
+aggregate error rates across self-hosted installs, which only the operator of
+each instance can otherwise see.
 
-No stack traces, no user data, no financial information. Only anonymised error codes.
+| Event | Fields | Purpose | Status |
+|---|---|---|---|
+| `error_occurred` | `error_code`, `component`: enum, `product_version` | Bug prioritisation | Not collected |
+
+If it is ever collected: no stack traces, no user data, no financial information.
+Only anonymised error codes.
 
 ---
 
