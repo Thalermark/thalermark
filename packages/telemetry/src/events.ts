@@ -124,6 +124,38 @@ export type ExpenseFlowAbandonedEvent = {
   step_reached: 'amount' | 'category' | 'receipt' | 'save';
 };
 
+// ---------------------------------------------------------------------------
+// DEFINED BUT NOT COLLECTED. Nothing emits the three events below, and they are
+// not client-ingest variants, so the ingest endpoint rejects them (see the note
+// in apps/api/tests/telemetry.integration.test.ts). TELEMETRY.md marks them the
+// same way — the doc and these types have to keep saying the same thing, or the
+// public spec starts promising collection that does not happen.
+//
+// They stay declared rather than deleted because the envelope and receiver
+// contract is shared with the commercial receiver (TMCLD-103), so removing a
+// member of this union is a cross-repo change rather than a cleanup.
+//
+// Why each is unbuilt, so the decision is not re-litigated (TMC-153):
+//
+//   error_occurred    — the operational error tracker already captures these
+//                       WITH stack traces and request context, which this event
+//                       is forbidden from carrying. It would learn strictly
+//                       less about the same failures. The one case it would
+//                       serve is aggregate error rates across self-hosted
+//                       installs, which no per-instance tracker can see.
+//
+//   page_load_time    — fires on every navigation.
+//   api_response_time — fires on every request, and there is no timing
+//                       middleware to fire from.
+//
+// Both perf events need a sampling strategy first: the pipeline stages one row
+// per event with no sampling, so unsampled timings would dominate the stream.
+// Worth pricing tracing in the existing error tracker before building either —
+// it answers "is this deployment slow" without a new pipeline, where these
+// answer the broader and much more expensive "are the community's installs
+// slow".
+// ---------------------------------------------------------------------------
+
 export type PageLoadTimeEvent = {
   name: 'page_load_time';
   // Enum tightens as features land; until then string keeps the spec honest.

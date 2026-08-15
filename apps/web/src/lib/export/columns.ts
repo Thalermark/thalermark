@@ -185,4 +185,92 @@ export const EXPORT_COLUMNS = {
       { key: 'id', label: 'Policy ID' },
     ],
   },
+
+  // Every payment against an invoice, one row each. The invoices.csv above
+  // carries Payment Method / Payment Reference / Paid At, but those are the
+  // invoice header's mirror of the MOST RECENT payment, which invoice_payments
+  // supersedes. Without this file a deposit plus a final payment exported as a
+  // single row and a part-paid invoice could not be reconstructed (TMC-231).
+  // Invoice # is carried so the file joins back to invoices.csv without UUIDs.
+  invoicePayments: {
+    file: 'invoice-payments.csv',
+    columns: [
+      { key: 'receivedOn', label: 'Received On' },
+      { key: 'invoiceNumber', label: 'Invoice #' },
+      { key: 'amount', label: 'Amount' },
+      { key: 'method', label: 'Method' },
+      { key: 'reference', label: 'Reference' },
+      // Stripe's cut, kept because it is the difference between what the
+      // customer paid and what landed in the bank.
+      { key: 'processingFee', label: 'Processing Fee' },
+      { key: 'createdAt', label: 'Created At' },
+      { key: 'invoiceId', label: 'Invoice ID' },
+      { key: 'id', label: 'Payment ID' },
+    ],
+  },
+  billPayments: {
+    file: 'bill-payments.csv',
+    columns: [
+      { key: 'paidOn', label: 'Paid On' },
+      { key: 'amount', label: 'Amount' },
+      { key: 'method', label: 'Method' },
+      { key: 'reference', label: 'Reference' },
+      { key: 'createdAt', label: 'Created At' },
+      { key: 'billId', label: 'Bill ID' },
+      { key: 'id', label: 'Payment ID' },
+    ],
+  },
+
+  // Schedule C substantiation. This is the record a user produces in an audit,
+  // which makes it the worst of the omissions this ticket closed despite being
+  // the smallest table.
+  mileageTrips: {
+    file: 'mileage.csv',
+    columns: [
+      { key: 'tripDate', label: 'Date' },
+      { key: 'miles', label: 'Miles' },
+      { key: 'purpose', label: 'Purpose' },
+      { key: 'vehicleLabel', label: 'Vehicle' },
+      { key: 'jobName', label: 'Job' },
+      { key: 'createdAt', label: 'Created At' },
+      { key: 'id', label: 'Trip ID' },
+    ],
+  },
+  vehicles: {
+    file: 'vehicles.csv',
+    columns: [
+      { key: 'label', label: 'Vehicle' },
+      { key: 'createdAt', label: 'Created At' },
+      { key: 'id', label: 'Vehicle ID' },
+    ],
+  },
+
+  jobs: {
+    file: 'jobs.csv',
+    columns: [
+      { key: 'name', label: 'Job' },
+      { key: 'contactName', label: 'Customer' },
+      { key: 'status', label: 'Status' },
+      { key: 'startedOn', label: 'Started' },
+      { key: 'endedOn', label: 'Ended' },
+      { key: 'createdAt', label: 'Created At' },
+      { key: 'id', label: 'Job ID' },
+    ],
+  },
+  // Minutes rather than a decimal of hours: minutes is what is stored, and it
+  // is integral, so exporting it avoids inventing a rounding step the product
+  // does not have. Billed Invoice # says whether the hours were charged for.
+  timeEntries: {
+    file: 'time-entries.csv',
+    columns: [
+      { key: 'entryDate', label: 'Date' },
+      { key: 'jobName', label: 'Job' },
+      { key: 'minutes', label: 'Minutes' },
+      { key: 'note', label: 'Note' },
+      { key: 'rate', label: 'Rate' },
+      { key: 'billedInvoiceNumber', label: 'Billed Invoice #' },
+      { key: 'createdAt', label: 'Created At' },
+      { key: 'id', label: 'Entry ID' },
+    ],
+  },
 } satisfies Record<string, EntitySpec>;

@@ -74,6 +74,12 @@ export const GET: RequestHandler = async (event) => {
       json('big-purchases', co.capitalPurchases);
       json('owner-money', co.ownerMoney);
       json('tax-policies', co.taxPolicies);
+      json('invoice-payments', co.invoicePayments);
+      json('bill-payments', co.billPayments);
+      json('mileage', co.mileageTrips);
+      json('vehicles', co.vehicles);
+      json('jobs', co.jobs);
+      json('time-entries', co.timeEntries);
       continue;
     }
 
@@ -130,6 +136,30 @@ export const GET: RequestHandler = async (event) => {
     csv(
       EXPORT_COLUMNS.taxPolicies.file,
       rowsToCsv(EXPORT_COLUMNS.taxPolicies.columns, co.taxPolicies as Row[]),
+    );
+    // Settlement, mileage and the work records. Added by TMC-231: without them
+    // an export could not reconstruct partial payment history, carried no
+    // Schedule C mileage substantiation, and lost every job and logged hour.
+    csv(
+      EXPORT_COLUMNS.invoicePayments.file,
+      rowsToCsv(EXPORT_COLUMNS.invoicePayments.columns, co.invoicePayments as Row[]),
+    );
+    csv(
+      EXPORT_COLUMNS.billPayments.file,
+      rowsToCsv(EXPORT_COLUMNS.billPayments.columns, co.billPayments as Row[]),
+    );
+    csv(
+      EXPORT_COLUMNS.mileageTrips.file,
+      rowsToCsv(EXPORT_COLUMNS.mileageTrips.columns, co.mileageTrips as Row[]),
+    );
+    csv(
+      EXPORT_COLUMNS.vehicles.file,
+      rowsToCsv(EXPORT_COLUMNS.vehicles.columns, co.vehicles as Row[]),
+    );
+    csv(EXPORT_COLUMNS.jobs.file, rowsToCsv(EXPORT_COLUMNS.jobs.columns, co.jobs as Row[]));
+    csv(
+      EXPORT_COLUMNS.timeEntries.file,
+      rowsToCsv(EXPORT_COLUMNS.timeEntries.columns, co.timeEntries as Row[]),
     );
   }
 
