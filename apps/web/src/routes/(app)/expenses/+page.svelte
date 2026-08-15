@@ -1,4 +1,5 @@
 <script lang="ts">
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import LoadMore from '$lib/components/LoadMore.svelte';
   import { fetchMore } from '$lib/load-more';
   import { may } from '$lib/perms';
@@ -100,6 +101,11 @@
   </div>
 </div>
 
+<!-- Hidden when there is genuinely nothing to filter. A full filter bar over an
+     empty list offers several ways to slice zero rows, which is noise at exactly
+     the moment a new user needs one clear next action. It stays visible whenever
+     a filter IS applied, because then it is the way back out (TMC-234). -->
+{#if rows.length > 0 || hasFilters}
 <!-- Filter bar. Plain GET form so filters live in the URL (shareable,
      back-button friendly) and the page works without JS. -->
 <form
@@ -175,6 +181,7 @@
     Needs review (no vendor on a receipt)
   </label>
 </form>
+{/if}
 
 <div class="mt-6">
   <a href={toggleHref} class="label hover:text-accent">
@@ -189,9 +196,19 @@
 {/if}
 
 {#if rows.length === 0}
-  <p class="mt-8 text-fg/70">
-    {hasFilters ? 'No expenses match these filters.' : 'No expenses yet.'}
-  </p>
+  <!-- Filtered-empty and never-created are different problems: one wants the
+       filter undone, the other wants the thing made. Offering "+ New expense" to
+       someone whose filters merely hid their rows answers the wrong question
+       (TMC-234). -->
+  {#if hasFilters}
+    <EmptyState message="No expenses match these filters." actionHref="/expenses" actionLabel="Clear filters" />
+  {:else}
+    <EmptyState
+      message="No expenses yet."
+      actionHref={may(data.role, 'expenses:write') ? '/expenses/new' : undefined}
+      actionLabel={may(data.role, 'expenses:write') ? '+ New expense' : undefined}
+    />
+  {/if}
 {:else}
   <div class="mt-6 overflow-hidden rounded-sm border border-fg/10 bg-surface-2">
     <table class="w-full text-left text-sm">

@@ -410,6 +410,13 @@ export default function Home() {
             <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
               What to watch
             </Text>
+            {/*
+              The tiles above follow the period toggle; the nudge signals are
+              always month-to-date, so on "this year" a tile and the nudge under
+              it quote different figures and read as a contradiction. Same label
+              as web (TMC-229).
+            */}
+            <Text className="mt-1 text-xs text-ink/40">this month so far</Text>
             <View className="mt-3 space-y-3">
               {nudges.map((n) => (
                 <View key={n.text} className={`rounded-sm border px-4 py-3 ${toneClass(n.tone)}`}>

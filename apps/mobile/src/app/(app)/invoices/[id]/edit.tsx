@@ -4,9 +4,11 @@ import {
   addMoney,
   formatUnitPrice,
   hoursFromMinutes,
+  hoursUnitLabel,
   invoiceUpdateSchema,
   multiplyMoney,
   sumMoney,
+  timeEntryLineDescription,
   unitPriceFromTotal,
 } from '@thalermark/validation';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
@@ -92,6 +94,8 @@ export default function EditInvoice() {
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [contactName, setContactName] = useState('');
   const [taxPolicies, setTaxPolicies] = useState<TaxPolicyLite[]>([]);
+  // Names the job on a seeded line when the entry carries no note of its own.
+  const [jobName, setJobName] = useState('');
   const [pendingTime, setPendingTime] = useState<
     {
       id: string;
@@ -157,7 +161,8 @@ export default function EditInvoice() {
             query: { unbilled: 'true' },
           });
           if (active && timeRes.ok) {
-            const { timeEntries } = await timeRes.json();
+            const { timeEntries, jobName } = await timeRes.json();
+            setJobName(jobName);
             setPendingTime(
               timeEntries.map((t) => ({
                 id: t.id,
@@ -207,9 +212,13 @@ export default function EditInvoice() {
       const added: Row[] = pendingTime.map((t) => {
         const unitPrice = t.rate ?? '0';
         return {
-          description: t.note?.trim() || 'Hours',
+          description: timeEntryLineDescription({
+            entryDate: t.entryDate,
+            note: t.note,
+            jobName,
+          }),
           quantity: t.hours,
-          unitLabel: 'hour',
+          unitLabel: hoursUnitLabel(t.hours),
           unitPrice: formatUnitPrice(unitPrice),
           // Same multiplyMoney every typed row uses, so a billed hour and a
           // hand-typed hour cannot round differently.

@@ -84,7 +84,7 @@ export default function BillsList() {
         onPress={() => router.push('/bills/aging')}
         className="mt-4 flex-row items-center justify-between px-6 py-1"
       >
-        <Text className="text-sm font-medium text-gold-deep">Aging report</Text>
+        <Text className="text-sm font-medium text-gold-deep">Who to pay first</Text>
         <Text className="text-gold-deep">→</Text>
       </Pressable>
 

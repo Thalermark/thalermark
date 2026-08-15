@@ -1,4 +1,4 @@
-import { formatUnitPrice } from '@thalermark/validation';
+import { formatQuantity, formatUnitPrice } from '@thalermark/validation';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
@@ -6,6 +6,7 @@ import {
   Alert,
   Pressable,
   ScrollView,
+  Share,
   Text,
   TextInput,
   View,
@@ -15,6 +16,7 @@ import { type AuditEvent, AuditHistory } from '../../../../components/AuditHisto
 import { api } from '../../../../lib/api';
 import { useMay } from '../../../../lib/role';
 import { getServerUrl } from '../../../../lib/server-url';
+import { shareLink } from '../../../../lib/share-link';
 
 // Estimate detail + actions (mirror of apps/web's /estimates/[id]):
 // mark-sent / mark-accepted / mark-declined / send / convert-to-invoice. No
@@ -261,7 +263,10 @@ export default function EstimateDetail() {
     );
   }
 
-  const publicUrl = est?.publicToken ? `${getServerUrl()}/i/${est.publicToken}` : null;
+  // /e/ is the estimate viewer; /i/ is the invoice one. This built /i/ with an
+  // estimate token, so the link 404'd against /api/public/invoices/:token. It
+  // went unnoticed because the link was inert text nobody could follow.
+  const publicUrl = est?.publicToken ? `${getServerUrl()}/e/${est.publicToken}` : null;
 
   return (
     <SafeAreaView className="flex-1 bg-cream" edges={['top']}>
@@ -481,15 +486,22 @@ export default function EstimateDetail() {
 
             {/* Share link */}
             {publicUrl ? (
-              <View className="mt-6 rounded-sm border border-ink/10 bg-cream-warm p-4">
+              <Pressable
+                onPress={() => shareLink(publicUrl, 'Your estimate')}
+                accessibilityRole="button"
+                accessibilityLabel="Send the estimate link"
+                className="mt-6 rounded-sm border border-ink/10 bg-cream-warm p-4 active:opacity-70"
+              >
                 <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
                   Share link
                 </Text>
-                <Text className="mt-2 text-sm text-gold-deep">{publicUrl}</Text>
-                <Text className="mt-2 text-xs text-ink/50">
-                  Anyone with this link can view the estimate.
+                <Text selectable className="mt-2 text-sm text-gold-deep">
+                  {publicUrl}
                 </Text>
-              </View>
+                <Text className="mt-2 text-xs text-ink/50">
+                  Tap to send it. Anyone with this link can view the estimate.
+                </Text>
+              </Pressable>
             ) : null}
 
             {/* Meta */}
@@ -511,7 +523,7 @@ export default function EstimateDetail() {
                   ) : null}
                   <View className="mt-1 flex-row justify-between">
                     <Text className="font-mono text-xs text-ink/50">
-                      {String(Number(li.quantity))}
+                      {formatQuantity(li.quantity)}
                       {li.unitLabel ? ` ${li.unitLabel}` : ''} × {formatUnitPrice(li.unitPrice)}
                     </Text>
                     <Text className="font-mono tabular-nums text-ink">{li.amount}</Text>

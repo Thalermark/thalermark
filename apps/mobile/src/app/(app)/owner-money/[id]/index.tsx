@@ -69,7 +69,7 @@ export default function OwnerMoneyDetail() {
   const isIn = event?.kind === 'contribution';
 
   function onDelete() {
-    Alert.alert('Delete this?', 'This reverses its ledger entry and cannot be undone.', [
+    Alert.alert('Delete this?', 'This takes it back off your books and cannot be undone.', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete',

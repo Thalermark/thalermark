@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { DateField } from '../../../../components/DateField';
+import { KIND_LABEL } from '../../../../components/MoneyAccountPicker';
 import { SuggestButton, SuggestNotice } from '../../../../components/SuggestCategory';
 import { VendorField } from '../../../../components/VendorField';
 import { api } from '../../../../lib/api';
@@ -302,7 +303,9 @@ export default function EditExpense() {
                   className="border-b border-ink/10 py-3"
                 >
                   <Text className="text-ink">{a.name}</Text>
-                  <Text className="text-xs text-ink/50">{a.code}</Text>
+                  {picker === 'payment' && a.kind ? (
+                    <Text className="text-xs text-ink/50">{KIND_LABEL[a.kind] ?? ''}</Text>
+                  ) : null}
                 </Pressable>
               ))}
             </ScrollView>

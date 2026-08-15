@@ -50,7 +50,7 @@ const REPORTS: { href: ReportHref; title: string; blurb: string }[] = [
   },
   {
     href: '/more/reports/ar-aging',
-    title: 'A/R aging',
+    title: 'Who owes you',
     blurb: 'Unpaid invoices by how overdue they are — who to chase.',
   },
   {

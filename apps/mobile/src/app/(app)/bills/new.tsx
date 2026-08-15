@@ -338,7 +338,6 @@ export default function NewBill() {
                   className="border-b border-ink/10 py-3"
                 >
                   <Text className="text-ink">{a.name}</Text>
-                  <Text className="text-xs text-ink/50">{a.code}</Text>
                 </Pressable>
               ))}
             </ScrollView>

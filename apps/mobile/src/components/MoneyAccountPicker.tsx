@@ -21,7 +21,12 @@ export type MoneyAccountOption = {
   kind: string | null;
 };
 
-const KIND_LABEL: Record<string, string> = {
+// Exported because the expense and bill pickers show the same money accounts in
+// their own bottom sheets. They used to print the numeric account code under the
+// name; the code is the chart of accounts leaking into an everyday screen
+// (TMC-222), and the kind is what the user actually needs to tell two accounts
+// apart. Web says the same thing through its own KIND_LABEL.
+export const KIND_LABEL: Record<string, string> = {
   checking: 'Checking',
   savings: 'Savings',
   cash: 'Cash',

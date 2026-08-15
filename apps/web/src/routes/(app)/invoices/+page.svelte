@@ -1,4 +1,5 @@
 <script lang="ts">
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import LoadMore from '$lib/components/LoadMore.svelte';
   import MetricStrip from '$lib/components/MetricStrip.svelte';
   import SplitButton from '$lib/components/SplitButton.svelte';
@@ -165,6 +166,11 @@
   <MetricStrip tiles={strip} />
 </div>
 
+<!-- Hidden when there is genuinely nothing to filter. A full filter bar over an
+     empty list offers several ways to slice zero rows, which is noise at exactly
+     the moment a new user needs one clear next action. It stays visible whenever
+     a filter IS applied, because then it is the way back out (TMC-234). -->
+{#if rows.length > 0 || anyFilter}
 <!-- Filters. Plain GET form so they live in the URL (shareable, back-button
      friendly) and re-run load() with a fresh page 1. -->
 <form
@@ -235,11 +241,22 @@
     <a href="/invoices" class="text-sm text-fg/60 hover:text-fg">Clear</a>
   {/if}
 </form>
+{/if}
 
 {#if rows.length === 0}
-  <p class="mt-8 text-fg/70">
-    {anyFilter ? 'No invoices match these filters.' : 'No invoices yet.'}
-  </p>
+  <!-- Filtered-empty and never-created are different problems: one wants the
+       filter undone, the other wants the thing made. Offering "+ New invoice" to
+       someone whose filters merely hid their rows answers the wrong question
+       (TMC-234). -->
+  {#if anyFilter}
+    <EmptyState message="No invoices match these filters." actionHref="/invoices" actionLabel="Clear filters" />
+  {:else}
+    <EmptyState
+      message="No invoices yet."
+      actionHref={may(data.role, 'sales:write') ? '/invoices/new' : undefined}
+      actionLabel={may(data.role, 'sales:write') ? '+ New invoice' : undefined}
+    />
+  {/if}
 {:else}
   <div class="mt-8 overflow-hidden rounded-sm border border-fg/10 bg-surface-2">
     <table class="w-full text-left text-sm">

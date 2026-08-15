@@ -29,7 +29,7 @@ export const GET: RequestHandler = async (event) => {
   if (!billsRes.ok) return json({ rows: [], nextCursor: null }, { status: billsRes.status });
   const { bills, nextCursor } = await billsRes.json();
   const categoryNameById = accountsRes.ok
-    ? new Map((await accountsRes.json()).accounts.map((a) => [a.id, `${a.code} · ${a.name}`]))
+    ? new Map((await accountsRes.json()).accounts.map((a) => [a.id, a.name]))
     : new Map<string, string>();
 
   return json({ rows: mapBillRows(bills, categoryNameById), nextCursor });

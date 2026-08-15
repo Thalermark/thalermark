@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { isoDateString, priceString } from './money.js';
+import { formatDateShort, formatQuantity, isoDateString, priceString } from './money.js';
 
 // Time entries (TMC-180) — hours worked on a job.
 //
@@ -89,4 +89,38 @@ export function hoursFromMinutes(minutes: number): string {
   const whole = Math.floor(tenThousandths / 10_000);
   const frac = String(tenThousandths % 10_000).padStart(4, '0');
   return `${whole}.${frac}`;
+}
+
+// The invoice line label for a billed time entry. Both invoice forms on web and
+// both on mobile seed rows from tracked hours, and this mapping lived four times
+// with THREE different fallbacks — web's new-invoice form named the job, the
+// other three said a bare "Hours" — so the same job billed from a phone read
+// differently than the same job billed from a desktop.
+//
+// The date leads the label because without it several days of the same work
+// render as identical lines. A dog sitter billing three days produced three rows
+// reading "Dog sitting", which a customer reads as one charge listed three times
+// rather than three days of work (TMC-263).
+//
+// The job name is the fallback rather than the word "Hours": the unit column
+// already says hour, and the date already says which day, so the description is
+// the only place left to name the work.
+export function timeEntryLineDescription(entry: {
+  entryDate: string;
+  note?: string | null;
+  jobName?: string | null;
+}): string {
+  const body = entry.note?.trim() || entry.jobName?.trim() || 'Hours';
+  return `${formatDateShort(entry.entryDate)} · ${body}`;
+}
+
+// "1 hour" but "3 hours", and "0.8333 hours". Decided at seed time rather than
+// at render because unitLabel is a free-text field the user can overwrite with
+// anything — pluralising arbitrary input at display time turns "box" into "boxs"
+// and "inch" into "inchs". Here the label is ours and the quantity is known.
+//
+// Compared through formatQuantity so "1.0000" and "1" agree without coercing a
+// decimal string to a float.
+export function hoursUnitLabel(quantity: string): string {
+  return formatQuantity(quantity) === '1' ? 'hour' : 'hours';
 }

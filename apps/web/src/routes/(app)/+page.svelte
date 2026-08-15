@@ -1,10 +1,16 @@
 <script lang="ts">
   import { Sparkline } from '$lib/charts';
+  import { may } from '$lib/perms';
   import { trackEvent } from '$lib/telemetry';
   import type { PageProps } from './$types';
 
   let { data }: PageProps = $props();
   const d = $derived(data.dashboard);
+
+  // Server-side and keyed on existence, not on money: a contact, an invoice or
+  // an estimate retires the getting-started panel, so a draft invoice counts and
+  // a seasonal business in a quiet January does not regress to it (TMC-234).
+  const isNew = $derived(d.isNewCompany);
 
   // Point-in-time count tiles (NOT period-bound — they sit under a "Right now"
   // label, outside the period toggle). Counts only: the money row above already
@@ -111,6 +117,7 @@
   Where you stand<span class="text-accent">.</span>
 </h1>
 
+{#if !isNew}
 <div class="mt-6 flex flex-wrap gap-2">
   {#each periods as p (p.key)}
     <a
@@ -124,6 +131,7 @@
     </a>
   {/each}
 </div>
+{/if}
 
 {#if data.pendingInvites > 0}
   <a
@@ -149,6 +157,44 @@
   </a>
 {/if}
 
+{#if isNew}
+  <!--
+    A company with no contact, no invoice and no estimate has nothing this page
+    can answer, and four $0.00 tiles over four 0 counts answered it anyway. The
+    only call to action on the whole screen was the address nag, which points at
+    Settings — so the first thing the product asked a new user to do was
+    paperwork (TMC-234).
+
+    The flag is server-side (dashboard.isNewCompany) and keyed on existence
+    rather than on money, so a first invoice still sitting in draft is enough to
+    retire this panel, and a seasonal business looking at a quiet January never
+    sees it.
+  -->
+  <section class="mt-8 rounded-sm border border-fg/10 bg-surface-2 px-6 py-10">
+    <span class="eyebrow text-accent">First steps</span>
+    <h2 class="mt-3 font-serif text-3xl font-light leading-tight tracking-tight text-fg">
+      Let's get you paid<span class="text-accent">.</span>
+    </h2>
+    <p class="mt-4 max-w-xl text-fg/70">
+      Thalermark keeps the books in the background. Send an invoice, log what you spend, and the
+      accounting takes care of itself.
+    </p>
+    {#if may(data.role, 'sales:write')}
+      <a href="/invoices/new" class="btn mt-6 inline-block px-5 py-3">Send your first invoice</a>
+    {/if}
+    <p class="mt-5 text-sm text-fg/50">
+      {#if may(data.role, 'contacts:write')}
+        or <a href="/contacts/new" class="link">add a customer</a>
+      {/if}
+      {#if may(data.role, 'contacts:write') && may(data.role, 'expenses:write')}
+        &middot;
+      {/if}
+      {#if may(data.role, 'expenses:write')}
+        <a href="/expenses/new" class="link">record something you bought</a>
+      {/if}
+    </p>
+  </section>
+{:else}
 <dl class="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
   <div class="rounded-sm border border-fg/10 bg-surface-2 p-6">
     <dt class="label">Money in</dt>
@@ -212,6 +258,7 @@
     </a>
   {/each}
 </dl>
+{/if}
 
 {#if showAnomalies}
   <section class="mt-8">
@@ -241,8 +288,27 @@
   </div>
 {:then result}
   {#if result.nudges.length > 0}
+    <!--
+      Labelled with its own window, for the same reason the revenue sparkline
+      above carries "last 12 months": the tiles follow the period toggle and this
+      does not. The nudge signals are always month-to-date (reports.ts builds
+      monthToDate plus three trailing months, and takes no period argument), so
+      on the "this year" toggle a tile read $84,000 while the nudge under it said
+      $6,200. Both figures are right and together they read as the product
+      contradicting itself — on the one feature people pay for, whose whole
+      architecture rests on the model quoting ledger figures rather than
+      inventing them (TMC-229).
+
+      Making the nudge follow the toggle is the fuller answer and is deliberately
+      NOT done here: companies.cash_flow_nudges is a single cached value per
+      company, so three toggle states sharing one slot would regenerate on every
+      switch and triple the model spend for one page view. That belongs with the
+      signals rework on TMC-229, which is already changing what the cache key is
+      made of.
+    -->
     <section class="mt-8">
       <h2 class="label">What to watch</h2>
+      <p class="mt-1 text-xs text-fg/40">this month so far</p>
       <ul class="mt-3 space-y-3">
         {#each result.nudges as nudge (nudge.text)}
           <li class="rounded-sm border px-4 py-3 text-sm text-fg/80 {toneClass(nudge.tone)}">

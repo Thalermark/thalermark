@@ -3,7 +3,9 @@ import {
   addMoney,
   centsToMoney,
   formatDateDisplay,
+  formatDateShort,
   formatMoneyDisplay,
+  formatQuantity,
   formatUnitPrice,
   multiplyMoney,
   priceString,
@@ -275,5 +277,52 @@ describe('formatDateDisplay', () => {
   it('passes a non-ISO string through unchanged', () => {
     expect(formatDateDisplay('')).toBe('');
     expect(formatDateDisplay('not a date')).toBe('not a date');
+  });
+});
+
+describe('formatDateShort', () => {
+  it('renders the short form a line item wants', () => {
+    expect(formatDateShort('2026-08-12')).toBe('Aug 12');
+    expect(formatDateShort('2026-01-01')).toBe('Jan 1');
+  });
+
+  it('reads the date as written, not as UTC midnight', () => {
+    // The whole point of the local-midnight parse. `new Date('2026-08-12')` is
+    // spec'd as UTC, so any negative-offset zone would render Aug 11 here.
+    expect(formatDateShort('2026-08-12')).toBe('Aug 12');
+    expect(formatDateShort('2026-03-01')).toBe('Mar 1');
+  });
+
+  it('passes a non-ISO string through unchanged', () => {
+    expect(formatDateShort('')).toBe('');
+    expect(formatDateShort('not a date')).toBe('not a date');
+  });
+});
+
+describe('formatQuantity', () => {
+  it('trims a stored 4dp quantity down to how a person reads a count', () => {
+    expect(formatQuantity('3.0000')).toBe('3');
+    expect(formatQuantity('1.5000')).toBe('1.5');
+    expect(formatQuantity('0.2500')).toBe('0.25');
+    expect(formatQuantity('12.0000')).toBe('12');
+  });
+
+  it('NEVER rounds — a repeating fraction keeps every digit', () => {
+    // 50 minutes. Rounding this to 0.83 would make the line stop multiplying
+    // out: 0.83 x 15.00 is 12.45 against an amount column reading 12.50.
+    expect(formatQuantity('0.8333')).toBe('0.8333');
+    expect(formatQuantity('2.6667')).toBe('2.6667');
+  });
+
+  it('stays arithmetically identical to the stored value', () => {
+    for (const q of ['3.0000', '1.5000', '0.8333', '0.2500']) {
+      expect(multiplyMoney(formatQuantity(q), '15.0000')).toBe(multiplyMoney(q, '15.0000'));
+    }
+  });
+
+  it('leaves an integer and unparseable input alone', () => {
+    expect(formatQuantity('3')).toBe('3');
+    expect(formatQuantity('')).toBe('');
+    expect(formatQuantity('not a number')).toBe('not a number');
   });
 });

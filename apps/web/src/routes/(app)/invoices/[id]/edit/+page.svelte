@@ -9,8 +9,10 @@
     type LineItemType,
     addMoney,
     formatUnitPrice,
+    hoursUnitLabel,
     multiplyMoney,
     sumMoney,
+    timeEntryLineDescription,
     unitPriceFromTotal,
   } from '@thalermark/validation';
   import type { PageProps } from './$types';
@@ -84,9 +86,13 @@
     const added: Row[] = pendingTime.map((t) => {
       const unitPrice = t.rate ?? '0';
       return {
-        description: t.note?.trim() || 'Hours',
+        description: timeEntryLineDescription({
+          entryDate: t.entryDate,
+          note: t.note,
+          jobName: data.jobName,
+        }),
         quantity: t.hours,
-        unitLabel: 'hour',
+        unitLabel: hoursUnitLabel(t.hours),
         unitPrice: formatUnitPrice(unitPrice),
         // Priced through the same multiplyMoney every typed row uses, so a
         // billed hour and a hand-typed hour cannot round differently.

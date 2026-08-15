@@ -5,11 +5,13 @@ import {
   contactCreateSchema,
   formatUnitPrice,
   hoursFromMinutes,
+  hoursUnitLabel,
   invoiceCreateSchema,
   localDayPlus,
   localToday,
   multiplyMoney,
   sumMoney,
+  timeEntryLineDescription,
   unitPriceFromTotal,
 } from '@thalermark/validation';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
@@ -204,15 +206,19 @@ export default function NewInvoice() {
             query: { unbilled: 'true' },
           });
           if (active && timeRes.ok) {
-            const { timeEntries } = await timeRes.json();
+            const { timeEntries, jobName } = await timeRes.json();
             const seeded = timeEntries.map((t): Row => {
               const quantity = hoursFromMinutes(t.minutes);
               const unitPrice = t.rate ?? '0';
               return {
                 timeEntryId: t.id,
-                description: t.note?.trim() || 'Hours',
+                description: timeEntryLineDescription({
+                  entryDate: t.entryDate,
+                  note: t.note,
+                  jobName,
+                }),
                 quantity,
-                unitLabel: 'hour',
+                unitLabel: hoursUnitLabel(quantity),
                 unitPrice,
                 amount: multiplyMoney(quantity, unitPrice),
                 sourceItemId: null,

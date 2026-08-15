@@ -8,7 +8,7 @@ import type { Actions, PageServerLoad } from './$types';
 type Account = { id: string; code: string; name: string; accountType: string };
 
 function accountOptions(accounts: Account[]) {
-  return accounts.map((a) => ({ id: a.id, label: `${a.code} · ${a.name}` }));
+  return accounts.map((a) => ({ id: a.id, label: a.name }));
 }
 
 const KIND_LABEL: Record<string, string> = {

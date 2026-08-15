@@ -27,10 +27,15 @@
 <a href="/bills" class="eyebrow text-fg/60 hover:text-fg">← Bills</a>
 <div class="mt-3 flex flex-wrap items-baseline justify-between gap-4">
   <h1 class="font-serif text-4xl font-light leading-none tracking-tight text-fg">
-    AP aging<span class="text-accent">.</span>
+    Who to pay first<span class="text-accent">.</span>
   </h1>
   <span class="font-mono text-xs uppercase tracking-widest text-fg/50">as of {aging.asOf}</span>
 </div>
+<!-- Was "AP aging", an accountant's abbreviation on a screen aimed at someone
+     who does not want to learn accounting. It cannot borrow the plain name the
+     bills list already uses ("What you owe"), so it takes the action instead,
+     mirroring how the A/R side reads as "who to chase". -->
+<p class="mt-4 text-sm text-fg/60">Bills still to pay, by how far past due they are.</p>
 
 <dl class="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
   {#each BUCKETS as b (b.key)}

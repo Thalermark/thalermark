@@ -29,7 +29,7 @@
   <div>
     <a href="/reports" class="eyebrow text-fg/60 hover:text-fg">← Reports</a>
     <h1 class="mt-3 font-serif text-4xl font-light leading-none tracking-tight text-fg">
-      A/R aging<span class="text-accent">.</span>
+      Who owes you<span class="text-accent">.</span>
     </h1>
   </div>
   <ExportCsvButton
@@ -38,6 +38,10 @@
     disabled={report.invoices.length === 0}
   />
 </div>
+<!-- Was "A/R aging". The blurb on the reports index was already the plain-English
+     name; it just was not the title. Kept short here because the heading shares
+     its row with the export button, so the explanation goes underneath. -->
+<p class="mt-4 text-sm text-fg/60">Unpaid invoices, grouped by how overdue they are.</p>
 
 <AsOfSelector asOf={report.asOf} />
 

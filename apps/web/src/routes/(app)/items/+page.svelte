@@ -1,4 +1,5 @@
 <script lang="ts">
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import ImportExportActions from '$lib/components/ImportExportActions.svelte';
   import LoadMore from '$lib/components/LoadMore.svelte';
   import { fetchMore } from '$lib/load-more';
@@ -84,9 +85,14 @@
 </div>
 
 {#if rows.length === 0}
-  <p class="mt-8 text-fg/70">
-    {data.showArchived ? 'No items yet.' : 'No active items yet.'}
-  </p>
+  <!-- Both variants offer the same action: unlike the other lists, "active only"
+       is the default view rather than a filter someone chose, so an empty
+       catalogue almost always means nothing has been added yet (TMC-234). -->
+  <EmptyState
+    message={data.showArchived ? 'No items yet.' : 'No active items yet.'}
+    actionHref={may(data.role, 'sales:write') ? '/items/new' : undefined}
+    actionLabel={may(data.role, 'sales:write') ? '+ New item' : undefined}
+  />
 {:else}
   <ul class="mt-6 divide-y divide-fg/10 rounded-sm border border-fg/10 bg-surface-2">
     {#each rows as item (item.id)}

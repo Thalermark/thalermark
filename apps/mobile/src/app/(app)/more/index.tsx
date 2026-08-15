@@ -163,7 +163,7 @@ const CATALOG_ENTRIES: Entry[] = [
     href: '/more/reports',
     icon: 'bar-chart-outline',
     title: 'Reports',
-    subtitle: 'Profit & loss, A/R aging, sales, tax, top products, and more.',
+    subtitle: 'Profit & loss, who owes you, sales, tax, top products, and more.',
   },
 ];
 

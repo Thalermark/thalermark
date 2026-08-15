@@ -293,7 +293,7 @@ export default function BillDetail() {
   }
 
   function onRemovePayment(paymentId: string) {
-    Alert.alert('Remove this payment?', 'The ledger entry is reversed, not erased.', [
+    Alert.alert('Remove this payment?', 'It is undone, not deleted. The record stays.', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Remove',
@@ -307,7 +307,7 @@ export default function BillDetail() {
   }
 
   function onVoid() {
-    Alert.alert('Void bill?', 'This reverses its ledger entry and cannot be undone.', [
+    Alert.alert('Void bill?', 'This takes it back off your books and cannot be undone.', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Void',

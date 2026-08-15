@@ -3,8 +3,10 @@ import { multiplyMoney } from './money.js';
 import {
   MINUTES_IN_A_DAY,
   hoursFromMinutes,
+  hoursUnitLabel,
   minutesFromDuration,
   timeEntryCreateSchema,
+  timeEntryLineDescription,
   timeEntryUpdateSchema,
 } from './time-entry.js';
 
@@ -126,5 +128,44 @@ describe('timeEntryUpdateSchema', () => {
     expect(parsed.success).toBe(true);
     expect(parsed.success && 'jobId' in parsed.data).toBe(false);
     expect(parsed.success && 'billedInvoiceId' in parsed.data).toBe(false);
+  });
+});
+
+describe('timeEntryLineDescription', () => {
+  it('leads with the date so repeated work does not read as one charge listed twice', () => {
+    // The dog sitter case (TMC-263): three days of the same note used to render
+    // three identical lines, which a customer reads as a duplicate.
+    const days = ['2026-08-12', '2026-08-13', '2026-08-14'].map((entryDate) =>
+      timeEntryLineDescription({ entryDate, note: 'Dog sitting', jobName: 'Sadie sitting' }),
+    );
+    expect(days).toEqual(['Aug 12 · Dog sitting', 'Aug 13 · Dog sitting', 'Aug 14 · Dog sitting']);
+    expect(new Set(days).size).toBe(3);
+  });
+
+  it('falls back to the job name, not to the word Hours', () => {
+    expect(
+      timeEntryLineDescription({ entryDate: '2026-08-12', note: null, jobName: 'Sadie sitting' }),
+    ).toBe('Aug 12 · Sadie sitting');
+    expect(
+      timeEntryLineDescription({ entryDate: '2026-08-12', note: '   ', jobName: 'Sadie sitting' }),
+    ).toBe('Aug 12 · Sadie sitting');
+  });
+
+  it('still says something when neither a note nor a job name is available', () => {
+    expect(timeEntryLineDescription({ entryDate: '2026-08-12' })).toBe('Aug 12 · Hours');
+  });
+});
+
+describe('hoursUnitLabel', () => {
+  it('agrees with the quantity beside it', () => {
+    expect(hoursUnitLabel(hoursFromMinutes(60))).toBe('hour');
+    expect(hoursUnitLabel(hoursFromMinutes(180))).toBe('hours');
+    expect(hoursUnitLabel(hoursFromMinutes(30))).toBe('hours');
+    expect(hoursUnitLabel(hoursFromMinutes(50))).toBe('hours');
+  });
+
+  it('treats a trimmed and an untrimmed one as the same quantity', () => {
+    expect(hoursUnitLabel('1.0000')).toBe('hour');
+    expect(hoursUnitLabel('1')).toBe('hour');
   });
 });

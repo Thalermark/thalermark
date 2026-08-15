@@ -23,7 +23,7 @@ export const load: PageServerLoad = async (event) => {
   if (!catRes.ok) throw error(catRes.status, 'failed to load categories');
   const categories = (await catRes.json()).accounts.map((a: Account) => ({
     id: a.id,
-    label: `${a.code} · ${a.name}`,
+    label: a.name,
   }));
 
   return { bill, categories };

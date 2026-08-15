@@ -13,8 +13,14 @@ const CASH_CODE = '1000';
 
 type Account = { id: string; code: string; name: string; accountType: string };
 
+// Name only, no numeric code — same reasoning as moneyOptions below, applied to
+// the category field a dog groomer meets on their second screen. This dropdown
+// used to read "6100 · Car & Truck Expenses" for ~24 options, which is the chart
+// of accounts verbatim in the product whose promise is that the ledger stays
+// hidden (TMC-222). The code is still the value; it is only the label that
+// changed, so nothing downstream of the picker moves.
 function accountOptions(accounts: Account[]) {
-  return accounts.map((a) => ({ id: a.id, label: `${a.code} · ${a.name}` }));
+  return accounts.map((a) => ({ id: a.id, label: a.name }));
 }
 
 const KIND_LABEL: Record<string, string> = {
