@@ -2,6 +2,7 @@ import {
   type Database,
   type Transaction,
   accounts,
+  billPayments,
   bills,
   capitalPurchases,
   chartOfAccounts,
@@ -11,12 +12,17 @@ import {
   estimates,
   expenses,
   invoiceLineItems,
+  invoicePayments,
   invoices,
   items,
+  jobs,
+  mileageTrips,
   ownerMoneyEvents,
   recurringInvoiceLineItems,
   recurringInvoices,
   taxPolicies,
+  timeEntries,
+  vehicles,
 } from '@thalermark/db';
 import { and, asc, eq, isNull } from 'drizzle-orm';
 
@@ -96,6 +102,12 @@ export async function buildAccountExport(tx: Database | Transaction, accountId: 
     capitalRows,
     ownerMoneyRows,
     taxPolicyRows,
+    invoicePaymentRows,
+    billPaymentRows,
+    mileageRows,
+    vehicleRows,
+    jobRows,
+    timeEntryRows,
     coaRows,
   ] = await Promise.all([
     tx
@@ -166,6 +178,45 @@ export async function buildAccountExport(tx: Database | Transaction, accountId: 
       .from(taxPolicies)
       .where(eq(taxPolicies.accountId, accountId))
       .orderBy(asc(taxPolicies.createdAt), asc(taxPolicies.id)),
+    // Settlement rows. THE reason this ticket existed: invoice_payments
+    // supersedes the invoice header's paid_at / payment_method / payment_reference
+    // (see the note on that table), so exporting only the header shipped the
+    // most recent payment and silently dropped every earlier one. A deposit plus
+    // a final payment left as one row, and a part-paid invoice could not be
+    // reconstructed at all (TMC-231).
+    tx
+      .select()
+      .from(invoicePayments)
+      .where(eq(invoicePayments.accountId, accountId))
+      .orderBy(asc(invoicePayments.receivedOn), asc(invoicePayments.id)),
+    tx
+      .select()
+      .from(billPayments)
+      .where(eq(billPayments.accountId, accountId))
+      .orderBy(asc(billPayments.paidOn), asc(billPayments.id)),
+    // Mileage is IRS Schedule C substantiation — the record you produce in an
+    // audit — so leaving it out of a portability export was the worst of these
+    // omissions even though it is the smallest table.
+    tx
+      .select()
+      .from(mileageTrips)
+      .where(eq(mileageTrips.accountId, accountId))
+      .orderBy(asc(mileageTrips.tripDate), asc(mileageTrips.id)),
+    tx
+      .select()
+      .from(vehicles)
+      .where(eq(vehicles.accountId, accountId))
+      .orderBy(asc(vehicles.createdAt), asc(vehicles.id)),
+    tx
+      .select()
+      .from(jobs)
+      .where(eq(jobs.accountId, accountId))
+      .orderBy(asc(jobs.createdAt), asc(jobs.id)),
+    tx
+      .select()
+      .from(timeEntries)
+      .where(eq(timeEntries.accountId, accountId))
+      .orderBy(asc(timeEntries.entryDate), asc(timeEntries.id)),
     // COA id → name only, for category / paid-from labels (see header note).
     tx
       .select({ id: chartOfAccounts.id, name: chartOfAccounts.name })
@@ -194,6 +245,17 @@ export async function buildAccountExport(tx: Database | Transaction, accountId: 
   const capitalByCompany = groupBy(capitalRows, (r) => r.companyId);
   const ownerMoneyByCompany = groupBy(ownerMoneyRows, (r) => r.companyId);
   const taxPoliciesByCompany = groupBy(taxPolicyRows, (r) => r.companyId);
+  const invoicePaymentsByCompany = groupBy(invoicePaymentRows, (r) => r.companyId);
+  const billPaymentsByCompany = groupBy(billPaymentRows, (r) => r.companyId);
+  const mileageByCompany = groupBy(mileageRows, (r) => r.companyId);
+  const vehiclesByCompany = groupBy(vehicleRows, (r) => r.companyId);
+  const jobsByCompany = groupBy(jobRows, (r) => r.companyId);
+  const timeEntriesByCompany = groupBy(timeEntryRows, (r) => r.companyId);
+
+  // Labels so the new rows read without UUIDs, same rule as contacts / COA above.
+  const invoiceNumber = new Map(invoiceRows.map((r) => [r.id, r.number]));
+  const jobName = new Map(jobRows.map((r) => [r.id, r.name]));
+  const vehicleName = new Map(vehicleRows.map((r) => [r.id, r.label]));
 
   const companiesOut = companyRows.map((company) => ({
     company,
@@ -233,6 +295,27 @@ export async function buildAccountExport(tx: Database | Transaction, accountId: 
     })),
     ownerMoney: ownerMoneyByCompany.get(company.id) ?? [],
     taxPolicies: taxPoliciesByCompany.get(company.id) ?? [],
+    // Every payment, not just the last one mirrored onto the invoice header.
+    invoicePayments: (invoicePaymentsByCompany.get(company.id) ?? []).map((p) => ({
+      ...p,
+      invoiceNumber: nameOf(invoiceNumber, p.invoiceId),
+    })),
+    billPayments: billPaymentsByCompany.get(company.id) ?? [],
+    mileageTrips: (mileageByCompany.get(company.id) ?? []).map((t) => ({
+      ...t,
+      vehicleLabel: nameOf(vehicleName, t.vehicleId),
+      jobName: nameOf(jobName, t.jobId),
+    })),
+    vehicles: vehiclesByCompany.get(company.id) ?? [],
+    jobs: (jobsByCompany.get(company.id) ?? []).map((j) => ({
+      ...j,
+      contactName: nameOf(contactName, j.contactId),
+    })),
+    timeEntries: (timeEntriesByCompany.get(company.id) ?? []).map((t) => ({
+      ...t,
+      jobName: nameOf(jobName, t.jobId),
+      billedInvoiceNumber: nameOf(invoiceNumber, t.billedInvoiceId),
+    })),
   }));
 
   return {

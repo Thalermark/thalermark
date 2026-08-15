@@ -175,8 +175,37 @@ type ExportBundle = {
     capitalPurchases: unknown[];
     ownerMoney: unknown[];
     taxPolicies: unknown[];
+    invoicePayments: {
+      amount: string;
+      receivedOn: string;
+      method: string;
+      reference: string | null;
+      invoiceNumber: string | null;
+    }[];
+    billPayments: unknown[];
+    mileageTrips: unknown[];
+    vehicles: unknown[];
+    jobs: unknown[];
+    timeEntries: unknown[];
   }[];
 };
+
+async function recordPayment(
+  app: ReturnType<typeof createApp>,
+  cookie: string,
+  accountId: string,
+  invoiceId: string,
+  amount: string,
+  receivedOn: string,
+  reference: string,
+): Promise<void> {
+  const res = await app.request(`/api/invoices/${invoiceId}/payments`, {
+    method: 'POST',
+    headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+    body: JSON.stringify({ amount, receivedOn, method: 'check', reference }),
+  });
+  if (res.status !== 201) throw new Error(`payment failed: ${res.status} ${await res.text()}`);
+}
 
 async function getExport(
   app: ReturnType<typeof createApp>,
@@ -212,6 +241,75 @@ describe('GET /api/account/export', () => {
       expect(co?.invoices[0]?.contactName).toBe('Bob');
       expect(co?.invoices[0]?.lines).toHaveLength(1);
       expect(co?.invoices[0]?.lines[0]?.amount).toBe('100.00');
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('carries every payment, not just the last one mirrored on the invoice', async () => {
+    const { app, handle } = buildApp();
+    try {
+      const cookie = await signUp(app, 'parts@example.com');
+      const { accountId, companyId } = await userContext('parts@example.com');
+      const contactId = await createContact(app, cookie, accountId, companyId, 'Bob');
+      const invoiceId = await createInvoice(app, cookie, accountId, companyId, contactId, 'AE-9');
+      // A draft is off the books entirely and refuses payment (409 not_issued),
+      // which is correct: you cannot receive money against an invoice nobody has.
+      const sent = await app.request(`/api/invoices/${invoiceId}/mark-sent`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+      });
+      if (sent.status !== 200) throw new Error(`mark-sent failed: ${sent.status}`);
+
+      // A deposit, then a second instalment. The invoice total is 108.25, so
+      // this leaves the invoice part-paid — the shape the header mirror cannot
+      // represent, because paid_at / payment_method describe ONE payment.
+      await recordPayment(app, cookie, accountId, invoiceId, '40.00', '2026-06-01', 'dep-1');
+      await recordPayment(app, cookie, accountId, invoiceId, '25.00', '2026-06-15', 'chk-2');
+
+      const bundle = (await (await getExport(app, cookie, accountId)).json()) as ExportBundle;
+      const co = bundle.companies.find((c) => c.company.id === companyId);
+
+      // The actual acceptance criterion from the ticket: a user can reconstruct
+      // their financial history from the export alone. Both payments, with
+      // their own dates and references, and they sum to what was received.
+      expect(co?.invoicePayments).toHaveLength(2);
+      const paid = (co?.invoicePayments ?? []).reduce((sum, p) => sum + Number(p.amount), 0);
+      expect(paid).toBeCloseTo(65, 2);
+      expect(co?.invoicePayments.map((p) => p.reference).sort()).toEqual(['chk-2', 'dep-1']);
+      expect(co?.invoicePayments.map((p) => p.receivedOn).sort()).toEqual([
+        '2026-06-01',
+        '2026-06-15',
+      ]);
+      // Joins back to invoices.csv without a UUID.
+      expect(co?.invoicePayments.every((p) => p.invoiceNumber === 'AE-9')).toBe(true);
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('carries the work records a business would need to take with it', async () => {
+    const { app, handle } = buildApp();
+    try {
+      const cookie = await signUp(app, 'records@example.com');
+      const { accountId, companyId } = await userContext('records@example.com');
+
+      const bundle = (await (await getExport(app, cookie, accountId)).json()) as ExportBundle;
+      const co = bundle.companies.find((c) => c.company.id === companyId);
+
+      // Present and empty, rather than absent. An absent key is indistinguishable
+      // from "this account had none", which is exactly how the gap went unnoticed:
+      // mileage is Schedule C substantiation and jobs/time are the record of what
+      // work was done at all.
+      for (const key of [
+        'billPayments',
+        'mileageTrips',
+        'vehicles',
+        'jobs',
+        'timeEntries',
+      ] as const) {
+        expect(Array.isArray(co?.[key]), `${key} missing from the bundle`).toBe(true);
+      }
     } finally {
       await handle.close();
     }
@@ -266,18 +364,28 @@ describe('GET /api/account/export', () => {
 
       expect(Object.keys(bundle).sort()).toEqual(['account', 'companies', 'exportedAt', 'version']);
       for (const co of bundle.companies) {
+        // An exact list on purpose: adding an entity to the export has to fail
+        // here first, so nobody widens what leaves the product without someone
+        // reading the new table's columns. The six added by TMC-231 went through
+        // exactly that review.
         expect(Object.keys(co).sort()).toEqual([
+          'billPayments',
           'bills',
           'capitalPurchases',
           'company',
           'contacts',
           'estimates',
           'expenses',
+          'invoicePayments',
           'invoices',
           'items',
+          'jobs',
+          'mileageTrips',
           'ownerMoney',
           'recurringInvoices',
           'taxPolicies',
+          'timeEntries',
+          'vehicles',
         ]);
       }
       // No ledger / auth / connection artifacts anywhere in the serialized bundle.
