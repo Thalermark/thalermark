@@ -28,6 +28,14 @@ import { useReport } from '../../../../lib/use-report';
 // election, so the screen and Settings can't silently disagree.
 type Basis = 'cash' | 'accrual';
 
+// The words a user picked in Settings, which never says "cash" or "accrual":
+// "When you get paid" / "When you send the invoice". Prose about the basis
+// borrows those rather than surfacing the term raw (TMC-233). The toggle labels
+// and the worksheet header keep the accountant word on purpose, because there
+// the term is the thing being switched.
+const basisPlain = (b: string) =>
+  b === 'cash' ? 'when you get paid' : 'when you send the invoice';
+
 const BASIS_LABELS: Record<Basis, string> = {
   cash: 'When paid',
   accrual: 'When invoiced',
@@ -195,9 +203,13 @@ export default function TaxWorksheetReport() {
               {overridden ? (
                 <View className="mt-6 rounded-sm border border-gold-deep/30 bg-gold-deep/5 px-4 py-3">
                   <Text className="text-sm text-ink/80">
-                    Showing <Text className="font-semibold">{d.basis}</Text> figures, but this
-                    business is set to{' '}
-                    <Text className="font-semibold">{d.companyAccountingMethod}</Text>.
+                    You're counting these{' '}
+                    <Text className="font-semibold">{basisPlain(d.basis)}</Text>, but this business
+                    is set to count{' '}
+                    <Text className="font-semibold">
+                      {basisPlain(d.companyAccountingMethod as string)}
+                    </Text>
+                    .
                   </Text>
                   <Pressable onPress={() => router.push('/more/business')}>
                     <Text className="mt-1 text-sm text-gold-deep">

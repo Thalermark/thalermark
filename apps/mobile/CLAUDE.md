@@ -1,28 +1,39 @@
 # CLAUDE.md — apps/mobile
 
 Orientation for the React Native + Expo app. Read the root `CLAUDE.md` and
-`TECH-STACK.md` first; this file covers only what's specific to mobile and the
-**mobile catch-up** (the one remaining MVP scope — the web flows are done, the
-mobile feature screens are not).
+`TECH-STACK.md` first; this file covers only what's specific to mobile.
 
 ## Where mobile stands
 
-Phase 6 shipped the **shell**, not the features:
+**The catch-up is done.** Roughly 70 screens ship: invoices, estimates,
+expenses, contacts, items, recurring, bills, purchases, ledger, owner-money,
+jobs, mileage, tax policies, the dashboard, and eleven reports. Settings live
+under `more/`, recurring under `invoices/recurring/`.
 
 ```
 src/app/
   _layout.tsx            # root stack
-  (auth)/                # sign-in, sign-up, accept-invite (+ _layout)
-  (app)/                 # auth-gated half — _layout.tsx gates, index.tsx is Home
+  (auth)/                # sign-in, sign-up, accept-invite, server picker
+  (app)/                 # auth-gated half; _layout.tsx gates, index.tsx is Home
 src/lib/
-  api.ts                 # hc<AppType> client (bearer + Origin)
+  api.ts                 # hc<AppType> client (bearer + Origin + x-account-id)
   auth-client.ts         # Better Auth client; persists the bearer token
   secure-store.ts        # expo-secure-store wrapper (Keychain / EncryptedSharedPreferences)
+  server-url.ts          # runtime API base URL; the self-host server picker
 ```
 
-What's **missing** = the catch-up: invoices, estimates, expenses, customers,
-items, recurring, dashboard, reports. Build them by mirroring the web routes
-under `apps/web/src/routes/(app)/` — same API, same shapes, native UI.
+**It also builds and installs as a native APK**, verified on a Pixel 8 Pro. See
+SCAFFOLDING.md's mobile section for the JDK 17 requirement, which is the only
+real prerequisite.
+
+What is left is **parity, not absence**: seven web screens have no mobile
+equivalent (`settings/ai` most importantly), and several web fixes never
+crossed over. Tracked under epic TMC-269. When porting, mirror the web route
+under `apps/web/src/routes/(app)/`: same API, same shapes, native UI.
+
+**Mobile is a second client against the same API, not a follower.** A fix that
+lands on web does not close the user-facing problem. TMC-199, TMC-204, TMC-226
+and TMC-230 were all closed Done while mobile kept the old behaviour.
 
 ## Auth + API contract (load-bearing — don't re-derive)
 
@@ -50,18 +61,15 @@ under `apps/web/src/routes/(app)/` — same API, same shapes, native UI.
   `apiOrigin`/`absolutize` helpers in the detail screens). Self-host servers
   must allow `thalermark://` in `TRUSTED_ORIGINS` (the default compose does).
 
-## ⚠️ The `x-account-id` gap (close this first)
+## `x-account-id` on every tenant request
 
-`src/lib/api.ts` currently sends `Origin` + `Authorization` but **not
-`x-account-id`**. Every tenant API route runs through the `rls-context`
-middleware, which sets the Postgres `app.current_account_id` from that header;
-without it, tenant routes return zero rows / 403 under RLS (the same
-bootstrap-vs-tenant trap documented for web). The shell's Home screen doesn't
-hit a tenant route, so this hasn't bitten yet — but the **first feature screen
-will**. Mobile needs an active-account concept (the web equivalent is the
-`active_account_id` cookie + `locals.activeAccountId`); resolve it from
-`GET /api/me` / `GET /api/companies` after sign-in and stamp `x-account-id` in
-the `api.ts` headers fn alongside the bearer.
+`src/lib/api.ts` stamps `x-account-id` alongside the bearer. Every tenant API
+route runs through the `rls-context` middleware, which sets the Postgres
+`app.current_account_id` from that header; without it, tenant routes return zero
+rows / 403 under RLS (the same bootstrap-vs-tenant trap documented for web). It
+is resolved from the active membership, the mobile equivalent of web's
+`active_account_id` cookie plus `locals.activeAccountId`. Any new client that
+builds its own request must carry it.
 
 ## Parity invariants the feature screens MUST honor
 

@@ -117,6 +117,16 @@ const TRANSITION_ERRORS: Record<string, string> = {
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
+// Idempotency key for the deposit path, which welds a state transition to a
+// money insert and must not run twice. Only needs to be unique, not secret, so
+// prefer a real UUID where the runtime has one and fall back otherwise. Same
+// approach as AddressField's session token, and no extra dependency.
+function newIdempotencyKey(): string {
+  const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+  if (c?.randomUUID) return c.randomUUID();
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 export default function InvoiceDetail() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -152,6 +162,14 @@ export default function InvoiceDetail() {
   // Direction rather than a typed minus sign — nobody should have to know that
   // a refund is stored as a negative payment.
   const [payDirection, setPayDirection] = useState<'in' | 'out'>('in');
+  // Taking a deposit on a draft, in one question (TMC-199 / TMC-271). Collapsed
+  // by default: most drafts never take a deposit, and an open form on every one
+  // of them is noise. The key is minted when the form opens and cleared after a
+  // success, so a double-tap replays the same deposit server-side rather than
+  // booking a second one; a genuine second deposit gets a fresh key.
+  const [showDeposit, setShowDeposit] = useState(false);
+  const [depositAmount, setDepositAmount] = useState('');
+  const [depositKey, setDepositKey] = useState<string | null>(null);
   // One sentence's worth of doubt about the invoice about to go out, or null —
   // which is the ordinary answer (TMC-227).
   const [sendConcern, setSendConcern] = useState<string | null>(null);
@@ -367,6 +385,31 @@ export default function InvoiceDetail() {
     );
   }
 
+  // Issues the invoice AND records the deposit in one server transaction, so
+  // the operator answers one question instead of walking a state machine. The
+  // amount is the only thing the person holding the cash actually knows.
+  function onTakeDeposit() {
+    const amount = depositAmount.trim();
+    if (!amount) {
+      setTransitionError('Enter how much they paid.');
+      return;
+    }
+    const key = depositKey ?? newIdempotencyKey();
+    if (!depositKey) setDepositKey(key);
+    act(
+      () =>
+        api.api.invoices[':id'].deposit.$post({
+          param: { id },
+          json: { amount, idempotencyKey: key },
+        }),
+      () => {
+        setShowDeposit(false);
+        setDepositAmount('');
+        setDepositKey(null);
+      },
+    );
+  }
+
   function onRemovePayment(paymentId: string) {
     Alert.alert('Remove this payment?', 'It is undone, not deleted. The record stays.', [
       { text: 'Cancel', style: 'cancel' },
@@ -576,8 +619,12 @@ export default function InvoiceDetail() {
                         onPress={() => setShowOverride((v) => !v)}
                         className="rounded-sm border border-ink/20 px-3 py-3 active:bg-ink/5"
                       >
+                        {/* Web spells this out in a dropdown menu item ("Send
+                            to a different email"). Compressed to "To…" it read
+                            as clipped text rather than a control (TMC-277), so
+                            it says what it does at the width available. */}
                         <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
-                          {showOverride ? 'Cancel' : 'To…'}
+                          {showOverride ? 'Cancel' : 'Other email'}
                         </Text>
                       </Pressable>
                     </View>
@@ -683,39 +730,68 @@ export default function InvoiceDetail() {
               </View>
             ) : null}
 
-            {/* Payments (TMC-187) */}
-            {/* A draft cannot take a payment, and until TMC-199 the screen said
-                nothing — the panel simply did not render, leaving "Mark paid"
-                (which books the FULL total) as the only payment-shaped control
-                for someone holding a deposit. The rule stays; saying so is what
-                was missing. This client matters most: it is the one being used
-                standing in a customer's yard. */}
-            {/* Not while a correction is in flight (TMC-227): this copy tells
-                the user to issue the invoice and offers Mark paid, and on a
-                pulled-back draft neither applies — it has been issued, Mark
-                paid is hidden, and it may already hold a deposit. The nudge at
-                the top says the one thing that IS true: resend it. */}
+            {/* Payments (TMC-187). The prose panel that used to sit here is
+                gone: it existed because a draft cannot take a payment and the
+                screen said nothing about it, leaving "Mark paid" (which books
+                the FULL total) as the only payment-shaped control for someone
+                holding a deposit. The form below answers that directly, so
+                explaining the state machine is no longer the best we can do. */}
+
+            {/* One question, not a state machine (TMC-199, ported to mobile as
+                TMC-271). This box used to be sixty words explaining issue it,
+                mark it sent, then record a part-payment. The person reading it
+                is standing in a customer's yard holding cash and knows exactly
+                one thing: how much. So that is all it asks; issuing happens
+                server-side in the same transaction.
+
+                Closing it again matters: someone who opens it to look, and did
+                not take a deposit, needs a way back to a quiet screen.
+
+                Not while a correction is in flight (TMC-227): this form issues
+                the invoice as a side effect of banking the money, so on a
+                pulled-back draft it would silently resend at whatever total it
+                currently holds, finishing a correction the user is in the
+                middle of with the wrong numbers. */}
             {canWrite && status === 'draft' && !isRevising ? (
               <View className="mt-8 rounded-sm border border-ink/10 bg-cream-warm p-4">
-                <Text className="font-serif text-lg font-light text-ink">Payments</Text>
-                <Text className="mt-2 text-sm text-ink/70">
-                  Took a deposit? Issue this invoice first — send it, or just mark it as sent — then
-                  you can record part-payments against it as the money comes in.
-                </Text>
-                <Text className="mt-2 text-sm text-ink/60">
-                  If they've already paid in full, Mark paid settles it in one step.
-                </Text>
                 <Pressable
-                  onPress={() =>
-                    act(() => api.api.invoices[':id']['mark-sent'].$post({ param: { id } }))
-                  }
-                  disabled={acting}
-                  className="mt-3 rounded-sm border border-ink/20 px-4 py-2.5 active:border-gold-deep"
+                  onPress={() => setShowDeposit((v) => !v)}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: showDeposit }}
+                  className="flex-row items-center gap-2"
                 >
-                  <Text className="text-center font-mono text-xs uppercase tracking-widest text-ink/70">
-                    Mark as sent, so I can record a deposit
+                  <Text className="text-base text-ink/40">{showDeposit ? '▾' : '▸'}</Text>
+                  <Text className="font-serif text-lg font-light text-ink">
+                    Received a deposit?
                   </Text>
                 </Pressable>
+                {showDeposit ? (
+                  <View className="mt-3">
+                    <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                      How much
+                    </Text>
+                    <TextInput
+                      value={depositAmount}
+                      onChangeText={setDepositAmount}
+                      placeholder={inv.total}
+                      keyboardType="decimal-pad"
+                      className="mt-1 border-b border-ink/30 py-2 text-ink"
+                    />
+                    <Pressable
+                      onPress={onTakeDeposit}
+                      disabled={acting}
+                      className="mt-3 rounded-sm bg-ink px-4 py-3 active:bg-gold-deep disabled:opacity-50"
+                    >
+                      <Text className="text-center text-sm font-medium text-cream">
+                        {acting ? 'Recording…' : 'Record it'}
+                      </Text>
+                    </Pressable>
+                    <Text className="mt-3 text-sm text-ink/60">
+                      We'll finish the invoice off and log what they paid. You can still send it to
+                      them whenever you like.
+                    </Text>
+                  </View>
+                ) : null}
               </View>
             ) : null}
 
