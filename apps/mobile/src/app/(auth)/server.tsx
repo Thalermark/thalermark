@@ -14,12 +14,15 @@ import {
 // Pre-sign-in server picker — lets a self-hoster point the app at their own
 // Thalermark server instead of the SaaS cloud. The clients (api.ts /
 // auth-client.ts) rebuild against the new URL on the next call, so no restart
-// is needed. Validates the candidate against the unauthed GET /health before
+// is needed. Validates the candidate against the unauthed GET /ready before
 // saving so a typo can't strand the user on an unreachable server.
 export default function ServerPicker() {
   const [url, setUrl] = useState(getServerUrl());
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // A degraded server is SAVED, so this is a notice rather than a failure. Kept
+  // separate from `error` so it can be worded and coloured as what it is.
+  const [notice, setNotice] = useState<string | null>(null);
   const isDefault = normalizeUrl(url) === getDefaultServerUrl();
 
   async function onSave() {
@@ -30,13 +33,21 @@ export default function ServerPicker() {
     }
     setChecking(true);
     setError(null);
-    const ok = await probeServer(candidate);
+    setNotice(null);
+    const probe = await probeServer(candidate);
     setChecking(false);
-    if (!ok) {
+    if (probe.kind === 'unreachable') {
       setError("Couldn't reach a Thalermark server at that address.");
       return;
     }
     await setServerUrl(candidate);
+    // Found, saved, but its database is down. Stay put and say so: navigating
+    // away would drop the one piece of information the user needs to explain
+    // why sign-in fails at a correct address.
+    if (probe.kind === 'degraded') {
+      setNotice('Saved. That server is running, but its database is down, so sign-in will fail.');
+      return;
+    }
     router.back();
   }
 
@@ -44,6 +55,7 @@ export default function ServerPicker() {
     await resetServerUrl();
     setUrl(getDefaultServerUrl());
     setError(null);
+    setNotice(null);
   }
 
   return (
@@ -70,6 +82,7 @@ export default function ServerPicker() {
             onChangeText={(t) => {
               setUrl(t);
               setError(null);
+              setNotice(null);
             }}
             autoCapitalize="none"
             autoCorrect={false}
@@ -83,6 +96,7 @@ export default function ServerPicker() {
               {error}
             </Text>
           ) : null}
+          {notice ? <Text className="mt-3 text-sm text-gold-deep">{notice}</Text> : null}
         </View>
 
         <Pressable

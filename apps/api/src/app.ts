@@ -240,10 +240,16 @@ function createMainApp(deps: AppDeps) {
         return c.json({ error: 'internal_server_error' }, 500);
       })
       // Liveness: cheap, DB-independent, CORS-free. Used by the image
-      // HEALTHCHECK and probed by the mobile app to validate a self-host server
-      // URL — must stay { status: 'ok' } and must NOT depend on the DB (a
-      // liveness probe that fails on a transient DB blip would force pointless
-      // restarts). Readiness lives on /ready below.
+      // HEALTHCHECK — must stay { status: 'ok' } and must NOT depend on the DB
+      // (a liveness probe that fails on a transient DB blip would force
+      // pointless restarts). Readiness lives on /ready below.
+      //
+      // NOT reachable from outside, deliberately. Both Caddyfiles send anything
+      // outside /api/* to the web app, and neither routes this path — a restart
+      // cannot fix a dead database, so a probe that stays green through an
+      // outage is no use to a monitor and is not worth exposing. This comment
+      // used to claim the mobile server picker probed it; that never worked
+      // through a proxy, and the picker now uses /ready (TMC-278).
       .get('/health', (c) => c.json({ status: 'ok' }))
       // OAuth 2.0 Authorization Server Metadata (RFC 8414) — what an MCP client
       // probes to discover core's authorize/token endpoints. Root-level on

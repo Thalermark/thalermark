@@ -75,6 +75,27 @@
 		reverse_proxy api:3000
 	}
 
+	# Readiness, for external uptime monitoring and for the mobile app's server
+	# picker (TMC-278). The api already serves /ready — `select 1` on the runtime
+	# pool, raced against a short timeout, 200 or 503 — but nothing routed it, so
+	# it was reachable only on the compose network. Without this handle it falls
+	# through to `web`, which has no /ready route, and a monitor sits permanently
+	# red. Must precede the catch-all.
+	#
+	# /ready NOT /health on purpose. /health is a shallow liveness probe feeding
+	# the container healthcheck, where failure means "restart me" — and a restart
+	# cannot fix a dead Postgres, so it stays green through a database outage and
+	# is useless as an alerting signal. /ready answers the question a monitor is
+	# actually asking, and a 200 from it implies liveness anyway.
+	#
+	# It reports database reachability to anonymous callers. That is the deliberate
+	# trade for giving self-hosters any external health signal at all: before this
+	# the only thing reachable from outside was the web app's HTML, which says
+	# nothing about the api or the database.
+	handle /ready {
+		reverse_proxy api:3000
+	}
+
 	handle {
 		reverse_proxy web:3000
 	}
