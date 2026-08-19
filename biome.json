@@ -18,6 +18,8 @@
       "**/coverage",
       "**/migrations/meta/**",
       "**/Pods",
+      "apps/mobile/android",
+      "apps/mobile/ios",
       "**/*.xcassets",
       "**/expo-env.d.ts",
       "**/*.generated.ts",

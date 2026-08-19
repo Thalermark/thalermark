@@ -245,7 +245,7 @@ export default function NewExpense() {
             </View>
           ) : null}
 
-          <View className="mt-8 space-y-5">
+          <View className="mt-8 gap-5">
             <VendorField
               label="Vendor *"
               companyId={companyId}

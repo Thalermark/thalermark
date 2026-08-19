@@ -225,7 +225,7 @@ export default function PurchaseDetail() {
               </View>
             ) : null}
 
-            <View className="mt-8 space-y-3">
+            <View className="mt-8 gap-3">
               <Row label="Cost" value={money(purchase.amount)} />
               <Row label="Bought" value={purchase.purchaseDate} />
               {purchase.vendorName ? <Row label="From" value={purchase.vendorName} /> : null}
@@ -250,7 +250,7 @@ export default function PurchaseDetail() {
                   Record a payment
                 </Text>
                 {payError ? <Text className="mt-2 text-xs text-oxblood">{payError}</Text> : null}
-                <View className="mt-3 space-y-3">
+                <View className="mt-3 gap-3">
                   <PayField label="Amount paid *" value={payAmount} onChangeText={setPayAmount} />
                   <PayField
                     label="Of that, interest (optional)"

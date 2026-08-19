@@ -136,12 +136,12 @@ export default function NewOwnerMoney() {
             </View>
           ) : null}
 
-          <View className="mt-8 space-y-5">
+          <View className="mt-8 gap-5">
             <View>
               <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
                 What happened? *
               </Text>
-              <View className="mt-2 space-y-2">
+              <View className="mt-2 gap-2">
                 {KIND_CHOICES.map((c) => (
                   <Pressable
                     key={c.value}

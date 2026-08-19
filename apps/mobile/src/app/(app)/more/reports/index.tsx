@@ -120,7 +120,7 @@ export default function ReportsHub() {
         </Pressable>
         <Text className="mt-3 font-serif text-3xl font-light text-ink">Reports</Text>
 
-        <View className="mt-8 space-y-4">
+        <View className="mt-8 gap-4">
           {reports.map((r) => (
             <Pressable
               key={r.href}

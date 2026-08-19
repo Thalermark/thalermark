@@ -360,7 +360,7 @@ export default function BillDetail() {
 
             {/* Actions — open bills only */}
             {canAct ? (
-              <View className="mt-6 space-y-3">
+              <View className="mt-6 gap-3">
                 <View className="flex-row gap-2">
                   {canMarkPaid ? (
                     <Pressable
@@ -609,7 +609,7 @@ export default function BillDetail() {
                 <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
                   Paid
                 </Text>
-                <View className="mt-2 space-y-1">
+                <View className="mt-2 gap-1">
                   {paidVia ? <Row label="Method" value={paidVia} /> : null}
                   {bill.paymentReference ? (
                     <Row label="Reference" value={bill.paymentReference} />
@@ -621,7 +621,7 @@ export default function BillDetail() {
             ) : null}
 
             {/* Meta */}
-            <View className="mt-8 space-y-3">
+            <View className="mt-8 gap-3">
               <Row label="Category" value={detail.categoryName ?? '—'} />
               <Row label="Bill date" value={bill.billDate} />
               <Row label="Due date" value={bill.dueDate} />

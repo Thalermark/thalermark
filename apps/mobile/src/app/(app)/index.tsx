@@ -320,7 +320,7 @@ export default function Home() {
             <ActivityIndicator color="#0f1626" />
           </View>
         ) : dashboard ? (
-          <View className="mt-8 space-y-4">
+          <View className="mt-8 gap-4">
             <Tile label="Money in" value={fmt(dashboard.moneyIn)} sub={flowLabel(period)} />
             <Tile label="Money out" value={fmt(dashboard.moneyOut)} sub={flowLabel(period)} />
             <Tile label="Owed to you" value={fmt(dashboard.owed)} sub="outstanding now" />
@@ -374,7 +374,7 @@ export default function Home() {
             <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
               Unusual spending
             </Text>
-            <View className="mt-3 space-y-3">
+            <View className="mt-3 gap-3">
               {anomalies.overall ? (
                 <View className="rounded-sm border border-oxblood/30 bg-oxblood/5 px-4 py-3">
                   <Text className="text-sm text-ink/80">
@@ -417,7 +417,7 @@ export default function Home() {
               as web (TMC-229).
             */}
             <Text className="mt-1 text-xs text-ink/40">this month so far</Text>
-            <View className="mt-3 space-y-3">
+            <View className="mt-3 gap-3">
               {nudges.map((n) => (
                 <View key={n.text} className={`rounded-sm border px-4 py-3 ${toneClass(n.tone)}`}>
                   <Text className="text-sm text-ink/80">{n.text}</Text>

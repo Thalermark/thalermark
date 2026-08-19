@@ -433,7 +433,7 @@ export default function ExpenseDetail() {
               </View>
             ) : null}
 
-            <View className="mt-8 space-y-3">
+            <View className="mt-8 gap-3">
               <Row label="Date" value={e.expenseDate} />
               <Row label="Category" value={detail.categoryName ?? '—'} />
               <Row label="Paid with" value={detail.paymentName ?? '—'} />
@@ -562,7 +562,7 @@ export default function ExpenseDetail() {
                       <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
                         Found on the receipt
                       </Text>
-                      <View className="mt-2 space-y-1">
+                      <View className="mt-2 gap-1">
                         <Row label="Vendor" value={extraction.merchant ?? '—'} />
                         <Row label="Total" value={extraction.total ?? '—'} />
                         <Row label="Date" value={extraction.expenseDate ?? '—'} />

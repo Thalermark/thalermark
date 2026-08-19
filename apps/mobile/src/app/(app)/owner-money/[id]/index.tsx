@@ -142,7 +142,7 @@ export default function OwnerMoneyDetail() {
               </View>
             ) : null}
 
-            <View className="mt-8 space-y-3">
+            <View className="mt-8 gap-3">
               <Row label="Type" value={isIn ? 'You put money in' : 'You took money out'} />
               <Row label="Date" value={event.occurredOn} />
               {event.memo ? <Row label="Note" value={event.memo} /> : null}

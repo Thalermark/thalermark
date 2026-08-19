@@ -163,7 +163,7 @@ export default function OpeningBalanceScreen() {
             </View>
           ) : null}
 
-          <View className="mt-8 space-y-5">
+          <View className="mt-8 gap-5">
             <DateField
               label="When did you start? *"
               value={asOfDate}

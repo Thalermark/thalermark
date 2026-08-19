@@ -361,7 +361,7 @@ export default function EstimateDetail() {
 
             {/* Action toolbar */}
             {hasActions ? (
-              <View className="mt-6 space-y-3">
+              <View className="mt-6 gap-3">
                 {canSend ? (
                   <View>
                     {showOverride ? (
@@ -505,7 +505,7 @@ export default function EstimateDetail() {
             ) : null}
 
             {/* Meta */}
-            <View className="mt-8 space-y-2">
+            <View className="mt-8 gap-2">
               <Meta label="Contact" value={detail.customerName ?? '—'} />
               <Meta label="Issued" value={est.issueDate} />
               {est.expiresOn ? <Meta label="Valid until" value={est.expiresOn} /> : null}

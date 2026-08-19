@@ -107,7 +107,7 @@ export default function SignUp() {
           </View>
         ) : (
           <>
-            <View className="mt-8 space-y-5">
+            <View className="mt-8 gap-5">
               <View>
                 <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
                   Name

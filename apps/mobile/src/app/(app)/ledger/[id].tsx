@@ -140,7 +140,7 @@ export default function LedgerEntryDetail() {
               </Pressable>
             ) : null}
 
-            <View className="mt-8 space-y-3">
+            <View className="mt-8 gap-3">
               <Row label="Date" value={entry.postedAt.slice(0, 10)} />
               <Row label="Description" value={entry.memo ?? '—'} />
             </View>

@@ -164,7 +164,7 @@ export function ContactField({
             <Text className="text-xs text-ink/60">← Pick existing</Text>
           </Pressable>
         </View>
-        <View className="mt-1 space-y-3 rounded-sm border border-ink/10 bg-cream-warm/60 p-4">
+        <View className="mt-1 gap-3 rounded-sm border border-ink/10 bg-cream-warm/60 p-4">
           <View>
             <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">Name *</Text>
             <TextInput

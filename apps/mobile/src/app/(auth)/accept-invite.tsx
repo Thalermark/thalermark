@@ -114,7 +114,7 @@ export default function AcceptInvite() {
               <Text className="text-sm text-ink/75">
                 Sign in or create an account to respond to this invitation.
               </Text>
-              <View className="mt-6 space-y-3">
+              <View className="mt-6 gap-3">
                 <Link href={{ pathname: '/sign-in', params: { invite: token } }} asChild>
                   <Pressable className="rounded-sm bg-ink px-3 py-3 active:bg-gold-deep">
                     <Text className="text-center text-sm font-medium text-cream">Sign in</Text>

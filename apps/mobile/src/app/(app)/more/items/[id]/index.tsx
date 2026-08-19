@@ -176,7 +176,7 @@ export default function ItemDetail() {
               </Text>
             ) : null}
 
-            <View className="mt-8 space-y-6">
+            <View className="mt-8 gap-6">
               <DetailRow label="Type" value={item.type === 'product' ? 'Product' : 'Service'} />
               <DetailRow
                 label="Unit price"

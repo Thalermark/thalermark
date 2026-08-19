@@ -403,7 +403,7 @@ export default function EditInvoice() {
             </View>
           ) : null}
 
-          <View className="mt-8 space-y-5">
+          <View className="mt-8 gap-5">
             <ContactField
               label="Contact *"
               companyId={companyId}
@@ -569,7 +569,7 @@ function LineItems({
     <View>
       <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">Line items</Text>
       {error ? <Text className="mt-1 text-xs text-oxblood">{error}</Text> : null}
-      <View className="mt-2 space-y-4">
+      <View className="mt-2 gap-4">
         {rows.map((row, i) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: rows are positional and reorder-free
           <View key={i} className="rounded-sm border border-ink/10 bg-cream-warm p-3">
