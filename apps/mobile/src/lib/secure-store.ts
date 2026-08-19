@@ -30,6 +30,11 @@ const LAST_AUTH_METHOD_KEY = 'thalermark.last-auth-method';
 // `ledger-airlock-dismissed`. A UX nag flag, not a control — the API gates the
 // actual writes on the ledger:adjust capability.
 const LEDGER_AIRLOCK_KEY = 'thalermark.ledger-airlock-dismissed';
+// Appearance preference: 'system' | 'light' | 'dark'. Mirrors web's ThemeToggle,
+// which keeps the same three states in localStorage. Per-device and not a
+// secret; stored here for the same reason as the others, to avoid a second
+// persistence dependency. Absent means 'system'.
+const THEME_KEY = 'thalermark.theme';
 
 export async function getAuthToken(): Promise<string | null> {
   return SecureStore.getItemAsync(AUTH_TOKEN_KEY);
@@ -93,4 +98,12 @@ export async function setStoredServerUrl(url: string): Promise<void> {
 
 export async function clearStoredServerUrl(): Promise<void> {
   await SecureStore.deleteItemAsync(SERVER_URL_KEY);
+}
+
+export async function getStoredTheme(): Promise<string | null> {
+  return SecureStore.getItemAsync(THEME_KEY);
+}
+
+export async function setStoredTheme(theme: string): Promise<void> {
+  await SecureStore.setItemAsync(THEME_KEY, theme);
 }
