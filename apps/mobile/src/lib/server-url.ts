@@ -54,13 +54,39 @@ export function normalizeUrl(url: string): string {
 // Validate a candidate server before saving it: the API exposes an unauthed,
 // CORS-free `GET /health` → { status: 'ok' }. A reachable Thalermark server
 // answers; a typo or a non-Thalermark host doesn't.
-export async function probeServer(url: string): Promise<boolean> {
+// What a probe found. Three outcomes, not two, because "the address is wrong"
+// and "the address is right and the server is struggling" are different facts
+// and the user acts on them differently (TMC-278).
+export type ServerProbe =
+  | { kind: 'ok' }
+  // A Thalermark server answered and told us its database is unreachable. The
+  // address is CORRECT: saying "couldn't reach a server" here would send someone
+  // off to edit an address that was right all along.
+  | { kind: 'degraded' }
+  | { kind: 'unreachable' };
+
+// Validate a candidate server before saving it.
+//
+// Probes GET /ready, which is unauthed and returns { status } plus a database
+// check: 200 when it can serve, 503 when the pool is unreachable. Both answers
+// prove a Thalermark api is at this address, which is the question being asked.
+//
+// NOT /health. That is the container's liveness probe and lives at the ROOT of
+// the api service, so it is only reachable when the api IS the origin — a bare
+// dev server. Under either compose file the proxy sends everything outside
+// /api/* to the web app, which has no such route and answers with its sign-in
+// page, so the probe read HTML and rejected perfectly good servers (TMC-278).
+// /ready is routed explicitly in both Caddyfiles precisely so it can be reached.
+export async function probeServer(url: string): Promise<ServerProbe> {
   try {
-    const res = await fetch(`${normalizeUrl(url)}/health`, { method: 'GET' });
-    if (!res.ok) return false;
+    const res = await fetch(`${normalizeUrl(url)}/ready`, { method: 'GET' });
     const body = (await res.json().catch(() => null)) as { status?: string } | null;
-    return body?.status === 'ok';
+    // A JSON body carrying `status` is the tell that this is our api and not,
+    // say, a proxy's own error page that happens to return 503.
+    if (body?.status === 'ok') return { kind: 'ok' };
+    if (body?.status === 'error') return { kind: 'degraded' };
+    return { kind: 'unreachable' };
   } catch {
-    return false;
+    return { kind: 'unreachable' };
   }
 }
