@@ -32,29 +32,39 @@ export default function SignUp() {
       return;
     }
     setSubmitting(true);
-    const result = await authClient.signUp.email({ email, password, name });
-    if (result.error) {
+    // An unreachable server REJECTS rather than returning an error result, and
+    // this used to have no catch, so the button span forever with nothing said
+    // (TMC-272). Found on a real device: Android blocks cleartext in a release
+    // build, so the request failed before a socket was even opened, and the
+    // screen just sat there. The cause varies (no signal, server down, a
+    // self-host address typed wrong in Advanced); the dead spinner did not.
+    // `finally` owns the pending flag so no path can leave it stuck.
+    try {
+      const result = await authClient.signUp.email({ email, password, name });
+      if (result.error) {
+        setError(result.error.message ?? 'Sign-up failed');
+        return;
+      }
+      // Invited signups are auto-verified (the invite already proves email
+      // ownership) → they get a session immediately, so continue into the app.
+      if (invite) {
+        router.replace({ pathname: '/accept-invite', params: { token: invite } });
+        return;
+      }
+      // Fresh signup: a session exists only when verification is OFF (self-host
+      // without a mailer) — auth-client stores the bearer token in that case.
+      // Token present → straight into the app; absent → verification is required,
+      // so show the check-your-inbox state (the server already sent the link).
+      const token = await getAuthToken();
+      if (token) {
+        router.replace('/');
+      } else {
+        setAwaitingVerification(true);
+      }
+    } catch {
+      setError("Couldn't reach the server. Check your connection, or the address under Advanced.");
+    } finally {
       setSubmitting(false);
-      setError(result.error.message ?? 'Sign-up failed');
-      return;
-    }
-    // Invited signups are auto-verified (the invite already proves email
-    // ownership) → they get a session immediately, so continue into the app.
-    if (invite) {
-      setSubmitting(false);
-      router.replace({ pathname: '/accept-invite', params: { token: invite } });
-      return;
-    }
-    // Fresh signup: a session exists only when verification is OFF (self-host
-    // without a mailer) — auth-client stores the bearer token in that case.
-    // Token present → straight into the app; absent → verification is required,
-    // so show the check-your-inbox state (the server already sent the link).
-    const token = await getAuthToken();
-    setSubmitting(false);
-    if (token) {
-      router.replace('/');
-    } else {
-      setAwaitingVerification(true);
     }
   }
 
