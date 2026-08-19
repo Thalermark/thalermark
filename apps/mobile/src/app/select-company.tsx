@@ -3,8 +3,8 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { type Membership, resolveActiveAccount } from '../../lib/active-account';
-import { setActiveAccountId } from '../../lib/secure-store';
+import { type Membership, resolveActiveAccount } from '../lib/active-account';
+import { setActiveAccountId } from '../lib/secure-store';
 
 // Mobile mirror of apps/web's /select-company. The (app) layout redirects here
 // when an authed user has several memberships and none is chosen ('select'),
