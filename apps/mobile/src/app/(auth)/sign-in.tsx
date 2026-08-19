@@ -59,24 +59,34 @@ export default function SignIn() {
     setError(null);
     setNeedsVerification(false);
     setSubmitting(true);
-    const result = await authClient.signIn.email({ email, password });
-    setSubmitting(false);
-    if (result.error) {
-      const msg = result.error.message ?? 'Sign-in failed';
-      // BA returns EMAIL_NOT_VERIFIED for an unverified account; match the
-      // message too in case the code shape shifts.
-      if (result.error.code === 'EMAIL_NOT_VERIFIED' || /verif/i.test(msg)) {
-        setNeedsVerification(true);
+    // An unreachable server REJECTS rather than returning an error result, and
+    // this used to have no catch, so the button span forever with nothing said
+    // (TMC-272). That is not an exotic case on a phone: no signal, a server
+    // that is down, or a self-host address typed wrong in Advanced all land
+    // here. `finally` owns the pending flag so no path can leave it stuck.
+    try {
+      const result = await authClient.signIn.email({ email, password });
+      if (result.error) {
+        const msg = result.error.message ?? 'Sign-in failed';
+        // BA returns EMAIL_NOT_VERIFIED for an unverified account; match the
+        // message too in case the code shape shifts.
+        if (result.error.code === 'EMAIL_NOT_VERIFIED' || /verif/i.test(msg)) {
+          setNeedsVerification(true);
+          return;
+        }
+        setError(msg);
         return;
       }
-      setError(msg);
-      return;
-    }
-    await setLastAuthMethod('password');
-    if (invite) {
-      router.replace({ pathname: '/accept-invite', params: { token: invite } });
-    } else {
-      router.replace('/');
+      await setLastAuthMethod('password');
+      if (invite) {
+        router.replace({ pathname: '/accept-invite', params: { token: invite } });
+      } else {
+        router.replace('/');
+      }
+    } catch {
+      setError("Couldn't reach the server. Check your connection, or the address under Advanced.");
+    } finally {
+      setSubmitting(false);
     }
   }
 
