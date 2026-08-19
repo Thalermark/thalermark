@@ -99,7 +99,7 @@ export default function BillsList() {
       ) : list.state === 'error' ? (
         <Text className="mt-8 px-6 text-sm text-oxblood">Couldn't load bills.</Text>
       ) : list.rows.length === 0 ? (
-        <Text className="mt-8 px-6 text-ink/70">
+        <Text className="mt-8 px-6 text-ink-muted">
           {status ? 'No bills with this status.' : 'No bills yet.'}
         </Text>
       ) : (
@@ -129,13 +129,13 @@ export default function BillsList() {
                   <Text className="flex-1 pr-3 font-serif text-lg text-ink" numberOfLines={1}>
                     {item.vendorName}
                     {item.reference ? (
-                      <Text className="font-mono text-xs text-ink/40"> #{item.reference}</Text>
+                      <Text className="font-mono text-xs text-ink-subtle"> #{item.reference}</Text>
                     ) : null}
                   </Text>
                   <Text className="font-mono tabular-nums text-ink">{item.amount}</Text>
                 </View>
                 <View className="mt-1 flex-row items-center justify-between">
-                  <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                  <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                     {item.status} · due {item.dueDate}
                   </Text>
                   {overdue ? (

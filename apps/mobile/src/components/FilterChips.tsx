@@ -29,7 +29,7 @@ export function FilterChips({
               active ? 'border-ink bg-ink' : 'border-ink/20 bg-cream-warm'
             }`}
           >
-            <Text className={`text-xs font-medium ${active ? 'text-cream' : 'text-ink/70'}`}>
+            <Text className={`text-xs font-medium ${active ? 'text-cream' : 'text-ink-muted'}`}>
               {o.label}
             </Text>
           </Pressable>

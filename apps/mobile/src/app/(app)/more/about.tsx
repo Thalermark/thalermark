@@ -20,10 +20,10 @@ export default function About() {
 
         <View className="mt-8 rounded-sm border border-ink/10 bg-cream-warm">
           <View className="border-b border-ink/10 px-5 py-4">
-            <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
               Overview
             </Text>
-            <Text className="mt-1 text-sm text-ink/60">{TAGLINE}</Text>
+            <Text className="mt-1 text-sm text-ink-subtle">{TAGLINE}</Text>
           </View>
           <Text className="px-5 py-4 text-sm leading-relaxed text-ink/80">
             {PRODUCT_NAME} is built for people who'd rather be doing the work than the books —
@@ -36,7 +36,7 @@ export default function About() {
 
         <View className="mt-6 rounded-sm border border-ink/10 bg-cream-warm">
           <View className="border-b border-ink/10 px-5 py-4">
-            <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
               The name
             </Text>
           </View>
@@ -51,7 +51,7 @@ export default function About() {
 
         <View className="mt-6 rounded-sm border border-ink/10 bg-cream-warm">
           <View className="border-b border-ink/10 px-5 py-4">
-            <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
               Open source
             </Text>
           </View>
@@ -77,11 +77,15 @@ export default function About() {
 
         <View className="mt-6 rounded-sm border border-ink/10 bg-cream-warm">
           <View className="border-b border-ink/10 px-5 py-4">
-            <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">Version</Text>
-            <Text className="mt-1 text-sm text-ink/60">The release running on this device.</Text>
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
+              Version
+            </Text>
+            <Text className="mt-1 text-sm text-ink-subtle">
+              The release running on this device.
+            </Text>
           </View>
           <View className="flex-row items-center justify-between px-5 py-4">
-            <Text className="text-sm text-ink/60">{PRODUCT_NAME}</Text>
+            <Text className="text-sm text-ink-subtle">{PRODUCT_NAME}</Text>
             <Text className="font-mono text-sm text-ink">{version}</Text>
           </View>
         </View>

@@ -117,13 +117,13 @@ export default function WelcomeBusiness() {
             <Text className="mt-3 font-serif text-3xl font-light text-ink">
               Let's set up your business.
             </Text>
-            <Text className="mt-3 text-sm text-ink/70">
+            <Text className="mt-3 text-sm text-ink-muted">
               Just a couple of quick things, then you can send your first invoice. You can change
               any of this later in Settings.
             </Text>
 
             <View className="mt-8">
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 Business name
               </Text>
               <TextInput
@@ -131,15 +131,15 @@ export default function WelcomeBusiness() {
                 onChangeText={setName}
                 placeholder="e.g. Sunrise Landscaping"
                 placeholderTextColor="#0f162659"
-                className="mt-2 border-b border-ink/30 py-2 text-ink"
+                className="mt-2 border-b border-field py-2 text-ink"
               />
-              <Text className="mt-1 font-mono text-xs text-ink/50">
+              <Text className="mt-1 font-mono text-xs text-ink-subtle">
                 This is what your contacts see.
               </Text>
             </View>
 
             <View className="mt-8">
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 How's your business set up?
               </Text>
               <View className="mt-3 overflow-hidden rounded-sm border border-ink/10 bg-cream-warm">
@@ -162,10 +162,10 @@ export default function WelcomeBusiness() {
             </View>
 
             <View className="mt-8 border-t border-ink/10 pt-6">
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/40">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 Optional — shown on your invoices
               </Text>
-              <Text className="mt-5 font-mono text-xs uppercase tracking-widest text-ink/60">
+              <Text className="mt-5 font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 Business address
               </Text>
               <TextInput
@@ -174,9 +174,9 @@ export default function WelcomeBusiness() {
                 placeholder={'123 Main St\nSpringfield, IL 62704'}
                 placeholderTextColor="#0f162659"
                 multiline
-                className="mt-2 min-h-[72px] rounded-sm border border-ink/20 bg-cream px-3 py-2 text-ink"
+                className="mt-2 min-h-[72px] rounded-sm border border-field bg-cream px-3 py-2 text-ink"
               />
-              <Text className="mt-5 font-mono text-xs uppercase tracking-widest text-ink/60">
+              <Text className="mt-5 font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 Phone
               </Text>
               <TextInput
@@ -185,7 +185,7 @@ export default function WelcomeBusiness() {
                 placeholder="(555) 123-4567"
                 placeholderTextColor="#0f162659"
                 keyboardType="phone-pad"
-                className="mt-2 rounded-sm border border-ink/20 bg-cream px-3 py-2 text-ink"
+                className="mt-2 rounded-sm border border-field bg-cream px-3 py-2 text-ink"
               />
             </View>
 

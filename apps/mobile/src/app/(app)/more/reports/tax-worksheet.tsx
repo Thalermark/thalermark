@@ -107,7 +107,7 @@ function ChipRow<T extends string | number>({
 }) {
   return (
     <View className="mt-3">
-      <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">{label}</Text>
+      <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">{label}</Text>
       <View className="mt-2 flex-row flex-wrap gap-1 rounded-sm border border-ink/15 bg-cream-warm p-1">
         {options.map((o) => (
           <Pressable
@@ -117,7 +117,7 @@ function ChipRow<T extends string | number>({
           >
             <Text
               className={`font-mono text-xs uppercase tracking-widest ${
-                o === value ? 'text-cream' : 'text-ink/60'
+                o === value ? 'text-cream' : 'text-ink-subtle'
               }`}
             >
               {render(o)}
@@ -224,7 +224,7 @@ export default function TaxWorksheetReport() {
                   <Text className="font-serif text-lg text-ink">
                     {d.form} worksheet — {d.year}
                   </Text>
-                  <Text className="mt-1 text-xs text-ink/60">
+                  <Text className="mt-1 text-xs text-ink-subtle">
                     {d.from} → {d.to} ·{' '}
                     {d.basis === 'cash'
                       ? 'Cash — counted when paid'
@@ -269,7 +269,7 @@ export default function TaxWorksheetReport() {
                 <ReportCard>
                   <SectionHeader label={`Line ${itemised.line} — ${itemised.label}`} />
                   <View className="px-4 py-3">
-                    <Text className="text-sm text-ink/70">
+                    <Text className="text-sm text-ink-muted">
                       File this breakdown with the return. {d.form} has no dedicated line for these,
                       so they combine into line {itemised.line}.
                     </Text>
@@ -300,19 +300,19 @@ export default function TaxWorksheetReport() {
                   />
                   <View className="px-4 py-3">
                     {mileage.method === 'actual' ? (
-                      <Text className="text-sm text-ink/70">
+                      <Text className="text-sm text-ink-muted">
                         That's what a flat rate per mile would have been worth. It isn't on the
                         worksheet because this business deducts its actual vehicle costs instead.
                       </Text>
                     ) : !isScheduleC ? (
-                      <Text className="text-sm text-ink/70">
+                      <Text className="text-sm text-ink-muted">
                         This isn't a deduction on the business's return — the business should
                         reimburse you for it, and that payment lands on the return as an ordinary
                         vehicle expense. Ask whoever prepares your return about an accountable plan.
                       </Text>
                     ) : null}
                     {Number(mileage.unratedMiles) > 0 ? (
-                      <Text className="mt-2 text-sm text-ink/70">
+                      <Text className="mt-2 text-sm text-ink-muted">
                         {Number(mileage.unratedMiles).toLocaleString('en-US', {
                           maximumFractionDigits: 1,
                         })}{' '}
@@ -321,7 +321,7 @@ export default function TaxWorksheetReport() {
                       </Text>
                     ) : null}
                     {mileage.overlapping.length > 0 ? (
-                      <Text className="mt-2 text-sm text-ink/70">
+                      <Text className="mt-2 text-sm text-ink-muted">
                         The rate per mile already covers fuel, repairs, insurance and the vehicle's
                         depreciation, and you've also recorded{' '}
                         {mileage.overlapping.map((a) => a.name).join(', ')} separately this year —
@@ -364,7 +364,7 @@ export default function TaxWorksheetReport() {
                   ))}
                   {Number(vehicleInfo.unassignedMiles) > 0 ? (
                     <View className="px-4 py-3">
-                      <Text className="text-sm text-ink/70">
+                      <Text className="text-sm text-ink-muted">
                         {Number(vehicleInfo.unassignedMiles).toLocaleString('en-US', {
                           maximumFractionDigits: 1,
                         })}{' '}
@@ -383,7 +383,7 @@ export default function TaxWorksheetReport() {
                 <ReportCard>
                   <SectionHeader label={`Not mapped to a ${d.form} line`} />
                   <View className="px-4 py-3">
-                    <Text className="text-sm text-ink/70">
+                    <Text className="text-sm text-ink-muted">
                       Included in total deductions, but we don't know which line they belong on.
                       Review these with whoever prepares your return.
                     </Text>
@@ -394,7 +394,7 @@ export default function TaxWorksheetReport() {
                 </ReportCard>
               ) : null}
 
-              <Text className="mt-6 text-xs leading-relaxed text-ink/60">
+              <Text className="mt-6 text-xs leading-relaxed text-ink-subtle">
                 Anything marked "you must supply this" is blank because Thalermark doesn't track it
                 — fill those in yourself, and note that the totals below them don't subtract what
                 you add. Cost of goods sold shows zero because there's no inventory here; materials

@@ -214,7 +214,7 @@ export default function EmailTemplateEditor() {
       <ScrollView contentContainerClassName="px-6 pt-6 pb-16" keyboardShouldPersistTaps="handled">
         <Text
           onPress={() => router.push('/more/email')}
-          className="font-mono text-xs uppercase tracking-widest text-ink/60"
+          className="font-mono text-xs uppercase tracking-widest text-ink-subtle"
         >
           ← All templates
         </Text>
@@ -230,12 +230,12 @@ export default function EmailTemplateEditor() {
           <Text className="mt-8 text-sm text-oxblood">Couldn't load this template.</Text>
         ) : (
           <>
-            <Text className="mt-3 text-sm text-ink/70">
+            <Text className="mt-3 text-sm text-ink-muted">
               Edit the subject and message your contacts see. The Thalermark layout, button, and
               footer stay the same. Use the placeholders below.
             </Text>
 
-            <Text className="mt-6 font-mono text-xs uppercase tracking-widest text-ink/50">
+            <Text className="mt-6 font-mono text-xs uppercase tracking-widest text-ink-subtle">
               Subject
             </Text>
             <TextInput
@@ -244,10 +244,10 @@ export default function EmailTemplateEditor() {
                 setSubject(t);
                 setSaved(false);
               }}
-              className="mt-2 rounded-sm border border-ink/20 bg-cream-warm px-3 py-2 text-ink"
+              className="mt-2 rounded-sm border border-field bg-cream-warm px-3 py-2 text-ink"
             />
 
-            <Text className="mt-5 font-mono text-xs uppercase tracking-widest text-ink/50">
+            <Text className="mt-5 font-mono text-xs uppercase tracking-widest text-ink-subtle">
               Message
             </Text>
             <TextInput
@@ -258,15 +258,15 @@ export default function EmailTemplateEditor() {
               }}
               multiline
               textAlignVertical="top"
-              className="mt-2 min-h-40 rounded-sm border border-ink/20 bg-cream-warm px-3 py-2 font-mono text-sm leading-relaxed text-ink"
+              className="mt-2 min-h-40 rounded-sm border border-field bg-cream-warm px-3 py-2 font-mono text-sm leading-relaxed text-ink"
             />
 
-            <Text className="mt-5 font-mono text-xs uppercase tracking-widest text-ink/50">
+            <Text className="mt-5 font-mono text-xs uppercase tracking-widest text-ink-subtle">
               Placeholders
             </Text>
             <View className="mt-2 gap-1">
               {ready.placeholders.map((p) => (
-                <Text key={p} className="font-mono text-xs text-ink/60">
+                <Text key={p} className="font-mono text-xs text-ink-subtle">
                   {`{{${p}}}`} — {PLACEHOLDER_HELP[p] ?? p}
                 </Text>
               ))}
@@ -289,12 +289,12 @@ export default function EmailTemplateEditor() {
               >
                 <Text className="text-sm text-ink">Preview</Text>
               </Pressable>
-              {saved ? <Text className="text-sm text-ink/60">Saved.</Text> : null}
+              {saved ? <Text className="text-sm text-ink-subtle">Saved.</Text> : null}
             </View>
 
             {preview ? (
               <View className="mt-6 rounded-sm border border-ink/15 bg-cream-warm">
-                <Text className="border-b border-ink/10 px-4 py-2 font-mono text-xs uppercase tracking-widest text-ink/50">
+                <Text className="border-b border-ink/10 px-4 py-2 font-mono text-xs uppercase tracking-widest text-ink-subtle">
                   Preview
                 </Text>
                 <Text className="p-4 font-mono text-xs leading-relaxed text-ink/80">{preview}</Text>

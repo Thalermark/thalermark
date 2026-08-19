@@ -240,13 +240,13 @@ export default function Home() {
       <ScrollView contentContainerClassName="px-6 pt-6 pb-16">
         <View className="flex-row items-start justify-between">
           <View className="flex-1">
-            <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
               {companyName ?? ' '}
             </Text>
             <Text className="mt-2 font-serif text-4xl font-light text-ink">Where you stand</Text>
           </View>
           <Pressable onPress={onSignOut} className="ml-3 mt-1 px-2 py-1">
-            <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
               Sign out
             </Text>
           </Pressable>
@@ -263,7 +263,7 @@ export default function Home() {
           className="mt-6 flex-row items-center gap-2 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2.5 active:bg-gold-deep/10"
         >
           <Ionicons name="search-outline" size={16} color="#0f162680" />
-          <Text className="text-ink/50">Search invoices, contacts, expenses…</Text>
+          <Text className="text-ink-subtle">Search invoices, contacts, expenses…</Text>
         </Pressable>
 
         {/* Pending workspace invitations → Workspace screen to accept/decline */}
@@ -286,7 +286,7 @@ export default function Home() {
         {consentNeeded ? (
           <View className="mt-6 rounded-sm border border-gold-deep/30 bg-gold-deep/5 px-4 py-4">
             <Text className="font-serif text-base text-ink">Help us build a better product</Text>
-            <Text className="mt-1 text-sm text-ink/70">
+            <Text className="mt-1 text-sm text-ink-muted">
               We'd like to collect anonymous usage data — which features you use and where errors
               occur. We never collect personal or financial information. You can change this any
               time in More → Privacy.
@@ -322,7 +322,7 @@ export default function Home() {
             >
               <Text
                 className={`font-mono text-xs uppercase tracking-widest ${
-                  period === p.key ? 'text-gold-deep' : 'text-ink/60'
+                  period === p.key ? 'text-gold-deep' : 'text-ink-subtle'
                 }`}
               >
                 {p.label}
@@ -352,7 +352,7 @@ export default function Home() {
             filtered list. */}
         {counts ? (
           <View className="mt-8">
-            <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
               Right now
             </Text>
             <View className="mt-3">
@@ -411,7 +411,7 @@ export default function Home() {
         {/* Unusual spending (deterministic) */}
         {showAnomalies ? (
           <View className="mt-8">
-            <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
               Unusual spending
             </Text>
             <View className="mt-3 gap-3">
@@ -443,11 +443,11 @@ export default function Home() {
         {nudgesLoading ? (
           <View className="mt-8 flex-row items-center gap-2">
             <ActivityIndicator color="#9a7b4f" size="small" />
-            <Text className="text-sm text-ink/50">Reading your cash flow…</Text>
+            <Text className="text-sm text-ink-subtle">Reading your cash flow…</Text>
           </View>
         ) : nudges.length > 0 ? (
           <View className="mt-8">
-            <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
               What to watch
             </Text>
             {/*
@@ -456,7 +456,7 @@ export default function Home() {
               it quote different figures and read as a contradiction. Same label
               as web (TMC-229).
             */}
-            <Text className="mt-1 text-xs text-ink/40">this month so far</Text>
+            <Text className="mt-1 text-xs text-ink-subtle">this month so far</Text>
             <View className="mt-3 gap-3">
               {nudges.map((n) => (
                 <View key={n.text} className={`rounded-sm border px-4 py-3 ${toneClass(n.tone)}`}>
@@ -474,9 +474,9 @@ export default function Home() {
 function Tile({ label, value, sub }: { label: string; value: string; sub: string }) {
   return (
     <View className="rounded-sm border border-ink/10 bg-cream-warm p-6">
-      <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">{label}</Text>
+      <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">{label}</Text>
       <Text className="mt-2 font-serif text-3xl font-light tabular-nums text-ink">{value}</Text>
-      <Text className="mt-1 text-xs text-ink/40">{sub}</Text>
+      <Text className="mt-1 text-xs text-ink-subtle">{sub}</Text>
     </View>
   );
 }

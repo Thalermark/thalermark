@@ -95,7 +95,9 @@ export default function TopProducts() {
     <SafeAreaView className="flex-1 bg-cream" edges={['top']}>
       <ScrollView contentContainerClassName="px-6 pt-6 pb-16">
         <Pressable onPress={() => router.push('/more/reports')}>
-          <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">← Reports</Text>
+          <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
+            ← Reports
+          </Text>
         </Pressable>
 
         <View className="mt-3 flex-row items-end justify-between gap-4">
@@ -109,7 +111,7 @@ export default function TopProducts() {
               >
                 <Text
                   className={`font-mono text-xs uppercase tracking-widest ${
-                    basis === b.key ? 'text-cream' : 'text-ink/60'
+                    basis === b.key ? 'text-cream' : 'text-ink-subtle'
                   }`}
                 >
                   {b.label}
@@ -119,7 +121,7 @@ export default function TopProducts() {
           </View>
         </View>
 
-        <Text className="mt-3 text-sm text-ink/60">
+        <Text className="mt-3 text-sm text-ink-subtle">
           {basisNote(basis)} The top 25 by revenue, plus an “Uncatalogued / other” row for
           hand-typed lines. A sales lens, not a tax figure.
         </Text>
@@ -131,17 +133,17 @@ export default function TopProducts() {
             <ActivityIndicator color="#0f1626" />
           </View>
         ) : products.length === 0 ? (
-          <Text className="mt-8 text-ink/70">No sales yet on this basis.</Text>
+          <Text className="mt-8 text-ink-muted">No sales yet on this basis.</Text>
         ) : (
           <View className="mt-8 overflow-hidden rounded-sm border border-ink/10 bg-cream-warm">
             <View className="flex-row bg-cream px-4 py-3">
-              <Text className="flex-1 font-mono text-xs uppercase tracking-widest text-ink/50">
+              <Text className="flex-1 font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 Product
               </Text>
-              <Text className="w-12 text-right font-mono text-xs uppercase tracking-widest text-ink/50">
+              <Text className="w-12 text-right font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 Lines
               </Text>
-              <Text className="w-24 text-right font-mono text-xs uppercase tracking-widest text-ink/50">
+              <Text className="w-24 text-right font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 Revenue
               </Text>
             </View>
@@ -158,9 +160,9 @@ export default function TopProducts() {
                 {p.name ? (
                   <Text className="flex-1 text-ink">{p.name}</Text>
                 ) : (
-                  <Text className="flex-1 italic text-ink/50">Uncatalogued / other</Text>
+                  <Text className="flex-1 italic text-ink-subtle">Uncatalogued / other</Text>
                 )}
-                <Text className="w-12 text-right font-mono text-sm tabular-nums text-ink/70">
+                <Text className="w-12 text-right font-mono text-sm tabular-nums text-ink-muted">
                   {p.lineCount}
                 </Text>
                 <Text className="w-24 text-right font-mono text-sm tabular-nums text-ink">
@@ -170,7 +172,7 @@ export default function TopProducts() {
             ))}
 
             <View className="flex-row items-center border-t border-ink/10 bg-cream px-4 py-3">
-              <Text className="flex-1 font-mono text-xs uppercase tracking-widest text-ink/70">
+              <Text className="flex-1 font-mono text-xs uppercase tracking-widest text-ink-muted">
                 Total
               </Text>
               <Text className="w-24 text-right font-mono text-base tabular-nums text-ink">

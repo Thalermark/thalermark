@@ -108,13 +108,13 @@ export function VendorField({
 
   return (
     <View>
-      <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">{label}</Text>
+      <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">{label}</Text>
       <TextInput
         value={merchant}
         onChangeText={onChange}
         autoCapitalize="words"
         autoCorrect={false}
-        className="mt-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink"
+        className="mt-1 rounded-sm border border-field bg-cream-warm px-3 py-2 text-ink"
       />
 
       {open && trimmed !== '' ? (
@@ -139,7 +139,7 @@ export function VendorField({
       ) : null}
 
       {linked ? (
-        <Text className="mt-1 text-xs text-ink/50">✓ Linked to this vendor.</Text>
+        <Text className="mt-1 text-xs text-ink-subtle">✓ Linked to this vendor.</Text>
       ) : willCreate ? (
         <Text className="mt-1 text-xs text-gold-deep">
           + “{trimmed}” will be added as a new vendor on save.

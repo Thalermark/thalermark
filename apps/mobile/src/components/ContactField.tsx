@@ -159,26 +159,30 @@ export function ContactField({
     return (
       <View>
         <View className="flex-row items-center justify-between">
-          <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">{label}</Text>
+          <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
+            {label}
+          </Text>
           <Pressable onPress={cancelCreate}>
-            <Text className="text-xs text-ink/60">← Pick existing</Text>
+            <Text className="text-xs text-ink-subtle">← Pick existing</Text>
           </Pressable>
         </View>
         <View className="mt-1 gap-3 rounded-sm border border-ink/10 bg-cream-warm/60 p-4">
           <View>
-            <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">Name *</Text>
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
+              Name *
+            </Text>
             <TextInput
               value={newName ?? ''}
               onChangeText={(t) => {
                 setNewName?.(t);
                 nameDupeSearch.search(t);
               }}
-              className="mt-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink"
+              className="mt-1 rounded-sm border border-field bg-cream-warm px-3 py-2 text-ink"
             />
             {nameError ? <Text className="mt-1 text-xs text-oxblood">{nameError}</Text> : null}
             {liveNameDupes.length > 0 ? (
               <View className="mt-2 rounded-sm border border-ink/10 bg-cream p-2">
-                <Text className="text-xs text-ink/60">Looks like an existing contact:</Text>
+                <Text className="text-xs text-ink-subtle">Looks like an existing contact:</Text>
                 {liveNameDupes.map((d) => (
                   <Pressable
                     key={d.id}
@@ -195,7 +199,9 @@ export function ContactField({
             ) : null}
           </View>
           <View>
-            <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">Email</Text>
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
+              Email
+            </Text>
             <TextInput
               value={newEmail ?? ''}
               onChangeText={(t) => {
@@ -204,9 +210,11 @@ export function ContactField({
               }}
               keyboardType="email-address"
               autoCapitalize="none"
-              className="mt-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink"
+              className="mt-1 rounded-sm border border-field bg-cream-warm px-3 py-2 text-ink"
             />
-            <Text className="mt-1 text-xs text-ink/50">Optional, but needed to send by email.</Text>
+            <Text className="mt-1 text-xs text-ink-subtle">
+              Optional, but needed to send by email.
+            </Text>
             {emailError ? <Text className="mt-1 text-xs text-oxblood">{emailError}</Text> : null}
           </View>
           {liveEmailDupe ? (
@@ -229,7 +237,7 @@ export function ContactField({
 
   return (
     <View>
-      <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">{label}</Text>
+      <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">{label}</Text>
       <TextInput
         value={contactName}
         onChangeText={onChange}
@@ -237,7 +245,7 @@ export function ContactField({
         placeholderTextColor="#9b8e7a"
         autoCapitalize="words"
         autoCorrect={false}
-        className="mt-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink"
+        className="mt-1 rounded-sm border border-field bg-cream-warm px-3 py-2 text-ink"
       />
 
       {open && trimmed !== '' ? (
@@ -252,7 +260,7 @@ export function ContactField({
                 {c.name}
               </Text>
               {c.email ? (
-                <Text className="text-xs text-ink/50" numberOfLines={1}>
+                <Text className="text-xs text-ink-subtle" numberOfLines={1}>
                   {c.email}
                 </Text>
               ) : null}
@@ -268,7 +276,7 @@ export function ContactField({
         </View>
       ) : null}
 
-      {linked ? <Text className="mt-1 text-xs text-ink/50">✓ Selected.</Text> : null}
+      {linked ? <Text className="mt-1 text-xs text-ink-subtle">✓ Selected.</Text> : null}
       {error ? <Text className="mt-1 text-xs text-oxblood">{error}</Text> : null}
     </View>
   );

@@ -151,7 +151,7 @@ export function AddressField({
 
   return (
     <View>
-      <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">Street</Text>
+      <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">Street</Text>
       <View>
         <TextInput
           value={value}
@@ -160,7 +160,7 @@ export function AddressField({
           autoCorrect={false}
           placeholder="House number + street, and city or ZIP"
           placeholderTextColor="#0f162666"
-          className="mt-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink"
+          className="mt-1 rounded-sm border border-field bg-cream-warm px-3 py-2 text-ink"
         />
         {loading ? (
           <View className="absolute right-3 top-3.5">
@@ -189,7 +189,7 @@ export function AddressField({
         </Text>
       ) : null}
       {error ? <Text className="mt-1 text-xs text-oxblood">{error}</Text> : null}
-      <Text className="mt-1 text-xs text-ink/40">
+      <Text className="mt-1 text-xs text-ink-subtle">
         Type the address (include the city or ZIP) and pick a suggestion — the fields below fill in.
       </Text>
     </View>

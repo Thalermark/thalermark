@@ -58,7 +58,7 @@ export default function RecurringList() {
       <View className="px-6 pt-6">
         <Text
           onPress={() => router.push('/invoices')}
-          className="font-mono text-xs uppercase tracking-widest text-ink/60"
+          className="font-mono text-xs uppercase tracking-widest text-ink-subtle"
         >
           ← Invoices
         </Text>
@@ -82,7 +82,7 @@ export default function RecurringList() {
       ) : list.state === 'error' ? (
         <Text className="mt-8 px-6 text-sm text-oxblood">Couldn't load schedules.</Text>
       ) : list.rows.length === 0 ? (
-        <Text className="mt-8 px-6 text-ink/70">No recurring schedules yet.</Text>
+        <Text className="mt-8 px-6 text-ink-muted">No recurring schedules yet.</Text>
       ) : (
         <FlatList
           data={list.rows}
@@ -111,10 +111,10 @@ export default function RecurringList() {
                 </Text>
               </View>
               <View className="mt-1 flex-row items-center justify-between">
-                <Text className="text-sm text-ink/70">
+                <Text className="text-sm text-ink-muted">
                   {cadenceLabel(item.frequency, item.intervalCount)}
                 </Text>
-                <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                   {item.status}
                   {item.status !== 'ended' ? ` · next ${item.nextRunDate}` : ''}
                 </Text>

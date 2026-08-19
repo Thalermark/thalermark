@@ -50,18 +50,18 @@ export default function NewCompany() {
     <SafeAreaView className="flex-1 bg-cream" edges={['top']}>
       <ScrollView contentContainerClassName="px-6 pt-6 pb-16">
         <Pressable onPress={() => router.push('/more/companies')}>
-          <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+          <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
             ← Companies
           </Text>
         </Pressable>
         <Text className="mt-3 font-serif text-3xl font-light text-ink">Add a company</Text>
-        <Text className="mt-3 text-sm text-ink/60">
+        <Text className="mt-3 text-sm text-ink-subtle">
           Run a second business out of this workspace — its books, invoices, and contacts stay
           separate. You can switch between companies anytime.
         </Text>
 
         <View className="mt-8">
-          <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+          <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
             Business name
           </Text>
           <TextInput
@@ -69,12 +69,12 @@ export default function NewCompany() {
             onChangeText={setName}
             placeholder="e.g. Northside Handyman"
             placeholderTextColor="#0f162659"
-            className="mt-2 border-b border-ink/30 py-2 text-ink"
+            className="mt-2 border-b border-field py-2 text-ink"
           />
         </View>
 
         <View className="mt-8">
-          <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+          <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
             How's it set up?
           </Text>
           <View className="mt-3 overflow-hidden rounded-sm border border-ink/10 bg-cream-warm">

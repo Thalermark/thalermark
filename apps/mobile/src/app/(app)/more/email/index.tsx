@@ -102,12 +102,12 @@ export default function EmailSettings() {
       <ScrollView contentContainerClassName="px-6 pt-6 pb-16" keyboardShouldPersistTaps="handled">
         <Text
           onPress={() => router.push('/more')}
-          className="font-mono text-xs uppercase tracking-widest text-ink/60"
+          className="font-mono text-xs uppercase tracking-widest text-ink-subtle"
         >
           ← More
         </Text>
         <Text className="mt-3 font-serif text-3xl font-light text-ink">Email templates</Text>
-        <Text className="mt-3 text-sm text-ink/70">
+        <Text className="mt-3 text-sm text-ink-muted">
           Customize the wording your contacts see. The Thalermark layout, buttons, and footer stay
           the same — you edit the subject and message.
         </Text>
@@ -130,7 +130,7 @@ export default function EmailSettings() {
                       </Text>
                       <Text
                         className={`mt-1 font-mono text-[0.65rem] uppercase tracking-widest ${
-                          tpl.isCustomized ? 'text-gold-deep' : 'text-ink/40'
+                          tpl.isCustomized ? 'text-gold-deep' : 'text-ink-subtle'
                         }`}
                       >
                         {tpl.isCustomized ? 'Customized' : 'Default'}

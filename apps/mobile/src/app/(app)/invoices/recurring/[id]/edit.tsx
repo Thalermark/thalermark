@@ -333,9 +333,11 @@ export default function EditRecurring() {
       <SafeAreaView className="flex-1 bg-cream" edges={['top']}>
         <View className="px-6 pt-6">
           <Pressable onPress={() => router.back()}>
-            <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">← Back</Text>
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
+              ← Back
+            </Text>
           </Pressable>
-          <Text className="mt-8 text-sm text-ink/70">
+          <Text className="mt-8 text-sm text-ink-muted">
             This schedule has ended and can no longer be edited.
           </Text>
         </View>
@@ -353,7 +355,7 @@ export default function EditRecurring() {
       >
         <ScrollView contentContainerClassName="px-6 pt-6 pb-16" keyboardShouldPersistTaps="handled">
           <Pressable onPress={() => router.back()}>
-            <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
               ← Schedule
             </Text>
           </Pressable>
@@ -379,7 +381,7 @@ export default function EditRecurring() {
 
             {/* Cadence */}
             <View>
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 Frequency
               </Text>
               <View className="mt-2 flex-row gap-2">
@@ -392,7 +394,7 @@ export default function EditRecurring() {
                     }`}
                   >
                     <Text
-                      className={`text-center ${seed.frequency === f ? 'text-ink' : 'text-ink/70'}`}
+                      className={`text-center ${seed.frequency === f ? 'text-ink' : 'text-ink-muted'}`}
                     >
                       {FREQ_LABELS[f]}
                     </Text>
@@ -456,12 +458,14 @@ export default function EditRecurring() {
             </View>
 
             <View>
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">Notes</Text>
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
+                Notes
+              </Text>
               <TextInput
                 value={seed.notes}
                 onChangeText={(t) => set('notes', t)}
                 multiline
-                className="mt-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink"
+                className="mt-1 rounded-sm border border-field bg-cream-warm px-3 py-2 text-ink"
               />
             </View>
 
@@ -507,7 +511,9 @@ function LineItems({
 }) {
   return (
     <View>
-      <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">Line items</Text>
+      <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
+        Line items
+      </Text>
       {error ? <Text className="mt-1 text-xs text-oxblood">{error}</Text> : null}
       <View className="mt-2 gap-4">
         {rows.map((row, i) => (
@@ -520,7 +526,7 @@ function LineItems({
             <TypeRow value={row.type} onSelect={(t) => patchRow(i, { type: t })} />
             <View className="mt-2 flex-row gap-2">
               <View className="flex-1">
-                <Text className="font-mono text-[10px] uppercase tracking-widest text-ink/50">
+                <Text className="font-mono text-[10px] uppercase tracking-widest text-ink-subtle">
                   Qty
                 </Text>
                 <TextInput
@@ -529,11 +535,11 @@ function LineItems({
                     patchRow(i, { quantity: t, amount: multiplyMoney(t, row.unitPrice) })
                   }
                   inputMode="decimal"
-                  className="mt-1 rounded-sm border border-ink/15 bg-cream px-2 py-2 text-right font-mono tabular-nums text-ink"
+                  className="mt-1 rounded-sm border border-field bg-cream px-2 py-2 text-right font-mono tabular-nums text-ink"
                 />
               </View>
               <View className="flex-1">
-                <Text className="font-mono text-[10px] uppercase tracking-widest text-ink/50">
+                <Text className="font-mono text-[10px] uppercase tracking-widest text-ink-subtle">
                   Unit price
                 </Text>
                 <TextInput
@@ -542,11 +548,11 @@ function LineItems({
                     patchRow(i, { unitPrice: t, amount: multiplyMoney(row.quantity, t) })
                   }
                   inputMode="decimal"
-                  className="mt-1 rounded-sm border border-ink/15 bg-cream px-2 py-2 text-right font-mono tabular-nums text-ink"
+                  className="mt-1 rounded-sm border border-field bg-cream px-2 py-2 text-right font-mono tabular-nums text-ink"
                 />
               </View>
               <View className="flex-1">
-                <Text className="font-mono text-[10px] uppercase tracking-widest text-ink/50">
+                <Text className="font-mono text-[10px] uppercase tracking-widest text-ink-subtle">
                   Amount
                 </Text>
                 <TextInput
@@ -555,12 +561,12 @@ function LineItems({
                     patchRow(i, { amount: t, unitPrice: unitPriceFromTotal(t, row.quantity) })
                   }
                   inputMode="decimal"
-                  className="mt-1 rounded-sm border border-ink/15 bg-cream px-2 py-2 text-right font-mono tabular-nums text-ink"
+                  className="mt-1 rounded-sm border border-field bg-cream px-2 py-2 text-right font-mono tabular-nums text-ink"
                 />
               </View>
             </View>
             <View className="mt-2">
-              <Text className="font-mono text-[10px] uppercase tracking-widest text-ink/50">
+              <Text className="font-mono text-[10px] uppercase tracking-widest text-ink-subtle">
                 Unit
               </Text>
               <TextInput
@@ -568,7 +574,7 @@ function LineItems({
                 onChangeText={(t) => patchRow(i, { unitLabel: t })}
                 placeholder="hr, day, sq ft"
                 maxLength={50}
-                className="mt-1 rounded-sm border border-ink/15 bg-cream px-2 py-2 text-ink"
+                className="mt-1 rounded-sm border border-field bg-cream px-2 py-2 text-ink"
               />
             </View>
             <TaxRow
@@ -611,12 +617,12 @@ function LabeledInput({
 }) {
   return (
     <View>
-      <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">{label}</Text>
+      <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">{label}</Text>
       <TextInput
         value={value}
         onChangeText={onChangeText}
         keyboardType={keyboardType}
-        className="mt-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink"
+        className="mt-1 rounded-sm border border-field bg-cream-warm px-3 py-2 text-ink"
       />
       {error ? <Text className="mt-1 text-xs text-oxblood">{error}</Text> : null}
     </View>
@@ -631,7 +637,7 @@ function TotalRow({
   return (
     <View className="flex-row justify-between">
       <Text
-        className={`font-mono text-xs uppercase tracking-widest ${emphasize ? 'text-ink/70' : 'text-ink/50'}`}
+        className={`font-mono text-xs uppercase tracking-widest ${emphasize ? 'text-ink-muted' : 'text-ink-subtle'}`}
       >
         {label}
       </Text>

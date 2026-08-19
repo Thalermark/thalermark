@@ -88,10 +88,12 @@ export default function CompaniesScreen() {
     <SafeAreaView className="flex-1 bg-cream" edges={['top']}>
       <ScrollView contentContainerClassName="px-6 pt-6 pb-16">
         <Pressable onPress={() => router.push('/more')}>
-          <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">← More</Text>
+          <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
+            ← More
+          </Text>
         </Pressable>
         <Text className="mt-3 font-serif text-3xl font-light text-ink">Companies</Text>
-        <Text className="mt-3 text-sm text-ink/60">
+        <Text className="mt-3 text-sm text-ink-subtle">
           Each company keeps its own books, invoices, and contacts. Pick which one to work in —
           everything re-scopes to your choice.
         </Text>
@@ -119,7 +121,7 @@ export default function CompaniesScreen() {
                     <View className="flex-1 pr-3">
                       <Text className="font-serif text-lg text-ink">{c.name}</Text>
                       {c.retiredAt ? (
-                        <Text className="mt-0.5 font-mono text-[10px] uppercase tracking-widest text-ink/40">
+                        <Text className="mt-0.5 font-mono text-[10px] uppercase tracking-widest text-ink-subtle">
                           Closed
                         </Text>
                       ) : null}
@@ -140,7 +142,7 @@ export default function CompaniesScreen() {
 
             {closedCount(screen.companies, screen.activeId) > 0 ? (
               <Pressable onPress={() => setShowClosed(!showClosed)} className="mt-4 py-2">
-                <Text className="text-sm text-ink/50">
+                <Text className="text-sm text-ink-subtle">
                   {showClosed ? 'Hide' : 'Show'} closed (
                   {closedCount(screen.companies, screen.activeId)})
                 </Text>
@@ -153,7 +155,7 @@ export default function CompaniesScreen() {
                 className="mt-6 rounded-sm border border-gold-deep/40 px-5 py-4 active:bg-gold-deep/5"
               >
                 <Text className="text-sm font-medium text-gold-deep">+ Add a company</Text>
-                <Text className="mt-1 text-xs text-ink/60">
+                <Text className="mt-1 text-xs text-ink-subtle">
                   Run a second business out of this workspace — its books stay separate.
                 </Text>
               </Pressable>

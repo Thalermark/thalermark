@@ -85,7 +85,7 @@ export default function ExpensesList() {
           className={`self-start rounded-sm border px-3 py-1.5 ${needsReview ? 'border-gold-deep bg-gold-deep/10' : 'border-ink/15'}`}
         >
           <Text
-            className={`font-mono text-xs uppercase tracking-widest ${needsReview ? 'text-gold-deep' : 'text-ink/60'}`}
+            className={`font-mono text-xs uppercase tracking-widest ${needsReview ? 'text-gold-deep' : 'text-ink-subtle'}`}
           >
             Needs review
           </Text>
@@ -99,7 +99,7 @@ export default function ExpensesList() {
       ) : list.state === 'error' ? (
         <Text className="mt-8 px-6 text-sm text-oxblood">Couldn't load expenses.</Text>
       ) : list.rows.length === 0 ? (
-        <Text className="mt-8 px-6 text-ink/70">
+        <Text className="mt-8 px-6 text-ink-muted">
           {needsReview ? 'Nothing needs review.' : 'No expenses yet.'}
         </Text>
       ) : (
@@ -136,7 +136,7 @@ export default function ExpensesList() {
                     </View>
                   ) : null}
                 </View>
-                <Text className="mt-1 font-mono text-xs uppercase tracking-widest text-ink/50">
+                <Text className="mt-1 font-mono text-xs uppercase tracking-widest text-ink-subtle">
                   {item.expenseDate}
                 </Text>
               </View>

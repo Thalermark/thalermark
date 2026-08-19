@@ -214,7 +214,7 @@ export default function NewExpense() {
       >
         <ScrollView contentContainerClassName="px-6 pt-6 pb-16" keyboardShouldPersistTaps="handled">
           <Pressable onPress={() => router.back()}>
-            <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
               ← Expenses
             </Text>
           </Pressable>
@@ -336,7 +336,7 @@ export default function NewExpense() {
                 >
                   <Text className="text-ink">{a.name}</Text>
                   {picker === 'payment' && a.kind ? (
-                    <Text className="text-xs text-ink/50">{KIND_LABEL[a.kind] ?? ''}</Text>
+                    <Text className="text-xs text-ink-subtle">{KIND_LABEL[a.kind] ?? ''}</Text>
                   ) : null}
                 </Pressable>
               ))}
@@ -365,13 +365,13 @@ function Field({
 }) {
   return (
     <View>
-      <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">{label}</Text>
+      <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">{label}</Text>
       <TextInput
         value={value}
         onChangeText={onChangeText}
         keyboardType={keyboardType}
         autoCapitalize={autoCapitalize}
-        className="mt-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink"
+        className="mt-1 rounded-sm border border-field bg-cream-warm px-3 py-2 text-ink"
       />
       {error ? <Text className="mt-1 text-xs text-oxblood">{error}</Text> : null}
     </View>
@@ -396,14 +396,14 @@ function PickerField({
   return (
     <View>
       <View className="flex-row items-center justify-between">
-        <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">{label}</Text>
+        <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">{label}</Text>
         {headerRight ?? null}
       </View>
       <Pressable
         onPress={onPress}
         className="mt-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-3"
       >
-        <Text className={value ? 'text-ink' : 'text-ink/40'}>{value ?? placeholder}</Text>
+        <Text className={value ? 'text-ink' : 'text-ink-subtle'}>{value ?? placeholder}</Text>
       </Pressable>
       {error ? <Text className="mt-1 text-xs text-oxblood">{error}</Text> : null}
     </View>

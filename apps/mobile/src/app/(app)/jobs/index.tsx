@@ -172,7 +172,7 @@ export default function JobsList() {
           onChangeText={setQ}
           placeholder="Search job name"
           returnKeyType="search"
-          className="rounded-sm border border-ink/15 bg-cream-warm px-3 py-2.5 text-ink"
+          className="rounded-sm border border-field bg-cream-warm px-3 py-2.5 text-ink"
         />
       </View>
 
@@ -183,7 +183,7 @@ export default function JobsList() {
       ) : list.state === 'error' ? (
         <Text className="mt-8 px-6 text-sm text-oxblood">Couldn't load jobs.</Text>
       ) : list.rows.length === 0 ? (
-        <Text className="mt-8 px-6 text-ink/70">
+        <Text className="mt-8 px-6 text-ink-muted">
           {appliedQ
             ? 'No jobs match that search.'
             : status === 'closed'
@@ -214,7 +214,7 @@ export default function JobsList() {
             >
               <View className="flex-1 pr-3">
                 <Text className="font-serif text-lg text-ink">{item.name}</Text>
-                <Text className="mt-0.5 text-xs text-ink/50">
+                <Text className="mt-0.5 text-xs text-ink-subtle">
                   {item.contactName ?? ''}
                   {item.status === 'closed' ? ' · closed' : ''}
                 </Text>
@@ -229,11 +229,11 @@ export default function JobsList() {
                   {fmt(item.readyToBill)} ready
                 </Text>
               ) : item.unratedMinutes > 0 ? (
-                <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                   needs a rate
                 </Text>
               ) : (
-                <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                   {dateRange(item.startedOn, item.endedOn)}
                 </Text>
               )}

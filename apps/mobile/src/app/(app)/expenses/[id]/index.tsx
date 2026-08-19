@@ -363,7 +363,7 @@ export default function ExpenseDetail() {
       <ScrollView contentContainerClassName="px-6 pt-6 pb-16">
         <Text
           onPress={() => router.push('/expenses')}
-          className="font-mono text-xs uppercase tracking-widest text-ink/60"
+          className="font-mono text-xs uppercase tracking-widest text-ink-subtle"
         >
           ← Expenses
         </Text>
@@ -387,7 +387,7 @@ export default function ExpenseDetail() {
                     onPress={() => router.push(`/expenses/${id}/edit`)}
                     className="rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep"
                   >
-                    <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
+                    <Text className="font-mono text-xs uppercase tracking-widest text-ink-muted">
                       Edit
                     </Text>
                   </Pressable>
@@ -398,7 +398,7 @@ export default function ExpenseDetail() {
                     onPress={() => router.push(`/expenses/new?duplicate=${id}`)}
                     className="rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep"
                   >
-                    <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
+                    <Text className="font-mono text-xs uppercase tracking-widest text-ink-muted">
                       Duplicate
                     </Text>
                   </Pressable>
@@ -425,7 +425,7 @@ export default function ExpenseDetail() {
                     disabled={acting}
                     className="rounded-sm border border-ink/20 px-3 py-1.5 active:bg-ink/5 disabled:opacity-50"
                   >
-                    <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+                    <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                       Dismiss
                     </Text>
                   </Pressable>
@@ -447,11 +447,11 @@ export default function ExpenseDetail() {
               to split it" — and choosing it never opens a follow-up.
             */}
             <View className="mt-8">
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 What was this for?
               </Text>
               {splitCount > 1 ? (
-                <Text className="mt-3 text-sm text-ink/70">
+                <Text className="mt-3 text-sm text-ink-muted">
                   Split across {splitCount} jobs. Editing that split isn't here yet.
                 </Text>
               ) : canWrite ? (
@@ -487,13 +487,13 @@ export default function ExpenseDetail() {
                     selected={target === null}
                     onPress={() => setAllocation(null)}
                   />
-                  <Text className="mt-1 text-xs text-ink/50">
+                  <Text className="mt-1 text-xs text-ink-subtle">
                     Tagging a job lets us tell you what that job made. It changes nothing about your
                     books or your taxes.
                   </Text>
                 </View>
               ) : (
-                <Text className="mt-3 text-sm text-ink/50">
+                <Text className="mt-3 text-sm text-ink-subtle">
                   {target === 'shared'
                     ? 'Shared across jobs.'
                     : target?.startsWith('job:')
@@ -507,7 +507,7 @@ export default function ExpenseDetail() {
 
             {/* Receipt section */}
             <View className="mt-10">
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 Receipt
               </Text>
 
@@ -559,7 +559,7 @@ export default function ExpenseDetail() {
 
                   {extraction ? (
                     <View className="mt-3 rounded-sm border border-gold-deep/30 bg-gold-deep/5 p-4">
-                      <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                      <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                         Found on the receipt
                       </Text>
                       <View className="mt-2 gap-1">
@@ -579,7 +579,7 @@ export default function ExpenseDetail() {
                           onPress={() => setExtraction(null)}
                           className="rounded-sm border border-ink/20 px-3 py-2 active:bg-ink/5"
                         >
-                          <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+                          <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                             Dismiss
                           </Text>
                         </Pressable>
@@ -600,7 +600,7 @@ export default function ExpenseDetail() {
                   */}
                   {askJobAfterApply && canWrite ? (
                     <View className="mt-3 rounded-sm border border-ink/15 bg-cream-warm p-4">
-                      <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                      <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                         Saved. What was this for?
                       </Text>
                       <View className="mt-3 gap-2">
@@ -618,7 +618,7 @@ export default function ExpenseDetail() {
                           />
                         ))}
                         <Pressable onPress={() => setAskJobAfterApply(false)} className="pt-1">
-                          <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                          <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                             Not sure yet
                           </Text>
                         </Pressable>
@@ -644,7 +644,7 @@ export default function ExpenseDetail() {
                   </Pressable>
                 </View>
               ) : (
-                <Text className="mt-3 text-sm text-ink/50">No receipt attached.</Text>
+                <Text className="mt-3 text-sm text-ink-subtle">No receipt attached.</Text>
               )}
 
               {acting ? (
@@ -676,7 +676,7 @@ function JobChoice({
       onPress={onPress}
       className={`rounded border px-3 py-2 ${selected ? 'border-ink bg-ink/5' : 'border-ink/15'}`}
     >
-      <Text className={`text-sm ${selected ? 'font-medium text-ink' : 'text-ink/70'}`}>
+      <Text className={`text-sm ${selected ? 'font-medium text-ink' : 'text-ink-muted'}`}>
         {label}
       </Text>
     </Pressable>
@@ -686,7 +686,7 @@ function JobChoice({
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <View className="flex-row justify-between">
-      <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">{label}</Text>
+      <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">{label}</Text>
       <Text className="text-ink">{value}</Text>
     </View>
   );

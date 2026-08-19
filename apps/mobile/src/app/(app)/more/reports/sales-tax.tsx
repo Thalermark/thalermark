@@ -30,7 +30,7 @@ export default function SalesTaxReport() {
         {(d) => (
           <>
             <View className="mt-8 rounded-sm border border-ink/10 bg-cream-warm p-5">
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 Total collected
               </Text>
               <Text className="mt-2 font-serif text-4xl font-light text-ink">{fmt(d.total)}</Text>
@@ -39,10 +39,10 @@ export default function SalesTaxReport() {
             {d.months.length > 0 ? (
               <View className="mt-4 overflow-hidden rounded-sm border border-ink/10 bg-cream-warm">
                 <View className="flex-row bg-cream px-4 py-3">
-                  <Text className="flex-1 font-mono text-xs uppercase tracking-widest text-ink/50">
+                  <Text className="flex-1 font-mono text-xs uppercase tracking-widest text-ink-subtle">
                     Month
                   </Text>
-                  <Text className="w-32 text-right font-mono text-xs uppercase tracking-widest text-ink/50">
+                  <Text className="w-32 text-right font-mono text-xs uppercase tracking-widest text-ink-subtle">
                     Collected
                   </Text>
                 </View>

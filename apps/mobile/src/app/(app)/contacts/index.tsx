@@ -160,7 +160,7 @@ export default function ContactsList() {
           onChangeText={setQ}
           placeholder="Search name or email"
           returnKeyType="search"
-          className="flex-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2.5 text-ink"
+          className="flex-1 rounded-sm border border-field bg-cream-warm px-3 py-2.5 text-ink"
         />
         <Pressable
           onPress={() =>
@@ -175,7 +175,7 @@ export default function ContactsList() {
         >
           <Text
             className={`font-mono text-xs uppercase tracking-widest ${
-              openInvoices ? 'text-cream' : 'text-ink/60'
+              openInvoices ? 'text-cream' : 'text-ink-subtle'
             }`}
           >
             Open
@@ -184,7 +184,7 @@ export default function ContactsList() {
       </View>
 
       <Pressable onPress={() => setShowArchived((s) => !s)} className="mt-4 self-start px-6">
-        <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+        <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
           {showArchived ? '← Hide archived' : 'Show archived'}
         </Text>
       </Pressable>
@@ -196,7 +196,7 @@ export default function ContactsList() {
       ) : list.state === 'error' ? (
         <Text className="mt-8 px-6 text-sm text-oxblood">Couldn't load contacts.</Text>
       ) : list.rows.length === 0 ? (
-        <Text className="mt-8 px-6 text-ink/70">
+        <Text className="mt-8 px-6 text-ink-muted">
           {anyFilter ? 'No contacts match these filters.' : 'No contacts yet.'}
         </Text>
       ) : (
@@ -224,12 +224,12 @@ export default function ContactsList() {
               <View className="flex-1 flex-row flex-wrap items-center gap-2">
                 <Text className="font-serif text-lg text-ink">{item.name}</Text>
                 {item.archivedAt ? (
-                  <Text className="rounded-sm border border-ink/15 px-1.5 py-0.5 font-mono text-[0.6rem] uppercase tracking-widest text-ink/50">
+                  <Text className="rounded-sm border border-ink/15 px-1.5 py-0.5 font-mono text-[0.6rem] uppercase tracking-widest text-ink-subtle">
                     Archived
                   </Text>
                 ) : null}
               </View>
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 {item.email ?? ''}
               </Text>
             </Pressable>

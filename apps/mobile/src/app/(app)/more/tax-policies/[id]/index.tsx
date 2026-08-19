@@ -93,7 +93,7 @@ export default function TaxPolicyDetail() {
     <SafeAreaView className="flex-1 bg-cream" edges={['top']}>
       <ScrollView contentContainerClassName="px-6 pt-6 pb-16">
         <Pressable onPress={() => router.push('/more/tax-policies')}>
-          <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+          <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
             ← Tax policies
           </Text>
         </Pressable>
@@ -114,7 +114,7 @@ export default function TaxPolicyDetail() {
                 </Text>
               ) : null}
               {archived ? (
-                <Text className="rounded-sm border border-ink/15 px-1.5 py-0.5 font-mono text-[0.6rem] uppercase tracking-widest text-ink/50">
+                <Text className="rounded-sm border border-ink/15 px-1.5 py-0.5 font-mono text-[0.6rem] uppercase tracking-widest text-ink-subtle">
                   Archived
                 </Text>
               ) : null}
@@ -126,7 +126,7 @@ export default function TaxPolicyDetail() {
                   onPress={() => router.push(`/more/tax-policies/${id}/edit`)}
                   className="rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep"
                 >
-                  <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
+                  <Text className="font-mono text-xs uppercase tracking-widest text-ink-muted">
                     Edit
                   </Text>
                 </Pressable>
@@ -135,7 +135,7 @@ export default function TaxPolicyDetail() {
                   disabled={busy}
                   className="rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep disabled:opacity-50"
                 >
-                  <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
+                  <Text className="font-mono text-xs uppercase tracking-widest text-ink-muted">
                     {archived ? 'Restore' : 'Archive'}
                   </Text>
                 </Pressable>
@@ -143,7 +143,7 @@ export default function TaxPolicyDetail() {
             ) : null}
 
             {archived ? (
-              <Text className="mt-6 rounded-sm border border-ink/15 bg-cream-warm px-4 py-3 text-sm text-ink/70">
+              <Text className="mt-6 rounded-sm border border-ink/15 bg-cream-warm px-4 py-3 text-sm text-ink-muted">
                 This policy is archived — it won't appear in the tax pickers. Lines already taxed
                 under it keep their rate.
               </Text>
@@ -165,7 +165,7 @@ export default function TaxPolicyDetail() {
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
     <View>
-      <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">{label}</Text>
+      <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">{label}</Text>
       <Text className="mt-1 text-ink">{value}</Text>
     </View>
   );

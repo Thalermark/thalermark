@@ -36,7 +36,7 @@ export default function RevenueOverTimeReport() {
       <ReportBody data={data} error={error}>
         {(d) => {
           if (Number(d.total) <= 0) {
-            return <Text className="mt-8 text-ink/70">No revenue in this period.</Text>;
+            return <Text className="mt-8 text-ink-muted">No revenue in this period.</Text>;
           }
           const series = fillMonths(d.from, d.to, d.months);
           const max = Math.max(0, ...series.map((m) => Number(m.revenue)));
@@ -57,14 +57,14 @@ export default function RevenueOverTimeReport() {
                 {series.map((m) => (
                   <Text
                     key={m.month}
-                    className="flex-1 text-center font-mono text-[10px] uppercase tracking-wide text-ink/50"
+                    className="flex-1 text-center font-mono text-[10px] uppercase tracking-wide text-ink-subtle"
                   >
                     {shortMonth(m.month)}
                   </Text>
                 ))}
               </View>
               <View className="mt-5 flex-row items-baseline justify-between border-t border-ink/10 pt-4">
-                <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                   Total
                 </Text>
                 <Text className="font-mono text-base tabular-nums text-ink">{fmt(d.total)}</Text>

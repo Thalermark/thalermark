@@ -313,7 +313,7 @@ function Section({
 }) {
   return (
     <View className="mt-8">
-      <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">{label}</Text>
+      <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">{label}</Text>
       <View className="mt-3 gap-4">
         {entries.map((e) => (
           <Pressable
@@ -324,7 +324,7 @@ function Section({
             <Ionicons name={e.icon} size={24} color="#9a7b4f" />
             <View className="flex-1">
               <Text className="font-serif text-lg text-ink">{e.title}</Text>
-              <Text className="mt-1 text-xs text-ink/60">{e.subtitle}</Text>
+              <Text className="mt-1 text-xs text-ink-subtle">{e.subtitle}</Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color="#0f162680" />
           </Pressable>

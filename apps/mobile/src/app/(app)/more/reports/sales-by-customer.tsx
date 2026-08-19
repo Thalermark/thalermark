@@ -39,7 +39,7 @@ export default function SalesByCustomerReport() {
         {(d) => {
           const total = Number(d.totalSales);
           if (d.contacts.length === 0) {
-            return <Text className="mt-8 text-ink/70">No sales in this period.</Text>;
+            return <Text className="mt-8 text-ink-muted">No sales in this period.</Text>;
           }
           return (
             <ReportCard>
@@ -52,7 +52,7 @@ export default function SalesByCustomerReport() {
                   <View className="flex-row items-center justify-between">
                     <View className="flex-1 pr-3">
                       <Text className="text-ink">{c.name ?? '—'}</Text>
-                      <Text className="font-mono text-xs text-ink/40">
+                      <Text className="font-mono text-xs text-ink-subtle">
                         {c.invoiceCount} invoice{c.invoiceCount === 1 ? '' : 's'}
                       </Text>
                     </View>

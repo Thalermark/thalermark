@@ -94,7 +94,7 @@ export function ContactFilterField({
           schedule(t);
         }}
         placeholder="Any contact"
-        className="rounded-sm border border-ink/15 bg-cream px-3 py-2.5 text-ink"
+        className="rounded-sm border border-field bg-cream px-3 py-2.5 text-ink"
       />
       {open && results.length > 0 ? (
         <View className="mt-1 overflow-hidden rounded-sm border border-ink/15 bg-cream-warm">

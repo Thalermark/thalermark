@@ -32,7 +32,7 @@ export function PeriodSelector({
           >
             <Text
               className={`font-mono text-xs uppercase tracking-widest ${
-                activeKey === p.key ? 'text-cream' : 'text-ink/60'
+                activeKey === p.key ? 'text-cream' : 'text-ink-subtle'
               }`}
             >
               {p.label}
@@ -45,7 +45,7 @@ export function PeriodSelector({
         >
           <Text
             className={`font-mono text-xs uppercase tracking-widest ${
-              activeKey === null ? 'text-cream' : 'text-ink/60'
+              activeKey === null ? 'text-cream' : 'text-ink-subtle'
             }`}
           >
             Custom

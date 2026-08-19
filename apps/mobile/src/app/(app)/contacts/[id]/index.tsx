@@ -182,7 +182,7 @@ export default function ContactDetail() {
       <ScrollView contentContainerClassName="px-6 pt-6 pb-16">
         <Text
           onPress={() => router.push('/contacts')}
-          className="font-mono text-xs uppercase tracking-widest text-ink/60"
+          className="font-mono text-xs uppercase tracking-widest text-ink-subtle"
         >
           ← Contacts
         </Text>
@@ -199,7 +199,7 @@ export default function ContactDetail() {
               <View className="flex-1 flex-row flex-wrap items-center gap-2">
                 <Text className="font-serif text-3xl font-light text-ink">{c.name}</Text>
                 {archived ? (
-                  <Text className="rounded-sm border border-ink/15 px-1.5 py-0.5 font-mono text-[0.6rem] uppercase tracking-widest text-ink/50">
+                  <Text className="rounded-sm border border-ink/15 px-1.5 py-0.5 font-mono text-[0.6rem] uppercase tracking-widest text-ink-subtle">
                     Archived
                   </Text>
                 ) : null}
@@ -212,7 +212,7 @@ export default function ContactDetail() {
                   onPress={() => router.push(`/contacts/${id}/edit`)}
                   className="rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep"
                 >
-                  <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
+                  <Text className="font-mono text-xs uppercase tracking-widest text-ink-muted">
                     Edit
                   </Text>
                 </Pressable>
@@ -221,7 +221,7 @@ export default function ContactDetail() {
                   disabled={busy}
                   className="rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep disabled:opacity-50"
                 >
-                  <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
+                  <Text className="font-mono text-xs uppercase tracking-widest text-ink-muted">
                     {archived ? 'Restore' : 'Archive'}
                   </Text>
                 </Pressable>
@@ -229,7 +229,7 @@ export default function ContactDetail() {
             ) : null}
 
             {archived ? (
-              <Text className="mt-6 rounded-sm border border-ink/15 bg-cream-warm px-4 py-3 text-sm text-ink/70">
+              <Text className="mt-6 rounded-sm border border-ink/15 bg-cream-warm px-4 py-3 text-sm text-ink-muted">
                 Archived — hidden from the customer and vendor pickers. Existing invoices, estimates
                 and expenses are untouched and still name them.
               </Text>
@@ -240,7 +240,7 @@ export default function ContactDetail() {
               {c.phone ? <DetailRow label="Phone" value={c.phone} /> : null}
               {addressLines.length > 0 ? (
                 <View>
-                  <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                  <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                     Address
                   </Text>
                   {addressLines.map((line) => (
@@ -254,7 +254,7 @@ export default function ContactDetail() {
             </View>
             {reliabilityView ? (
               <View className="mt-8">
-                <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                   Payment reliability
                 </Text>
                 <View
@@ -283,7 +283,7 @@ export default function ContactDetail() {
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
     <View>
-      <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">{label}</Text>
+      <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">{label}</Text>
       <Text className="mt-1 text-ink">{value}</Text>
     </View>
   );

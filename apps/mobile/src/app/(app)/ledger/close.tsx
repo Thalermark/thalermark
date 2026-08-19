@@ -189,13 +189,13 @@ export default function LedgerClose() {
     <SafeAreaView className="flex-1 bg-cream" edges={['top']}>
       <ScrollView contentContainerClassName="px-6 pt-6 pb-16">
         <Pressable onPress={() => router.back()} className="pb-2">
-          <Text className="text-sm text-ink/60">← Ledger</Text>
+          <Text className="text-sm text-ink-subtle">← Ledger</Text>
         </Pressable>
         <Text className="font-mono text-xs uppercase tracking-widest text-gold-deep">
           The Ledger
         </Text>
         <Text className="mt-2 font-serif text-3xl font-light text-ink">Close out a year</Text>
-        <Text className="mt-4 text-sm leading-relaxed text-ink/60">
+        <Text className="mt-4 text-sm leading-relaxed text-ink-subtle">
           Closing a year moves its profit into your business's equity and locks the year, so nothing
           can change it afterwards. Most people do this once their accountant has finished the tax
           return.
@@ -207,7 +207,7 @@ export default function LedgerClose() {
 
         <Text className="mt-10 font-serif text-2xl font-light text-ink">Ready to close</Text>
         {closable.length === 0 ? (
-          <Text className="mt-3 text-sm text-ink/70">
+          <Text className="mt-3 text-sm text-ink-muted">
             Nothing to close right now. A year can be closed once it's over.
           </Text>
         ) : (
@@ -217,13 +217,13 @@ export default function LedgerClose() {
               className="mt-4 rounded-sm border border-ink/10 bg-cream-warm p-5"
             >
               <Text className="font-serif text-xl text-ink">{year.fiscalYear}</Text>
-              <Text className="mt-1 text-sm text-ink/70">
+              <Text className="mt-1 text-sm text-ink-muted">
                 {Number(year.netIncome) < 0 ? 'Loss' : 'Profit'} of{' '}
                 <Text className="font-mono tabular-nums text-ink">
                   {money(String(Math.abs(Number(year.netIncome))))}
                 </Text>
                 {Number(year.withdrawals) > 0 ? (
-                  <Text className="text-ink/70">
+                  <Text className="text-ink-muted">
                     {' · '}
                     <Text className="font-mono tabular-nums text-ink">
                       {money(year.withdrawals)}
@@ -248,7 +248,7 @@ export default function LedgerClose() {
         {/* Years with no activity get one line rather than a card each — there's
             nothing to close, but naming them answers "why isn't 2023 listed?". */}
         {emptyYears.length > 0 ? (
-          <Text className="mt-4 text-sm text-ink/50">
+          <Text className="mt-4 text-sm text-ink-subtle">
             Nothing on the books for{' '}
             {new Intl.ListFormat('en', { style: 'long', type: 'conjunction' }).format(
               emptyYears.map(String),
@@ -266,7 +266,7 @@ export default function LedgerClose() {
                   <Text className="font-mono tabular-nums text-lg text-ink">{row.fiscalYear}</Text>
                   <Text className="font-mono tabular-nums text-ink/80">{money(row.netIncome)}</Text>
                 </View>
-                <Text className="mt-1 font-mono text-xs uppercase tracking-widest text-ink/50">
+                <Text className="mt-1 font-mono text-xs uppercase tracking-widest text-ink-subtle">
                   Closed {row.closedAt}
                 </Text>
                 {/* Only the most recent close can be re-opened: an earlier year

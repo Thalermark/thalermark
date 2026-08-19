@@ -147,12 +147,12 @@ export default function OpeningBalanceScreen() {
       >
         <ScrollView contentContainerClassName="px-6 pt-6 pb-16" keyboardShouldPersistTaps="handled">
           <Pressable onPress={() => router.back()}>
-            <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
               ← Investments
             </Text>
           </Pressable>
           <Text className="mt-3 font-serif text-3xl font-light text-ink">Starting balances</Text>
-          <Text className="mt-2 text-sm text-ink/60">
+          <Text className="mt-2 text-sm text-ink-subtle">
             What your business already had when you started. Fill in what applies; leave the rest
             blank.
           </Text>
@@ -239,14 +239,14 @@ function MoneyField({
 }) {
   return (
     <View>
-      <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">{label}</Text>
+      <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">{label}</Text>
       <Text className="mt-0.5 text-xs text-ink/45">{hint}</Text>
       <TextInput
         value={value}
         onChangeText={onChangeText}
         keyboardType="decimal-pad"
         placeholder="0.00"
-        className="mt-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-right font-mono text-ink"
+        className="mt-1 rounded-sm border border-field bg-cream-warm px-3 py-2 text-right font-mono text-ink"
       />
       {error ? <Text className="mt-1 text-xs text-oxblood">{error}</Text> : null}
     </View>

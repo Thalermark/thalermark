@@ -119,18 +119,18 @@ export default function SignUp() {
           <>
             <View className="mt-8 gap-5">
               <View>
-                <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                   Name
                 </Text>
                 <TextInput
                   value={name}
                   onChangeText={setName}
                   autoComplete="name"
-                  className="mt-2 border-b border-ink/30 py-2 text-ink"
+                  className="mt-2 border-b border-field py-2 text-ink"
                 />
               </View>
               <View>
-                <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                   Email
                 </Text>
                 <TextInput
@@ -140,11 +140,11 @@ export default function SignUp() {
                   autoComplete="email"
                   inputMode="email"
                   keyboardType="email-address"
-                  className="mt-2 border-b border-ink/30 py-2 text-ink"
+                  className="mt-2 border-b border-field py-2 text-ink"
                 />
               </View>
               <View>
-                <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                   Password
                 </Text>
                 <TextInput
@@ -152,7 +152,7 @@ export default function SignUp() {
                   onChangeText={setPassword}
                   secureTextEntry
                   autoComplete="new-password"
-                  className="mt-2 border-b border-ink/30 py-2 text-ink"
+                  className="mt-2 border-b border-field py-2 text-ink"
                 />
                 <PasswordStrength password={password} />
               </View>
@@ -179,21 +179,17 @@ export default function SignUp() {
             {invite ? null : <SocialSignIn />}
 
             <View className="mt-8 flex-row justify-center">
-              <Text className="text-sm text-ink/70">Already have an account? </Text>
-              <Link
-                href={invite ? { pathname: '/sign-in', params: { invite } } : '/sign-in'}
-                className="text-sm text-gold-deep underline"
-              >
-                Sign in
+              <Text className="text-sm text-ink-muted">Already have an account? </Text>
+              <Link href={invite ? { pathname: '/sign-in', params: { invite } } : '/sign-in'}>
+                <Text className="text-sm text-gold-deep underline">Sign in</Text>
               </Link>
             </View>
 
             <View className="mt-10 flex-row justify-center">
-              <Link
-                href="/server"
-                className="font-mono text-xs uppercase tracking-widest text-ink/50"
-              >
-                Advanced
+              <Link href="/server">
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
+                  Advanced
+                </Text>
               </Link>
             </View>
           </>

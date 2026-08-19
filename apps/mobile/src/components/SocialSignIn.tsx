@@ -63,7 +63,7 @@ export function SocialSignIn() {
     <View className="mt-8">
       <View className="flex-row items-center gap-4">
         <View className="h-px flex-1 bg-ink/15" />
-        <Text className="font-mono text-xs uppercase tracking-widest text-ink/40">or</Text>
+        <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">or</Text>
         <View className="h-px flex-1 bg-ink/15" />
       </View>
       <View className="mt-6 gap-3">

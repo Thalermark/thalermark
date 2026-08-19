@@ -171,7 +171,7 @@ export default function EstimatesList() {
           onChangeText={setQ}
           placeholder="Search number or contact"
           returnKeyType="search"
-          className="flex-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2.5 text-ink"
+          className="flex-1 rounded-sm border border-field bg-cream-warm px-3 py-2.5 text-ink"
         />
         <Pressable
           onPress={() => setShowAdvanced((v) => !v)}
@@ -181,7 +181,7 @@ export default function EstimatesList() {
         >
           <Text
             className={`font-mono text-xs uppercase tracking-widest ${
-              advancedActive ? 'text-cream' : 'text-ink/60'
+              advancedActive ? 'text-cream' : 'text-ink-subtle'
             }`}
           >
             Filters
@@ -204,7 +204,9 @@ export default function EstimatesList() {
             </View>
           </View>
           <View>
-            <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">Contact</Text>
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
+              Contact
+            </Text>
             <View className="mt-1">
               <ContactFilterField selected={contact} onChange={setContact} />
             </View>
@@ -219,7 +221,7 @@ export default function EstimatesList() {
       ) : list.state === 'error' ? (
         <Text className="mt-8 px-6 text-sm text-oxblood">Couldn't load estimates.</Text>
       ) : list.rows.length === 0 ? (
-        <Text className="mt-8 px-6 text-ink/70">
+        <Text className="mt-8 px-6 text-ink-muted">
           {anyFilter ? 'No estimates match these filters.' : 'No estimates yet.'}
         </Text>
       ) : (
@@ -251,8 +253,8 @@ export default function EstimatesList() {
                 </Text>
               </View>
               <View className="mt-1 flex-row items-center justify-between">
-                <Text className="text-sm text-ink/70">{item.customerName ?? '—'}</Text>
-                <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                <Text className="text-sm text-ink-muted">{item.customerName ?? '—'}</Text>
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                   {item.status} · {item.issueDate}
                 </Text>
               </View>

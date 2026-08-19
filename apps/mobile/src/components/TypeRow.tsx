@@ -20,7 +20,7 @@ export function TypeRow({
 }) {
   return (
     <View className="mt-2">
-      <Text className="font-mono text-[10px] uppercase tracking-widest text-ink/50">Type</Text>
+      <Text className="font-mono text-[10px] uppercase tracking-widest text-ink-subtle">Type</Text>
       <View className="mt-1 flex-row gap-2">
         {OPTIONS.map((o) => {
           const selected = o.value === value;
@@ -30,7 +30,7 @@ export function TypeRow({
               onPress={() => onSelect(o.value)}
               className={`rounded-sm border px-3 py-1 ${selected ? 'border-gold-deep bg-gold-deep/10' : 'border-ink/15 bg-cream'}`}
             >
-              <Text className={`text-xs ${selected ? 'text-gold-deep' : 'text-ink/70'}`}>
+              <Text className={`text-xs ${selected ? 'text-gold-deep' : 'text-ink-muted'}`}>
                 {o.label}
               </Text>
             </Pressable>

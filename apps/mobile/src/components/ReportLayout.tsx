@@ -28,11 +28,13 @@ export function ReportScaffold({
     <SafeAreaView className="flex-1 bg-cream" edges={['top']}>
       <ScrollView contentContainerClassName="px-6 pt-6 pb-16">
         <Pressable onPress={() => router.push('/more/reports')}>
-          <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">← Reports</Text>
+          <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
+            ← Reports
+          </Text>
         </Pressable>
         <Text className="mt-3 font-serif text-3xl font-light text-ink">{title}</Text>
         {selector}
-        <Text className="mt-4 text-sm text-ink/60">{note}</Text>
+        <Text className="mt-4 text-sm text-ink-subtle">{note}</Text>
         {children}
       </ScrollView>
     </SafeAreaView>
@@ -74,7 +76,7 @@ export function ReportCard({ children }: { children: ReactNode }) {
 export function SectionHeader({ label }: { label: string }) {
   return (
     <View className="border-t border-ink/10 bg-cream px-4 py-3">
-      <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">{label}</Text>
+      <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">{label}</Text>
     </View>
   );
 }
@@ -92,7 +94,7 @@ export function AmountRow({
     <View className="flex-row items-center justify-between border-t border-ink/10 px-4 py-3">
       <View className="flex-1 pr-3">
         <Text className="text-ink/80">{label}</Text>
-        {sub ? <Text className="font-mono text-xs text-ink/40">{sub}</Text> : null}
+        {sub ? <Text className="font-mono text-xs text-ink-subtle">{sub}</Text> : null}
       </View>
       <Text className="font-mono text-sm tabular-nums text-ink">{amount}</Text>
     </View>
@@ -112,7 +114,7 @@ export function TotalRow({
 }) {
   return (
     <View className="flex-row items-center justify-between border-t border-ink/10 bg-cream px-4 py-3">
-      <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">{label}</Text>
+      <Text className="font-mono text-xs uppercase tracking-widest text-ink-muted">{label}</Text>
       <Text
         className={`font-mono tabular-nums ${emphasize ? 'text-lg' : 'text-base'} ${
           tone === 'oxblood' ? 'text-oxblood' : 'text-ink'
@@ -127,7 +129,7 @@ export function TotalRow({
 export function EmptyRow({ text }: { text: string }) {
   return (
     <View className="border-t border-ink/10 px-4 py-3">
-      <Text className="italic text-ink/50">{text}</Text>
+      <Text className="italic text-ink-subtle">{text}</Text>
     </View>
   );
 }
@@ -141,7 +143,7 @@ export function ShareBar({ pct }: { pct: number }) {
       <View className="h-2 flex-1 overflow-hidden rounded-full bg-ink/10">
         <View className="h-full rounded-full bg-gold-deep" style={{ width: `${w}%` }} />
       </View>
-      <Text className="w-9 text-right font-mono text-xs tabular-nums text-ink/50">
+      <Text className="w-9 text-right font-mono text-xs tabular-nums text-ink-subtle">
         {w.toFixed(0)}%
       </Text>
     </View>

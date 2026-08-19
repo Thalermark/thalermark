@@ -92,7 +92,7 @@ export default function OwnerMoneyDetail() {
       <ScrollView contentContainerClassName="px-6 pt-6 pb-16">
         <Text
           onPress={() => router.push('/owner-money')}
-          className="font-mono text-xs uppercase tracking-widest text-ink/60"
+          className="font-mono text-xs uppercase tracking-widest text-ink-subtle"
         >
           ← Investments
         </Text>
@@ -126,7 +126,7 @@ export default function OwnerMoneyDetail() {
                   disabled={acting}
                   className="rounded-sm border border-ink/20 px-4 py-3 active:bg-ink/5 disabled:opacity-50"
                 >
-                  <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
+                  <Text className="font-mono text-xs uppercase tracking-widest text-ink-muted">
                     Edit
                   </Text>
                 </Pressable>
@@ -159,7 +159,7 @@ export default function OwnerMoneyDetail() {
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <View className="flex-row justify-between gap-4">
-      <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">{label}</Text>
+      <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">{label}</Text>
       <Text className="flex-1 text-right text-ink">{value}</Text>
     </View>
   );

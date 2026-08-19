@@ -415,7 +415,7 @@ export default function BusinessSettings() {
       <ScrollView contentContainerClassName="px-6 pt-6 pb-16" keyboardShouldPersistTaps="handled">
         <Text
           onPress={() => router.push('/more')}
-          className="font-mono text-xs uppercase tracking-widest text-ink/60"
+          className="font-mono text-xs uppercase tracking-widest text-ink-subtle"
         >
           ← More
         </Text>
@@ -430,18 +430,18 @@ export default function BusinessSettings() {
         ) : (
           <>
             <View className="mt-8 rounded-sm border border-ink/15 bg-cream-warm p-6">
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 Address & contact
               </Text>
               <Text className="mt-2 font-serif text-lg text-ink">{company.name}</Text>
-              <Text className="mt-3 text-sm text-ink/70">
+              <Text className="mt-3 text-sm text-ink-muted">
                 These show in the "from" block on the invoices and estimates your contacts see,
                 under your business name. The checkboxes set the default for new documents — you can
                 still change it on any individual invoice or estimate. Leave a field blank to omit
                 it entirely.
               </Text>
 
-              <Text className="mt-5 font-mono text-xs uppercase tracking-widest text-ink/50">
+              <Text className="mt-5 font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 Business address
               </Text>
               <TextInput
@@ -452,7 +452,7 @@ export default function BusinessSettings() {
                 }}
                 placeholder={'123 Main St\nSpringfield, IL 62704'}
                 multiline
-                className="mt-2 min-h-[72px] rounded-sm border border-ink/20 bg-cream px-3 py-2 text-ink"
+                className="mt-2 min-h-[72px] rounded-sm border border-field bg-cream px-3 py-2 text-ink"
               />
               <View className="mt-2 flex-row flex-wrap gap-x-6 gap-y-2">
                 <Checkbox
@@ -473,7 +473,7 @@ export default function BusinessSettings() {
                 />
               </View>
 
-              <Text className="mt-5 font-mono text-xs uppercase tracking-widest text-ink/50">
+              <Text className="mt-5 font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 Phone
               </Text>
               <TextInput
@@ -484,7 +484,7 @@ export default function BusinessSettings() {
                 }}
                 placeholder="(555) 123-4567"
                 keyboardType="phone-pad"
-                className="mt-2 rounded-sm border border-ink/20 bg-cream px-3 py-2 text-ink"
+                className="mt-2 rounded-sm border border-field bg-cream px-3 py-2 text-ink"
               />
               <View className="mt-2 flex-row flex-wrap gap-x-6 gap-y-2">
                 <Checkbox
@@ -505,7 +505,7 @@ export default function BusinessSettings() {
                 />
               </View>
 
-              <Text className="mt-5 font-mono text-xs uppercase tracking-widest text-ink/50">
+              <Text className="mt-5 font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 Email
               </Text>
               <TextInput
@@ -517,7 +517,7 @@ export default function BusinessSettings() {
                 placeholder="hello@yourbusiness.com"
                 keyboardType="email-address"
                 autoCapitalize="none"
-                className="mt-2 rounded-sm border border-ink/20 bg-cream px-3 py-2 text-ink"
+                className="mt-2 rounded-sm border border-field bg-cream px-3 py-2 text-ink"
               />
               <View className="mt-2 flex-row flex-wrap gap-x-6 gap-y-2">
                 <Checkbox
@@ -547,7 +547,7 @@ export default function BusinessSettings() {
                   <Text className="text-sm font-medium text-cream">Save</Text>
                 </Pressable>
                 {status === 'saved' ? (
-                  <Text className="text-sm text-ink/60">Saved.</Text>
+                  <Text className="text-sm text-ink-subtle">Saved.</Text>
                 ) : status === 'error' ? (
                   <Text className="text-sm text-oxblood">Couldn't save.</Text>
                 ) : null}
@@ -558,11 +558,11 @@ export default function BusinessSettings() {
                 device's own zone is the answer in virtually every case, so we
                 show what's stored and offer a one-tap correction. */}
             <View className="mt-8 rounded-sm border border-ink/15 bg-cream-warm p-6">
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 Your time zone
               </Text>
               <Text className="mt-2 font-serif text-lg text-ink">{timezone}</Text>
-              <Text className="mt-3 text-sm text-ink/70">
+              <Text className="mt-3 text-sm text-ink-muted">
                 Reports count a day from midnight where you are. Get this wrong and a payment taken
                 on the evening of 31 December can land in the wrong tax year.
               </Text>
@@ -580,7 +580,7 @@ export default function BusinessSettings() {
                   ) : null}
                 </View>
               ) : (
-                <Text className="mt-4 text-sm text-ink/60">
+                <Text className="mt-4 text-sm text-ink-subtle">
                   {tzStatus === 'saved'
                     ? 'Saved.'
                     : tzStatus === 'error'
@@ -594,11 +594,11 @@ export default function BusinessSettings() {
                 onboarding. Saving re-maps the company's categories onto the
                 return that entity files; nothing already recorded moves. */}
             <View className="mt-8 rounded-sm border border-ink/15 bg-cream-warm p-6">
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 How your business is set up
               </Text>
               <Text className="mt-2 font-serif text-lg text-ink">{company.name}</Text>
-              <Text className="mt-3 text-sm text-ink/70">
+              <Text className="mt-3 text-sm text-ink-muted">
                 You told us this when you set up. If it's changed — you've incorporated, or taken on
                 a partner — update it here and we'll adjust your categories to match.
               </Text>
@@ -608,7 +608,7 @@ export default function BusinessSettings() {
                   job, so it lives on the web rather than being squeezed onto a
                   phone. Saying so here beats letting someone tap through a
                   re-map that quietly asserts one continuous taxpayer. */}
-              <Text className="mt-3 text-sm leading-relaxed text-ink/50">
+              <Text className="mt-3 text-sm leading-relaxed text-ink-subtle">
                 Did you register a new business with its own EIN? That needs its own set of books.
                 Open Thalermark on a computer to set it up.
               </Text>
@@ -627,7 +627,7 @@ export default function BusinessSettings() {
                 ))}
               </View>
               {businessTypeStatus === 'saved' ? (
-                <Text className="mt-4 text-sm text-ink/60">Saved.</Text>
+                <Text className="mt-4 text-sm text-ink-subtle">Saved.</Text>
               ) : businessTypeStatus === 'error' ? (
                 <Text className="mt-4 text-sm text-oxblood">Couldn't save.</Text>
               ) : null}
@@ -637,11 +637,11 @@ export default function BusinessSettings() {
                 "cash"/"accrual" as a label, only what it means. Saves on tap
                 since it's a two-option choice. */}
             <View className="mt-8 rounded-sm border border-ink/15 bg-cream-warm p-6">
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 When you count income
               </Text>
               <Text className="mt-2 font-serif text-lg text-ink">{company.name}</Text>
-              <Text className="mt-3 text-sm text-ink/70">
+              <Text className="mt-3 text-sm text-ink-muted">
                 This is about timing — which year a payment counts for. Most people count it when
                 the money actually turns up, the usual choice for freelancers and trades. Only
                 change it if whoever does your taxes tells you to.
@@ -662,12 +662,12 @@ export default function BusinessSettings() {
                     }`}
                   >
                     <Text className="text-ink">{label}</Text>
-                    <Text className="mt-0.5 text-xs text-ink/60">{hint}</Text>
+                    <Text className="mt-0.5 text-xs text-ink-subtle">{hint}</Text>
                   </Pressable>
                 ))}
               </View>
               {methodStatus === 'saved' ? (
-                <Text className="mt-4 text-sm text-ink/60">Saved.</Text>
+                <Text className="mt-4 text-sm text-ink-subtle">Saved.</Text>
               ) : methodStatus === 'error' ? (
                 <Text className="mt-4 text-sm text-oxblood">Couldn't save.</Text>
               ) : null}
@@ -679,11 +679,11 @@ export default function BusinessSettings() {
                 person who bought the thing never comes here — they chose
                 "deduct it all" vs "spread it out" at the point of purchase. */}
             <View className="mt-8 rounded-sm border border-ink/15 bg-cream-warm p-6">
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 Big purchases, first year
               </Text>
               <Text className="mt-2 font-serif text-lg text-ink">{company.name}</Text>
-              <Text className="mt-3 text-sm text-ink/70">
+              <Text className="mt-3 text-sm text-ink-muted">
                 When you buy something big and spread the cost out, this decides how much counts in
                 the year you bought it. The standard answer is half — the IRS treats anything you
                 buy as though you bought it mid-year. Only change it if whoever files your taxes
@@ -713,15 +713,15 @@ export default function BusinessSettings() {
                     }`}
                   >
                     <Text className="text-ink">{label}</Text>
-                    <Text className="mt-0.5 text-xs text-ink/60">{hint}</Text>
+                    <Text className="mt-0.5 text-xs text-ink-subtle">{hint}</Text>
                   </Pressable>
                 ))}
               </View>
-              <Text className="mt-4 text-xs text-ink/50">
+              <Text className="mt-4 text-xs text-ink-subtle">
                 Changing this only affects years that haven't been counted yet.
               </Text>
               {conventionStatus === 'saved' ? (
-                <Text className="mt-4 text-sm text-ink/60">Saved.</Text>
+                <Text className="mt-4 text-sm text-ink-subtle">Saved.</Text>
               ) : conventionStatus === 'error' ? (
                 <Text className="mt-4 text-sm text-oxblood">Couldn't save.</Text>
               ) : null}
@@ -732,11 +732,11 @@ export default function BusinessSettings() {
                 the vehicle's depreciation, so claiming both is a double
                 deduction. */}
             <View className="mt-8 rounded-sm border border-ink/15 bg-cream-warm p-6">
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 Vehicle costs
               </Text>
               <Text className="mt-2 font-serif text-lg text-ink">{company.name}</Text>
-              <Text className="mt-3 text-sm text-ink/70">
+              <Text className="mt-3 text-sm text-ink-muted">
                 The IRS lets you deduct driving one of two ways, and you have to pick one. Most
                 people in your line of work are better off with the flat rate per mile.
               </Text>
@@ -764,33 +764,33 @@ export default function BusinessSettings() {
                     }`}
                   >
                     <Text className="text-ink">{label}</Text>
-                    <Text className="mt-0.5 text-xs text-ink/60">{hint}</Text>
+                    <Text className="mt-0.5 text-xs text-ink-subtle">{hint}</Text>
                   </Pressable>
                 ))}
               </View>
-              <Text className="mt-4 text-xs text-ink/50">
+              <Text className="mt-4 text-xs text-ink-subtle">
                 Once you've claimed actual costs on a vehicle you usually can't move it back to the
                 flat rate later. If you're unsure, ask whoever files your taxes.
               </Text>
               {vehicleMethodStatus === 'saved' ? (
-                <Text className="mt-4 text-sm text-ink/60">Saved.</Text>
+                <Text className="mt-4 text-sm text-ink-subtle">Saved.</Text>
               ) : vehicleMethodStatus === 'error' ? (
                 <Text className="mt-4 text-sm text-oxblood">Couldn't save.</Text>
               ) : null}
             </View>
 
             <View className="mt-8 rounded-sm border border-ink/15 bg-cream-warm p-6">
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 Reply-to address
               </Text>
               <Text className="mt-2 font-serif text-lg text-ink">{company.name}</Text>
-              <Text className="mt-3 text-sm text-ink/70">
+              <Text className="mt-3 text-sm text-ink-muted">
                 Invoices and estimates go out under your business name, but from Thalermark's
                 sending address. Set a reply-to so when a contact hits "reply," it reaches you.
                 Leave it blank to send with no reply-to.
               </Text>
 
-              <Text className="mt-5 font-mono text-xs uppercase tracking-widest text-ink/50">
+              <Text className="mt-5 font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 Reply-to email
               </Text>
               <TextInput
@@ -803,7 +803,7 @@ export default function BusinessSettings() {
                 keyboardType="email-address"
                 autoCapitalize="none"
                 autoCorrect={false}
-                className="mt-2 rounded-sm border border-ink/20 bg-cream px-3 py-2 text-ink"
+                className="mt-2 rounded-sm border border-field bg-cream px-3 py-2 text-ink"
               />
 
               <View className="mt-5 flex-row items-center gap-4">
@@ -815,7 +815,7 @@ export default function BusinessSettings() {
                   <Text className="text-sm font-medium text-cream">Save</Text>
                 </Pressable>
                 {replyStatus === 'saved' ? (
-                  <Text className="text-sm text-ink/60">Saved.</Text>
+                  <Text className="text-sm text-ink-subtle">Saved.</Text>
                 ) : replyStatus === 'error' ? (
                   <Text className="text-sm text-oxblood">Couldn't save.</Text>
                 ) : null}
@@ -823,8 +823,10 @@ export default function BusinessSettings() {
             </View>
 
             <View className="mt-8 rounded-sm border border-ink/15 bg-cream-warm p-6">
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">Logo</Text>
-              <Text className="mt-2 text-sm text-ink/70">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
+                Logo
+              </Text>
+              <Text className="mt-2 text-sm text-ink-muted">
                 Shown on the invoices and estimates your contacts see. PNG, JPEG, or WebP, up to 2
                 MB.
               </Text>
@@ -836,7 +838,7 @@ export default function BusinessSettings() {
                   className="mt-4 h-24 w-48 self-start rounded-sm border border-ink/10 bg-cream"
                 />
               ) : (
-                <Text className="mt-4 text-sm text-ink/50">No logo yet.</Text>
+                <Text className="mt-4 text-sm text-ink-subtle">No logo yet.</Text>
               )}
 
               <View className="mt-4 flex-row gap-2">
@@ -868,16 +870,16 @@ export default function BusinessSettings() {
                 deleted and nothing is hidden — the records stay because they
                 still have to be filed. */}
             <View className="mt-8 rounded-sm border border-ink/15 bg-cream-warm p-6">
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 {company.retiredAt ? 'Closed business' : 'Closing this business'}
               </Text>
               {company.retiredAt ? (
                 <>
-                  <Text className="mt-3 text-sm leading-relaxed text-ink/70">
+                  <Text className="mt-3 text-sm leading-relaxed text-ink-muted">
                     You closed this business. Its records are all still here and every report still
                     works — you just can't record new work against it.
                   </Text>
-                  <Text className="mt-4 text-sm text-ink/60">
+                  <Text className="mt-4 text-sm text-ink-subtle">
                     Closed on{' '}
                     <Text className="font-mono text-ink">{company.retiredAt.slice(0, 10)}</Text>.
                   </Text>
@@ -891,7 +893,7 @@ export default function BusinessSettings() {
                 </>
               ) : (
                 <>
-                  <Text className="mt-3 text-sm leading-relaxed text-ink/70">
+                  <Text className="mt-3 text-sm leading-relaxed text-ink-muted">
                     If you've stopped trading as {company.name}, close it here. Everything you've
                     recorded stays put and stays reportable, so you can still file for it. You just
                     won't be able to record new work against it — though you can still take payment
@@ -912,7 +914,7 @@ export default function BusinessSettings() {
                           <Text className="text-sm font-medium text-cream">Yes, close it</Text>
                         </Pressable>
                         <Pressable onPress={() => setConfirmingRetire(false)}>
-                          <Text className="text-sm text-ink/60">Cancel</Text>
+                          <Text className="text-sm text-ink-subtle">Cancel</Text>
                         </Pressable>
                       </View>
                     </>

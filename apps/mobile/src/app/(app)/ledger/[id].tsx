@@ -104,7 +104,7 @@ export default function LedgerEntryDetail() {
       <ScrollView contentContainerClassName="px-6 pt-6 pb-16">
         <Text
           onPress={() => router.push('/ledger')}
-          className="font-mono text-xs uppercase tracking-widest text-ink/60"
+          className="font-mono text-xs uppercase tracking-widest text-ink-subtle"
         >
           ← The Ledger
         </Text>
@@ -121,7 +121,7 @@ export default function LedgerEntryDetail() {
 
             {entry.reversed ? (
               <View className="mt-4 rounded-sm border border-ink/20 bg-cream-warm px-4 py-3">
-                <Text className="text-sm text-ink/70">
+                <Text className="text-sm text-ink-muted">
                   This entry has been reversed — a balancing opposite entry was posted, so it no
                   longer affects your books.
                 </Text>
@@ -147,13 +147,13 @@ export default function LedgerEntryDetail() {
 
             <View className="mt-8 overflow-hidden rounded-sm border border-ink/10">
               <View className="flex-row border-b border-ink/10 bg-cream-warm px-4 py-2">
-                <Text className="flex-1 font-mono text-xs uppercase tracking-widest text-ink/50">
+                <Text className="flex-1 font-mono text-xs uppercase tracking-widest text-ink-subtle">
                   Account
                 </Text>
-                <Text className="w-20 text-right font-mono text-xs uppercase tracking-widest text-ink/50">
+                <Text className="w-20 text-right font-mono text-xs uppercase tracking-widest text-ink-subtle">
                   Debit
                 </Text>
-                <Text className="w-20 text-right font-mono text-xs uppercase tracking-widest text-ink/50">
+                <Text className="w-20 text-right font-mono text-xs uppercase tracking-widest text-ink-subtle">
                   Credit
                 </Text>
               </View>
@@ -163,7 +163,7 @@ export default function LedgerEntryDetail() {
                   className="flex-row items-center border-b border-ink/10 px-4 py-3"
                 >
                   <Text className="flex-1 text-ink" numberOfLines={1}>
-                    <Text className="font-mono text-ink/60">{l.code} </Text>
+                    <Text className="font-mono text-ink-subtle">{l.code} </Text>
                     {l.accountName}
                   </Text>
                   <Text className="w-20 text-right font-mono tabular-nums text-ink">
@@ -175,7 +175,7 @@ export default function LedgerEntryDetail() {
                 </View>
               ))}
               <View className="flex-row bg-cream-warm px-4 py-3">
-                <Text className="flex-1 text-right font-mono text-xs uppercase tracking-widest text-ink/50">
+                <Text className="flex-1 text-right font-mono text-xs uppercase tracking-widest text-ink-subtle">
                   Totals
                 </Text>
                 <Text className="w-20 text-right font-mono tabular-nums text-ink">
@@ -198,7 +198,7 @@ export default function LedgerEntryDetail() {
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <View className="flex-row justify-between gap-4">
-      <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">{label}</Text>
+      <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">{label}</Text>
       <Text className="flex-1 text-right text-ink">{value}</Text>
     </View>
   );
