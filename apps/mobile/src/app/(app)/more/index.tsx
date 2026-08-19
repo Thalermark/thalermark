@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from '../../../lib/api';
 import { useMay } from '../../../lib/role';
 import { getActiveAccountId } from '../../../lib/secure-store';
+import { THEMES, type Theme, getTheme, setTheme } from '../../../lib/theme';
 
 // The "More" hub — the home for screens that don't earn a top-level tab. M9
 // seeded it with the items catalog + top-products report; M10 added account
@@ -296,9 +297,51 @@ export default function MoreHub() {
             onOpen={(href) => router.push(href)}
           />
         ) : null}
+        <Appearance />
         <Section label="About" entries={[ABOUT_ENTRY]} onOpen={(href) => router.push(href)} />
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+// Appearance is a DEVICE preference, not a workspace setting, so it sits outside
+// the role-gated Settings section: every member gets it, including read-only
+// ones. Three states matching web's ThemeToggle, because "follow the OS" is a
+// real choice distinct from happening to match it today.
+function Appearance() {
+  const [theme, setLocal] = useState<Theme>(getTheme());
+
+  function pick(next: Theme) {
+    setLocal(next);
+    // Applies immediately via colorScheme; the await only persists it.
+    void setTheme(next);
+  }
+
+  return (
+    <View className="mt-8">
+      <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
+        Appearance
+      </Text>
+      <View className="mt-3 flex-row gap-1 rounded-sm border border-ink/15 bg-cream-warm p-1">
+        {THEMES.map((t) => (
+          <Pressable
+            key={t.value}
+            onPress={() => pick(t.value)}
+            accessibilityRole="button"
+            accessibilityState={{ selected: theme === t.value }}
+            className={`flex-1 rounded-sm px-3 py-2 ${theme === t.value ? 'bg-ink' : ''}`}
+          >
+            <Text
+              className={`text-center font-mono text-xs uppercase tracking-widest ${
+                theme === t.value ? 'text-cream' : 'text-ink-subtle'
+              }`}
+            >
+              {t.label}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+    </View>
   );
 }
 
