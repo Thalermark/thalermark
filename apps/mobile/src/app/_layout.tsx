@@ -1,4 +1,5 @@
 import '../global.css';
+import '../lib/css-interop';
 import { Stack } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
@@ -18,7 +19,7 @@ export default function RootLayout() {
   if (!ready) {
     return (
       <View className="flex-1 items-center justify-center bg-cream">
-        <ActivityIndicator color="#0f1626" />
+        <ActivityIndicator className="text-ink" />
       </View>
     );
   }

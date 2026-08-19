@@ -321,12 +321,12 @@ function Section({
             onPress={() => onOpen(e.href)}
             className="flex-row items-center gap-4 rounded-sm border border-ink/10 bg-cream-warm p-5 active:bg-cream"
           >
-            <Ionicons name={e.icon} size={24} color="#9a7b4f" />
+            <Ionicons name={e.icon} size={24} className="text-gold-deep" />
             <View className="flex-1">
               <Text className="font-serif text-lg text-ink">{e.title}</Text>
               <Text className="mt-1 text-xs text-ink-subtle">{e.subtitle}</Text>
             </View>
-            <Ionicons name="chevron-forward" size={18} color="#0f162680" />
+            <Ionicons name="chevron-forward" size={18} className="text-ink-subtle" />
           </Pressable>
         ))}
       </View>

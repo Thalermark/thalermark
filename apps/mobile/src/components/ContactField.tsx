@@ -242,7 +242,7 @@ export function ContactField({
         value={contactName}
         onChangeText={onChange}
         placeholder="Search contacts"
-        placeholderTextColor="#9b8e7a"
+        placeholderClassName="text-ink-subtle"
         autoCapitalize="words"
         autoCorrect={false}
         className="mt-1 rounded-sm border border-field bg-cream-warm px-3 py-2 text-ink"

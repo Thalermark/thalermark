@@ -370,7 +370,7 @@ export default function ExpenseDetail() {
 
         {detail.state === 'loading' ? (
           <View className="mt-12 items-center">
-            <ActivityIndicator color="#0f1626" />
+            <ActivityIndicator className="text-ink" />
           </View>
         ) : detail.state === 'error' || !e ? (
           <Text className="mt-8 text-sm text-oxblood">Couldn't load this expense.</Text>
@@ -649,7 +649,7 @@ export default function ExpenseDetail() {
 
               {acting ? (
                 <View className="mt-3 items-center">
-                  <ActivityIndicator color="#0f1626" />
+                  <ActivityIndicator className="text-ink" />
                 </View>
               ) : null}
             </View>

@@ -50,13 +50,13 @@ export default function SearchScreen() {
     <SafeAreaView className="flex-1 bg-cream" edges={['top']}>
       <View className="flex-row items-center gap-3 px-6 pt-6">
         <Pressable onPress={() => router.back()} className="-ml-2 p-2" accessibilityLabel="Back">
-          <Ionicons name="chevron-back" size={22} color="#0f1626" />
+          <Ionicons name="chevron-back" size={22} className="text-ink" />
         </Pressable>
         <TextInput
           value={text}
           onChangeText={onChangeText}
           placeholder="Search invoices, contacts, expenses…"
-          placeholderTextColor="#0f162659"
+          placeholderClassName="text-ink-subtle"
           autoFocus
           autoCorrect={false}
           autoCapitalize="none"
@@ -72,7 +72,7 @@ export default function SearchScreen() {
             Type anything — a customer's name, an invoice number, an amount, a note on a receipt.
           </Text>
         ) : loading ? (
-          <ActivityIndicator color="#9a7d3f" />
+          <ActivityIndicator className="text-gold-deep" />
         ) : results.length === 0 ? (
           <Text className="text-sm text-ink-subtle">
             Nothing matched “{text.trim()}”. Search covers invoices, estimates, contacts, expenses,

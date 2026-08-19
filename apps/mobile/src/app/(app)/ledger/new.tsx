@@ -204,7 +204,7 @@ export default function NewLedgerEntry() {
                       </Pressable>
                       {lines.length > 2 ? (
                         <Pressable onPress={() => removeLine(i)} className="pl-2">
-                          <Ionicons name="close" size={18} color="#7a2230" />
+                          <Ionicons name="close" size={18} className="text-oxblood" />
                         </Pressable>
                       ) : null}
                     </View>
@@ -268,7 +268,7 @@ export default function NewLedgerEntry() {
               className="mt-2 rounded-sm bg-ink px-4 py-3 active:bg-gold-deep disabled:opacity-50"
             >
               {submitting ? (
-                <ActivityIndicator color="#f4ede0" />
+                <ActivityIndicator className="text-cream" />
               ) : (
                 <Text className="text-center text-sm font-medium text-cream">Post entry</Text>
               )}

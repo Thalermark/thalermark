@@ -111,7 +111,7 @@ export default function LedgerEntryDetail() {
 
         {detail.state === 'loading' ? (
           <View className="mt-12 items-center">
-            <ActivityIndicator color="#0f1626" />
+            <ActivityIndicator className="text-ink" />
           </View>
         ) : detail.state === 'error' || !entry ? (
           <Text className="mt-8 text-sm text-oxblood">Couldn't load this.</Text>

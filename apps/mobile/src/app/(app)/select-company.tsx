@@ -61,7 +61,7 @@ export default function SelectCompany() {
 
         {screen.state === 'loading' ? (
           <View className="mt-12 items-center">
-            <ActivityIndicator color="#0f1626" />
+            <ActivityIndicator className="text-ink" />
           </View>
         ) : screen.state === 'empty' ? (
           <View className="mt-8 rounded-sm border border-oxblood/30 bg-oxblood/5 p-5">

@@ -101,7 +101,7 @@ export default function WelcomePaid() {
 
         {load === 'loading' ? (
           <View className="mt-16 items-center">
-            <ActivityIndicator color="#0f1626" />
+            <ActivityIndicator className="text-ink" />
           </View>
         ) : load === 'error' ? (
           <Text className="mt-10 text-sm text-oxblood">Couldn't load your business.</Text>
@@ -132,14 +132,14 @@ export default function WelcomePaid() {
                     value={checkPayableTo}
                     onChangeText={setCheckPayableTo}
                     placeholder={`Make payable to (defaults to ${companyName})`}
-                    placeholderTextColor="#0f162659"
+                    placeholderClassName="text-ink-subtle"
                     className="rounded-sm border border-field bg-cream px-3 py-2 text-ink"
                   />
                   <TextInput
                     value={checkAddress}
                     onChangeText={setCheckAddress}
                     placeholder="Mailing address (optional)"
-                    placeholderTextColor="#0f162659"
+                    placeholderClassName="text-ink-subtle"
                     multiline
                     className="min-h-[60px] rounded-sm border border-field bg-cream px-3 py-2 text-ink"
                   />
@@ -153,7 +153,7 @@ export default function WelcomePaid() {
                 value={venmo}
                 onChangeText={setVenmo}
                 placeholder="@your-handle"
-                placeholderTextColor="#0f162659"
+                placeholderClassName="text-ink-subtle"
                 autoCapitalize="none"
                 className="mt-2 rounded-sm border border-field bg-cream px-3 py-2 text-ink"
               />
@@ -165,7 +165,7 @@ export default function WelcomePaid() {
                 value={zelle}
                 onChangeText={setZelle}
                 placeholder="you@example.com or 555-0100"
-                placeholderTextColor="#0f162659"
+                placeholderClassName="text-ink-subtle"
                 autoCapitalize="none"
                 className="mt-2 rounded-sm border border-field bg-cream px-3 py-2 text-ink"
               />
@@ -189,7 +189,7 @@ export default function WelcomePaid() {
                 className="rounded-sm bg-ink px-6 py-3 active:bg-gold-deep disabled:opacity-50"
               >
                 {submitting ? (
-                  <ActivityIndicator color="#f4ede0" />
+                  <ActivityIndicator className="text-cream" />
                 ) : (
                   <Text className="text-sm font-medium text-cream">Continue</Text>
                 )}

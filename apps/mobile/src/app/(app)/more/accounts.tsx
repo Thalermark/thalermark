@@ -246,7 +246,7 @@ export default function AccountsScreen() {
 
         {accounts === null ? (
           <View className="mt-10 items-center">
-            <ActivityIndicator color="#0f1626" />
+            <ActivityIndicator className="text-ink" />
           </View>
         ) : accounts.length === 0 ? (
           <Text className="mt-8 text-ink-muted">No accounts yet.</Text>

@@ -60,7 +60,7 @@ export default function LedgerIndex() {
   if (phase === 'checking') {
     return (
       <SafeAreaView className="flex-1 items-center justify-center bg-cream" edges={['top']}>
-        <ActivityIndicator color="#0f1626" />
+        <ActivityIndicator className="text-ink" />
       </SafeAreaView>
     );
   }
@@ -105,7 +105,7 @@ function Airlock({
             <Ionicons
               name={dontShowAgain ? 'checkbox' : 'square-outline'}
               size={20}
-              color="#9a7b4f"
+              className="text-gold-deep"
             />
             <Text className="text-sm text-ink-muted">Don't show this again</Text>
           </Pressable>
@@ -175,7 +175,7 @@ function EntryList() {
 
       {list.state === 'loading' ? (
         <View className="mt-12 items-center">
-          <ActivityIndicator color="#0f1626" />
+          <ActivityIndicator className="text-ink" />
         </View>
       ) : list.state === 'error' ? (
         <Text className="mt-8 px-6 text-sm text-oxblood">Couldn't load this.</Text>
@@ -193,7 +193,7 @@ function EntryList() {
           ListFooterComponent={
             loadingMore ? (
               <View className="py-4">
-                <ActivityIndicator color="#0f1626" />
+                <ActivityIndicator className="text-ink" />
               </View>
             ) : null
           }

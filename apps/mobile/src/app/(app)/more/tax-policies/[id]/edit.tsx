@@ -89,7 +89,7 @@ export default function EditTaxPolicy() {
           <Text className="mt-12 px-6 text-sm text-oxblood">Couldn't load this tax policy.</Text>
         ) : (
           <View className="mt-12 items-center">
-            <ActivityIndicator color="#0f1626" />
+            <ActivityIndicator className="text-ink" />
           </View>
         )}
       </SafeAreaView>

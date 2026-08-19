@@ -159,12 +159,12 @@ export function AddressField({
           autoCapitalize="words"
           autoCorrect={false}
           placeholder="House number + street, and city or ZIP"
-          placeholderTextColor="#0f162666"
+          placeholderClassName="text-ink-subtle"
           className="mt-1 rounded-sm border border-field bg-cream-warm px-3 py-2 text-ink"
         />
         {loading ? (
           <View className="absolute right-3 top-3.5">
-            <ActivityIndicator size="small" color="#0f1626" />
+            <ActivityIndicator size="small" className="text-ink" />
           </View>
         ) : null}
       </View>

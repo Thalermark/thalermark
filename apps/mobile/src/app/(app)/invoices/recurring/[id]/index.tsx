@@ -193,7 +193,7 @@ export default function RecurringDetail() {
 
         {detail.state === 'loading' ? (
           <View className="mt-12 items-center">
-            <ActivityIndicator color="#0f1626" />
+            <ActivityIndicator className="text-ink" />
           </View>
         ) : detail.state === 'error' || !s ? (
           <Text className="mt-8 text-sm text-oxblood">Couldn't load this schedule.</Text>

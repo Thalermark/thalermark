@@ -169,7 +169,7 @@ export default function AcceptInvite() {
             </View>
           ) : (
             <View className="flex-row items-center">
-              <ActivityIndicator color="#0f1626" />
+              <ActivityIndicator className="text-ink" />
               <Text className="ml-3 font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 Loading invitation…
               </Text>

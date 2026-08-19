@@ -103,7 +103,7 @@ export default function WelcomeBrand() {
 
         {load === 'loading' ? (
           <View className="mt-16 items-center">
-            <ActivityIndicator color="#0f1626" />
+            <ActivityIndicator className="text-ink" />
           </View>
         ) : load === 'error' ? (
           <Text className="mt-10 text-sm text-oxblood">Couldn't load your business.</Text>

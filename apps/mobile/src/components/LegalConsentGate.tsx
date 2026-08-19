@@ -88,7 +88,7 @@ export function LegalConsentGate({
           }`}
         >
           {submitting ? (
-            <ActivityIndicator color="#f4ede0" />
+            <ActivityIndicator className="text-cream" />
           ) : (
             <Text className="text-sm font-medium text-cream">Agree &amp; continue</Text>
           )}

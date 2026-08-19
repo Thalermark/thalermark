@@ -105,7 +105,7 @@ export default function WelcomeBusiness() {
 
         {load === 'loading' ? (
           <View className="mt-16 items-center">
-            <ActivityIndicator color="#0f1626" />
+            <ActivityIndicator className="text-ink" />
           </View>
         ) : load === 'error' ? (
           <Text className="mt-10 text-sm text-oxblood">Couldn't load your business.</Text>
@@ -130,7 +130,7 @@ export default function WelcomeBusiness() {
                 value={name}
                 onChangeText={setName}
                 placeholder="e.g. Sunrise Landscaping"
-                placeholderTextColor="#0f162659"
+                placeholderClassName="text-ink-subtle"
                 className="mt-2 border-b border-field py-2 text-ink"
               />
               <Text className="mt-1 font-mono text-xs text-ink-subtle">
@@ -172,7 +172,7 @@ export default function WelcomeBusiness() {
                 value={address}
                 onChangeText={setAddress}
                 placeholder={'123 Main St\nSpringfield, IL 62704'}
-                placeholderTextColor="#0f162659"
+                placeholderClassName="text-ink-subtle"
                 multiline
                 className="mt-2 min-h-[72px] rounded-sm border border-field bg-cream px-3 py-2 text-ink"
               />
@@ -183,7 +183,7 @@ export default function WelcomeBusiness() {
                 value={phone}
                 onChangeText={setPhone}
                 placeholder="(555) 123-4567"
-                placeholderTextColor="#0f162659"
+                placeholderClassName="text-ink-subtle"
                 keyboardType="phone-pad"
                 className="mt-2 rounded-sm border border-field bg-cream px-3 py-2 text-ink"
               />
@@ -201,7 +201,7 @@ export default function WelcomeBusiness() {
               className="mt-8 rounded-sm bg-ink px-3 py-3 active:bg-gold-deep disabled:opacity-50"
             >
               {submitting ? (
-                <ActivityIndicator color="#f4ede0" />
+                <ActivityIndicator className="text-cream" />
               ) : (
                 <Text className="text-center text-sm font-medium text-cream">Continue</Text>
               )}

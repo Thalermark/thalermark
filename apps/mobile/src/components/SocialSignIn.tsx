@@ -75,10 +75,10 @@ export function SocialSignIn() {
             className="flex-row items-center justify-center gap-3 rounded-sm border border-ink/25 bg-cream px-3 py-3 active:border-ink disabled:opacity-50"
           >
             {busy === provider ? (
-              <ActivityIndicator color="#0f1626" />
+              <ActivityIndicator className="text-ink" />
             ) : (
               <>
-                <Ionicons name={ICONS[provider]} size={18} color="#0f1626" />
+                <Ionicons name={ICONS[provider]} size={18} className="text-ink" />
                 <Text className="text-sm font-medium text-ink">{LABELS[provider]}</Text>
               </>
             )}

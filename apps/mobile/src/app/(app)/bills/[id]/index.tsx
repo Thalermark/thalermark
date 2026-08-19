@@ -334,7 +334,7 @@ export default function BillDetail() {
 
         {detail.state === 'loading' ? (
           <View className="mt-12 items-center">
-            <ActivityIndicator color="#0f1626" />
+            <ActivityIndicator className="text-ink" />
           </View>
         ) : detail.state === 'error' || !bill ? (
           <Text className="mt-8 text-sm text-oxblood">Couldn't load this bill.</Text>

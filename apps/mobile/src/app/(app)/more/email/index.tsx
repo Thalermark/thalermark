@@ -114,7 +114,7 @@ export default function EmailSettings() {
 
         {load.state === 'loading' ? (
           <View className="mt-12 items-center">
-            <ActivityIndicator color="#0f1626" />
+            <ActivityIndicator className="text-ink" />
           </View>
         ) : load.state === 'error' || !company ? (
           <Text className="mt-8 text-sm text-oxblood">Couldn't load these settings.</Text>
@@ -154,7 +154,7 @@ export default function EmailSettings() {
                   {previewType === tpl.type ? (
                     <View className="border-t border-ink/10 bg-cream p-4">
                       {previewState === 'loading' ? (
-                        <ActivityIndicator color="#0f1626" />
+                        <ActivityIndicator className="text-ink" />
                       ) : previewState === 'error' ? (
                         <Text className="text-sm text-oxblood">Couldn't load preview.</Text>
                       ) : (

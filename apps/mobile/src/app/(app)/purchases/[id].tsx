@@ -196,7 +196,7 @@ export default function PurchaseDetail() {
 
         {detail.state === 'loading' ? (
           <View className="mt-12 items-center">
-            <ActivityIndicator color="#0f1626" />
+            <ActivityIndicator className="text-ink" />
           </View>
         ) : detail.state === 'error' || !purchase ? (
           <Text className="mt-8 text-sm text-oxblood">Couldn't load this.</Text>
@@ -264,7 +264,7 @@ export default function PurchaseDetail() {
                     className="mt-1 rounded-sm bg-ink px-4 py-3 active:bg-gold-deep disabled:opacity-50"
                   >
                     {acting ? (
-                      <ActivityIndicator color="#f4ede0" />
+                      <ActivityIndicator className="text-cream" />
                     ) : (
                       <Text className="text-center text-sm font-medium text-cream">
                         Record payment

@@ -244,7 +244,7 @@ export default function Team() {
 
           {team.state === 'loading' ? (
             <View className="mt-12 items-center">
-              <ActivityIndicator color="#0f1626" />
+              <ActivityIndicator className="text-ink" />
             </View>
           ) : team.state === 'error' ? (
             <Text className="mt-8 text-sm text-oxblood">Couldn't load your team.</Text>
@@ -378,7 +378,7 @@ export default function Team() {
                     className="mt-3 self-start rounded-sm bg-ink px-4 py-2.5 active:bg-gold-deep disabled:opacity-50"
                   >
                     {sending ? (
-                      <ActivityIndicator color="#f4ede0" size="small" />
+                      <ActivityIndicator className="text-cream" size="small" />
                     ) : (
                       <Text className="text-sm font-medium text-cream">Send invite</Text>
                     )}

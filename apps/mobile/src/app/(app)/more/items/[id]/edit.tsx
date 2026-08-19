@@ -138,7 +138,7 @@ export default function EditItem() {
           <Text className="mt-12 px-6 text-sm text-oxblood">Couldn't load this item.</Text>
         ) : (
           <View className="mt-12 items-center">
-            <ActivityIndicator color="#0f1626" />
+            <ActivityIndicator className="text-ink" />
           </View>
         )}
       </SafeAreaView>

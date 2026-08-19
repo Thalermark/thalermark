@@ -262,7 +262,7 @@ export default function Home() {
           accessibilityLabel="Search"
           className="mt-6 flex-row items-center gap-2 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2.5 active:bg-gold-deep/10"
         >
-          <Ionicons name="search-outline" size={16} color="#0f162680" />
+          <Ionicons name="search-outline" size={16} className="text-ink-subtle" />
           <Text className="text-ink-subtle">Search invoices, contacts, expenses…</Text>
         </Pressable>
 
@@ -334,7 +334,7 @@ export default function Home() {
         {/* Position tiles */}
         {loading && !dashboard ? (
           <View className="mt-10 items-center">
-            <ActivityIndicator color="#0f1626" />
+            <ActivityIndicator className="text-ink" />
           </View>
         ) : dashboard ? (
           <View className="mt-8 gap-4">
@@ -442,7 +442,7 @@ export default function Home() {
         {/* What to watch (AI) */}
         {nudgesLoading ? (
           <View className="mt-8 flex-row items-center gap-2">
-            <ActivityIndicator color="#9a7b4f" size="small" />
+            <ActivityIndicator className="text-gold-deep" size="small" />
             <Text className="text-sm text-ink-subtle">Reading your cash flow…</Text>
           </View>
         ) : nudges.length > 0 ? (

@@ -301,7 +301,7 @@ export default function JobDetailScreen() {
   if (loading) {
     return (
       <SafeAreaView className="flex-1 items-center justify-center bg-cream" edges={['top']}>
-        <ActivityIndicator color="#0f1626" />
+        <ActivityIndicator className="text-ink" />
       </SafeAreaView>
     );
   }
@@ -545,7 +545,7 @@ export default function JobDetailScreen() {
                 className="mt-2 items-center rounded-sm border border-ink/20 px-4 py-2.5 active:bg-cream-warm disabled:opacity-50"
               >
                 {logging ? (
-                  <ActivityIndicator color="#0f1626" />
+                  <ActivityIndicator className="text-ink" />
                 ) : (
                   <Text className="font-mono text-xs uppercase tracking-widest text-ink-muted">
                     Log hours

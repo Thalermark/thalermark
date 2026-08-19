@@ -109,7 +109,7 @@ export default function SwitchAccount() {
 
         {screen.state === 'loading' ? (
           <View className="mt-12 items-center">
-            <ActivityIndicator color="#0f1626" />
+            <ActivityIndicator className="text-ink" />
           </View>
         ) : screen.state === 'error' ? (
           <Text className="mt-8 text-sm text-oxblood">Couldn't load your workspaces.</Text>

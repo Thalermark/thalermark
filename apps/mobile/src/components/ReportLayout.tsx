@@ -58,7 +58,7 @@ export function ReportBody<T>({
   if (data === null) {
     return (
       <View className="mt-12 items-center">
-        <ActivityIndicator color="#0f1626" />
+        <ActivityIndicator className="text-ink" />
       </View>
     );
   }

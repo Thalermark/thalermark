@@ -180,7 +180,7 @@ export default function LedgerClose() {
   if (state === 'loading') {
     return (
       <SafeAreaView className="flex-1 items-center justify-center bg-cream" edges={['top']}>
-        <ActivityIndicator color="#0f1626" />
+        <ActivityIndicator className="text-ink" />
       </SafeAreaView>
     );
   }

@@ -130,7 +130,7 @@ export default function TopProducts() {
           <Text className="mt-8 text-sm text-oxblood">Couldn't load the report.</Text>
         ) : products === null ? (
           <View className="mt-12 items-center">
-            <ActivityIndicator color="#0f1626" />
+            <ActivityIndicator className="text-ink" />
           </View>
         ) : products.length === 0 ? (
           <Text className="mt-8 text-ink-muted">No sales yet on this basis.</Text>

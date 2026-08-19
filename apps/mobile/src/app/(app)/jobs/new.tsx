@@ -128,7 +128,7 @@ export default function NewJob() {
             className="mt-8 items-center rounded-sm bg-ink px-4 py-3 active:bg-gold-deep disabled:opacity-50"
           >
             {submitting ? (
-              <ActivityIndicator color="#f7f3ea" />
+              <ActivityIndicator className="text-cream" />
             ) : (
               <Text className="text-sm font-medium text-cream">Create job</Text>
             )}
