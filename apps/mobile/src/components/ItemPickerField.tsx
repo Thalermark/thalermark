@@ -127,7 +127,7 @@ export function ItemPickerField({
         value={description}
         onChangeText={onChangeText}
         placeholder="Description"
-        className="rounded-sm border border-ink/15 bg-cream px-2 py-2 text-ink"
+        className="rounded-sm border border-field bg-cream px-2 py-2 text-ink"
       />
       {open && suggestions.length > 0 ? (
         <View className="mt-1 overflow-hidden rounded-sm border border-ink/15 bg-cream-warm">
@@ -140,7 +140,7 @@ export function ItemPickerField({
               <Text className="flex-1 text-sm text-ink" numberOfLines={1}>
                 {s.name}
               </Text>
-              <Text className="font-mono text-xs tabular-nums text-ink/70">
+              <Text className="font-mono text-xs tabular-nums text-ink-muted">
                 {fmt(s.unitPrice)}
                 {s.unitLabel ? `/${s.unitLabel}` : ''}
               </Text>

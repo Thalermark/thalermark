@@ -232,17 +232,19 @@ export default function Team() {
       >
         <ScrollView contentContainerClassName="px-6 pt-6 pb-16" keyboardShouldPersistTaps="handled">
           <Pressable onPress={() => router.push('/more')}>
-            <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">← More</Text>
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
+              ← More
+            </Text>
           </Pressable>
           <Text className="mt-3 font-serif text-3xl font-light text-ink">Team</Text>
-          <Text className="mt-3 text-sm text-ink/60">
+          <Text className="mt-3 text-sm text-ink-subtle">
             Invite teammates and set what each can do — from full admins to view-only accountants.
             The owner has complete control; everyone else gets the access their role grants.
           </Text>
 
           {team.state === 'loading' ? (
             <View className="mt-12 items-center">
-              <ActivityIndicator color="#0f1626" />
+              <ActivityIndicator className="text-ink" />
             </View>
           ) : team.state === 'error' ? (
             <Text className="mt-8 text-sm text-oxblood">Couldn't load your team.</Text>
@@ -264,13 +266,13 @@ export default function Team() {
                       <View className="flex-row items-center gap-2">
                         <Text className="font-serif text-lg text-ink">{m.name ?? m.email}</Text>
                         {m.isYou ? (
-                          <Text className="font-mono text-xs uppercase tracking-widest text-ink/40">
+                          <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                             You
                           </Text>
                         ) : null}
                       </View>
-                      <Text className="mt-0.5 text-sm text-ink/60">{m.email}</Text>
-                      <Text className="mt-0.5 text-xs text-ink/40">
+                      <Text className="mt-0.5 text-sm text-ink-subtle">{m.email}</Text>
+                      <Text className="mt-0.5 text-xs text-ink-subtle">
                         Joined {fmtDate(m.joinedAt)}
                       </Text>
                     </View>
@@ -293,12 +295,12 @@ export default function Team() {
                           disabled={busyUser === m.userId}
                           className="rounded-sm border border-ink/20 px-2 py-1 active:border-gold-deep disabled:opacity-50"
                         >
-                          <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
+                          <Text className="font-mono text-xs uppercase tracking-widest text-ink-muted">
                             {ROLE_LABELS[m.role] ?? m.role} ▾
                           </Text>
                         </Pressable>
                       ) : (
-                        <Text className="font-mono text-xs uppercase tracking-widest text-ink/40">
+                        <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                           {ROLE_LABELS[m.role] ?? m.role}
                         </Text>
                       )}
@@ -359,14 +361,14 @@ export default function Team() {
                     keyboardType="email-address"
                     autoCapitalize="none"
                     autoCorrect={false}
-                    className="mt-3 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink"
+                    className="mt-3 rounded-sm border border-field bg-cream-warm px-3 py-2 text-ink"
                   />
                   <Pressable
                     onPress={() => setRolePicker({ kind: 'invite' })}
                     className="mt-3 flex-row items-center justify-between rounded-sm border border-ink/15 bg-cream-warm px-3 py-2.5"
                   >
                     <Text className="text-ink">{ROLE_LABELS[inviteRole]}</Text>
-                    <Text className="font-mono text-xs uppercase tracking-widest text-ink/40">
+                    <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                       Role ▾
                     </Text>
                   </Pressable>
@@ -376,14 +378,14 @@ export default function Team() {
                     className="mt-3 self-start rounded-sm bg-ink px-4 py-2.5 active:bg-gold-deep disabled:opacity-50"
                   >
                     {sending ? (
-                      <ActivityIndicator color="#f4ede0" size="small" />
+                      <ActivityIndicator className="text-cream" size="small" />
                     ) : (
                       <Text className="text-sm font-medium text-cream">Send invite</Text>
                     )}
                   </Pressable>
                   {sentTo ? (
                     inviteDelivered ? (
-                      <Text className="mt-3 text-sm text-ink/60">Invite sent to {sentTo}.</Text>
+                      <Text className="mt-3 text-sm text-ink-subtle">Invite sent to {sentTo}.</Text>
                     ) : (
                       <View className="mt-3 rounded-sm border border-copper/40 bg-copper/5 px-4 py-3">
                         <Text className="text-sm text-ink">
@@ -418,12 +420,12 @@ export default function Team() {
                       >
                         <View className="flex-1">
                           <Text className="text-sm text-ink">{inv.email}</Text>
-                          <Text className="mt-0.5 text-xs text-ink/40">
+                          <Text className="mt-0.5 text-xs text-ink-subtle">
                             Sent {fmtDate(inv.createdAt)}
                           </Text>
                         </View>
                         {inv.declined ? (
-                          <Text className="font-mono text-xs uppercase tracking-widest text-ink/40">
+                          <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                             Declined
                           </Text>
                         ) : inv.expired ? (
@@ -431,7 +433,7 @@ export default function Team() {
                             Expired
                           </Text>
                         ) : (
-                          <Text className="text-xs text-ink/50">
+                          <Text className="text-xs text-ink-subtle">
                             Expires {fmtDate(inv.expiresAt)}
                           </Text>
                         )}
@@ -463,7 +465,7 @@ export default function Team() {
                   className="border-b border-ink/10 py-3"
                 >
                   <Text className="text-ink">{ROLE_LABELS[r]}</Text>
-                  <Text className="text-xs text-ink/50">{ROLE_BLURBS[r]}</Text>
+                  <Text className="text-xs text-ink-subtle">{ROLE_BLURBS[r]}</Text>
                 </Pressable>
               ))}
             </View>

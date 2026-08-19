@@ -97,17 +97,19 @@ export default function SwitchAccount() {
     <SafeAreaView className="flex-1 bg-cream" edges={['top']}>
       <ScrollView contentContainerClassName="px-6 pt-6 pb-16">
         <Pressable onPress={() => router.push('/more')}>
-          <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">← More</Text>
+          <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
+            ← More
+          </Text>
         </Pressable>
         <Text className="mt-3 font-serif text-3xl font-light text-ink">Switch workspace</Text>
-        <Text className="mt-3 text-sm text-ink/60">
+        <Text className="mt-3 text-sm text-ink-subtle">
           Pick which workspace to work in. Everything — invoices, contacts, the dashboard —
           re-scopes to your choice.
         </Text>
 
         {screen.state === 'loading' ? (
           <View className="mt-12 items-center">
-            <ActivityIndicator color="#0f1626" />
+            <ActivityIndicator className="text-ink" />
           </View>
         ) : screen.state === 'error' ? (
           <Text className="mt-8 text-sm text-oxblood">Couldn't load your workspaces.</Text>

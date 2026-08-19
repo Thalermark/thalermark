@@ -126,7 +126,7 @@ export default function Profile() {
       <ScrollView contentContainerClassName="px-6 pt-6 pb-16">
         <Text
           onPress={() => router.push('/more')}
-          className="font-mono text-xs uppercase tracking-widest text-ink/60"
+          className="font-mono text-xs uppercase tracking-widest text-ink-subtle"
         >
           ← More
         </Text>
@@ -134,16 +134,16 @@ export default function Profile() {
 
         {loading ? (
           <View className="mt-12 items-center">
-            <ActivityIndicator color="#0f1626" />
+            <ActivityIndicator className="text-ink" />
           </View>
         ) : (
           <>
             <View className="mt-8 rounded-sm border border-ink/15 bg-cream-warm p-6">
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 Your details
               </Text>
 
-              <Text className="mt-4 font-mono text-xs uppercase tracking-widest text-ink/60">
+              <Text className="mt-4 font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 Display name
               </Text>
               <TextInput
@@ -153,14 +153,14 @@ export default function Profile() {
                   setNameSaved(false);
                 }}
                 autoComplete="name"
-                className="mt-2 border-b border-ink/30 py-2 text-ink"
+                className="mt-2 border-b border-field py-2 text-ink"
               />
 
-              <Text className="mt-5 font-mono text-xs uppercase tracking-widest text-ink/60">
+              <Text className="mt-5 font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 Email
               </Text>
-              <Text className="mt-2 py-2 text-ink/60">{email}</Text>
-              <Text className="text-xs text-ink/50">Email can't be changed.</Text>
+              <Text className="mt-2 py-2 text-ink-subtle">{email}</Text>
+              <Text className="text-xs text-ink-subtle">Email can't be changed.</Text>
 
               {nameError ? (
                 <Text className="mt-3 font-mono text-xs uppercase tracking-widest text-oxblood">
@@ -175,24 +175,24 @@ export default function Profile() {
                 >
                   <Text className="text-sm font-medium text-cream">Save</Text>
                 </Pressable>
-                {nameSaved ? <Text className="text-sm text-ink/60">Saved.</Text> : null}
+                {nameSaved ? <Text className="text-sm text-ink-subtle">Saved.</Text> : null}
               </View>
             </View>
 
             <View className="mt-6 rounded-sm border border-ink/15 bg-cream-warm p-6">
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 Password
               </Text>
 
               {hasPassword ? (
                 <>
                   {pwDone ? (
-                    <Text className="mt-3 text-sm text-ink/70">
+                    <Text className="mt-3 text-sm text-ink-muted">
                       Password updated. Other devices have been signed out.
                     </Text>
                   ) : null}
 
-                  <Text className="mt-4 font-mono text-xs uppercase tracking-widest text-ink/60">
+                  <Text className="mt-4 font-mono text-xs uppercase tracking-widest text-ink-subtle">
                     Current password
                   </Text>
                   <TextInput
@@ -200,10 +200,10 @@ export default function Profile() {
                     onChangeText={setCurrentPassword}
                     secureTextEntry
                     autoComplete="current-password"
-                    className="mt-2 border-b border-ink/30 py-2 text-ink"
+                    className="mt-2 border-b border-field py-2 text-ink"
                   />
 
-                  <Text className="mt-4 font-mono text-xs uppercase tracking-widest text-ink/60">
+                  <Text className="mt-4 font-mono text-xs uppercase tracking-widest text-ink-subtle">
                     New password
                   </Text>
                   <TextInput
@@ -214,11 +214,11 @@ export default function Profile() {
                     }}
                     secureTextEntry
                     autoComplete="new-password"
-                    className="mt-2 border-b border-ink/30 py-2 text-ink"
+                    className="mt-2 border-b border-field py-2 text-ink"
                   />
                   <PasswordStrength password={newPassword} />
 
-                  <Text className="mt-4 font-mono text-xs uppercase tracking-widest text-ink/60">
+                  <Text className="mt-4 font-mono text-xs uppercase tracking-widest text-ink-subtle">
                     Confirm new password
                   </Text>
                   <TextInput
@@ -226,7 +226,7 @@ export default function Profile() {
                     onChangeText={setConfirmPassword}
                     secureTextEntry
                     autoComplete="new-password"
-                    className="mt-2 border-b border-ink/30 py-2 text-ink"
+                    className="mt-2 border-b border-field py-2 text-ink"
                   />
 
                   {pwError ? (
@@ -245,7 +245,7 @@ export default function Profile() {
                   </Pressable>
 
                   {resetSent ? (
-                    <Text className="mt-5 text-sm text-ink/70">
+                    <Text className="mt-5 text-sm text-ink-muted">
                       We've emailed a reset link to {email}. It expires in one hour.
                     </Text>
                   ) : (
@@ -257,7 +257,7 @@ export default function Profile() {
                   )}
                 </>
               ) : (
-                <Text className="mt-3 text-sm text-ink/70">
+                <Text className="mt-3 text-sm text-ink-muted">
                   You sign in with a connected account, so there's no password on this account to
                   change.
                 </Text>

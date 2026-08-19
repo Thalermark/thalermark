@@ -155,7 +155,7 @@ export default function EditContact() {
           <Text className="mt-12 px-6 text-sm text-oxblood">Couldn't load this contact.</Text>
         ) : (
           <View className="mt-12 items-center">
-            <ActivityIndicator color="#0f1626" />
+            <ActivityIndicator className="text-ink" />
           </View>
         )}
       </SafeAreaView>
@@ -170,7 +170,7 @@ export default function EditContact() {
       >
         <ScrollView contentContainerClassName="px-6 pt-6 pb-16" keyboardShouldPersistTaps="handled">
           <Pressable onPress={() => router.back()}>
-            <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
               ← {values.name || 'Contact'}
             </Text>
           </Pressable>
@@ -245,7 +245,7 @@ export default function EditContact() {
               className="mt-2 rounded-sm bg-ink px-4 py-3 active:bg-gold-deep disabled:opacity-50"
             >
               {submitting ? (
-                <ActivityIndicator color="#f4ede0" />
+                <ActivityIndicator className="text-cream" />
               ) : (
                 <Text className="text-center text-sm font-medium text-cream">Save changes</Text>
               )}
@@ -277,14 +277,14 @@ function Field({
 }) {
   return (
     <View>
-      <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">{label}</Text>
+      <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">{label}</Text>
       <TextInput
         value={value}
         onChangeText={onChangeText}
         keyboardType={keyboardType}
         autoCapitalize={autoCapitalize}
         multiline={multiline}
-        className="mt-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink"
+        className="mt-1 rounded-sm border border-field bg-cream-warm px-3 py-2 text-ink"
       />
       {error ? <Text className="mt-1 text-xs text-oxblood">{error}</Text> : null}
     </View>

@@ -55,7 +55,7 @@ export function TaxPolicyForm({
       >
         <ScrollView contentContainerClassName="px-6 pt-6 pb-16" keyboardShouldPersistTaps="handled">
           <Pressable onPress={onBack}>
-            <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
               ← {backLabel}
             </Text>
           </Pressable>
@@ -69,14 +69,14 @@ export function TaxPolicyForm({
 
           <View className="mt-8 gap-5">
             <View>
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 Name *
               </Text>
               <TextInput
                 value={values.name}
                 onChangeText={(t) => onChangeField('name', t)}
                 placeholder="General, Reduced, Exempt…"
-                className="mt-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink"
+                className="mt-1 rounded-sm border border-field bg-cream-warm px-3 py-2 text-ink"
               />
               {fieldErrors.name ? (
                 <Text className="mt-1 text-xs text-oxblood">{fieldErrors.name}</Text>
@@ -84,7 +84,7 @@ export function TaxPolicyForm({
             </View>
 
             <View>
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 Rate (%)
               </Text>
               <TextInput
@@ -92,12 +92,14 @@ export function TaxPolicyForm({
                 onChangeText={(t) => onChangeField('ratePct', t)}
                 keyboardType="decimal-pad"
                 placeholder="8.25"
-                className="mt-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink"
+                className="mt-1 rounded-sm border border-field bg-cream-warm px-3 py-2 text-ink"
               />
               {fieldErrors.ratePct ? (
                 <Text className="mt-1 text-xs text-oxblood">{fieldErrors.ratePct}</Text>
               ) : (
-                <Text className="mt-1 text-xs text-ink/50">A percentage, e.g. 8.25 for 8.25%.</Text>
+                <Text className="mt-1 text-xs text-ink-subtle">
+                  A percentage, e.g. 8.25 for 8.25%.
+                </Text>
               )}
             </View>
 
@@ -113,7 +115,7 @@ export function TaxPolicyForm({
               className="mt-2 rounded-sm bg-ink px-4 py-3 active:bg-gold-deep disabled:opacity-50"
             >
               {submitting ? (
-                <ActivityIndicator color="#f4ede0" />
+                <ActivityIndicator className="text-cream" />
               ) : (
                 <Text className="text-center text-sm font-medium text-cream">{submitLabel}</Text>
               )}

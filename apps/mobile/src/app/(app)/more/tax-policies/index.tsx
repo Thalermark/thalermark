@@ -68,7 +68,9 @@ export default function TaxPoliciesList() {
     <SafeAreaView className="flex-1 bg-cream" edges={['top']}>
       <View className="px-6 pt-6">
         <Pressable onPress={() => router.push('/more')}>
-          <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">← More</Text>
+          <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
+            ← More
+          </Text>
         </Pressable>
         <View className="mt-3 flex-row items-end justify-between">
           <Text className="font-serif text-3xl font-light text-ink">Tax policies</Text>
@@ -82,7 +84,7 @@ export default function TaxPoliciesList() {
           ) : null}
         </View>
         <Pressable onPress={() => setShowArchived((s) => !s)} className="mt-4 self-start">
-          <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+          <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
             {showArchived ? '← Hide archived' : 'Show archived'}
           </Text>
         </Pressable>
@@ -90,12 +92,12 @@ export default function TaxPoliciesList() {
 
       {list.state === 'loading' ? (
         <View className="mt-12 items-center">
-          <ActivityIndicator color="#0f1626" />
+          <ActivityIndicator className="text-ink" />
         </View>
       ) : list.state === 'error' ? (
         <Text className="mt-8 px-6 text-sm text-oxblood">Couldn't load tax policies.</Text>
       ) : list.rows.length === 0 ? (
-        <Text className="mt-8 px-6 text-ink/70">
+        <Text className="mt-8 px-6 text-ink-muted">
           {showArchived ? 'No tax policies yet.' : 'No active tax policies yet.'}
         </Text>
       ) : (
@@ -110,7 +112,7 @@ export default function TaxPoliciesList() {
           ListFooterComponent={
             loadingMore ? (
               <View className="py-4">
-                <ActivityIndicator color="#0f1626" />
+                <ActivityIndicator className="text-ink" />
               </View>
             ) : null
           }
@@ -128,12 +130,12 @@ export default function TaxPoliciesList() {
                     </Text>
                   ) : null}
                   {item.archivedAt ? (
-                    <Text className="rounded-sm border border-ink/15 px-1.5 py-0.5 font-mono text-[0.6rem] uppercase tracking-widest text-ink/50">
+                    <Text className="rounded-sm border border-ink/15 px-1.5 py-0.5 font-mono text-[0.6rem] uppercase tracking-widest text-ink-subtle">
                       Archived
                     </Text>
                   ) : null}
                 </View>
-                <Text className="mt-1 font-mono text-xs uppercase tracking-widest text-ink/50">
+                <Text className="mt-1 font-mono text-xs uppercase tracking-widest text-ink-subtle">
                   {rate(item.ratePct)}
                 </Text>
               </Pressable>
@@ -143,7 +145,7 @@ export default function TaxPoliciesList() {
                   disabled={busyId === item.id}
                   className="rounded-sm border border-ink/15 px-2 py-1 active:border-gold-deep disabled:opacity-50"
                 >
-                  <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+                  <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                     {item.archivedAt ? 'Restore' : 'Archive'}
                   </Text>
                 </Pressable>

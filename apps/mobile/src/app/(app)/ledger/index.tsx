@@ -60,7 +60,7 @@ export default function LedgerIndex() {
   if (phase === 'checking') {
     return (
       <SafeAreaView className="flex-1 items-center justify-center bg-cream" edges={['top']}>
-        <ActivityIndicator color="#0f1626" />
+        <ActivityIndicator className="text-ink" />
       </SafeAreaView>
     );
   }
@@ -92,7 +92,7 @@ function Airlock({
           <Text className="mt-3 font-serif text-2xl font-light text-ink">
             The accounting layer under your books.
           </Text>
-          <Text className="mt-4 text-sm leading-relaxed text-ink/70">
+          <Text className="mt-4 text-sm leading-relaxed text-ink-muted">
             This is for adjustments your accountant tells you to make — debits, credits, and journal
             entries. Most people never need it. Everything you do day-to-day — invoices, expenses,
             getting paid — lives in the plain part of the app; this is the one place the raw
@@ -105,9 +105,9 @@ function Airlock({
             <Ionicons
               name={dontShowAgain ? 'checkbox' : 'square-outline'}
               size={20}
-              color="#9a7b4f"
+              className="text-gold-deep"
             />
-            <Text className="text-sm text-ink/70">Don't show this again</Text>
+            <Text className="text-sm text-ink-muted">Don't show this again</Text>
           </Pressable>
           <View className="mt-6 flex-row items-center gap-3">
             <Pressable
@@ -117,7 +117,7 @@ function Airlock({
               <Text className="text-sm font-medium text-cream">Continue</Text>
             </Pressable>
             <Pressable onPress={() => router.back()} className="px-3 py-3">
-              <Text className="text-sm text-ink/60">Go back</Text>
+              <Text className="text-sm text-ink-subtle">Go back</Text>
             </Pressable>
           </View>
         </View>
@@ -175,12 +175,12 @@ function EntryList() {
 
       {list.state === 'loading' ? (
         <View className="mt-12 items-center">
-          <ActivityIndicator color="#0f1626" />
+          <ActivityIndicator className="text-ink" />
         </View>
       ) : list.state === 'error' ? (
         <Text className="mt-8 px-6 text-sm text-oxblood">Couldn't load this.</Text>
       ) : list.rows.length === 0 ? (
-        <Text className="mt-8 px-6 text-ink/70">No manual entries yet.</Text>
+        <Text className="mt-8 px-6 text-ink-muted">No manual entries yet.</Text>
       ) : (
         <FlatList
           data={list.rows}
@@ -193,7 +193,7 @@ function EntryList() {
           ListFooterComponent={
             loadingMore ? (
               <View className="py-4">
-                <ActivityIndicator color="#0f1626" />
+                <ActivityIndicator className="text-ink" />
               </View>
             ) : null
           }
@@ -209,11 +209,11 @@ function EntryList() {
                 <Text className="font-mono tabular-nums text-ink">{item.amount}</Text>
               </View>
               <View className="mt-1 flex-row items-center justify-between">
-                <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                   {item.postedAt.slice(0, 10)}
                 </Text>
                 {item.reversed ? (
-                  <Text className="font-mono text-xs uppercase tracking-widest text-ink/40">
+                  <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                     Reversed
                   </Text>
                 ) : null}

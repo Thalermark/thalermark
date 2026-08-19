@@ -46,13 +46,13 @@ export function DateField({
 
   return (
     <View>
-      <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">{label}</Text>
+      <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">{label}</Text>
       <View className="mt-1 flex-row items-center gap-2">
         <Pressable
           onPress={() => setShow(true)}
           className="flex-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2.5"
         >
-          <Text className={has ? 'text-ink' : 'text-ink/40'}>
+          <Text className={has ? 'text-ink' : 'text-ink-subtle'}>
             {has ? anchor.toLocaleDateString('en-US', DISPLAY) : 'None'}
           </Text>
         </Pressable>
@@ -64,7 +64,9 @@ export function DateField({
             }}
             className="px-2 py-2"
           >
-            <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">Clear</Text>
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
+              Clear
+            </Text>
           </Pressable>
         ) : null}
       </View>

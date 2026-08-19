@@ -83,7 +83,7 @@ export function ItemForm({
       >
         <ScrollView contentContainerClassName="px-6 pt-6 pb-16" keyboardShouldPersistTaps="handled">
           <Pressable onPress={onBack}>
-            <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
               ← {backLabel}
             </Text>
           </Pressable>
@@ -135,7 +135,9 @@ export function ItemForm({
             />
 
             <View>
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">Type</Text>
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
+                Type
+              </Text>
               <View className="mt-1 flex-row gap-2">
                 {TYPE_OPTIONS.map((o) => {
                   const selected = o.value === type;
@@ -145,14 +147,14 @@ export function ItemForm({
                       onPress={() => onSelectType(o.value)}
                       className={`rounded-sm border px-3 py-1.5 ${selected ? 'border-gold-deep bg-gold-deep/10' : 'border-ink/15 bg-cream'}`}
                     >
-                      <Text className={`text-xs ${selected ? 'text-gold-deep' : 'text-ink/70'}`}>
+                      <Text className={`text-xs ${selected ? 'text-gold-deep' : 'text-ink-muted'}`}>
                         {o.label}
                       </Text>
                     </Pressable>
                   );
                 })}
               </View>
-              <Text className="mt-1 text-xs text-ink/50">
+              <Text className="mt-1 text-xs text-ink-subtle">
                 Routes revenue on your books. Most trades & freelance work is a service.
               </Text>
             </View>
@@ -166,7 +168,7 @@ export function ItemForm({
               {taxable ? (
                 taxPolicies.length > 0 ? (
                   <View className="mt-3">
-                    <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                    <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                       Tax policy
                     </Text>
                     <View className="mt-2 flex-row flex-wrap gap-2">
@@ -179,7 +181,7 @@ export function ItemForm({
                             className={`rounded-sm border px-3 py-1.5 ${selected ? 'border-gold-deep bg-gold-deep/10' : 'border-ink/15 bg-cream'}`}
                           >
                             <Text
-                              className={`text-xs ${selected ? 'text-gold-deep' : 'text-ink/70'}`}
+                              className={`text-xs ${selected ? 'text-gold-deep' : 'text-ink-muted'}`}
                             >
                               {p.name} ({Number(p.ratePct)}%)
                             </Text>
@@ -189,7 +191,7 @@ export function ItemForm({
                     </View>
                   </View>
                 ) : (
-                  <Text className="mt-2 text-xs text-ink/50">
+                  <Text className="mt-2 text-xs text-ink-subtle">
                     No tax policies yet. Create one under More → Tax policies.
                   </Text>
                 )
@@ -202,7 +204,7 @@ export function ItemForm({
               className="mt-2 rounded-sm bg-ink px-4 py-3 active:bg-gold-deep disabled:opacity-50"
             >
               {submitting ? (
-                <ActivityIndicator color="#f4ede0" />
+                <ActivityIndicator className="text-cream" />
               ) : (
                 <Text className="text-center text-sm font-medium text-cream">{submitLabel}</Text>
               )}
@@ -235,17 +237,17 @@ function Field({
 }) {
   return (
     <View>
-      <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">{label}</Text>
+      <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">{label}</Text>
       <TextInput
         value={value}
         onChangeText={onChangeText}
         keyboardType={keyboardType}
         placeholder={placeholder}
         multiline={multiline}
-        className="mt-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink"
+        className="mt-1 rounded-sm border border-field bg-cream-warm px-3 py-2 text-ink"
       />
       {error ? <Text className="mt-1 text-xs text-oxblood">{error}</Text> : null}
-      {hint && !error ? <Text className="mt-1 text-xs text-ink/50">{hint}</Text> : null}
+      {hint && !error ? <Text className="mt-1 text-xs text-ink-subtle">{hint}</Text> : null}
     </View>
   );
 }

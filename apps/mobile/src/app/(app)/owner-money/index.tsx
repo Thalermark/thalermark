@@ -112,7 +112,7 @@ export default function OwnerMoneyList() {
           className="mx-6 mt-5 flex-row items-center justify-between gap-3 rounded-sm border border-ink/10 bg-cream-warm px-5 py-4 active:bg-cream"
         >
           <View className="flex-1">
-            <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
               Starting balances
             </Text>
             {openingBalance ? (
@@ -120,7 +120,7 @@ export default function OwnerMoneyList() {
                 {money(openingBalance.cash)} in the bank
               </Text>
             ) : (
-              <Text className="mt-1 text-sm text-ink/60">
+              <Text className="mt-1 text-sm text-ink-subtle">
                 Tell us what your business started with.
               </Text>
             )}
@@ -137,12 +137,12 @@ export default function OwnerMoneyList() {
 
       {list.state === 'loading' ? (
         <View className="mt-12 items-center">
-          <ActivityIndicator color="#0f1626" />
+          <ActivityIndicator className="text-ink" />
         </View>
       ) : list.state === 'error' ? (
         <Text className="mt-8 px-6 text-sm text-oxblood">Couldn't load this.</Text>
       ) : list.rows.length === 0 ? (
-        <Text className="mt-8 px-6 text-ink/70">
+        <Text className="mt-8 px-6 text-ink-muted">
           {kind ? 'Nothing matches this filter.' : 'Nothing recorded yet.'}
         </Text>
       ) : (
@@ -157,7 +157,7 @@ export default function OwnerMoneyList() {
           ListFooterComponent={
             loadingMore ? (
               <View className="py-4">
-                <ActivityIndicator color="#0f1626" />
+                <ActivityIndicator className="text-ink" />
               </View>
             ) : null
           }
@@ -180,11 +180,14 @@ export default function OwnerMoneyList() {
                   </Text>
                 </View>
                 <View className="mt-1 flex-row items-center justify-between">
-                  <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                  <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                     {item.occurredOn}
                   </Text>
                   {item.memo ? (
-                    <Text className="flex-1 pl-3 text-right text-xs text-ink/50" numberOfLines={1}>
+                    <Text
+                      className="flex-1 pl-3 text-right text-xs text-ink-subtle"
+                      numberOfLines={1}
+                    >
                       {item.memo}
                     </Text>
                   ) : null}

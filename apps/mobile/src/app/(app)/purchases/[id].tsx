@@ -189,14 +189,14 @@ export default function PurchaseDetail() {
       <ScrollView contentContainerClassName="px-6 pt-6 pb-16" keyboardShouldPersistTaps="handled">
         <Text
           onPress={() => router.push('/purchases')}
-          className="font-mono text-xs uppercase tracking-widest text-ink/60"
+          className="font-mono text-xs uppercase tracking-widest text-ink-subtle"
         >
           ← Big purchases
         </Text>
 
         {detail.state === 'loading' ? (
           <View className="mt-12 items-center">
-            <ActivityIndicator color="#0f1626" />
+            <ActivityIndicator className="text-ink" />
           </View>
         ) : detail.state === 'error' || !purchase ? (
           <Text className="mt-8 text-sm text-oxblood">Couldn't load this.</Text>
@@ -210,7 +210,7 @@ export default function PurchaseDetail() {
               <View className="mt-6 rounded-sm border border-ink/10 bg-cream-warm px-5 py-4">
                 {stillOwes ? (
                   <>
-                    <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                    <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                       You still owe
                     </Text>
                     <Text className="mt-1 font-mono text-2xl tabular-nums text-ink">
@@ -238,7 +238,7 @@ export default function PurchaseDetail() {
                 }
               />
               {purchase.schedule ? (
-                <Text className="text-right text-sm text-ink/60">
+                <Text className="text-right text-sm text-ink-subtle">
                   {spreadProgress(purchase.schedule)}
                 </Text>
               ) : null}
@@ -246,7 +246,7 @@ export default function PurchaseDetail() {
 
             {canWrite && financed && stillOwes ? (
               <View className="mt-8 rounded-sm border border-ink/10 bg-cream-warm p-5">
-                <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                   Record a payment
                 </Text>
                 {payError ? <Text className="mt-2 text-xs text-oxblood">{payError}</Text> : null}
@@ -264,7 +264,7 @@ export default function PurchaseDetail() {
                     className="mt-1 rounded-sm bg-ink px-4 py-3 active:bg-gold-deep disabled:opacity-50"
                   >
                     {acting ? (
-                      <ActivityIndicator color="#f4ede0" />
+                      <ActivityIndicator className="text-cream" />
                     ) : (
                       <Text className="text-center text-sm font-medium text-cream">
                         Record payment
@@ -298,7 +298,7 @@ export default function PurchaseDetail() {
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <View className="flex-row justify-between gap-4">
-      <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">{label}</Text>
+      <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">{label}</Text>
       <Text className="flex-1 text-right text-ink">{value}</Text>
     </View>
   );
@@ -316,14 +316,14 @@ function PayField({
   const isDate = label.startsWith('Date');
   return (
     <View>
-      <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">{label}</Text>
+      <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">{label}</Text>
       <TextInput
         value={value}
         onChangeText={onChangeText}
         keyboardType={isDate ? undefined : 'decimal-pad'}
         placeholder={isDate ? 'YYYY-MM-DD' : '0.00'}
         autoCapitalize="none"
-        className="mt-1 rounded-sm border border-ink/15 bg-cream px-3 py-2 text-ink"
+        className="mt-1 rounded-sm border border-field bg-cream px-3 py-2 text-ink"
       />
     </View>
   );

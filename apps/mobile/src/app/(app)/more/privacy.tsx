@@ -73,7 +73,7 @@ export default function PrivacySettings() {
       <ScrollView contentContainerClassName="px-6 pt-6 pb-16">
         <Text
           onPress={() => router.push('/more')}
-          className="font-mono text-xs uppercase tracking-widest text-ink/60"
+          className="font-mono text-xs uppercase tracking-widest text-ink-subtle"
         >
           ← More
         </Text>
@@ -81,23 +81,23 @@ export default function PrivacySettings() {
 
         {load.state === 'loading' ? (
           <View className="mt-12 items-center">
-            <ActivityIndicator color="#0f1626" />
+            <ActivityIndicator className="text-ink" />
           </View>
         ) : load.state === 'error' ? (
           <Text className="mt-8 text-sm text-oxblood">Couldn't load these settings.</Text>
         ) : (
           <View className="mt-8 rounded-sm border border-ink/15 bg-cream-warm p-6">
-            <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
               Usage data
             </Text>
-            <Text className="mt-2 text-sm text-ink/70">
+            <Text className="mt-2 text-sm text-ink-muted">
               Help us build a better product. With your consent we collect anonymous usage data —
               which features get used and where errors happen. We never collect personal or
               financial information: no names, amounts, contacts, or document contents.
             </Text>
 
             {disabled ? (
-              <Text className="mt-5 text-sm text-ink/70">
+              <Text className="mt-5 text-sm text-ink-muted">
                 Usage data is turned off for this installation by the server's TELEMETRY_DISABLED
                 setting. Nothing is collected, and there's nothing to change here.
               </Text>
@@ -127,7 +127,7 @@ export default function PrivacySettings() {
                     <Text className="text-sm font-medium text-cream">Save</Text>
                   </Pressable>
                   {saveStatus === 'saved' ? (
-                    <Text className="text-sm text-ink/60">Saved.</Text>
+                    <Text className="text-sm text-ink-subtle">Saved.</Text>
                   ) : saveStatus === 'error' ? (
                     <Text className="text-sm text-oxblood">Couldn't save.</Text>
                   ) : null}

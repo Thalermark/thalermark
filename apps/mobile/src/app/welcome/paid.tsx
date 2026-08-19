@@ -101,7 +101,7 @@ export default function WelcomePaid() {
 
         {load === 'loading' ? (
           <View className="mt-16 items-center">
-            <ActivityIndicator color="#0f1626" />
+            <ActivityIndicator className="text-ink" />
           </View>
         ) : load === 'error' ? (
           <Text className="mt-10 text-sm text-oxblood">Couldn't load your business.</Text>
@@ -113,7 +113,7 @@ export default function WelcomePaid() {
             <Text className="mt-3 font-serif text-3xl font-light text-ink">
               How do you want to get paid?
             </Text>
-            <Text className="mt-3 text-sm text-ink/70">
+            <Text className="mt-3 text-sm text-ink-muted">
               These print as instructions on your invoices — you mark them paid yourself when the
               money lands. To accept card payments online, connect Stripe later in Settings →
               Payments.
@@ -132,42 +132,42 @@ export default function WelcomePaid() {
                     value={checkPayableTo}
                     onChangeText={setCheckPayableTo}
                     placeholder={`Make payable to (defaults to ${companyName})`}
-                    placeholderTextColor="#0f162659"
-                    className="rounded-sm border border-ink/20 bg-cream px-3 py-2 text-ink"
+                    placeholderClassName="text-ink-subtle"
+                    className="rounded-sm border border-field bg-cream px-3 py-2 text-ink"
                   />
                   <TextInput
                     value={checkAddress}
                     onChangeText={setCheckAddress}
                     placeholder="Mailing address (optional)"
-                    placeholderTextColor="#0f162659"
+                    placeholderClassName="text-ink-subtle"
                     multiline
-                    className="min-h-[60px] rounded-sm border border-ink/20 bg-cream px-3 py-2 text-ink"
+                    className="min-h-[60px] rounded-sm border border-field bg-cream px-3 py-2 text-ink"
                   />
                 </View>
               ) : null}
 
-              <Text className="mt-5 font-mono text-xs uppercase tracking-widest text-ink/50">
+              <Text className="mt-5 font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 Venmo handle
               </Text>
               <TextInput
                 value={venmo}
                 onChangeText={setVenmo}
                 placeholder="@your-handle"
-                placeholderTextColor="#0f162659"
+                placeholderClassName="text-ink-subtle"
                 autoCapitalize="none"
-                className="mt-2 rounded-sm border border-ink/20 bg-cream px-3 py-2 text-ink"
+                className="mt-2 rounded-sm border border-field bg-cream px-3 py-2 text-ink"
               />
 
-              <Text className="mt-5 font-mono text-xs uppercase tracking-widest text-ink/50">
+              <Text className="mt-5 font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 Zelle email or phone
               </Text>
               <TextInput
                 value={zelle}
                 onChangeText={setZelle}
                 placeholder="you@example.com or 555-0100"
-                placeholderTextColor="#0f162659"
+                placeholderClassName="text-ink-subtle"
                 autoCapitalize="none"
-                className="mt-2 rounded-sm border border-ink/20 bg-cream px-3 py-2 text-ink"
+                className="mt-2 rounded-sm border border-field bg-cream px-3 py-2 text-ink"
               />
             </View>
 
@@ -179,7 +179,7 @@ export default function WelcomePaid() {
 
             <View className="mt-8 flex-row items-center justify-between">
               <Pressable onPress={() => router.replace('/welcome/brand')} className="px-2 py-2">
-                <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                   Skip for now
                 </Text>
               </Pressable>
@@ -189,7 +189,7 @@ export default function WelcomePaid() {
                 className="rounded-sm bg-ink px-6 py-3 active:bg-gold-deep disabled:opacity-50"
               >
                 {submitting ? (
-                  <ActivityIndicator color="#f4ede0" />
+                  <ActivityIndicator className="text-cream" />
                 ) : (
                   <Text className="text-sm font-medium text-cream">Continue</Text>
                 )}

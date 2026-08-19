@@ -105,7 +105,7 @@ export default function WelcomeBusiness() {
 
         {load === 'loading' ? (
           <View className="mt-16 items-center">
-            <ActivityIndicator color="#0f1626" />
+            <ActivityIndicator className="text-ink" />
           </View>
         ) : load === 'error' ? (
           <Text className="mt-10 text-sm text-oxblood">Couldn't load your business.</Text>
@@ -117,29 +117,29 @@ export default function WelcomeBusiness() {
             <Text className="mt-3 font-serif text-3xl font-light text-ink">
               Let's set up your business.
             </Text>
-            <Text className="mt-3 text-sm text-ink/70">
+            <Text className="mt-3 text-sm text-ink-muted">
               Just a couple of quick things, then you can send your first invoice. You can change
               any of this later in Settings.
             </Text>
 
             <View className="mt-8">
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 Business name
               </Text>
               <TextInput
                 value={name}
                 onChangeText={setName}
                 placeholder="e.g. Sunrise Landscaping"
-                placeholderTextColor="#0f162659"
-                className="mt-2 border-b border-ink/30 py-2 text-ink"
+                placeholderClassName="text-ink-subtle"
+                className="mt-2 border-b border-field py-2 text-ink"
               />
-              <Text className="mt-1 font-mono text-xs text-ink/50">
+              <Text className="mt-1 font-mono text-xs text-ink-subtle">
                 This is what your contacts see.
               </Text>
             </View>
 
             <View className="mt-8">
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 How's your business set up?
               </Text>
               <View className="mt-3 overflow-hidden rounded-sm border border-ink/10 bg-cream-warm">
@@ -162,30 +162,30 @@ export default function WelcomeBusiness() {
             </View>
 
             <View className="mt-8 border-t border-ink/10 pt-6">
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/40">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 Optional — shown on your invoices
               </Text>
-              <Text className="mt-5 font-mono text-xs uppercase tracking-widest text-ink/60">
+              <Text className="mt-5 font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 Business address
               </Text>
               <TextInput
                 value={address}
                 onChangeText={setAddress}
                 placeholder={'123 Main St\nSpringfield, IL 62704'}
-                placeholderTextColor="#0f162659"
+                placeholderClassName="text-ink-subtle"
                 multiline
-                className="mt-2 min-h-[72px] rounded-sm border border-ink/20 bg-cream px-3 py-2 text-ink"
+                className="mt-2 min-h-[72px] rounded-sm border border-field bg-cream px-3 py-2 text-ink"
               />
-              <Text className="mt-5 font-mono text-xs uppercase tracking-widest text-ink/60">
+              <Text className="mt-5 font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 Phone
               </Text>
               <TextInput
                 value={phone}
                 onChangeText={setPhone}
                 placeholder="(555) 123-4567"
-                placeholderTextColor="#0f162659"
+                placeholderClassName="text-ink-subtle"
                 keyboardType="phone-pad"
-                className="mt-2 rounded-sm border border-ink/20 bg-cream px-3 py-2 text-ink"
+                className="mt-2 rounded-sm border border-field bg-cream px-3 py-2 text-ink"
               />
             </View>
 
@@ -201,7 +201,7 @@ export default function WelcomeBusiness() {
               className="mt-8 rounded-sm bg-ink px-3 py-3 active:bg-gold-deep disabled:opacity-50"
             >
               {submitting ? (
-                <ActivityIndicator color="#f4ede0" />
+                <ActivityIndicator className="text-cream" />
               ) : (
                 <Text className="text-center text-sm font-medium text-cream">Continue</Text>
               )}

@@ -34,7 +34,7 @@ export function TaxRow({
                   onPress={() => onSelectPolicy(p.id)}
                   className={`rounded-sm border px-2.5 py-1 ${selected ? 'border-gold-deep bg-gold-deep/10' : 'border-ink/15 bg-cream'}`}
                 >
-                  <Text className={`text-xs ${selected ? 'text-gold-deep' : 'text-ink/70'}`}>
+                  <Text className={`text-xs ${selected ? 'text-gold-deep' : 'text-ink-muted'}`}>
                     {p.name} ({Number(p.ratePct)}%)
                   </Text>
                 </Pressable>
@@ -42,13 +42,13 @@ export function TaxRow({
             })}
           </View>
         ) : (
-          <Text className="mt-1 text-xs text-ink/50">
+          <Text className="mt-1 text-xs text-ink-subtle">
             No tax policies — add one under More → Tax policies.
           </Text>
         )
       ) : null}
       {taxable ? (
-        <Text className="mt-1 text-right font-mono text-[10px] tabular-nums text-ink/50">
+        <Text className="mt-1 text-right font-mono text-[10px] tabular-nums text-ink-subtle">
           +{lineTaxAmount} tax
         </Text>
       ) : null}

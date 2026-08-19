@@ -116,7 +116,9 @@ export default function ReportsHub() {
     <SafeAreaView className="flex-1 bg-cream" edges={['top']}>
       <ScrollView contentContainerClassName="px-6 pt-6 pb-16">
         <Pressable onPress={() => router.push('/more')}>
-          <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">← More</Text>
+          <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
+            ← More
+          </Text>
         </Pressable>
         <Text className="mt-3 font-serif text-3xl font-light text-ink">Reports</Text>
 
@@ -128,7 +130,7 @@ export default function ReportsHub() {
               className="rounded-sm border border-ink/10 bg-cream-warm p-5 active:bg-cream"
             >
               <Text className="font-serif text-lg text-ink">{r.title}</Text>
-              <Text className="mt-1 text-sm text-ink/60">{r.blurb}</Text>
+              <Text className="mt-1 text-sm text-ink-subtle">{r.blurb}</Text>
             </Pressable>
           ))}
         </View>

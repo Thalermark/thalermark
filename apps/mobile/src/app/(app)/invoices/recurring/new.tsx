@@ -372,7 +372,7 @@ export default function NewRecurring() {
       >
         <ScrollView contentContainerClassName="px-6 pt-6 pb-16" keyboardShouldPersistTaps="handled">
           <Pressable onPress={() => router.back()}>
-            <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
               ← Repeating
             </Text>
           </Pressable>
@@ -403,7 +403,7 @@ export default function NewRecurring() {
 
             {/* Cadence */}
             <View>
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 Frequency
               </Text>
               <View className="mt-2 flex-row gap-2">
@@ -415,7 +415,9 @@ export default function NewRecurring() {
                       frequency === f ? 'border-gold-deep bg-gold-deep/10' : 'border-ink/20'
                     }`}
                   >
-                    <Text className={`text-center ${frequency === f ? 'text-ink' : 'text-ink/70'}`}>
+                    <Text
+                      className={`text-center ${frequency === f ? 'text-ink' : 'text-ink-muted'}`}
+                    >
                       {FREQ_LABELS[f]}
                     </Text>
                   </Pressable>
@@ -459,7 +461,7 @@ export default function NewRecurring() {
 
             {/* Line items */}
             <View>
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 Line items
               </Text>
               {fieldErrors.lineItems ? (
@@ -476,41 +478,41 @@ export default function NewRecurring() {
                     <TypeRow value={row.type} onSelect={(t) => patchRow(i, { type: t })} />
                     <View className="mt-2 flex-row gap-2">
                       <View className="flex-1">
-                        <Text className="font-mono text-[10px] uppercase tracking-widest text-ink/50">
+                        <Text className="font-mono text-[10px] uppercase tracking-widest text-ink-subtle">
                           Qty
                         </Text>
                         <TextInput
                           value={row.quantity}
                           onChangeText={(t) => setRowQuantity(i, t)}
                           inputMode="decimal"
-                          className="mt-1 rounded-sm border border-ink/15 bg-cream px-2 py-2 text-right font-mono tabular-nums text-ink"
+                          className="mt-1 rounded-sm border border-field bg-cream px-2 py-2 text-right font-mono tabular-nums text-ink"
                         />
                       </View>
                       <View className="flex-1">
-                        <Text className="font-mono text-[10px] uppercase tracking-widest text-ink/50">
+                        <Text className="font-mono text-[10px] uppercase tracking-widest text-ink-subtle">
                           Unit price
                         </Text>
                         <TextInput
                           value={row.unitPrice}
                           onChangeText={(t) => setRowUnitPrice(i, t)}
                           inputMode="decimal"
-                          className="mt-1 rounded-sm border border-ink/15 bg-cream px-2 py-2 text-right font-mono tabular-nums text-ink"
+                          className="mt-1 rounded-sm border border-field bg-cream px-2 py-2 text-right font-mono tabular-nums text-ink"
                         />
                       </View>
                       <View className="flex-1">
-                        <Text className="font-mono text-[10px] uppercase tracking-widest text-ink/50">
+                        <Text className="font-mono text-[10px] uppercase tracking-widest text-ink-subtle">
                           Amount
                         </Text>
                         <TextInput
                           value={row.amount}
                           onChangeText={(t) => setRowAmount(i, t)}
                           inputMode="decimal"
-                          className="mt-1 rounded-sm border border-ink/15 bg-cream px-2 py-2 text-right font-mono tabular-nums text-ink"
+                          className="mt-1 rounded-sm border border-field bg-cream px-2 py-2 text-right font-mono tabular-nums text-ink"
                         />
                       </View>
                     </View>
                     <View className="mt-2">
-                      <Text className="font-mono text-[10px] uppercase tracking-widest text-ink/50">
+                      <Text className="font-mono text-[10px] uppercase tracking-widest text-ink-subtle">
                         Unit
                       </Text>
                       <TextInput
@@ -518,7 +520,7 @@ export default function NewRecurring() {
                         onChangeText={(t) => patchRow(i, { unitLabel: t })}
                         placeholder="hr, day, sq ft"
                         maxLength={50}
-                        className="mt-1 rounded-sm border border-ink/15 bg-cream px-2 py-2 text-ink"
+                        className="mt-1 rounded-sm border border-field bg-cream px-2 py-2 text-ink"
                       />
                     </View>
                     <TaxRow
@@ -553,12 +555,14 @@ export default function NewRecurring() {
             </View>
 
             <View>
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">Notes</Text>
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
+                Notes
+              </Text>
               <TextInput
                 value={notes}
                 onChangeText={setNotes}
                 multiline
-                className="mt-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink"
+                className="mt-1 rounded-sm border border-field bg-cream-warm px-3 py-2 text-ink"
               />
             </View>
 
@@ -572,7 +576,7 @@ export default function NewRecurring() {
               className="mt-2 rounded-sm bg-ink px-4 py-3 active:bg-gold-deep disabled:opacity-50"
             >
               {submitting ? (
-                <ActivityIndicator color="#f4ede0" />
+                <ActivityIndicator className="text-cream" />
               ) : (
                 <Text className="text-center text-sm font-medium text-cream">Create schedule</Text>
               )}
@@ -601,13 +605,13 @@ function LabeledInput({
 }) {
   return (
     <View>
-      <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">{label}</Text>
+      <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">{label}</Text>
       <TextInput
         value={value}
         onChangeText={onChangeText}
         autoCapitalize={autoCapitalize}
         keyboardType={keyboardType}
-        className="mt-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink"
+        className="mt-1 rounded-sm border border-field bg-cream-warm px-3 py-2 text-ink"
       />
       {error ? <Text className="mt-1 text-xs text-oxblood">{error}</Text> : null}
     </View>
@@ -626,7 +630,7 @@ function TotalRow({
   return (
     <View className="flex-row justify-between">
       <Text
-        className={`font-mono text-xs uppercase tracking-widest ${emphasize ? 'text-ink/70' : 'text-ink/50'}`}
+        className={`font-mono text-xs uppercase tracking-widest ${emphasize ? 'text-ink-muted' : 'text-ink-subtle'}`}
       >
         {label}
       </Text>

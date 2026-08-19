@@ -328,10 +328,12 @@ export function AuditHistory({
   return (
     <View className={showEntity ? '' : 'mt-12 border-t border-ink/10 pt-8'}>
       {showEntity ? null : (
-        <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">History</Text>
+        <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">History</Text>
       )}
       {events.length === 0 ? (
-        <Text className={`text-sm text-ink/50 ${showEntity ? '' : 'mt-3'}`}>No history yet.</Text>
+        <Text className={`text-sm text-ink-subtle ${showEntity ? '' : 'mt-3'}`}>
+          No history yet.
+        </Text>
       ) : (
         <View className={showEntity ? 'gap-3' : 'mt-4 gap-3'}>
           {events.map((ev) => (
@@ -369,14 +371,14 @@ function AuditRow({ event, showEntity }: { event: AuditEvent; showEntity: boolea
           ) : null}
           <Text className="font-medium">{event.actorName}</Text> {actionLabel(event.action)}
         </Text>
-        <Text className="font-mono text-xs uppercase tracking-widest text-ink/40">
+        <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
           {formatRelative(event.createdAt)}
         </Text>
       </View>
       {lines.length > 0 ? (
         <View className="mt-1.5">
           <Pressable onPress={() => setExpanded((v) => !v)}>
-            <Text className="font-mono text-xs uppercase tracking-widest text-ink/40">
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
               {expanded ? '▾ ' : '▸ '}
               {lines.length} change{lines.length === 1 ? '' : 's'}
             </Text>

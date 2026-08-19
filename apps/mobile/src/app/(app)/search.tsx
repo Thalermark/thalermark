@@ -50,38 +50,38 @@ export default function SearchScreen() {
     <SafeAreaView className="flex-1 bg-cream" edges={['top']}>
       <View className="flex-row items-center gap-3 px-6 pt-6">
         <Pressable onPress={() => router.back()} className="-ml-2 p-2" accessibilityLabel="Back">
-          <Ionicons name="chevron-back" size={22} color="#0f1626" />
+          <Ionicons name="chevron-back" size={22} className="text-ink" />
         </Pressable>
         <TextInput
           value={text}
           onChangeText={onChangeText}
           placeholder="Search invoices, contacts, expenses…"
-          placeholderTextColor="#0f162659"
+          placeholderClassName="text-ink-subtle"
           autoFocus
           autoCorrect={false}
           autoCapitalize="none"
           returnKeyType="search"
           maxLength={200}
-          className="flex-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2.5 text-ink"
+          className="flex-1 rounded-sm border border-field bg-cream-warm px-3 py-2.5 text-ink"
         />
       </View>
 
       <ScrollView contentContainerClassName="px-6 pt-6 pb-16" keyboardShouldPersistTaps="handled">
         {!searching ? (
-          <Text className="text-sm text-ink/60">
+          <Text className="text-sm text-ink-subtle">
             Type anything — a customer's name, an invoice number, an amount, a note on a receipt.
           </Text>
         ) : loading ? (
-          <ActivityIndicator color="#9a7d3f" />
+          <ActivityIndicator className="text-gold-deep" />
         ) : results.length === 0 ? (
-          <Text className="text-sm text-ink/60">
+          <Text className="text-sm text-ink-subtle">
             Nothing matched “{text.trim()}”. Search covers invoices, estimates, contacts, expenses,
             bills and jobs — names, numbers, amounts and notes.
           </Text>
         ) : (
           groups.map((group) => (
             <View key={group.type} className="mb-8">
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 {group.label}
               </Text>
               <View className="mt-2 overflow-hidden rounded-sm border border-ink/15">
@@ -100,11 +100,11 @@ export default function SearchScreen() {
                         <Text className="flex-1 text-ink" numberOfLines={1}>
                           {hit.title}
                           {hit.subtitle ? (
-                            <Text className="text-ink/50"> · {hit.subtitle}</Text>
+                            <Text className="text-ink-subtle"> · {hit.subtitle}</Text>
                           ) : null}
                         </Text>
                         {hit.amount ? (
-                          <Text className="font-mono text-xs text-ink/70">
+                          <Text className="font-mono text-xs text-ink-muted">
                             {formatMoney(hit.amount)}
                           </Text>
                         ) : null}
@@ -112,12 +112,12 @@ export default function SearchScreen() {
                       {hit.status || hit.occurredOn ? (
                         <View className="mt-1 flex-row items-center gap-3">
                           {hit.status ? (
-                            <Text className="font-mono text-[10px] uppercase tracking-widest text-ink/40">
+                            <Text className="font-mono text-[10px] uppercase tracking-widest text-ink-subtle">
                               {hit.status}
                             </Text>
                           ) : null}
                           {hit.occurredOn ? (
-                            <Text className="font-mono text-[10px] text-ink/40">
+                            <Text className="font-mono text-[10px] text-ink-subtle">
                               {hit.occurredOn}
                             </Text>
                           ) : null}

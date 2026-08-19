@@ -167,11 +167,13 @@ export default function AccountsScreen() {
     <SafeAreaView className="flex-1 bg-cream" edges={['top']}>
       <ScrollView contentContainerClassName="px-6 pt-6 pb-16">
         <Pressable onPress={() => router.push('/more')}>
-          <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">← More</Text>
+          <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
+            ← More
+          </Text>
         </Pressable>
 
         <Text className="mt-3 font-serif text-3xl font-light text-ink">Accounts</Text>
-        <Text className="mt-2 text-sm text-ink/60">
+        <Text className="mt-2 text-sm text-ink-subtle">
           Every place your money sits — the bank account you get paid into, the card you fill the
           truck with, the cash box.
         </Text>
@@ -191,14 +193,16 @@ export default function AccountsScreen() {
 
         {adding ? (
           <View className="mt-4 rounded-sm border border-ink/15 bg-cream-warm p-4">
-            <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">Name</Text>
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
+              Name
+            </Text>
             <TextInput
               value={newName}
               onChangeText={setNewName}
               placeholder="Chase Business Checking"
-              className="mt-2 rounded-sm border border-ink/15 bg-cream px-3 py-2.5 text-ink"
+              className="mt-2 rounded-sm border border-field bg-cream px-3 py-2.5 text-ink"
             />
-            <Text className="mt-4 font-mono text-xs uppercase tracking-widest text-ink/60">
+            <Text className="mt-4 font-mono text-xs uppercase tracking-widest text-ink-subtle">
               What kind of account is it?
             </Text>
             <View className="mt-2 gap-2">
@@ -213,7 +217,7 @@ export default function AccountsScreen() {
                   }`}
                 >
                   <Text className="text-sm text-ink">{k.label}</Text>
-                  <Text className="text-xs text-ink/50">{k.hint}</Text>
+                  <Text className="text-xs text-ink-subtle">{k.hint}</Text>
                 </Pressable>
               ))}
             </View>
@@ -228,24 +232,24 @@ export default function AccountsScreen() {
               No starting-balance field, matching web: two ways to inject a
               starting figure would be two sources of truth for the same equity.
             */}
-            <Text className="mt-3 text-xs text-ink/50">
+            <Text className="mt-3 text-xs text-ink-subtle">
               Already got money in this account? Add it afterwards under My Money.
             </Text>
           </View>
         ) : null}
 
         <Pressable onPress={() => setShowArchived((s) => !s)} className="mt-5 self-start">
-          <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+          <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
             {showArchived ? '← Hide archived' : 'Show archived'}
           </Text>
         </Pressable>
 
         {accounts === null ? (
           <View className="mt-10 items-center">
-            <ActivityIndicator color="#0f1626" />
+            <ActivityIndicator className="text-ink" />
           </View>
         ) : accounts.length === 0 ? (
-          <Text className="mt-8 text-ink/70">No accounts yet.</Text>
+          <Text className="mt-8 text-ink-muted">No accounts yet.</Text>
         ) : (
           <View className="mt-5 overflow-hidden rounded-sm border border-ink/10">
             {accounts.map((a, i) => (
@@ -258,7 +262,7 @@ export default function AccountsScreen() {
                     <TextInput
                       value={renameValue}
                       onChangeText={setRenameValue}
-                      className="rounded-sm border border-ink/15 bg-cream px-3 py-2 text-ink"
+                      className="rounded-sm border border-field bg-cream px-3 py-2 text-ink"
                     />
                     <View className="mt-3 flex-row gap-2">
                       <Pressable
@@ -272,7 +276,7 @@ export default function AccountsScreen() {
                         onPress={() => setRenamingId(null)}
                         className="rounded-sm border border-ink/20 px-3 py-1.5"
                       >
-                        <Text className="text-sm text-ink/70">Cancel</Text>
+                        <Text className="text-sm text-ink-muted">Cancel</Text>
                       </Pressable>
                     </View>
                   </View>
@@ -281,12 +285,12 @@ export default function AccountsScreen() {
                     <View className="flex-row flex-wrap items-center gap-2">
                       <Text className="font-serif text-lg text-ink">{a.name}</Text>
                       {!a.isActive ? (
-                        <Text className="rounded-sm border border-ink/15 px-1.5 py-0.5 font-mono text-[0.6rem] uppercase tracking-widest text-ink/50">
+                        <Text className="rounded-sm border border-ink/15 px-1.5 py-0.5 font-mono text-[0.6rem] uppercase tracking-widest text-ink-subtle">
                           Archived
                         </Text>
                       ) : null}
                     </View>
-                    <Text className="mt-0.5 text-xs text-ink/50">
+                    <Text className="mt-0.5 text-xs text-ink-subtle">
                       {KIND_LABEL[a.kind ?? ''] ?? ''}
                     </Text>
                     <Text className="mt-1 font-mono text-sm text-ink/80">
@@ -301,7 +305,7 @@ export default function AccountsScreen() {
                           }}
                           className="rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep"
                         >
-                          <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
+                          <Text className="font-mono text-xs uppercase tracking-widest text-ink-muted">
                             Rename
                           </Text>
                         </Pressable>
@@ -310,7 +314,7 @@ export default function AccountsScreen() {
                           disabled={busy}
                           className="rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep disabled:opacity-50"
                         >
-                          <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
+                          <Text className="font-mono text-xs uppercase tracking-widest text-ink-muted">
                             {a.isActive ? 'Archive' : 'Restore'}
                           </Text>
                         </Pressable>
@@ -324,7 +328,7 @@ export default function AccountsScreen() {
         )}
 
         {accounts && accounts.length > 0 ? (
-          <Text className="mt-4 text-xs text-ink/50">
+          <Text className="mt-4 text-xs text-ink-subtle">
             Archiving takes an account out of the pickers. It stays on your books with whatever
             balance it holds — nothing you've already recorded changes.
           </Text>

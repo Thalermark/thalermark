@@ -124,7 +124,7 @@ export default function NewOwnerMoney() {
       >
         <ScrollView contentContainerClassName="px-6 pt-6 pb-16" keyboardShouldPersistTaps="handled">
           <Pressable onPress={() => router.back()}>
-            <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
               ← Investments
             </Text>
           </Pressable>
@@ -138,7 +138,7 @@ export default function NewOwnerMoney() {
 
           <View className="mt-8 gap-5">
             <View>
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 What happened? *
               </Text>
               <View className="mt-2 gap-2">
@@ -160,7 +160,7 @@ export default function NewOwnerMoney() {
             </View>
 
             <View>
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 Amount *
               </Text>
               <TextInput
@@ -168,7 +168,7 @@ export default function NewOwnerMoney() {
                 onChangeText={setAmount}
                 keyboardType="decimal-pad"
                 placeholder="0.00"
-                className="mt-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink"
+                className="mt-1 rounded-sm border border-field bg-cream-warm px-3 py-2 text-ink"
               />
               {fieldErrors.amount ? (
                 <Text className="mt-1 text-xs text-oxblood">{fieldErrors.amount}</Text>
@@ -190,12 +190,14 @@ export default function NewOwnerMoney() {
             />
 
             <View>
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">Note</Text>
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
+                Note
+              </Text>
               <TextInput
                 value={memo}
                 onChangeText={setMemo}
                 multiline
-                className="mt-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink"
+                className="mt-1 rounded-sm border border-field bg-cream-warm px-3 py-2 text-ink"
               />
             </View>
 
@@ -209,7 +211,7 @@ export default function NewOwnerMoney() {
               className="mt-2 rounded-sm bg-ink px-4 py-3 active:bg-gold-deep disabled:opacity-50"
             >
               {submitting ? (
-                <ActivityIndicator color="#f4ede0" />
+                <ActivityIndicator className="text-cream" />
               ) : (
                 <Text className="text-center text-sm font-medium text-cream">Save</Text>
               )}

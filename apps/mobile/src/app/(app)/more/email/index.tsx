@@ -102,19 +102,19 @@ export default function EmailSettings() {
       <ScrollView contentContainerClassName="px-6 pt-6 pb-16" keyboardShouldPersistTaps="handled">
         <Text
           onPress={() => router.push('/more')}
-          className="font-mono text-xs uppercase tracking-widest text-ink/60"
+          className="font-mono text-xs uppercase tracking-widest text-ink-subtle"
         >
           ← More
         </Text>
         <Text className="mt-3 font-serif text-3xl font-light text-ink">Email templates</Text>
-        <Text className="mt-3 text-sm text-ink/70">
+        <Text className="mt-3 text-sm text-ink-muted">
           Customize the wording your contacts see. The Thalermark layout, buttons, and footer stay
           the same — you edit the subject and message.
         </Text>
 
         {load.state === 'loading' ? (
           <View className="mt-12 items-center">
-            <ActivityIndicator color="#0f1626" />
+            <ActivityIndicator className="text-ink" />
           </View>
         ) : load.state === 'error' || !company ? (
           <Text className="mt-8 text-sm text-oxblood">Couldn't load these settings.</Text>
@@ -130,7 +130,7 @@ export default function EmailSettings() {
                       </Text>
                       <Text
                         className={`mt-1 font-mono text-[0.65rem] uppercase tracking-widest ${
-                          tpl.isCustomized ? 'text-gold-deep' : 'text-ink/40'
+                          tpl.isCustomized ? 'text-gold-deep' : 'text-ink-subtle'
                         }`}
                       >
                         {tpl.isCustomized ? 'Customized' : 'Default'}
@@ -154,7 +154,7 @@ export default function EmailSettings() {
                   {previewType === tpl.type ? (
                     <View className="border-t border-ink/10 bg-cream p-4">
                       {previewState === 'loading' ? (
-                        <ActivityIndicator color="#0f1626" />
+                        <ActivityIndicator className="text-ink" />
                       ) : previewState === 'error' ? (
                         <Text className="text-sm text-oxblood">Couldn't load preview.</Text>
                       ) : (

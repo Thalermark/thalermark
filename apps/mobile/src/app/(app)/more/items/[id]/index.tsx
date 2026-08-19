@@ -125,12 +125,14 @@ export default function ItemDetail() {
     <SafeAreaView className="flex-1 bg-cream" edges={['top']}>
       <ScrollView contentContainerClassName="px-6 pt-6 pb-16">
         <Pressable onPress={() => router.push('/more/items')}>
-          <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">← Items</Text>
+          <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
+            ← Items
+          </Text>
         </Pressable>
 
         {detail.state === 'loading' ? (
           <View className="mt-12 items-center">
-            <ActivityIndicator color="#0f1626" />
+            <ActivityIndicator className="text-ink" />
           </View>
         ) : detail.state === 'error' || !item ? (
           <Text className="mt-8 text-sm text-oxblood">Couldn't load this item.</Text>
@@ -140,7 +142,7 @@ export default function ItemDetail() {
               <View className="flex-1 flex-row flex-wrap items-center gap-2">
                 <Text className="font-serif text-3xl font-light text-ink">{item.name}</Text>
                 {archived ? (
-                  <Text className="rounded-sm border border-ink/15 px-1.5 py-0.5 font-mono text-[0.6rem] uppercase tracking-widest text-ink/50">
+                  <Text className="rounded-sm border border-ink/15 px-1.5 py-0.5 font-mono text-[0.6rem] uppercase tracking-widest text-ink-subtle">
                     Archived
                   </Text>
                 ) : null}
@@ -153,7 +155,7 @@ export default function ItemDetail() {
                   onPress={() => router.push(`/more/items/${id}/edit`)}
                   className="rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep"
                 >
-                  <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
+                  <Text className="font-mono text-xs uppercase tracking-widest text-ink-muted">
                     Edit
                   </Text>
                 </Pressable>
@@ -162,7 +164,7 @@ export default function ItemDetail() {
                   disabled={busy}
                   className="rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep disabled:opacity-50"
                 >
-                  <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
+                  <Text className="font-mono text-xs uppercase tracking-widest text-ink-muted">
                     {archived ? 'Restore' : 'Archive'}
                   </Text>
                 </Pressable>
@@ -170,7 +172,7 @@ export default function ItemDetail() {
             ) : null}
 
             {archived ? (
-              <Text className="mt-6 rounded-sm border border-ink/15 bg-cream-warm px-4 py-3 text-sm text-ink/70">
+              <Text className="mt-6 rounded-sm border border-ink/15 bg-cream-warm px-4 py-3 text-sm text-ink-muted">
                 This item is archived — it won't appear in the line-item picker. Its sales history
                 is kept.
               </Text>
@@ -202,7 +204,7 @@ export default function ItemDetail() {
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
     <View>
-      <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">{label}</Text>
+      <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">{label}</Text>
       <Text className="mt-1 text-ink">{value}</Text>
     </View>
   );

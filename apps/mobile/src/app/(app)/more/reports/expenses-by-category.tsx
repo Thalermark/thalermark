@@ -40,7 +40,9 @@ export default function ExpensesByCategoryReport() {
           const total = Number(d.totalExpenses);
           const rows = [...d.expenses].sort((a, b) => Number(b.amount) - Number(a.amount));
           if (rows.length === 0) {
-            return <Text className="mt-8 text-ink/70">No expenses recorded in this period.</Text>;
+            return (
+              <Text className="mt-8 text-ink-muted">No expenses recorded in this period.</Text>
+            );
           }
           return (
             <ReportCard>
@@ -50,7 +52,7 @@ export default function ExpensesByCategoryReport() {
                     <View className="flex-1 pr-3">
                       <Text className="text-ink/80">{e.name}</Text>
                       {e.taxMapping ? (
-                        <Text className="font-mono text-xs text-ink/40">{e.taxMapping}</Text>
+                        <Text className="font-mono text-xs text-ink-subtle">{e.taxMapping}</Text>
                       ) : null}
                     </View>
                     <Text className="font-mono text-sm tabular-nums text-ink">{fmt(e.amount)}</Text>

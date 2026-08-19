@@ -173,13 +173,13 @@ export default function MileageList() {
               {summary ? fmt(summary.amount) : '—'}
             </Text>
             {summary ? (
-              <Text className="mt-1 text-sm text-ink/60">
+              <Text className="mt-1 text-sm text-ink-subtle">
                 {showMiles(summary.miles)} miles in {summary.year}
               </Text>
             ) : null}
 
             {summary && Number(summary.unratedMiles) > 0 ? (
-              <Text className="mt-3 text-sm text-ink/70">
+              <Text className="mt-3 text-sm text-ink-muted">
                 {showMiles(summary.unratedMiles)} miles are on dates the IRS hasn't set a rate for
                 yet, so they're not counted above.
               </Text>
@@ -192,20 +192,20 @@ export default function MileageList() {
                   onChangeText={setTripDate}
                   placeholder="YYYY-MM-DD"
                   autoCapitalize="none"
-                  className="rounded-sm border border-ink/15 px-3 py-2 text-ink"
+                  className="rounded-sm border border-field px-3 py-2 text-ink"
                 />
                 <TextInput
                   value={miles}
                   onChangeText={setMiles}
                   placeholder="Miles, e.g. 24.5"
                   keyboardType="decimal-pad"
-                  className="mt-3 rounded-sm border border-ink/15 px-3 py-2 text-ink"
+                  className="mt-3 rounded-sm border border-field px-3 py-2 text-ink"
                 />
                 <TextInput
                   value={purpose}
                   onChangeText={setPurpose}
                   placeholder="What for, e.g. Drove to the Miller place"
-                  className="mt-3 rounded-sm border border-ink/15 px-3 py-2 text-ink"
+                  className="mt-3 rounded-sm border border-field px-3 py-2 text-ink"
                 />
                 {/* Chips rather than a native picker: a workspace has one or two
                     vehicles, and a modal for two options is friction in a truck.
@@ -237,7 +237,7 @@ export default function MileageList() {
                 </Pressable>
                 {error ? <Text className="mt-3 text-sm text-red-700">{error}</Text> : null}
                 {todayRate ? (
-                  <Text className="mt-3 text-xs text-ink/50">
+                  <Text className="mt-3 text-xs text-ink-subtle">
                     Today's rate is {Number(todayRate).toFixed(3).replace(/0$/, '')} per mile.
                   </Text>
                 ) : null}
@@ -251,7 +251,7 @@ export default function MileageList() {
             <View className="mx-6 mt-3 flex-row items-center justify-between rounded-sm border border-ink/10 bg-white px-4 py-3">
               <View className="mr-3 flex-1">
                 <Text className="font-serif text-lg text-ink">{item.purpose}</Text>
-                <Text className="mt-1 text-xs text-ink/50">
+                <Text className="mt-1 text-xs text-ink-subtle">
                   {item.tripDate} · {showMiles(item.miles)} miles
                   {vehicles.find((v) => v.id === item.vehicleId)?.label
                     ? ` · ${vehicles.find((v) => v.id === item.vehicleId)?.label}`
@@ -283,9 +283,9 @@ export default function MileageList() {
           list.state === 'loading' ? (
             <ActivityIndicator className="mt-8" />
           ) : list.state === 'error' ? (
-            <Text className="mt-8 px-6 text-ink/60">Couldn't load your trips.</Text>
+            <Text className="mt-8 px-6 text-ink-subtle">Couldn't load your trips.</Text>
           ) : (
-            <Text className="mt-8 px-6 text-ink/60">No trips logged yet.</Text>
+            <Text className="mt-8 px-6 text-ink-subtle">No trips logged yet.</Text>
           )
         }
         ListFooterComponent={

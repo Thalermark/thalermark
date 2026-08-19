@@ -186,14 +186,14 @@ export default function RecurringDetail() {
       <ScrollView contentContainerClassName="px-6 pt-6 pb-16">
         <Text
           onPress={() => router.push('/invoices/recurring')}
-          className="font-mono text-xs uppercase tracking-widest text-ink/60"
+          className="font-mono text-xs uppercase tracking-widest text-ink-subtle"
         >
           ← Repeating
         </Text>
 
         {detail.state === 'loading' ? (
           <View className="mt-12 items-center">
-            <ActivityIndicator color="#0f1626" />
+            <ActivityIndicator className="text-ink" />
           </View>
         ) : detail.state === 'error' || !s ? (
           <Text className="mt-8 text-sm text-oxblood">Couldn't load this schedule.</Text>
@@ -209,12 +209,12 @@ export default function RecurringDetail() {
                     onPress={() => router.push(`/invoices/recurring/${id}/edit`)}
                     className="rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep"
                   >
-                    <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
+                    <Text className="font-mono text-xs uppercase tracking-widest text-ink-muted">
                       Edit
                     </Text>
                   </Pressable>
                 ) : null}
-                <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                   {s.status}
                 </Text>
               </View>
@@ -302,12 +302,12 @@ export default function RecurringDetail() {
                 <View key={li.position} className="border-b border-ink/10 px-4 py-3">
                   <Text className="text-ink">{li.description}</Text>
                   {li.taxable ? (
-                    <Text className="mt-0.5 text-[10px] text-ink/40">
+                    <Text className="mt-0.5 text-[10px] text-ink-subtle">
                       Taxable · {Number(li.taxRatePct)}%
                     </Text>
                   ) : null}
                   <View className="mt-1 flex-row justify-between">
-                    <Text className="font-mono text-xs text-ink/50">
+                    <Text className="font-mono text-xs text-ink-subtle">
                       {formatQuantity(li.quantity)}
                       {li.unitLabel ? ` ${li.unitLabel}` : ''} × {formatUnitPrice(li.unitPrice)}
                     </Text>
@@ -328,7 +328,7 @@ export default function RecurringDetail() {
 
             {s.notes ? (
               <View className="mt-6">
-                <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                   Notes
                 </Text>
                 <Text className="mt-1 text-ink/80">{s.notes}</Text>
@@ -356,7 +356,7 @@ function Meta({
 }) {
   return (
     <View className="flex-row justify-between">
-      <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">{label}</Text>
+      <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">{label}</Text>
       <Text
         className={`text-ink ${mono ? 'font-mono tabular-nums' : ''} ${emphasize ? 'text-lg' : ''}`}
       >

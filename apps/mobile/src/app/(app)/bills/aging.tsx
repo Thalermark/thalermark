@@ -87,13 +87,15 @@ export default function BillsAging() {
     <SafeAreaView className="flex-1 bg-cream" edges={['top']}>
       <ScrollView contentContainerClassName="px-6 pt-6 pb-16">
         <Pressable onPress={() => router.push('/bills')}>
-          <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">← Bills</Text>
+          <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
+            ← Bills
+          </Text>
         </Pressable>
 
         <View className="mt-3 flex-row items-end justify-between">
           <Text className="font-serif text-3xl font-light text-ink">Who to pay first</Text>
           {aging ? (
-            <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
               as of {aging.asOf}
             </Text>
           ) : null}
@@ -101,7 +103,7 @@ export default function BillsAging() {
 
         {view.state === 'loading' ? (
           <View className="mt-12 items-center">
-            <ActivityIndicator color="#0f1626" />
+            <ActivityIndicator className="text-ink" />
           </View>
         ) : view.state === 'error' || !aging ? (
           <Text className="mt-8 text-sm text-oxblood">Couldn't load the aging report.</Text>
@@ -113,7 +115,7 @@ export default function BillsAging() {
                   key={b.key}
                   className="flex-row items-center justify-between rounded-sm border border-ink/10 bg-cream-warm px-4 py-3"
                 >
-                  <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                  <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                     {b.label}
                   </Text>
                   <Text className="font-serif text-lg font-light tabular-nums text-ink">
@@ -122,7 +124,7 @@ export default function BillsAging() {
                 </View>
               ))}
               <View className="flex-row items-center justify-between rounded-sm border border-gold-deep/30 bg-gold-deep/5 px-4 py-3">
-                <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                   Total
                 </Text>
                 <Text className="font-serif text-lg font-light tabular-nums text-ink">
@@ -132,7 +134,7 @@ export default function BillsAging() {
             </View>
 
             {aging.bills.length === 0 ? (
-              <Text className="mt-8 text-ink/70">No open bills — nothing outstanding.</Text>
+              <Text className="mt-8 text-ink-muted">No open bills — nothing outstanding.</Text>
             ) : (
               <View className="mt-8 overflow-hidden rounded-sm border border-ink/10 bg-cream-warm">
                 {aging.bills.map((b) => (
@@ -145,12 +147,12 @@ export default function BillsAging() {
                       <Text className="flex-1 pr-3 font-serif text-ink" numberOfLines={1}>
                         {b.vendorName}
                         {b.reference ? (
-                          <Text className="font-mono text-xs text-ink/40"> #{b.reference}</Text>
+                          <Text className="font-mono text-xs text-ink-subtle"> #{b.reference}</Text>
                         ) : null}
                       </Text>
                       <Text className="font-mono tabular-nums text-ink">{fmt(b.amount)}</Text>
                     </View>
-                    <Text className="mt-1 font-mono text-xs uppercase tracking-widest text-ink/50">
+                    <Text className="mt-1 font-mono text-xs uppercase tracking-widest text-ink-subtle">
                       due {b.dueDate} · {BUCKET_LABEL[b.bucket] ?? b.bucket}
                       {b.daysOverdue > 0 ? ` · ${b.daysOverdue}d` : ''}
                     </Text>

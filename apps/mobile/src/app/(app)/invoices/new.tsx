@@ -480,7 +480,7 @@ export default function NewInvoice() {
       >
         <ScrollView contentContainerClassName="px-6 pt-6 pb-16" keyboardShouldPersistTaps="handled">
           <Pressable onPress={() => router.back()}>
-            <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
               ← Invoices
             </Text>
           </Pressable>
@@ -531,7 +531,7 @@ export default function NewInvoice() {
 
             {/* Line items */}
             <View>
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 Line items
               </Text>
               {fieldErrors.lineItems ? (
@@ -548,41 +548,41 @@ export default function NewInvoice() {
                     <TypeRow value={row.type} onSelect={(t) => patchRow(i, { type: t })} />
                     <View className="mt-2 flex-row gap-2">
                       <View className="flex-1">
-                        <Text className="font-mono text-[10px] uppercase tracking-widest text-ink/50">
+                        <Text className="font-mono text-[10px] uppercase tracking-widest text-ink-subtle">
                           Qty
                         </Text>
                         <TextInput
                           value={row.quantity}
                           onChangeText={(t) => setRowQuantity(i, t)}
                           inputMode="decimal"
-                          className="mt-1 rounded-sm border border-ink/15 bg-cream px-2 py-2 text-right font-mono tabular-nums text-ink"
+                          className="mt-1 rounded-sm border border-field bg-cream px-2 py-2 text-right font-mono tabular-nums text-ink"
                         />
                       </View>
                       <View className="flex-1">
-                        <Text className="font-mono text-[10px] uppercase tracking-widest text-ink/50">
+                        <Text className="font-mono text-[10px] uppercase tracking-widest text-ink-subtle">
                           Unit price
                         </Text>
                         <TextInput
                           value={row.unitPrice}
                           onChangeText={(t) => setRowUnitPrice(i, t)}
                           inputMode="decimal"
-                          className="mt-1 rounded-sm border border-ink/15 bg-cream px-2 py-2 text-right font-mono tabular-nums text-ink"
+                          className="mt-1 rounded-sm border border-field bg-cream px-2 py-2 text-right font-mono tabular-nums text-ink"
                         />
                       </View>
                       <View className="flex-1">
-                        <Text className="font-mono text-[10px] uppercase tracking-widest text-ink/50">
+                        <Text className="font-mono text-[10px] uppercase tracking-widest text-ink-subtle">
                           Amount
                         </Text>
                         <TextInput
                           value={row.amount}
                           onChangeText={(t) => setRowAmount(i, t)}
                           inputMode="decimal"
-                          className="mt-1 rounded-sm border border-ink/15 bg-cream px-2 py-2 text-right font-mono tabular-nums text-ink"
+                          className="mt-1 rounded-sm border border-field bg-cream px-2 py-2 text-right font-mono tabular-nums text-ink"
                         />
                       </View>
                     </View>
                     <View className="mt-2">
-                      <Text className="font-mono text-[10px] uppercase tracking-widest text-ink/50">
+                      <Text className="font-mono text-[10px] uppercase tracking-widest text-ink-subtle">
                         Unit
                       </Text>
                       <TextInput
@@ -590,7 +590,7 @@ export default function NewInvoice() {
                         onChangeText={(t) => patchRow(i, { unitLabel: t })}
                         placeholder="hr, day, sq ft"
                         maxLength={50}
-                        className="mt-1 rounded-sm border border-ink/15 bg-cream px-2 py-2 text-ink"
+                        className="mt-1 rounded-sm border border-field bg-cream px-2 py-2 text-ink"
                       />
                     </View>
                     <TaxRow
@@ -627,21 +627,23 @@ export default function NewInvoice() {
 
             {/* Notes */}
             <View>
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">Notes</Text>
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
+                Notes
+              </Text>
               <TextInput
                 value={notes}
                 onChangeText={setNotes}
                 multiline
-                className="mt-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink"
+                className="mt-1 rounded-sm border border-field bg-cream-warm px-3 py-2 text-ink"
               />
             </View>
 
             {/* From-block toggles */}
             <View>
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 Your details on this invoice
               </Text>
-              <Text className="mt-1 text-xs text-ink/50">
+              <Text className="mt-1 text-xs text-ink-subtle">
                 Only details you've added in Business settings will show.
               </Text>
               <Checkbox
@@ -674,7 +676,7 @@ export default function NewInvoice() {
               className="mt-2 rounded-sm bg-ink px-4 py-3 active:bg-gold-deep disabled:opacity-50"
             >
               {submitting ? (
-                <ActivityIndicator color="#f4ede0" />
+                <ActivityIndicator className="text-cream" />
               ) : (
                 <Text className="text-center text-sm font-medium text-cream">Create invoice</Text>
               )}
@@ -701,12 +703,12 @@ function LabeledInput({
 }) {
   return (
     <View>
-      <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">{label}</Text>
+      <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">{label}</Text>
       <TextInput
         value={value}
         onChangeText={onChangeText}
         autoCapitalize={autoCapitalize}
-        className="mt-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink"
+        className="mt-1 rounded-sm border border-field bg-cream-warm px-3 py-2 text-ink"
       />
       {error ? <Text className="mt-1 text-xs text-oxblood">{error}</Text> : null}
     </View>
@@ -717,7 +719,7 @@ function Row({ label, value, emphasize }: { label: string; value: string; emphas
   return (
     <View className="flex-row justify-between">
       <Text
-        className={`font-mono text-xs uppercase tracking-widest ${emphasize ? 'text-ink/70' : 'text-ink/50'}`}
+        className={`font-mono text-xs uppercase tracking-widest ${emphasize ? 'text-ink-muted' : 'text-ink-subtle'}`}
       >
         {label}
       </Text>

@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import type { Role } from '@thalermark/validation';
 import { Redirect, Tabs, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, AppState, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, AppState, Pressable, Text, View, useColorScheme } from 'react-native';
 import { LegalConsentGate } from '../../components/LegalConsentGate';
 import { resolveActiveAccount } from '../../lib/active-account';
 import { pickActiveCompany } from '../../lib/active-company';
@@ -36,6 +36,7 @@ type Gate = 'loading' | 'anon' | 'select' | 'ready' | 'error' | 'onboard' | 'con
 // select-company screen below sets it for multi-account users; the empty 'none'
 // case is folded into that screen's empty state.
 export default function AppLayout() {
+  const dark = useColorScheme() === 'dark';
   const [gate, setGate] = useState<Gate>('loading');
   // The active membership's role, fed to RoleProvider for UX capability gating.
   const [role, setRole] = useState<Role | undefined>(undefined);
@@ -139,7 +140,7 @@ export default function AppLayout() {
   if (gate === 'loading') {
     return (
       <View className="flex-1 items-center justify-center bg-cream">
-        <ActivityIndicator color="#0f1626" />
+        <ActivityIndicator className="text-ink" />
       </View>
     );
   }
@@ -184,9 +185,17 @@ export default function AppLayout() {
       <Tabs
         screenOptions={{
           headerShown: false,
-          tabBarActiveTintColor: '#0f1626',
-          tabBarInactiveTintColor: '#0f162680',
-          tabBarStyle: { backgroundColor: '#f4ede0', borderTopColor: '#0f162614' },
+          // The one place className cannot reach: React Navigation takes style
+          // OBJECTS, so these cannot join the role tokens and are read off the
+          // appearance directly. Values mirror global.css. Without this the bar
+          // stayed cream under a navy app, which was the loudest artifact of
+          // the whole dark-mode change (TMC-279).
+          tabBarActiveTintColor: dark ? '#f4ede0' : '#0f1626',
+          tabBarInactiveTintColor: dark ? '#f4ede080' : '#0f162680',
+          tabBarStyle: {
+            backgroundColor: dark ? '#0f1626' : '#f4ede0',
+            borderTopColor: dark ? '#f4ede014' : '#0f162614',
+          },
         }}
       >
         <Tabs.Screen

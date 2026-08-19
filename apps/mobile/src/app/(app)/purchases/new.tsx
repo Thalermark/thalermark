@@ -198,12 +198,12 @@ export default function NewPurchase() {
       >
         <ScrollView contentContainerClassName="px-6 pt-6 pb-16" keyboardShouldPersistTaps="handled">
           <Pressable onPress={() => router.back()}>
-            <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
               ← New expense
             </Text>
           </Pressable>
           <Text className="mt-3 font-serif text-3xl font-light text-ink">Log a big purchase</Text>
-          <Text className="mt-2 text-sm text-ink/60">
+          <Text className="mt-2 text-sm text-ink-subtle">
             Something you'll use for years — a mower, trailer, truck. We'll track what you still owe
             and how it helps at tax time.
           </Text>
@@ -239,7 +239,7 @@ export default function NewPurchase() {
             />
 
             <View>
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 Did you pay all at once, or over time? *
               </Text>
               <View className="mt-2 gap-2">
@@ -283,7 +283,7 @@ export default function NewPurchase() {
             />
 
             <View>
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 How do you want to handle it on taxes? *
               </Text>
               <View className="mt-2 gap-2">
@@ -312,7 +312,7 @@ export default function NewPurchase() {
               className="mt-2 rounded-sm bg-ink px-4 py-3 active:bg-gold-deep disabled:opacity-50"
             >
               {submitting ? (
-                <ActivityIndicator color="#f4ede0" />
+                <ActivityIndicator className="text-cream" />
               ) : (
                 <Text className="text-center text-sm font-medium text-cream">Save</Text>
               )}
@@ -363,12 +363,12 @@ function Field({
 }) {
   return (
     <View>
-      <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">{label}</Text>
+      <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">{label}</Text>
       <TextInput
         value={value}
         onChangeText={onChangeText}
         keyboardType={keyboardType}
-        className="mt-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink"
+        className="mt-1 rounded-sm border border-field bg-cream-warm px-3 py-2 text-ink"
       />
       {error ? <Text className="mt-1 text-xs text-oxblood">{error}</Text> : null}
     </View>

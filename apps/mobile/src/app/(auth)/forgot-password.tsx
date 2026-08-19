@@ -84,7 +84,9 @@ export default function ForgotPassword() {
               Enter your email and we'll send you a link to choose a new password.
             </Text>
             <View className="mt-8">
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">Email</Text>
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
+                Email
+              </Text>
               <TextInput
                 value={email}
                 onChangeText={setEmail}
@@ -92,7 +94,7 @@ export default function ForgotPassword() {
                 autoComplete="email"
                 inputMode="email"
                 keyboardType="email-address"
-                className="mt-2 border-b border-ink/30 py-2 text-ink"
+                className="mt-2 border-b border-field py-2 text-ink"
               />
             </View>
             <Pressable
@@ -101,7 +103,7 @@ export default function ForgotPassword() {
               className="mt-6 rounded-sm bg-ink px-3 py-3 active:bg-gold-deep disabled:opacity-50"
             >
               {submitting ? (
-                <ActivityIndicator color="#f4ede0" />
+                <ActivityIndicator className="text-cream" />
               ) : (
                 <Text className="text-center text-sm font-medium text-cream">Send reset link</Text>
               )}
@@ -110,9 +112,9 @@ export default function ForgotPassword() {
         )}
 
         <View className="mt-8 flex-row justify-center">
-          <Text className="text-sm text-ink/70">Remembered it? </Text>
-          <Link href="/sign-in" className="text-sm text-gold-deep underline">
-            Sign in
+          <Text className="text-sm text-ink-muted">Remembered it? </Text>
+          <Link href="/sign-in">
+            <Text className="text-sm text-gold-deep underline">Sign in</Text>
           </Link>
         </View>
       </View>

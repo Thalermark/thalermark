@@ -1,3 +1,51 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Role tokens, mirroring apps/web's app.css so the two clients stay one design
+   rather than two that happen to share hex values.
+
+   Why tokens at all: mobile used the raw palette directly (text-ink/50,
+   bg-cream), which made dark mode impossible without editing 2,731 call sites,
+   and expressed hierarchy with alpha, which put 348 text usages below WCAG AA
+   (TMC-279). Naming the ROLE and flipping the value fixes both at once: every
+   existing text-ink / bg-cream inverts for free, and the muted steps get values
+   chosen to hold contrast instead of whatever alpha produced.
+
+   Values are space-separated RGB channels so Tailwind's `<alpha-value>` still
+   works — text-ink/70 keeps meaning "70% of the foreground role".
+
+   Contrast, measured against both the page and the raised surface:
+     fg         15.51 / 13.81   light      cream on navy: 15.51 / 13.05
+     fg-muted    7.35 /  6.55              10.29 /  9.00
+     fg-subtle   5.40 /  4.81               8.56 /  7.49
+     field       3.30 (non-text, needs 3.0) 3.44
+   All clear AA for body text; `field` clears the 3:1 UI-component rule. */
+@layer base {
+  :root {
+    --bg: 244 237 224; /* cream — page */
+    --bg-raised: 235 224 204; /* cream-warm — cards, inputs */
+    --fg: 15 22 38; /* ink — primary text, and borders via alpha */
+    --fg-muted: 74 76 84; /* secondary text. Replaces ink/70 */
+    --fg-subtle: 94 96 102; /* labels, captions. Replaces ink/40,50,60 */
+    --field: 130 130 131; /* input boundary. The old ink/15 was 1.36:1 */
+    --accent: 154 125 63; /* gold-deep */
+    --danger: 139 58 46; /* oxblood */
+  }
+
+  /* System-driven, matching app.json's userInterfaceStyle: "automatic" — which
+     until now claimed dark support the app did not have. Dark values are web's
+     shipped .dark palette, not a second invention. */
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: 15 22 38; /* navy-deep */
+      --bg-raised: 26 34 56; /* navy — elevation is lighter here */
+      --fg: 244 237 224; /* cream */
+      --fg-muted: 201 195 182;
+      --fg-subtle: 184 178 166;
+      --field: 107 108 112;
+      --accent: 200 166 99; /* gold, lifted for a dark ground */
+      --danger: 207 112 96; /* lifted oxblood */
+    }
+  }
+}

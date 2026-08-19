@@ -90,7 +90,9 @@ export default function NewJob() {
       >
         <ScrollView contentContainerClassName="px-6 pb-12 pt-6" keyboardShouldPersistTaps="handled">
           <Pressable onPress={() => router.back()}>
-            <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">← Jobs</Text>
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
+              ← Jobs
+            </Text>
           </Pressable>
           <Text className="mt-3 font-serif text-3xl font-light text-ink">New job</Text>
 
@@ -101,7 +103,7 @@ export default function NewJob() {
           ) : null}
 
           <View className="mt-8">
-            <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
               What do you call it
             </Text>
             <TextInput
@@ -112,9 +114,9 @@ export default function NewJob() {
               maxLength={200}
               returnKeyType="done"
               onSubmitEditing={submit}
-              className="mt-2 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2.5 text-ink"
+              className="mt-2 rounded-sm border border-field bg-cream-warm px-3 py-2.5 text-ink"
             />
-            <Text className="mt-2 text-xs text-ink/50">
+            <Text className="mt-2 text-xs text-ink-subtle">
               Whatever you'd say out loud. It only has to make sense to you.
             </Text>
             {fieldError ? <Text className="mt-1 text-xs text-oxblood">{fieldError}</Text> : null}
@@ -126,7 +128,7 @@ export default function NewJob() {
             className="mt-8 items-center rounded-sm bg-ink px-4 py-3 active:bg-gold-deep disabled:opacity-50"
           >
             {submitting ? (
-              <ActivityIndicator color="#f7f3ea" />
+              <ActivityIndicator className="text-cream" />
             ) : (
               <Text className="text-sm font-medium text-cream">Create job</Text>
             )}

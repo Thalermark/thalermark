@@ -62,19 +62,21 @@ export default function ServerPicker() {
     <SafeAreaView className="flex-1 bg-cream">
       <View className="flex-1 px-6 pt-6">
         <Pressable onPress={() => router.back()}>
-          <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">← Back</Text>
+          <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
+            ← Back
+          </Text>
         </Pressable>
 
         <Text className="mt-6 font-mono text-xs uppercase tracking-widest text-gold-deep">
           Advanced
         </Text>
         <Text className="mt-3 font-serif text-3xl font-light text-ink">Choose your server</Text>
-        <Text className="mt-3 text-sm text-ink/70">
+        <Text className="mt-3 text-sm text-ink-muted">
           Point the app at a different Thalermark server. Leave this alone unless you self-host.
         </Text>
 
         <View className="mt-8">
-          <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+          <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
             Server address
           </Text>
           <TextInput
@@ -89,7 +91,7 @@ export default function ServerPicker() {
             inputMode="url"
             keyboardType="url"
             placeholder="https://thalermark.example.com"
-            className="mt-2 border-b border-ink/30 py-2 text-ink"
+            className="mt-2 border-b border-field py-2 text-ink"
           />
           {error ? (
             <Text className="mt-3 font-mono text-xs uppercase tracking-widest text-oxblood">
@@ -105,7 +107,7 @@ export default function ServerPicker() {
           className="mt-8 rounded-sm bg-ink px-3 py-3 active:bg-gold-deep disabled:opacity-50"
         >
           {checking ? (
-            <ActivityIndicator color="#f4ede0" />
+            <ActivityIndicator className="text-cream" />
           ) : (
             <Text className="text-center text-sm font-medium text-cream">Save</Text>
           )}
@@ -113,7 +115,7 @@ export default function ServerPicker() {
 
         {!isDefault ? (
           <Pressable onPress={onReset} className="mt-4">
-            <Text className="text-center text-sm text-ink/60 underline">Reset to default</Text>
+            <Text className="text-center text-sm text-ink-subtle underline">Reset to default</Text>
           </Pressable>
         ) : null}
       </View>

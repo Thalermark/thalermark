@@ -273,14 +273,14 @@ export default function EstimateDetail() {
       <ScrollView contentContainerClassName="px-6 pt-6 pb-16" keyboardShouldPersistTaps="handled">
         <Text
           onPress={() => router.push('/estimates')}
-          className="font-mono text-xs uppercase tracking-widest text-ink/60"
+          className="font-mono text-xs uppercase tracking-widest text-ink-subtle"
         >
           ← Estimates
         </Text>
 
         {detail.state === 'loading' ? (
           <View className="mt-12 items-center">
-            <ActivityIndicator color="#0f1626" />
+            <ActivityIndicator className="text-ink" />
           </View>
         ) : detail.state === 'error' || !est ? (
           <Text className="mt-8 text-sm text-oxblood">Couldn't load this estimate.</Text>
@@ -294,7 +294,7 @@ export default function EstimateDetail() {
                     onPress={() => router.push(`/estimates/${id}/edit`)}
                     className="rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep"
                   >
-                    <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
+                    <Text className="font-mono text-xs uppercase tracking-widest text-ink-muted">
                       Edit
                     </Text>
                   </Pressable>
@@ -305,12 +305,12 @@ export default function EstimateDetail() {
                     disabled={duplicating}
                     className="rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep disabled:opacity-50"
                   >
-                    <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
+                    <Text className="font-mono text-xs uppercase tracking-widest text-ink-muted">
                       {duplicating ? '…' : 'Duplicate'}
                     </Text>
                   </Pressable>
                 ) : null}
-                <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                   {statusLabel}
                 </Text>
               </View>
@@ -371,7 +371,7 @@ export default function EstimateDetail() {
                         placeholder={detail.contactEmail ?? 'recipient@example.com'}
                         keyboardType="email-address"
                         autoCapitalize="none"
-                        className="mb-2 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink"
+                        className="mb-2 rounded-sm border border-field bg-cream-warm px-3 py-2 text-ink"
                       />
                     ) : null}
                     <View className="flex-row gap-2">
@@ -392,7 +392,7 @@ export default function EstimateDetail() {
                         onPress={() => setShowOverride((v) => !v)}
                         className="rounded-sm border border-ink/20 px-3 py-3 active:bg-ink/5"
                       >
-                        <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
+                        <Text className="font-mono text-xs uppercase tracking-widest text-ink-muted">
                           {showOverride ? 'Cancel' : 'To…'}
                         </Text>
                       </Pressable>
@@ -466,7 +466,7 @@ export default function EstimateDetail() {
                     }
                     disabled={acting}
                   >
-                    <Text className="text-xs uppercase tracking-widest text-ink/50">
+                    <Text className="text-xs uppercase tracking-widest text-ink-subtle">
                       Mark sent without email
                     </Text>
                   </Pressable>
@@ -492,13 +492,13 @@ export default function EstimateDetail() {
                 accessibilityLabel="Send the estimate link"
                 className="mt-6 rounded-sm border border-ink/10 bg-cream-warm p-4 active:opacity-70"
               >
-                <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                   Share link
                 </Text>
                 <Text selectable className="mt-2 text-sm text-gold-deep">
                   {publicUrl}
                 </Text>
-                <Text className="mt-2 text-xs text-ink/50">
+                <Text className="mt-2 text-xs text-ink-subtle">
                   Tap to send it. Anyone with this link can view the estimate.
                 </Text>
               </Pressable>
@@ -517,12 +517,12 @@ export default function EstimateDetail() {
                 <View key={li.position} className="border-b border-ink/10 px-4 py-3">
                   <Text className="text-ink">{li.description}</Text>
                   {li.taxable ? (
-                    <Text className="mt-0.5 text-[10px] text-ink/40">
+                    <Text className="mt-0.5 text-[10px] text-ink-subtle">
                       Taxable · {Number(li.taxRatePct)}%
                     </Text>
                   ) : null}
                   <View className="mt-1 flex-row justify-between">
-                    <Text className="font-mono text-xs text-ink/50">
+                    <Text className="font-mono text-xs text-ink-subtle">
                       {formatQuantity(li.quantity)}
                       {li.unitLabel ? ` ${li.unitLabel}` : ''} × {formatUnitPrice(li.unitPrice)}
                     </Text>
@@ -543,7 +543,7 @@ export default function EstimateDetail() {
 
             {est.notes ? (
               <View className="mt-6">
-                <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                   Notes
                 </Text>
                 <Text className="mt-1 text-ink/80">{est.notes}</Text>
@@ -571,7 +571,7 @@ function Meta({
 }) {
   return (
     <View className="flex-row justify-between">
-      <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">{label}</Text>
+      <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">{label}</Text>
       <Text
         className={`text-ink ${mono ? 'font-mono tabular-nums' : ''} ${emphasize ? 'text-lg' : ''}`}
       >

@@ -10,7 +10,7 @@ export function WelcomeHeader({ step }: { step: 1 | 2 | 3 }) {
     <View>
       <View className="flex-row items-center justify-between">
         <Text className="font-serif text-xl tracking-tight text-ink">thalermark</Text>
-        <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+        <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
           Step {step} of {TOTAL}
         </Text>
       </View>

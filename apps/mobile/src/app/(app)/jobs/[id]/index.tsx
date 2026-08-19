@@ -301,7 +301,7 @@ export default function JobDetailScreen() {
   if (loading) {
     return (
       <SafeAreaView className="flex-1 items-center justify-center bg-cream" edges={['top']}>
-        <ActivityIndicator color="#0f1626" />
+        <ActivityIndicator className="text-ink" />
       </SafeAreaView>
     );
   }
@@ -310,7 +310,9 @@ export default function JobDetailScreen() {
     return (
       <SafeAreaView className="flex-1 bg-cream px-6 pt-6" edges={['top']}>
         <Pressable onPress={() => router.back()}>
-          <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">← Jobs</Text>
+          <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
+            ← Jobs
+          </Text>
         </Pressable>
         <Text className="mt-8 text-sm text-oxblood">Couldn't load this job.</Text>
       </SafeAreaView>
@@ -325,7 +327,9 @@ export default function JobDetailScreen() {
       >
         <ScrollView contentContainerClassName="px-6 pb-12 pt-6" keyboardShouldPersistTaps="handled">
           <Pressable onPress={() => router.back()}>
-            <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">← Jobs</Text>
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
+              ← Jobs
+            </Text>
           </Pressable>
           <Text className="mt-3 font-serif text-3xl font-light text-ink">{job.name}</Text>
           {/*
@@ -333,7 +337,7 @@ export default function JobDetailScreen() {
             not showing it reads as "that field did nothing".
           */}
           {job.contactName ? (
-            <Text className="mt-1 text-sm text-ink/60">for {job.contactName}</Text>
+            <Text className="mt-1 text-sm text-ink-subtle">for {job.contactName}</Text>
           ) : null}
 
           <View className="mt-6 rounded-sm border border-ink/10 bg-cream-warm p-5">
@@ -341,7 +345,7 @@ export default function JobDetailScreen() {
               Ready to bill leads on a phone too, and gets the big type: it is the
               only number here you act on — the rest are history.
             */}
-            <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
               Ready to bill
             </Text>
             <Text
@@ -356,7 +360,7 @@ export default function JobDetailScreen() {
               a job with a day of unrated work shows $0.00 and would read as
               "nothing to invoice" when there is plenty — just nothing priced yet.
             */}
-            <Text className="mt-1 text-xs text-ink/50">
+            <Text className="mt-1 text-xs text-ink-subtle">
               {unratedMinutes > 0
                 ? `${hours(unratedMinutes)} h needs a rate`
                 : Number(readyToBill) > 0
@@ -366,7 +370,7 @@ export default function JobDetailScreen() {
 
             <View className="mt-5 flex-row justify-between border-t border-ink/10 pt-4">
               <View>
-                <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                   Billed
                 </Text>
                 <Text className="mt-1 font-mono text-lg text-ink/80">{fmt(job.margin.billed)}</Text>
@@ -374,19 +378,19 @@ export default function JobDetailScreen() {
                     one, since a row of three figures has no space to spare and
                     "$0.00 drafted" is noise on the usual send-it-now path. */}
                 {Number(job.margin.drafted) > 0 && (
-                  <Text className="mt-1 font-mono text-[10px] text-ink/50">
+                  <Text className="mt-1 font-mono text-[10px] text-ink-subtle">
                     +{fmt(job.margin.drafted)} drafted
                   </Text>
                 )}
               </View>
               <View>
-                <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                   Cost
                 </Text>
                 <Text className="mt-1 font-mono text-lg text-ink/80">{fmt(job.margin.costs)}</Text>
               </View>
               <View>
-                <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                   Made
                 </Text>
                 {/* A dash until something is billed, matching Per hour beside
@@ -397,7 +401,7 @@ export default function JobDetailScreen() {
                 </Text>
               </View>
               <View>
-                <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                   Per hour
                 </Text>
                 {/*
@@ -409,7 +413,7 @@ export default function JobDetailScreen() {
                 </Text>
               </View>
             </View>
-            <Text className="mt-3 text-xs text-ink/50">
+            <Text className="mt-3 text-xs text-ink-subtle">
               {job.margin.minutes > 0 ? `${job.margin.hours} h logged` : 'no hours logged'}
             </Text>
           </View>
@@ -450,7 +454,7 @@ export default function JobDetailScreen() {
                 onPress={() => toggleStatus()}
                 className="items-center rounded-sm border border-ink/20 px-4 py-3"
               >
-                <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                   {job.status === 'open' ? 'Close' : 'Reopen'}
                 </Text>
               </Pressable>
@@ -474,7 +478,7 @@ export default function JobDetailScreen() {
                   onPress={() => setConfirmClose(null)}
                   className="items-center rounded-sm border border-ink/20 px-4 py-2.5"
                 >
-                  <Text className="text-sm text-ink/70">Keep it open</Text>
+                  <Text className="text-sm text-ink-muted">Keep it open</Text>
                 </Pressable>
               </View>
             </View>
@@ -482,7 +486,7 @@ export default function JobDetailScreen() {
 
           <Text className="mt-10 font-serif text-2xl font-light text-ink">Invoices</Text>
           {job.invoices.length === 0 ? (
-            <Text className="mt-2 text-sm text-ink/60">
+            <Text className="mt-2 text-sm text-ink-subtle">
               Nothing billed yet. A job can carry as many invoices as it needs.
             </Text>
           ) : (
@@ -495,8 +499,8 @@ export default function JobDetailScreen() {
                     i > 0 ? 'border-t border-ink/10' : ''
                   }`}
                 >
-                  <Text className="font-mono text-xs text-ink/50">{inv.number}</Text>
-                  <Text className="text-sm text-ink/60">{inv.issueDate}</Text>
+                  <Text className="font-mono text-xs text-ink-subtle">{inv.number}</Text>
+                  <Text className="text-sm text-ink-subtle">{inv.issueDate}</Text>
                   <Text className="font-mono text-sm text-ink/80">{fmt(inv.total)}</Text>
                 </Pressable>
               ))}
@@ -518,14 +522,14 @@ export default function JobDetailScreen() {
                   onChangeText={setDuration}
                   placeholder="3.25"
                   keyboardType="decimal-pad"
-                  className="w-24 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2.5 text-ink"
+                  className="w-24 rounded-sm border border-field bg-cream-warm px-3 py-2.5 text-ink"
                 />
                 <TextInput
                   value={note}
                   onChangeText={setNote}
                   placeholder="What you did"
                   maxLength={1000}
-                  className="flex-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2.5 text-ink"
+                  className="flex-1 rounded-sm border border-field bg-cream-warm px-3 py-2.5 text-ink"
                 />
               </View>
               <TextInput
@@ -533,7 +537,7 @@ export default function JobDetailScreen() {
                 onChangeText={setRate}
                 placeholder="Rate per hour — optional"
                 keyboardType="decimal-pad"
-                className="mt-2 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2.5 text-ink"
+                className="mt-2 rounded-sm border border-field bg-cream-warm px-3 py-2.5 text-ink"
               />
               <Pressable
                 onPress={logTime}
@@ -541,9 +545,9 @@ export default function JobDetailScreen() {
                 className="mt-2 items-center rounded-sm border border-ink/20 px-4 py-2.5 active:bg-cream-warm disabled:opacity-50"
               >
                 {logging ? (
-                  <ActivityIndicator color="#0f1626" />
+                  <ActivityIndicator className="text-ink" />
                 ) : (
-                  <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
+                  <Text className="font-mono text-xs uppercase tracking-widest text-ink-muted">
                     Log hours
                   </Text>
                 )}
@@ -561,7 +565,7 @@ export default function JobDetailScreen() {
                 it is available, not urged.
               */}
               <Pressable onPress={() => setShowTimer((v) => !v)}>
-                <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                   {showTimer ? '− Stopwatch' : '+ Use a stopwatch'}
                 </Text>
               </Pressable>
@@ -576,13 +580,13 @@ export default function JobDetailScreen() {
                       >
                         <Text className="text-sm font-medium text-cream">Stop</Text>
                       </Pressable>
-                      <Text className="flex-1 text-xs text-ink/50">
+                      <Text className="flex-1 text-xs text-ink-subtle">
                         Stopping fills in the hours — it doesn't log them.
                       </Text>
                     </View>
                   ) : timer ? (
                     <Pressable onPress={() => router.push(`/jobs/${timer.jobId}`)}>
-                      <Text className="text-sm text-ink/70">
+                      <Text className="text-sm text-ink-muted">
                         Running on {timer.jobName} for {elapsed}. Stop it there first — only one
                         timer runs at a time, or the same minute gets billed to two customers.
                       </Text>
@@ -604,7 +608,9 @@ export default function JobDetailScreen() {
           ) : null}
 
           {entries.length === 0 ? (
-            <Text className="mt-4 text-sm text-ink/60">No hours logged against this job yet.</Text>
+            <Text className="mt-4 text-sm text-ink-subtle">
+              No hours logged against this job yet.
+            </Text>
           ) : (
             <View className="mt-4 rounded-sm border border-ink/10 bg-cream-warm">
               {entries.map((entry, i) => (
@@ -614,11 +620,11 @@ export default function JobDetailScreen() {
                     i > 0 ? 'border-t border-ink/10' : ''
                   }`}
                 >
-                  <Text className="w-24 text-sm text-ink/60">{entry.entryDate}</Text>
+                  <Text className="w-24 text-sm text-ink-subtle">{entry.entryDate}</Text>
                   <Text className="w-16 font-mono text-sm text-ink/80">
                     {hours(entry.minutes)} h
                   </Text>
-                  <Text className="flex-1 pr-2 text-sm text-ink/70" numberOfLines={1}>
+                  <Text className="flex-1 pr-2 text-sm text-ink-muted" numberOfLines={1}>
                     {entry.note ?? ''}
                   </Text>
                   {/*
@@ -626,12 +632,12 @@ export default function JobDetailScreen() {
                     the job's time, and "$0.00/h" would look like a mistake.
                   */}
                   {entry.rate ? (
-                    <Text className="pr-2 font-mono text-xs text-ink/60">
+                    <Text className="pr-2 font-mono text-xs text-ink-subtle">
                       ${formatUnitPrice(entry.rate)}/h
                     </Text>
                   ) : null}
                   {entry.billedInvoiceId ? (
-                    <Text className="font-mono text-[0.6rem] uppercase tracking-widest text-ink/40">
+                    <Text className="font-mono text-[0.6rem] uppercase tracking-widest text-ink-subtle">
                       Billed
                     </Text>
                   ) : canWrite ? (

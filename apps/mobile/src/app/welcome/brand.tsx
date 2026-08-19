@@ -103,7 +103,7 @@ export default function WelcomeBrand() {
 
         {load === 'loading' ? (
           <View className="mt-16 items-center">
-            <ActivityIndicator color="#0f1626" />
+            <ActivityIndicator className="text-ink" />
           </View>
         ) : load === 'error' ? (
           <Text className="mt-10 text-sm text-oxblood">Couldn't load your business.</Text>
@@ -113,7 +113,7 @@ export default function WelcomeBrand() {
               Almost there
             </Text>
             <Text className="mt-3 font-serif text-3xl font-light text-ink">Make it yours.</Text>
-            <Text className="mt-3 text-sm text-ink/70">
+            <Text className="mt-3 text-sm text-ink-muted">
               Add a logo and it'll appear on every invoice and estimate your contacts see. Optional
               — you can always add one later from Settings.
             </Text>
@@ -126,7 +126,7 @@ export default function WelcomeBrand() {
                   className="h-24 w-48 self-start rounded-sm border border-ink/10 bg-cream"
                 />
               ) : (
-                <Text className="text-sm text-ink/50">No logo yet.</Text>
+                <Text className="text-sm text-ink-subtle">No logo yet.</Text>
               )}
               <Pressable
                 onPress={onPickLogo}
@@ -159,7 +159,7 @@ export default function WelcomeBrand() {
                 }}
                 className="py-2"
               >
-                <Text className="text-center font-mono text-xs uppercase tracking-widest text-ink/50">
+                <Text className="text-center font-mono text-xs uppercase tracking-widest text-ink-subtle">
                   Go to dashboard
                 </Text>
               </Pressable>

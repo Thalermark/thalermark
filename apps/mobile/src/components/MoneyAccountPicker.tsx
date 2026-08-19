@@ -80,7 +80,7 @@ export function MoneyAccountPicker({
 
   return (
     <View className="mt-4">
-      <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">{label}</Text>
+      <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">{label}</Text>
       <View className="mt-2 flex-row flex-wrap gap-2">
         {accounts.map((a) => {
           const selected = a.id === value;
@@ -94,7 +94,7 @@ export function MoneyAccountPicker({
             >
               <Text className="text-sm text-ink">{a.name}</Text>
               {a.kind ? (
-                <Text className="text-[0.65rem] text-ink/50">{KIND_LABEL[a.kind] ?? ''}</Text>
+                <Text className="text-[0.65rem] text-ink-subtle">{KIND_LABEL[a.kind] ?? ''}</Text>
               ) : null}
             </Pressable>
           );

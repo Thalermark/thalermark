@@ -327,14 +327,14 @@ export default function BillDetail() {
       <ScrollView contentContainerClassName="px-6 pt-6 pb-16" keyboardShouldPersistTaps="handled">
         <Text
           onPress={() => router.push('/bills')}
-          className="font-mono text-xs uppercase tracking-widest text-ink/60"
+          className="font-mono text-xs uppercase tracking-widest text-ink-subtle"
         >
           ← Bills
         </Text>
 
         {detail.state === 'loading' ? (
           <View className="mt-12 items-center">
-            <ActivityIndicator color="#0f1626" />
+            <ActivityIndicator className="text-ink" />
           </View>
         ) : detail.state === 'error' || !bill ? (
           <Text className="mt-8 text-sm text-oxblood">Couldn't load this bill.</Text>
@@ -347,7 +347,7 @@ export default function BillDetail() {
                   {fmt(bill.amount)}
                 </Text>
               </View>
-              <Text className="mt-2 font-mono text-xs uppercase tracking-widest text-ink/60">
+              <Text className="mt-2 font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 {bill.status}
               </Text>
             </View>
@@ -376,7 +376,7 @@ export default function BillDetail() {
                     disabled={acting}
                     className="rounded-sm border border-ink/20 px-4 py-3 active:bg-ink/5 disabled:opacity-50"
                   >
-                    <Text className="font-mono text-xs uppercase tracking-widest text-ink/70">
+                    <Text className="font-mono text-xs uppercase tracking-widest text-ink-muted">
                       Edit
                     </Text>
                   </Pressable>
@@ -396,7 +396,7 @@ export default function BillDetail() {
             {/* Mark-paid panel */}
             {canMarkPaid && showPaidPanel ? (
               <View className="mt-4 rounded-sm border border-ink/15 bg-cream-warm p-4">
-                <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                   How did you pay it?
                 </Text>
                 <View className="mt-3 flex-row flex-wrap gap-2">
@@ -408,7 +408,7 @@ export default function BillDetail() {
                         paidMethod === m ? 'border-gold-deep bg-gold-deep/10' : 'border-ink/20'
                       }`}
                     >
-                      <Text className={paidMethod === m ? 'text-ink' : 'text-ink/70'}>
+                      <Text className={paidMethod === m ? 'text-ink' : 'text-ink-muted'}>
                         {PAYMENT_METHOD_LABELS[m]}
                       </Text>
                     </Pressable>
@@ -416,13 +416,13 @@ export default function BillDetail() {
                 </View>
                 {paidMethod === 'check' || paidMethod === 'other' ? (
                   <View className="mt-3">
-                    <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                    <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                       {paidMethod === 'check' ? 'Check number' : 'Note'}
                     </Text>
                     <TextInput
                       value={paidReference}
                       onChangeText={setPaidReference}
-                      className="mt-1 rounded-sm border border-ink/15 bg-cream px-3 py-2 text-ink"
+                      className="mt-1 rounded-sm border border-field bg-cream px-3 py-2 text-ink"
                     />
                   </View>
                 ) : null}
@@ -448,7 +448,7 @@ export default function BillDetail() {
             {settlement && (settlement.payments.length > 0 || canRecordPayment) ? (
               <View className="mt-6 rounded-sm border border-ink/10 bg-cream-warm p-4">
                 <Text className="font-serif text-lg font-light text-ink">Payments</Text>
-                <Text className="mt-1 text-sm text-ink/70">
+                <Text className="mt-1 text-sm text-ink-muted">
                   {settlement.settlement === 'overpaid'
                     ? `Overpaid by $${Math.abs(Number(settlement.outstanding)).toFixed(2)}`
                     : settlement.settlement === 'paid'
@@ -466,14 +466,14 @@ export default function BillDetail() {
                         {Number(p.amount) < 0 ? 'Refund ' : ''}$
                         {Math.abs(Number(p.amount)).toFixed(2)}
                       </Text>
-                      <Text className="mt-0.5 text-xs text-ink/50">
+                      <Text className="mt-0.5 text-xs text-ink-subtle">
                         {p.paidOn} · {PAYMENT_METHOD_LABELS[p.method] ?? p.method}
                         {p.reference ? ` · ${p.reference}` : ''}
                       </Text>
                     </View>
                     {canRecordPayment ? (
                       <Pressable onPress={() => onRemovePayment(p.id)} disabled={acting}>
-                        <Text className="font-mono text-xs uppercase tracking-widest text-ink/40">
+                        <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                           Remove
                         </Text>
                       </Pressable>
@@ -498,7 +498,7 @@ export default function BillDetail() {
                     }}
                     className="mt-4 rounded-sm border border-ink/20 px-4 py-2.5 active:border-gold-deep"
                   >
-                    <Text className="text-center font-mono text-xs uppercase tracking-widest text-ink/70">
+                    <Text className="text-center font-mono text-xs uppercase tracking-widest text-ink-muted">
                       Record a payment
                     </Text>
                   </Pressable>
@@ -506,7 +506,7 @@ export default function BillDetail() {
 
                 {canRecordPayment && showPaymentPanel ? (
                   <View className="mt-4 border-t border-ink/10 pt-4">
-                    <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                    <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                       Amount
                     </Text>
                     <TextInput
@@ -514,14 +514,14 @@ export default function BillDetail() {
                       onChangeText={setPayAmount}
                       keyboardType="decimal-pad"
                       placeholder="0.00"
-                      className="mt-1 rounded-sm border border-ink/20 bg-cream px-3 py-2.5 text-ink"
+                      className="mt-1 rounded-sm border border-field bg-cream px-3 py-2.5 text-ink"
                     />
 
                     <View className="mt-4">
                       <DateField label="Date paid" value={payOn} onChange={setPayOn} />
                     </View>
 
-                    <Text className="mt-4 font-mono text-xs uppercase tracking-widest text-ink/50">
+                    <Text className="mt-4 font-mono text-xs uppercase tracking-widest text-ink-subtle">
                       Method
                     </Text>
                     <View className="mt-2 flex-row flex-wrap gap-2">
@@ -534,7 +534,7 @@ export default function BillDetail() {
                           }`}
                         >
                           <Text
-                            className={`text-xs ${payMethod === m ? 'text-cream' : 'text-ink/70'}`}
+                            className={`text-xs ${payMethod === m ? 'text-cream' : 'text-ink-muted'}`}
                           >
                             {PAYMENT_METHOD_LABELS[m] ?? m}
                           </Text>
@@ -542,7 +542,7 @@ export default function BillDetail() {
                       ))}
                     </View>
 
-                    <Text className="mt-4 font-mono text-xs uppercase tracking-widest text-ink/50">
+                    <Text className="mt-4 font-mono text-xs uppercase tracking-widest text-ink-subtle">
                       Type
                     </Text>
                     <View className="mt-2 flex-row gap-2">
@@ -561,7 +561,7 @@ export default function BillDetail() {
                         >
                           <Text
                             className={`text-xs ${
-                              payDirection === value ? 'text-cream' : 'text-ink/70'
+                              payDirection === value ? 'text-cream' : 'text-ink-muted'
                             }`}
                           >
                             {label}
@@ -574,14 +574,14 @@ export default function BillDetail() {
                         reasoning: the chart is seed-only and Cash is the only
                         account money can leave from, so the server resolves it
                         and the choice waits for a second bank account. */}
-                    <Text className="mt-4 font-mono text-xs uppercase tracking-widest text-ink/50">
+                    <Text className="mt-4 font-mono text-xs uppercase tracking-widest text-ink-subtle">
                       Reference (optional)
                     </Text>
                     <TextInput
                       value={payReference}
                       onChangeText={setPayReference}
                       placeholder="Check number, confirmation code"
-                      className="mt-1 rounded-sm border border-ink/20 bg-cream px-3 py-2.5 text-ink"
+                      className="mt-1 rounded-sm border border-field bg-cream px-3 py-2.5 text-ink"
                     />
 
                     <Pressable
@@ -594,7 +594,7 @@ export default function BillDetail() {
                       </Text>
                     </Pressable>
                     <Pressable onPress={() => setShowPaymentPanel(false)} className="mt-3">
-                      <Text className="text-center font-mono text-xs uppercase tracking-widest text-ink/50">
+                      <Text className="text-center font-mono text-xs uppercase tracking-widest text-ink-subtle">
                         Cancel
                       </Text>
                     </Pressable>
@@ -606,7 +606,7 @@ export default function BillDetail() {
             {/* Paid block */}
             {bill.status === 'paid' ? (
               <View className="mt-6 rounded-sm border border-gold-deep/30 bg-gold-deep/5 p-4">
-                <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                   Paid
                 </Text>
                 <View className="mt-2 gap-1">
@@ -640,7 +640,7 @@ export default function BillDetail() {
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <View className="flex-row justify-between gap-4">
-      <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">{label}</Text>
+      <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">{label}</Text>
       <Text className="flex-1 text-right text-ink">{value}</Text>
     </View>
   );

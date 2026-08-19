@@ -50,31 +50,31 @@ export default function NewCompany() {
     <SafeAreaView className="flex-1 bg-cream" edges={['top']}>
       <ScrollView contentContainerClassName="px-6 pt-6 pb-16">
         <Pressable onPress={() => router.push('/more/companies')}>
-          <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+          <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
             ← Companies
           </Text>
         </Pressable>
         <Text className="mt-3 font-serif text-3xl font-light text-ink">Add a company</Text>
-        <Text className="mt-3 text-sm text-ink/60">
+        <Text className="mt-3 text-sm text-ink-subtle">
           Run a second business out of this workspace — its books, invoices, and contacts stay
           separate. You can switch between companies anytime.
         </Text>
 
         <View className="mt-8">
-          <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+          <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
             Business name
           </Text>
           <TextInput
             value={name}
             onChangeText={setName}
             placeholder="e.g. Northside Handyman"
-            placeholderTextColor="#0f162659"
-            className="mt-2 border-b border-ink/30 py-2 text-ink"
+            placeholderClassName="text-ink-subtle"
+            className="mt-2 border-b border-field py-2 text-ink"
           />
         </View>
 
         <View className="mt-8">
-          <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+          <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
             How's it set up?
           </Text>
           <View className="mt-3 overflow-hidden rounded-sm border border-ink/10 bg-cream-warm">
@@ -108,7 +108,7 @@ export default function NewCompany() {
           className="mt-8 rounded-sm bg-ink px-3 py-3 active:bg-gold-deep disabled:opacity-50"
         >
           {submitting ? (
-            <ActivityIndicator color="#f4ede0" />
+            <ActivityIndicator className="text-cream" />
           ) : (
             <Text className="text-center text-sm font-medium text-cream">Create company</Text>
           )}

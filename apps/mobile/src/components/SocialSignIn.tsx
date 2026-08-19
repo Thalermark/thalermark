@@ -63,7 +63,7 @@ export function SocialSignIn() {
     <View className="mt-8">
       <View className="flex-row items-center gap-4">
         <View className="h-px flex-1 bg-ink/15" />
-        <Text className="font-mono text-xs uppercase tracking-widest text-ink/40">or</Text>
+        <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">or</Text>
         <View className="h-px flex-1 bg-ink/15" />
       </View>
       <View className="mt-6 gap-3">
@@ -75,10 +75,10 @@ export function SocialSignIn() {
             className="flex-row items-center justify-center gap-3 rounded-sm border border-ink/25 bg-cream px-3 py-3 active:border-ink disabled:opacity-50"
           >
             {busy === provider ? (
-              <ActivityIndicator color="#0f1626" />
+              <ActivityIndicator className="text-ink" />
             ) : (
               <>
-                <Ionicons name={ICONS[provider]} size={18} color="#0f1626" />
+                <Ionicons name={ICONS[provider]} size={18} className="text-ink" />
                 <Text className="text-sm font-medium text-ink">{LABELS[provider]}</Text>
               </>
             )}

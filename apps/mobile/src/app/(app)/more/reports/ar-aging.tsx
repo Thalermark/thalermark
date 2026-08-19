@@ -11,7 +11,7 @@ import { useReport } from '../../../../lib/use-report';
 // overdue they are. Overdue rows get progressively redder.
 const tone = (days: number) =>
   days <= 0
-    ? 'text-ink/70'
+    ? 'text-ink-muted'
     : days <= 30
       ? 'text-ink'
       : days <= 90
@@ -44,13 +44,13 @@ export default function ArAgingReport() {
                   key={b.key}
                   className="grow basis-[45%] rounded-sm border border-ink/10 bg-cream-warm p-4"
                 >
-                  <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                  <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                     {b.label}
                   </Text>
                   <Text className="mt-2 font-mono text-lg tabular-nums text-ink">
                     {fmt(b.amount)}
                   </Text>
-                  <Text className="mt-0.5 text-xs text-ink/50">
+                  <Text className="mt-0.5 text-xs text-ink-subtle">
                     {b.count} invoice{b.count === 1 ? '' : 's'}
                   </Text>
                 </View>
@@ -58,7 +58,7 @@ export default function ArAgingReport() {
             </View>
 
             {d.invoices.length === 0 ? (
-              <Text className="mt-8 text-ink/70">Nothing outstanding — you're all paid up.</Text>
+              <Text className="mt-8 text-ink-muted">Nothing outstanding — you're all paid up.</Text>
             ) : (
               <View className="mt-6 overflow-hidden rounded-sm border border-ink/10 bg-cream-warm">
                 {d.invoices.map((inv) => (
@@ -75,8 +75,8 @@ export default function ArAgingReport() {
                     </View>
                     <View className="mt-1 flex-row items-center justify-between">
                       <View className="flex-1 pr-3">
-                        <Text className="text-sm text-ink/70">{inv.customerName ?? '—'}</Text>
-                        <Text className="font-mono text-xs text-ink/40">due {inv.dueDate}</Text>
+                        <Text className="text-sm text-ink-muted">{inv.customerName ?? '—'}</Text>
+                        <Text className="font-mono text-xs text-ink-subtle">due {inv.dueDate}</Text>
                       </View>
                       <Text className={`font-mono text-xs tabular-nums ${tone(inv.daysPastDue)}`}>
                         {inv.daysPastDue <= 0 ? 'Current' : `${inv.daysPastDue}d`}

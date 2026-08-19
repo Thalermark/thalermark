@@ -154,12 +154,12 @@ export default function NewLedgerEntry() {
       >
         <ScrollView contentContainerClassName="px-6 pt-6 pb-16" keyboardShouldPersistTaps="handled">
           <Pressable onPress={() => router.back()}>
-            <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
               ← The Ledger
             </Text>
           </Pressable>
           <Text className="mt-3 font-serif text-3xl font-light text-ink">New journal entry</Text>
-          <Text className="mt-2 text-sm text-ink/60">
+          <Text className="mt-2 text-sm text-ink-subtle">
             Enter the debits and credits exactly as your accountant gave them.
           </Text>
 
@@ -173,7 +173,7 @@ export default function NewLedgerEntry() {
             <DateField label="Date *" value={postedOn} onChange={setPostedOn} />
 
             <View>
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 Description *
               </Text>
               <TextInput
@@ -181,12 +181,12 @@ export default function NewLedgerEntry() {
                 onChangeText={setMemo}
                 placeholder="e.g. 2026 depreciation per CPA"
                 maxLength={500}
-                className="mt-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2 text-ink"
+                className="mt-1 rounded-sm border border-field bg-cream-warm px-3 py-2 text-ink"
               />
             </View>
 
             <View>
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 Lines *
               </Text>
               <View className="mt-2 gap-3">
@@ -196,7 +196,7 @@ export default function NewLedgerEntry() {
                     <View className="flex-row items-center justify-between">
                       <Pressable onPress={() => setPickerLine(i)} className="flex-1 pr-2">
                         <Text
-                          className={line.coaAccountId ? 'text-ink' : 'text-ink/40'}
+                          className={line.coaAccountId ? 'text-ink' : 'text-ink-subtle'}
                           numberOfLines={1}
                         >
                           {accountLabel(line.coaAccountId)}
@@ -204,7 +204,7 @@ export default function NewLedgerEntry() {
                       </Pressable>
                       {lines.length > 2 ? (
                         <Pressable onPress={() => removeLine(i)} className="pl-2">
-                          <Ionicons name="close" size={18} color="#7a2230" />
+                          <Ionicons name="close" size={18} className="text-oxblood" />
                         </Pressable>
                       ) : null}
                     </View>
@@ -217,7 +217,7 @@ export default function NewLedgerEntry() {
                             className={`px-3 py-2 ${line.side === side ? 'bg-ink' : 'bg-cream'}`}
                           >
                             <Text
-                              className={`text-xs uppercase tracking-widest ${line.side === side ? 'text-cream' : 'text-ink/60'}`}
+                              className={`text-xs uppercase tracking-widest ${line.side === side ? 'text-cream' : 'text-ink-subtle'}`}
                             >
                               {side}
                             </Text>
@@ -229,7 +229,7 @@ export default function NewLedgerEntry() {
                         onChangeText={(t) => setLine(i, { amount: t })}
                         keyboardType="decimal-pad"
                         placeholder="0.00"
-                        className="flex-1 rounded-sm border border-ink/15 bg-cream px-3 py-2 text-right font-mono text-ink"
+                        className="flex-1 rounded-sm border border-field bg-cream px-3 py-2 text-right font-mono text-ink"
                       />
                     </View>
                   </View>
@@ -244,15 +244,15 @@ export default function NewLedgerEntry() {
 
             <View className="flex-row items-center justify-between rounded-sm border border-ink/10 bg-cream-warm px-4 py-3">
               <View className="flex-row gap-5">
-                <Text className="font-mono text-xs text-ink/60">
+                <Text className="font-mono text-xs text-ink-subtle">
                   Dr <Text className="text-ink">{totalDebit}</Text>
                 </Text>
-                <Text className="font-mono text-xs text-ink/60">
+                <Text className="font-mono text-xs text-ink-subtle">
                   Cr <Text className="text-ink">{totalCredit}</Text>
                 </Text>
               </View>
               <Text
-                className={`font-mono text-xs uppercase tracking-widest ${balanced ? 'text-gold-deep' : 'text-ink/50'}`}
+                className={`font-mono text-xs uppercase tracking-widest ${balanced ? 'text-gold-deep' : 'text-ink-subtle'}`}
               >
                 {balanced ? 'Balanced' : `Off by ${difference}`}
               </Text>
@@ -268,7 +268,7 @@ export default function NewLedgerEntry() {
               className="mt-2 rounded-sm bg-ink px-4 py-3 active:bg-gold-deep disabled:opacity-50"
             >
               {submitting ? (
-                <ActivityIndicator color="#f4ede0" />
+                <ActivityIndicator className="text-cream" />
               ) : (
                 <Text className="text-center text-sm font-medium text-cream">Post entry</Text>
               )}
@@ -292,7 +292,7 @@ export default function NewLedgerEntry() {
             <ScrollView className="mt-4">
               {grouped.map((group) => (
                 <View key={group.label} className="mb-2">
-                  <Text className="py-1 font-mono text-xs uppercase tracking-widest text-ink/40">
+                  <Text className="py-1 font-mono text-xs uppercase tracking-widest text-ink-subtle">
                     {group.label}
                   </Text>
                   {group.accounts.map((a) => (
@@ -305,7 +305,7 @@ export default function NewLedgerEntry() {
                       className="border-b border-ink/10 py-3"
                     >
                       <Text className="text-ink">{a.name}</Text>
-                      <Text className="text-xs text-ink/50">{a.code}</Text>
+                      <Text className="text-xs text-ink-subtle">{a.code}</Text>
                     </Pressable>
                   ))}
                 </View>

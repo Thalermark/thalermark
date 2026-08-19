@@ -32,19 +32,19 @@ export default function Activity() {
       <ScrollView contentContainerClassName="px-6 pt-6 pb-16">
         <Text
           onPress={() => router.push('/more')}
-          className="font-mono text-xs uppercase tracking-widest text-ink/60"
+          className="font-mono text-xs uppercase tracking-widest text-ink-subtle"
         >
           ← More
         </Text>
 
         <Text className="mt-3 font-serif text-3xl font-light text-ink">Activity</Text>
-        <Text className="mt-2 text-sm text-ink/60">
+        <Text className="mt-2 text-sm text-ink-subtle">
           Recent changes across your workspace. Newest first.
         </Text>
 
         {list.state === 'loading' ? (
           <View className="mt-12 items-center">
-            <ActivityIndicator color="#0f1626" />
+            <ActivityIndicator className="text-ink" />
           </View>
         ) : list.state === 'error' ? (
           <Text className="mt-8 text-sm text-oxblood">Couldn't load activity.</Text>
@@ -57,7 +57,7 @@ export default function Activity() {
                 disabled={loadingMore}
                 className="mt-6 self-center rounded-sm border border-ink/15 px-4 py-2 active:border-gold-deep disabled:opacity-50"
               >
-                <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                   {loadingMore ? 'Loading…' : 'Load more'}
                 </Text>
               </Pressable>

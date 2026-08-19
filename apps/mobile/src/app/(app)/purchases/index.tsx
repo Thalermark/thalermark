@@ -56,7 +56,7 @@ export default function PurchasesList() {
           without this there is no way out except the OS back gesture. */}
       <View className="px-6 pt-6">
         <Pressable onPress={() => router.push('/expenses')}>
-          <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+          <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
             ← Expenses
           </Text>
         </Pressable>
@@ -76,12 +76,12 @@ export default function PurchasesList() {
 
       {list.state === 'loading' ? (
         <View className="mt-12 items-center">
-          <ActivityIndicator color="#0f1626" />
+          <ActivityIndicator className="text-ink" />
         </View>
       ) : list.state === 'error' ? (
         <Text className="mt-8 px-6 text-sm text-oxblood">Couldn't load this.</Text>
       ) : list.rows.length === 0 ? (
-        <Text className="mt-8 px-6 text-ink/70">Nothing logged yet.</Text>
+        <Text className="mt-8 px-6 text-ink-muted">Nothing logged yet.</Text>
       ) : (
         <FlatList
           data={list.rows}
@@ -94,7 +94,7 @@ export default function PurchasesList() {
           ListFooterComponent={
             loadingMore ? (
               <View className="py-4">
-                <ActivityIndicator color="#0f1626" />
+                <ActivityIndicator className="text-ink" />
               </View>
             ) : null
           }
@@ -112,16 +112,16 @@ export default function PurchasesList() {
                   <Text className="font-mono tabular-nums text-ink">{money(item.amount)}</Text>
                 </View>
                 <View className="mt-1 flex-row items-center justify-between">
-                  <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                  <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                     {item.purchaseDate}
                     {item.vendorName ? ` · ${item.vendorName}` : ''}
                   </Text>
                   {stillOwes ? (
-                    <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">
+                    <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                       owe {money(item.owing)}
                     </Text>
                   ) : (
-                    <Text className="font-mono text-xs uppercase tracking-widest text-ink/40">
+                    <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                       Paid off
                     </Text>
                   )}

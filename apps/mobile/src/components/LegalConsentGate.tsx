@@ -49,11 +49,11 @@ export function LegalConsentGate({
   return (
     <View className="flex-1 justify-center bg-cream px-6">
       <View className="rounded-sm border border-ink/15 bg-white px-5 py-6">
-        <Text className="font-mono text-[11px] uppercase tracking-widest text-ink/50">
+        <Text className="font-mono text-[11px] uppercase tracking-widest text-ink-subtle">
           One quick thing
         </Text>
         <Text className="mt-2 font-serif text-2xl text-ink">Before you continue</Text>
-        <Text className="mt-3 text-sm text-ink/70">
+        <Text className="mt-3 text-sm text-ink-muted">
           To use Thalermark, please review and accept our terms.
         </Text>
 
@@ -88,7 +88,7 @@ export function LegalConsentGate({
           }`}
         >
           {submitting ? (
-            <ActivityIndicator color="#f4ede0" />
+            <ActivityIndicator className="text-cream" />
           ) : (
             <Text className="text-sm font-medium text-cream">Agree &amp; continue</Text>
           )}

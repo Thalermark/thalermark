@@ -193,7 +193,7 @@ export default function PaymentsSettings() {
       <ScrollView contentContainerClassName="px-6 pt-6 pb-16" keyboardShouldPersistTaps="handled">
         <Text
           onPress={() => router.push('/more')}
-          className="font-mono text-xs uppercase tracking-widest text-ink/60"
+          className="font-mono text-xs uppercase tracking-widest text-ink-subtle"
         >
           ← More
         </Text>
@@ -201,7 +201,7 @@ export default function PaymentsSettings() {
 
         {load.state === 'loading' ? (
           <View className="mt-12 items-center">
-            <ActivityIndicator color="#0f1626" />
+            <ActivityIndicator className="text-ink" />
           </View>
         ) : load.state === 'error' || !company || !status ? (
           <Text className="mt-8 text-sm text-oxblood">Couldn't load these settings.</Text>
@@ -211,18 +211,18 @@ export default function PaymentsSettings() {
             {!status.stripeConfigured ? (
               <View className="mt-8 rounded-sm border border-ink/15 bg-cream-warm p-6">
                 <Text className="font-serif text-lg text-ink">Stripe isn't configured.</Text>
-                <Text className="mt-2 text-sm text-ink/70">
+                <Text className="mt-2 text-sm text-ink-muted">
                   This installation hasn't wired Stripe API keys, so card payment collection is
                   unavailable. The other ways to get paid below still work.
                 </Text>
               </View>
             ) : (
               <View className="mt-8 rounded-sm border border-ink/15 bg-cream-warm p-6">
-                <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                   Stripe Connect
                 </Text>
                 <Text className="mt-2 font-serif text-lg text-ink">{company.name}</Text>
-                <Text className="mt-3 text-sm text-ink/70">
+                <Text className="mt-3 text-sm text-ink-muted">
                   {stage === 'notStarted'
                     ? 'Connect a Stripe account so contacts can pay your invoices online. Stripe runs the onboarding — bank, ID, the lot.'
                     : stage === 'started'
@@ -238,7 +238,7 @@ export default function PaymentsSettings() {
                               : 'Payments are live. Contacts can pay invoices using the pay link on the public invoice page.'}
                 </Text>
                 <View className="mt-4 flex-row justify-between">
-                  <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                  <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                     Details submitted
                   </Text>
                   <Text className="text-sm text-ink/80">
@@ -246,7 +246,7 @@ export default function PaymentsSettings() {
                   </Text>
                 </View>
                 <View className="mt-1 flex-row justify-between">
-                  <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                  <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                     Charges enabled
                   </Text>
                   <Text className="text-sm text-ink/80">
@@ -270,10 +270,10 @@ export default function PaymentsSettings() {
 
             {/* Offline payment methods */}
             <View className="mt-8 rounded-sm border border-ink/15 bg-cream-warm p-6">
-              <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 Other ways to get paid
               </Text>
-              <Text className="mt-2 text-sm text-ink/70">
+              <Text className="mt-2 text-sm text-ink-muted">
                 Shown as instructions on your public invoices. You mark these paid yourself once the
                 money lands.
               </Text>
@@ -304,7 +304,7 @@ export default function PaymentsSettings() {
                       setSaveStatus('idle');
                     }}
                     placeholder={`Make payable to (defaults to ${company.name})`}
-                    className="rounded-sm border border-ink/20 bg-cream px-3 py-2 text-ink"
+                    className="rounded-sm border border-field bg-cream px-3 py-2 text-ink"
                   />
                   <TextInput
                     value={checkAddress}
@@ -314,12 +314,12 @@ export default function PaymentsSettings() {
                     }}
                     placeholder="Mailing address (optional)"
                     multiline
-                    className="min-h-[60px] rounded-sm border border-ink/20 bg-cream px-3 py-2 text-ink"
+                    className="min-h-[60px] rounded-sm border border-field bg-cream px-3 py-2 text-ink"
                   />
                 </View>
               ) : null}
 
-              <Text className="mt-5 font-mono text-xs uppercase tracking-widest text-ink/50">
+              <Text className="mt-5 font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 Venmo handle
               </Text>
               <TextInput
@@ -330,10 +330,10 @@ export default function PaymentsSettings() {
                 }}
                 placeholder="@your-handle"
                 autoCapitalize="none"
-                className="mt-2 rounded-sm border border-ink/20 bg-cream px-3 py-2 text-ink"
+                className="mt-2 rounded-sm border border-field bg-cream px-3 py-2 text-ink"
               />
 
-              <Text className="mt-5 font-mono text-xs uppercase tracking-widest text-ink/50">
+              <Text className="mt-5 font-mono text-xs uppercase tracking-widest text-ink-subtle">
                 Zelle email or phone
               </Text>
               <TextInput
@@ -344,7 +344,7 @@ export default function PaymentsSettings() {
                 }}
                 placeholder="you@example.com or 555-0100"
                 autoCapitalize="none"
-                className="mt-2 rounded-sm border border-ink/20 bg-cream px-3 py-2 text-ink"
+                className="mt-2 rounded-sm border border-field bg-cream px-3 py-2 text-ink"
               />
 
               <View className="mt-5 flex-row items-center gap-4">
@@ -356,7 +356,7 @@ export default function PaymentsSettings() {
                   <Text className="text-sm font-medium text-cream">Save payment methods</Text>
                 </Pressable>
                 {saveStatus === 'saved' ? (
-                  <Text className="text-sm text-ink/60">Saved.</Text>
+                  <Text className="text-sm text-ink-subtle">Saved.</Text>
                 ) : saveStatus === 'error' ? (
                   <Text className="text-sm text-oxblood">Couldn't save.</Text>
                 ) : null}

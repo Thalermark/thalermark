@@ -258,7 +258,7 @@ export default function InvoicesList() {
           onChangeText={setQ}
           placeholder="Search number or contact"
           returnKeyType="search"
-          className="flex-1 rounded-sm border border-ink/15 bg-cream-warm px-3 py-2.5 text-ink"
+          className="flex-1 rounded-sm border border-field bg-cream-warm px-3 py-2.5 text-ink"
         />
         <Pressable
           onPress={() => setShowAdvanced((v) => !v)}
@@ -268,7 +268,7 @@ export default function InvoicesList() {
         >
           <Text
             className={`font-mono text-xs uppercase tracking-widest ${
-              advancedActive ? 'text-cream' : 'text-ink/60'
+              advancedActive ? 'text-cream' : 'text-ink-subtle'
             }`}
           >
             Filters
@@ -298,7 +298,9 @@ export default function InvoicesList() {
             </View>
           </View>
           <View>
-            <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">Contact</Text>
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
+              Contact
+            </Text>
             <View className="mt-1">
               <ContactFilterField selected={contact} onChange={setContact} />
             </View>
@@ -308,12 +310,12 @@ export default function InvoicesList() {
 
       {list.state === 'loading' ? (
         <View className="mt-12 items-center">
-          <ActivityIndicator color="#0f1626" />
+          <ActivityIndicator className="text-ink" />
         </View>
       ) : list.state === 'error' ? (
         <Text className="mt-8 px-6 text-sm text-oxblood">Couldn't load invoices.</Text>
       ) : list.rows.length === 0 ? (
-        <Text className="mt-8 px-6 text-ink/70">
+        <Text className="mt-8 px-6 text-ink-muted">
           {anyFilter ? 'No invoices match these filters.' : 'No invoices yet.'}
         </Text>
       ) : (
@@ -329,7 +331,7 @@ export default function InvoicesList() {
           ListFooterComponent={
             loadingMore ? (
               <View className="py-4">
-                <ActivityIndicator color="#0f1626" />
+                <ActivityIndicator className="text-ink" />
               </View>
             ) : null
           }
@@ -345,8 +347,8 @@ export default function InvoicesList() {
                 </Text>
               </View>
               <View className="mt-1 flex-row items-center justify-between">
-                <Text className="text-sm text-ink/70">{item.customerName ?? '—'}</Text>
-                <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
+                <Text className="text-sm text-ink-muted">{item.customerName ?? '—'}</Text>
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
                   {item.status === 'draft' && item.sentAt !== null ? 'being revised' : item.status}{' '}
                   · {item.dueDate}
                 </Text>

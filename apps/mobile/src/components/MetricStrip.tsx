@@ -34,11 +34,15 @@ export function MetricStrip({ tiles }: { tiles: MetricTile[] }) {
                 : 'border-ink/10 bg-cream-warm'
           }`}
         >
-          <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">{t.label}</Text>
+          <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
+            {t.label}
+          </Text>
           <Text className="mt-1 font-serif text-xl font-light tabular-nums text-ink">
             {t.value}
           </Text>
-          {t.sub ? <Text className="mt-0.5 text-xs tabular-nums text-ink/40">{t.sub}</Text> : null}
+          {t.sub ? (
+            <Text className="mt-0.5 text-xs tabular-nums text-ink-subtle">{t.sub}</Text>
+          ) : null}
         </Pressable>
       ))}
     </View>
