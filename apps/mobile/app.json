@@ -18,7 +18,11 @@
       "package": "com.thalermark.app"
     },
     "ios": {
-      "bundleIdentifier": "com.thalermark.app"
+      "bundleIdentifier": "com.thalermark.app",
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSLocalNetworkUsageDescription": "Thalermark needs local network access to reach a Thalermark server running on your own machine or network, such as a self-hosted server."
+      }
     },
     "web": {
       "output": "static",
@@ -32,6 +36,10 @@
         {
           "backgroundColor": "#f4ede0",
           "android": {
+            "image": "./assets/images/splash-icon.png",
+            "imageWidth": 76
+          },
+          "ios": {
             "image": "./assets/images/splash-icon.png",
             "imageWidth": 76
           }
