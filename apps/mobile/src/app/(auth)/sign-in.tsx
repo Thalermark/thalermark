@@ -102,7 +102,7 @@ export default function SignIn() {
         </Text>
         <Text className="mt-3 font-serif text-3xl font-light text-ink">{COPY.signIn.title}</Text>
 
-        <View className="mt-8 space-y-5">
+        <View className="mt-8 gap-5">
           <View>
             <Text className="font-mono text-xs uppercase tracking-widest text-ink/60">Email</Text>
             <TextInput

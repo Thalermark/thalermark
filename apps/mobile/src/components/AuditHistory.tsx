@@ -199,7 +199,7 @@ export function AuditHistory({
       {events.length === 0 ? (
         <Text className={`text-sm text-ink/50 ${showEntity ? '' : 'mt-3'}`}>No history yet.</Text>
       ) : (
-        <View className={showEntity ? 'space-y-3' : 'mt-4 space-y-3'}>
+        <View className={showEntity ? 'gap-3' : 'mt-4 gap-3'}>
           {events.map((ev) => (
             <AuditRow key={ev.id} event={ev} showEntity={showEntity} />
           ))}
@@ -248,7 +248,7 @@ function AuditRow({ event, showEntity }: { event: AuditEvent; showEntity: boolea
             </Text>
           </Pressable>
           {expanded ? (
-            <View className="mt-1.5 space-y-0.5">
+            <View className="mt-1.5 gap-0.5">
               {lines.map((line) => (
                 <Text key={line} className="font-mono text-xs text-ink/55">
                   {line}

@@ -214,7 +214,7 @@ export default function NewPurchase() {
             </View>
           ) : null}
 
-          <View className="mt-8 space-y-5">
+          <View className="mt-8 gap-5">
             <Field
               label="What did you buy? *"
               value={description}
@@ -242,7 +242,7 @@ export default function NewPurchase() {
               <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
                 Did you pay all at once, or over time? *
               </Text>
-              <View className="mt-2 space-y-2">
+              <View className="mt-2 gap-2">
                 <Choice
                   label="Paid it all at once"
                   selected={funding === 'paid_in_full'}
@@ -286,7 +286,7 @@ export default function NewPurchase() {
               <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
                 How do you want to handle it on taxes? *
               </Text>
-              <View className="mt-2 space-y-2">
+              <View className="mt-2 gap-2">
                 <Choice
                   label="Deduct it all this year"
                   hint="Write off the whole cost on this year's taxes."

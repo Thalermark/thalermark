@@ -182,7 +182,7 @@ export default function NewContact() {
             </View>
           ) : null}
 
-          <View className="mt-8 space-y-5">
+          <View className="mt-8 gap-5">
             <Field
               label="Name *"
               value={values.name}

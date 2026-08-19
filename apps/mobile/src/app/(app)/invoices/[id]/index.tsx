@@ -545,7 +545,7 @@ export default function InvoiceDetail() {
 
             {/* Action toolbar */}
             {hasActions ? (
-              <View className="mt-6 space-y-3">
+              <View className="mt-6 gap-3">
                 {canSend ? (
                   <View>
                     {showOverride ? (
@@ -918,7 +918,7 @@ export default function InvoiceDetail() {
             ) : null}
 
             {/* Meta */}
-            <View className="mt-8 space-y-2">
+            <View className="mt-8 gap-2">
               <Meta label="Contact" value={detail.customerName ?? '—'} />
               <Meta label="Issued" value={inv.issueDate} />
               <Meta label="Due" value={inv.dueDate} />

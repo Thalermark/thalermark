@@ -184,7 +184,7 @@ export default function EditBill() {
             </View>
           ) : null}
 
-          <View className="mt-8 space-y-5">
+          <View className="mt-8 gap-5">
             <ContactField
               label="Vendor *"
               companyId={seed.companyId}

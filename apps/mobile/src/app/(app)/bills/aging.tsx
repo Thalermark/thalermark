@@ -107,7 +107,7 @@ export default function BillsAging() {
           <Text className="mt-8 text-sm text-oxblood">Couldn't load the aging report.</Text>
         ) : (
           <>
-            <View className="mt-8 space-y-3">
+            <View className="mt-8 gap-3">
               {BUCKETS.map((b) => (
                 <View
                   key={b.key}

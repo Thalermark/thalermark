@@ -236,7 +236,7 @@ export default function RecurringDetail() {
 
             {/* Actions */}
             {hasActions ? (
-              <View className="mt-6 space-y-3">
+              <View className="mt-6 gap-3">
                 {canRunNow ? (
                   <Pressable
                     onPress={onRunNow}
@@ -289,7 +289,7 @@ export default function RecurringDetail() {
             ) : null}
 
             {/* Meta */}
-            <View className="mt-8 space-y-2">
+            <View className="mt-8 gap-2">
               <Meta label="Contact" value={detail.customerName ?? '—'} />
               <Meta label="Next run" value={s.status === 'ended' ? '—' : s.nextRunDate} />
               <Meta label="Generated" value={String(s.occurrenceCount)} />

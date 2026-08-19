@@ -314,7 +314,7 @@ function Section({
   return (
     <View className="mt-8">
       <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">{label}</Text>
-      <View className="mt-3 space-y-4">
+      <View className="mt-3 gap-4">
         {entries.map((e) => (
           <Pressable
             key={e.href}

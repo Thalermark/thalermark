@@ -169,7 +169,7 @@ export default function NewLedgerEntry() {
             </View>
           ) : null}
 
-          <View className="mt-8 space-y-5">
+          <View className="mt-8 gap-5">
             <DateField label="Date *" value={postedOn} onChange={setPostedOn} />
 
             <View>
@@ -189,7 +189,7 @@ export default function NewLedgerEntry() {
               <Text className="font-mono text-xs uppercase tracking-widest text-ink/50">
                 Lines *
               </Text>
-              <View className="mt-2 space-y-3">
+              <View className="mt-2 gap-3">
                 {lines.map((line, i) => (
                   // biome-ignore lint/suspicious/noArrayIndexKey: lines are a positional list edited in place
                   <View key={i} className="rounded-sm border border-ink/15 bg-cream-warm p-3">

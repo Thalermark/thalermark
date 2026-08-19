@@ -149,7 +149,7 @@ export default function TaxPolicyDetail() {
               </Text>
             ) : null}
 
-            <View className="mt-8 space-y-6">
+            <View className="mt-8 gap-6">
               <DetailRow label="Rate" value={rate(policy.ratePct)} />
               <DetailRow label="Default" value={policy.isDefault ? 'Yes' : 'No'} />
             </View>

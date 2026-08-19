@@ -235,7 +235,7 @@ export default function ContactDetail() {
               </Text>
             ) : null}
 
-            <View className="mt-8 space-y-6">
+            <View className="mt-8 gap-6">
               {c.email ? <DetailRow label="Email" value={c.email} /> : null}
               {c.phone ? <DetailRow label="Phone" value={c.phone} /> : null}
               {addressLines.length > 0 ? (
