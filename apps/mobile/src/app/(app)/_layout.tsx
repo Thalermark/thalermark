@@ -165,6 +165,12 @@ export default function AppLayout() {
   }
 
   if (gate === 'anon') return <Redirect href="/sign-in" />;
+  // All three targets live OUTSIDE this group on purpose. /select-company used
+  // to sit inside (app), which meant this layout redirected to a route it then
+  // refused to render (the gate returns a Redirect instead of its children), so
+  // the focus change re-ran the gate, which redirected again: an infinite loop
+  // that flashed the screen and hit /api/me once per iteration. Invisible with
+  // one membership, because that path auto-picks and never reaches 'select'.
   if (gate === 'select') return <Redirect href="/select-company" />;
   if (gate === 'onboard') return <Redirect href="/welcome" />;
   if (gate === 'consent' && legal) {
@@ -252,8 +258,7 @@ export default function AppLayout() {
           }}
         />
         {/* Routable but hidden from the tab bar. Estimates lost its tab in the
-          M11f consolidation — it's reached from the More hub's Sales section;
-          select-company is reached via redirect only. */}
+          M11f consolidation — it's reached from the More hub's Sales section. */}
         {/* Global search (TMC-198) — reached from the Home header and the More
           hub, not the tab bar. Deliberately not a sixth tab: search is
           something you reach for, not somewhere you live. */}
@@ -266,7 +271,6 @@ export default function AppLayout() {
         {/* The Ledger is reached from the More hub's Accounting section, not the
           tab bar. */}
         <Tabs.Screen name="ledger" options={{ href: null }} />
-        <Tabs.Screen name="select-company" options={{ href: null }} />
         {/* Jobs and mileage are reached from the More hub's Work section.
           EVERY route folder under (app) becomes a tab unless it is named here —
           so these two shipped as a sixth and seventh tab, labelled with their
