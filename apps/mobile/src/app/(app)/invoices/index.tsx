@@ -23,10 +23,13 @@ type InvoiceSummary = {
   // mobile binary in the stores may be talking to an older API, and a missing
   // count must read as "none" rather than crash the strip.
   revising?: { count: number };
+  // The email did not arrive (TMC-226). Optional for the same reason as
+  // revising: an older API must read as "none", not crash the strip.
+  undelivered?: { count: number };
 };
 // Derived date-partition buckets (not stored statuses); alternatives to a
 // plain status filter, so picking one clears status and vice-versa.
-type Bucket = '' | 'overdue' | 'awaiting' | 'revising';
+type Bucket = '' | 'overdue' | 'awaiting' | 'revising' | 'undelivered';
 
 // Mirror of apps/web's /invoices list. customerName is LEFT JOINed by the API
 // now (#195), so the list no longer fetches every contact to resolve names —
@@ -80,7 +83,11 @@ export default function InvoicesList() {
   // Seed the filter from deep-link params (dashboard tiles → this list). Status
   // and bucket are mutually exclusive, so applying one clears the other.
   useEffect(() => {
-    if (params.bucket === 'overdue' || params.bucket === 'awaiting') {
+    if (
+      params.bucket === 'overdue' ||
+      params.bucket === 'awaiting' ||
+      params.bucket === 'undelivered'
+    ) {
       setBucket(params.bucket);
       setStatus('');
     } else if (params.status) {
@@ -211,6 +218,23 @@ export default function InvoicesList() {
                         setStatus('');
                       },
                       active: bucket === 'revising',
+                      alert: true,
+                    },
+                  ]
+                : []),
+              // Same rule: only when there is one. A bounced invoice otherwise
+              // reads as sent and gets chased for 45 days (TMC-226).
+              ...((summary.undelivered?.count ?? 0) > 0
+                ? [
+                    {
+                      label: 'Not delivered',
+                      value: summary.undelivered?.count ?? 0,
+                      sub: 'email did not arrive',
+                      onPress: () => {
+                        setBucket('undelivered');
+                        setStatus('');
+                      },
+                      active: bucket === 'undelivered',
                       alert: true,
                     },
                   ]

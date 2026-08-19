@@ -23,7 +23,14 @@ type Anomalies = {
 type Nudge = { text: string; tone: string };
 // Point-in-time entity counts for the "Right now" tiles (mirror of web). Counts
 // only — the money tiles above own the dollars, so no duplicate of "Owed to you".
-type Counts = { overdue: number; awaiting: number; drafts: number; openEstimates: number };
+type Counts = {
+  overdue: number;
+  awaiting: number;
+  drafts: number;
+  openEstimates: number;
+  acceptedEstimates: number;
+  undelivered: number;
+};
 
 const PERIODS: { key: Period; label: string }[] = [
   { key: 'month', label: 'This month' },
@@ -176,6 +183,16 @@ export default function Home() {
           awaiting: inv?.awaiting.count ?? 0,
           drafts: inv?.draft.count ?? 0,
           openEstimates: est?.open.count ?? 0,
+          // The customer said yes and nothing has been billed for it (TMC-230).
+          // Accepting is the highest-value event in the product, and the
+          // estimate used to leave the "open" tile on acceptance, so the one
+          // surface tracking it stopped showing it exactly when it became
+          // actionable.
+          acceptedEstimates: est?.acceptedUnbilled.count ?? 0,
+          // Invoices whose email did not arrive (TMC-226). Before this the only
+          // trace of a bounce was a server log line, so an invoice that reached
+          // nobody looked exactly like one being ignored.
+          undelivered: inv?.undelivered.count ?? 0,
         });
       })
       .catch(() => {});
@@ -362,6 +379,29 @@ export default function Home() {
                     value: counts.openEstimates,
                     onPress: () => router.push('/estimates?status=sent'),
                   },
+                  // Flagged like an overdue invoice, because it is the same
+                  // kind of fact: the customer has acted and the business has
+                  // not (TMC-230).
+                  {
+                    label: 'Accepted',
+                    value: counts.acceptedEstimates,
+                    onPress: () => router.push('/estimates?status=accepted'),
+                    alert: counts.acceptedEstimates > 0,
+                  },
+                  // Only shown when something is wrong. A permanent
+                  // "0 undelivered" would be one more number to ignore; a tile
+                  // that appears only when an email did not arrive is the whole
+                  // point (TMC-226).
+                  ...(counts.undelivered > 0
+                    ? [
+                        {
+                          label: 'Not delivered',
+                          value: counts.undelivered,
+                          onPress: () => router.push('/invoices?bucket=undelivered'),
+                          alert: true,
+                        },
+                      ]
+                    : []),
                 ]}
               />
             </View>
