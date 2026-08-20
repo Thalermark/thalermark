@@ -3,6 +3,7 @@ import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from '../../../../lib/api';
+import { apiErrorMessage } from '../../../../lib/api-errors';
 import { formatMoney } from '../../../../lib/global-search';
 
 // Customer statement — native mirror of apps/web's /contacts/[id]/statement.
@@ -57,17 +58,6 @@ type SendResult =
   | { kind: 'undelivered'; to: string }
   | { kind: 'error'; message: string };
 
-function sendErrorMessage(code: string | undefined): string {
-  switch (code) {
-    case 'invalid_recipient':
-      return "No valid email. Add the contact's email or type one above.";
-    case 'email_not_configured':
-      return "Email isn't configured on this server.";
-    default:
-      return 'Could not send the statement. Please try again.';
-  }
-}
-
 export default function ContactStatement() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -109,7 +99,10 @@ export default function ContactStatement() {
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
-        setResult({ kind: 'error', message: sendErrorMessage(body?.error) });
+        setResult({
+          kind: 'error',
+          message: apiErrorMessage(body?.error, 'Could not send the statement. Try again.', body),
+        });
         return;
       }
       const body = (await res.json()) as { sentTo?: string; delivered?: boolean };
