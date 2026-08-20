@@ -61,7 +61,7 @@ export function LegalConsentGate({
           <Ionicons
             name={agreed ? 'checkbox' : 'square-outline'}
             size={22}
-            color={agreed ? '#9a7b4f' : '#0f162680'}
+            className={agreed ? 'text-gold-deep' : 'text-ink-subtle'}
           />
           <Text className="flex-1 text-sm text-ink/80">
             I agree to the{' '}

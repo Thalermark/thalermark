@@ -113,7 +113,7 @@ export default function PrivacySettings() {
                   <Ionicons
                     name={enabled ? 'checkbox' : 'square-outline'}
                     size={22}
-                    color={enabled ? '#9a7b4f' : '#0f162680'}
+                    className={enabled ? 'text-gold-deep' : 'text-ink-subtle'}
                   />
                   <Text className="text-sm text-ink">Share anonymous usage data</Text>
                 </Pressable>

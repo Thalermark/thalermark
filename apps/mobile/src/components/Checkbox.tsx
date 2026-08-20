@@ -21,7 +21,7 @@ export function Checkbox({
       <Ionicons
         name={value ? 'checkbox' : 'square-outline'}
         size={22}
-        color={value ? '#9a7b4f' : '#0f162680'}
+        className={value ? 'text-gold-deep' : 'text-ink-subtle'}
       />
       <Text className="text-sm text-ink">{label}</Text>
     </Pressable>
