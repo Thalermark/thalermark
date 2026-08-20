@@ -19,6 +19,7 @@ import type {
   RecurringInvoicesAppType,
   ReportsAppType,
   SearchAppType,
+  SettingsAiAppType,
   SocialProvidersAppType,
   TaxPoliciesAppType,
   TelemetryAppType,
@@ -87,6 +88,7 @@ function buildClients(baseUrl: string) {
     // builder). This client exists to derive ReportsApi for the intersection.
     reports: hc<ReportsAppType>(baseUrl, { headers: authHeaders }),
     search: hc<SearchAppType>(baseUrl, { headers: authHeaders }),
+    settingsAi: hc<SettingsAiAppType>(baseUrl, { headers: authHeaders }),
   };
 }
 
@@ -134,6 +136,7 @@ function facadeApi() {
     estimates,
     expenses,
     search,
+    settingsAi,
   } = liveClients();
   const overrides: Record<string, unknown> = {
     items: items.api.items,
@@ -166,6 +169,7 @@ function facadeApi() {
     estimates: estimates.api.estimates,
     expenses: expenses.api.expenses,
     search: search.api.search,
+    settings: settingsAi.api.settings,
   };
   return new Proxy(main.api, {
     get(target, prop) {
@@ -198,6 +202,7 @@ type EstimatesApi = ReturnType<typeof buildClients>['estimates']['api'];
 type ExpensesApi = ReturnType<typeof buildClients>['expenses']['api'];
 type ReportsApi = ReturnType<typeof buildClients>['reports']['api'];
 type SearchApi = ReturnType<typeof buildClients>['search']['api'];
+type SettingsAiApi = ReturnType<typeof buildClients>['settingsAi']['api'];
 type ApiClient = {
   api: MainApi & {
     items: ItemsApi['items'];
@@ -236,6 +241,9 @@ type ApiClient = {
     estimates: EstimatesApi['estimates'];
     expenses: ExpensesApi['expenses'];
     search: SearchApi['search'];
+    // Settings → AI (TMC-269). Its own sub-app, kept out of AppType like the
+    // rest; mobile reaches it as `api.api.settings.ai.*`.
+    settings: SettingsAiApi['settings'];
   };
 };
 

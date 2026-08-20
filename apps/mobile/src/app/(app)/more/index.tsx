@@ -33,6 +33,8 @@ type Entry = {
     | '/more/items'
     | '/more/reports'
     | '/more/business'
+    | '/more/ai'
+    | '/more/reminders'
     | '/more/payments'
     | '/more/email'
     | '/more/privacy'
@@ -188,6 +190,12 @@ const SETTINGS_ENTRIES: Entry[] = [
     subtitle: 'Named sales-tax rates you apply to items and invoice lines.',
   },
   {
+    href: '/more/ai',
+    icon: 'sparkles-outline',
+    title: 'AI',
+    subtitle: 'Connect a provider so receipts auto-fill and nudges work.',
+  },
+  {
     href: '/more/payments',
     icon: 'card-outline',
     title: 'Payments',
@@ -198,6 +206,12 @@ const SETTINGS_ENTRIES: Entry[] = [
     icon: 'mail-outline',
     title: 'Email templates',
     subtitle: 'Customize the subject and message your contacts receive.',
+  },
+  {
+    href: '/more/reminders',
+    icon: 'alarm-outline',
+    title: 'Payment reminders',
+    subtitle: 'Chase unpaid invoices automatically, before and after the due date.',
   },
   {
     href: '/more/privacy',

@@ -1,5 +1,6 @@
 import { DOMAIN, PRODUCT_NAME, TAGLINE } from '@thalermark/brand';
 import Constants from 'expo-constants';
+import { useRouter } from 'expo-router';
 import { Linking, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -12,11 +13,17 @@ const siteUrl = `https://${DOMAIN}`;
 const sourceUrl = 'https://github.com/Thalermark/thalermark';
 
 export default function About() {
+  const router = useRouter();
   return (
     <SafeAreaView className="flex-1 bg-cream" edges={['top']}>
       <ScrollView contentContainerClassName="px-6 pt-6 pb-16">
-        <Text className="font-mono text-xs uppercase tracking-widest text-gold-deep">More</Text>
-        <Text className="mt-2 font-serif text-3xl font-light text-ink">About</Text>
+        <Text
+          onPress={() => router.push('/more')}
+          className="font-mono text-xs uppercase tracking-widest text-ink-subtle"
+        >
+          ← More
+        </Text>
+        <Text className="mt-3 font-serif text-3xl font-light text-ink">About</Text>
 
         <View className="mt-8 rounded-sm border border-ink/10 bg-cream-warm">
           <View className="border-b border-ink/10 px-5 py-4">
