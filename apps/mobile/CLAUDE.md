@@ -26,10 +26,25 @@ src/lib/
 SCAFFOLDING.md's mobile section for the JDK 17 requirement, which is the only
 real prerequisite.
 
-What is left is **parity, not absence**: seven web screens have no mobile
-equivalent (`settings/ai` most importantly), and several web fixes never
-crossed over. Tracked under epic TMC-269. When porting, mirror the web route
-under `apps/web/src/routes/(app)/`: same API, same shapes, native UI.
+What is left is **parity, not absence**. The gap was seven web screens; the
+three phone-shaped ones shipped 2026-08-19 (`more/ai`, `more/reminders`,
+`contacts/[id]/statement`). **Four remain, all desk work:**
+
+| web route | why it has not been ported |
+| --- | --- |
+| `settings/import` | CSV import, done once at onboarding, on a laptop |
+| `reports/general-ledger` | accountant-facing, unreadable at phone width |
+| `reports/job-margin` | same |
+| `companies/handoff` | incorporation handoff, rare and one-time |
+
+Several web fixes also never crossed over. Tracked under epic TMC-269. When
+porting, mirror the web route under `apps/web/src/routes/(app)/`: same API,
+same shapes, native UI.
+
+**`settings/ai` was the one that actually blocked a feature** — receipt
+extraction reads the account's one AI connection, so before `more/ai` existed a
+phone-only user could photograph a receipt and then had to open a laptop to make
+auto-fill work (TMC-283).
 
 **Mobile is a second client against the same API, not a follower.** A fix that
 lands on web does not close the user-facing problem. TMC-199, TMC-204, TMC-226

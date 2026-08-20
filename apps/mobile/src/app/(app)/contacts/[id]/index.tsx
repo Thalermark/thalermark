@@ -206,27 +206,40 @@ export default function ContactDetail() {
               </View>
             </View>
 
-            {canWrite ? (
-              <View className="mt-4 flex-row gap-2">
-                <Pressable
-                  onPress={() => router.push(`/contacts/${id}/edit`)}
-                  className="rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep"
-                >
-                  <Text className="font-mono text-xs uppercase tracking-widest text-ink-muted">
-                    Edit
-                  </Text>
-                </Pressable>
-                <Pressable
-                  onPress={toggleArchive}
-                  disabled={busy}
-                  className="rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep disabled:opacity-50"
-                >
-                  <Text className="font-mono text-xs uppercase tracking-widest text-ink-muted">
-                    {archived ? 'Restore' : 'Archive'}
-                  </Text>
-                </Pressable>
-              </View>
-            ) : null}
+            {/* Statement is a READ, so it sits outside the canWrite gate — a
+                read-only member can still answer "what do they owe me" while
+                standing in front of the customer. Edit/Archive stay gated. */}
+            <View className="mt-4 flex-row flex-wrap gap-2">
+              <Pressable
+                onPress={() => router.push(`/contacts/${id}/statement`)}
+                className="rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep"
+              >
+                <Text className="font-mono text-xs uppercase tracking-widest text-ink-muted">
+                  Statement
+                </Text>
+              </Pressable>
+              {canWrite ? (
+                <>
+                  <Pressable
+                    onPress={() => router.push(`/contacts/${id}/edit`)}
+                    className="rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep"
+                  >
+                    <Text className="font-mono text-xs uppercase tracking-widest text-ink-muted">
+                      Edit
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={toggleArchive}
+                    disabled={busy}
+                    className="rounded-sm border border-ink/20 px-3 py-1.5 active:border-gold-deep disabled:opacity-50"
+                  >
+                    <Text className="font-mono text-xs uppercase tracking-widest text-ink-muted">
+                      {archived ? 'Restore' : 'Archive'}
+                    </Text>
+                  </Pressable>
+                </>
+              ) : null}
+            </View>
 
             {archived ? (
               <Text className="mt-6 rounded-sm border border-ink/15 bg-cream-warm px-4 py-3 text-sm text-ink-muted">
