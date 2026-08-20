@@ -186,7 +186,7 @@ export default function MileageList() {
             ) : null}
 
             {canWrite ? (
-              <View className="mt-6 rounded-sm border border-ink/15 bg-white p-4">
+              <View className="mt-6 rounded-sm border border-ink/15 bg-cream-warm p-4">
                 <TextInput
                   value={tripDate}
                   onChangeText={setTripDate}
@@ -248,7 +248,7 @@ export default function MileageList() {
         renderItem={({ item }) => {
           const value = mileageValue(item.miles, item.tripDate);
           return (
-            <View className="mx-6 mt-3 flex-row items-center justify-between rounded-sm border border-ink/10 bg-white px-4 py-3">
+            <View className="mx-6 mt-3 flex-row items-center justify-between rounded-sm border border-ink/10 bg-cream-warm px-4 py-3">
               <View className="mr-3 flex-1">
                 <Text className="font-serif text-lg text-ink">{item.purpose}</Text>
                 <Text className="mt-1 text-xs text-ink-subtle">

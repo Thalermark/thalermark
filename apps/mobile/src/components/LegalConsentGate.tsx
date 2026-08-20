@@ -48,7 +48,7 @@ export function LegalConsentGate({
 
   return (
     <View className="flex-1 justify-center bg-cream px-6">
-      <View className="rounded-sm border border-ink/15 bg-white px-5 py-6">
+      <View className="rounded-sm border border-ink/15 bg-cream-warm px-5 py-6">
         <Text className="font-mono text-[11px] uppercase tracking-widest text-ink-subtle">
           One quick thing
         </Text>
