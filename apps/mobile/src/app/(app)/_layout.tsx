@@ -4,6 +4,7 @@ import { Redirect, Tabs, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, AppState, Pressable, Text, View, useColorScheme } from 'react-native';
 import { LegalConsentGate } from '../../components/LegalConsentGate';
+import { OfflineBanner } from '../../components/OfflineBanner';
 import { resolveActiveAccount } from '../../lib/active-account';
 import { pickActiveCompany } from '../../lib/active-company';
 import { api } from '../../lib/api';
@@ -280,6 +281,10 @@ export default function AppLayout() {
         <Tabs.Screen name="jobs" options={{ href: null }} />
         <Tabs.Screen name="mileage" options={{ href: null }} />
       </Tabs>
+      {/* Mounted once, here, rather than per screen (TMC-228). It is an absolute
+        overlay with pointerEvents none, so it sits outside <Tabs> without
+        touching any screen's layout or stealing a tap. */}
+      <OfflineBanner />
     </RoleProvider>
   );
 }
