@@ -143,10 +143,27 @@
   // gated on the same rule the API enforces: an issued invoice, and a settled
   // one only if it got there through payment rows. Mirroring the server rule
   // here keeps the button from offering a guaranteed 409.
+  //
+  // Plus: a zero-total invoice has nothing to receive (TMC-281). It used to
+  // offer this, and the control could not succeed usefully — a zero amount is
+  // refused by the payment schema, while a positive one is ACCEPTED and books
+  // an overpayment against an invoice that never asked for anything. The
+  // mark-paid path already carves out total = 0, the same exception migration
+  // 0032 made; the payments panel never got the equivalent.
+  //
+  // Gated on the TOTAL, deliberately, NOT on `settlement.outstanding`. The
+  // API's own rule (checkPaymentEligibility, apps/api/src/lib/invoice-payments.ts)
+  // never looks at an amount, so an already-settled invoice can still take
+  // another payment — that is how a real overpayment gets recorded, and the
+  // panel has an "Overpaid by" state for exactly that. Gating on outstanding
+  // would make the client stricter than the server and break it. Keep this
+  // rule identical to mobile's; the two are character-for-character the same
+  // by design.
   const settlement = $derived(data.settlement);
   const canRecordPayment = $derived(
     canWrite &&
       !!settlement &&
+      Number(inv.total) > 0 &&
       (inv.status === 'sent' || (inv.status === 'paid' && settlement.payments.length > 0)),
   );
   let showPaymentPanel = $state(false);
