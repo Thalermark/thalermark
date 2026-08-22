@@ -54,6 +54,7 @@ import {
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 import type { AppDeps } from '../app.js';
+import { buildLatePayers } from '../lib/customer-insights.js';
 import { acceptRate, estimateLapsed } from '../lib/estimate-outcomes.js';
 import {
   displayHours,
@@ -68,6 +69,12 @@ import { apBalance, arBalance, cashFlowNet, cashOnHand } from '../lib/ledger.js'
 import { recordLlmCallHealth } from '../lib/llm-connection.js';
 import { resolveAccountCredential } from '../lib/llm-credentials.js';
 import { UUID_RE, localToday } from '../lib/route-helpers.js';
+import {
+  categoryMovement,
+  merchantMovement,
+  notableMovers,
+  rollingWindows,
+} from '../lib/spending-movement.js';
 import {
   type ExpenseAccountAmount,
   type TaxLineRow,
@@ -127,6 +134,19 @@ function addDays(day: string, delta: number): string {
   const d = new Date(`${day}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + delta);
   return d.toISOString().slice(0, 10);
+}
+
+// Shift a YYYY-MM-01 by whole calendar months, same calendar-space reasoning as
+// addDays. Date.UTC normalises a month underflow (month -1 becomes December of
+// the prior year) so December and January need no special case.
+//
+// Takes and returns the FIRST of a month deliberately: applied to the 31st it
+// would have to invent a rule for the months that have no 31st, and every
+// caller here wants a month boundary anyway.
+function addMonths(firstOfMonth: string, delta: number): string {
+  const y = Number(firstOfMonth.slice(0, 4));
+  const m = Number(firstOfMonth.slice(5, 7));
+  return new Date(Date.UTC(y, m - 1 + delta, 1)).toISOString().slice(0, 10);
 }
 
 // Parse a from/to reporting window shared by the report endpoints. Both are
@@ -1784,6 +1804,7 @@ export function reportsRoutes(deps: AppDeps) {
             const [company] = await tx
               .select({
                 id: companies.id,
+                timezone: companies.timezone,
                 businessType: companies.businessType,
                 cachedNudges: companies.cashFlowNudges,
                 cachedHash: companies.nudgesInputHash,
@@ -1794,30 +1815,36 @@ export function reportsRoutes(deps: AppDeps) {
               .limit(1);
             if (!company) return null;
 
-            // Window math (UTC, half-open upper bounds). MTD = month start → tomorrow;
-            // trailing = the 3 prior full calendar months (Date.UTC handles year
-            // underflow). overdue = sent invoices whose due date has passed.
-            const now = new Date();
-            const y = now.getUTCFullYear();
-            const m = now.getUTCMonth();
-            const d = now.getUTCDate();
-            const todayYmd = now.toISOString().slice(0, 10);
-            const monthStart = new Date(Date.UTC(y, m, 1));
-            const tomorrow = new Date(Date.UTC(y, m, d + 1));
+            // Window math in the COMPANY's calendar, half-open upper bounds.
+            // MTD = month start → tomorrow; trailing = the 3 prior full calendar
+            // months; overdue = sent invoices whose due date has passed.
+            //
+            // THIS USED TO BE UTC while the dashboard tiles directly above these
+            // nudges resolved their edges through the company timezone. In US
+            // Central that put the nudge a day ahead of the tile from 7pm, so
+            // "this month" meant two different windows on one screen, and on the
+            // 1st it meant two different months (TMC-157 / TMC-258).
+            const tz = company.timezone;
+            const todayYmd = localToday(tz);
+            const monthStartDay = `${todayYmd.slice(0, 7)}-01`;
 
             const scope = { accountId, companyId: id };
             const monthToDate = await cashFlowNet(tx, {
               ...scope,
-              fromDate: monthStart,
-              toExclusive: tomorrow,
+              fromDate: dayStartInstant(monthStartDay, tz),
+              toExclusive: dayStartInstant(addDays(todayYmd, 1), tz),
             });
             const trailingMonths: CashFlowSignals['trailingMonths'] = [];
             for (let k = 3; k >= 1; k--) {
-              const start = new Date(Date.UTC(y, m - k, 1));
-              const end = new Date(Date.UTC(y, m - k + 1, 1));
-              const flow = await cashFlowNet(tx, { ...scope, fromDate: start, toExclusive: end });
+              const start = addMonths(monthStartDay, -k);
+              const end = addMonths(monthStartDay, -k + 1);
+              const flow = await cashFlowNet(tx, {
+                ...scope,
+                fromDate: dayStartInstant(start, tz),
+                toExclusive: dayStartInstant(end, tz),
+              });
               trailingMonths.push({
-                month: start.toISOString().slice(0, 7),
+                month: start.slice(0, 7),
                 moneyIn: flow.moneyIn,
                 moneyOut: flow.moneyOut,
               });
@@ -1834,6 +1861,32 @@ export function reportsRoutes(deps: AppDeps) {
                 ),
               );
 
+            // The three signals that give the model something the dashboard is
+            // not already showing (TMC-229). All deterministic, all computed
+            // here; the advisor quotes them and never derives one.
+            //
+            // buildLatePayers is the SAME function the late-payer endpoint
+            // serves (TMC-262), so a nudge naming a customer and the list the
+            // operator opens after reading it cannot disagree.
+            const latePayers = await buildLatePayers(tx, {
+              accountId,
+              companyId: id,
+              today: todayYmd,
+              limit: 3,
+            });
+            const windows = rollingWindows(todayYmd);
+            const movementArgs = { accountId, companyId: id, windows };
+            // $50 floor and a 3-row cap on each: enough for one sentence naming
+            // one thing, which is all a 3-nudge budget can carry anyway.
+            const categoryMovers = notableMovers(await categoryMovement(tx, movementArgs), {
+              minRecent: 50,
+              limit: 3,
+            });
+            const merchantMovers = notableMovers(await merchantMovement(tx, movementArgs), {
+              minRecent: 50,
+              limit: 3,
+            });
+
             const signals: CashFlowSignals = {
               asOf: todayYmd,
               cashOnHand: await cashOnHand(tx, scope),
@@ -1841,11 +1894,23 @@ export function reportsRoutes(deps: AppDeps) {
               trailingMonths,
               owed: await arBalance(tx, scope),
               overdueCount: overdue?.count ?? 0,
-              // Set unconditionally, and last. It is hashed with the rest of the
-              // signals, so a conditional spread would drop the key for
+              // Set unconditionally. It is hashed with the rest of the signals,
+              // so a conditional spread would drop the key for
               // null-business-type companies and quietly restore their old cache
               // key; the insertion order is likewise part of the hashed JSON.
               businessType: company.businessType,
+              // Appended below businessType, matching the declared field order in
+              // CashFlowSignals. That order is the hash, so these go last and
+              // nothing above them moves.
+              latePayers: latePayers.map((p) => ({
+                name: p.name,
+                outstanding: p.outstanding,
+                daysPastDue: p.maxDaysPastDue,
+                lateCount: p.lateCount,
+                paidCount: p.paidCount,
+              })),
+              categoryMovers,
+              merchantMovers,
             };
             // Version-tag the cache key so a prompt/advisor change (CASH_FLOW_NUDGE_VERSION)
             // regenerates cached nudges — the signals hash alone wouldn't change.
@@ -2014,6 +2079,41 @@ export function reportsRoutes(deps: AppDeps) {
             : null;
 
         return c.json({ enoughHistory, overall, categories: categories.slice(0, 5) });
+      })
+      // Late-payer detection (TMC-262). Who to chase, worst first.
+      //
+      // DETERMINISTIC AND FREE, like spending anomalies directly above and
+      // unlike the cash-flow nudge. The MVP scope doc lists late-payer detection
+      // under the paid AI layer, but ranking by money owed and counting days is
+      // arithmetic — an LLM could only rephrase it, and paying per call for a
+      // sentence the numbers already say is the exact trade TMC-262 rejected.
+      // No entitlement gate for the same reason anomalies has none.
+      //
+      // The SAME buildLatePayers the cash-flow nudge feeds on, so a nudge that
+      // names a customer and the list the operator opens after reading it cannot
+      // disagree about who is late or by how much.
+      .get('/api/companies/:id/late-payers', async (c) => {
+        const id = c.req.param('id');
+        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+        const tx = c.get('tx');
+        const accountId = c.get('accountId');
+
+        const [company] = await tx
+          .select({ id: companies.id, timezone: companies.timezone })
+          .from(companies)
+          .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
+          .limit(1);
+        if (!company) return c.json({ error: 'company_not_found' }, 404);
+
+        // Ten rather than the nudge's three: this is a list someone opened on
+        // purpose, not a sentence competing for space on a dashboard.
+        const latePayers = await buildLatePayers(tx, {
+          accountId,
+          companyId: id,
+          today: localToday(company.timezone),
+          limit: 10,
+        });
+        return c.json({ latePayers });
       })
       // Job margin (TMC-174) — what each job made, plus the shared pool.
       //

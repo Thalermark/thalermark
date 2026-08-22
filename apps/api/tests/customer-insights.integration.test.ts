@@ -470,3 +470,120 @@ describe('GET /api/contacts/:id/insights', () => {
     }
   });
 });
+
+type LatePayer = {
+  contactId: string;
+  name: string;
+  outstanding: string;
+  overdueAmount: string;
+  overdueCount: number;
+  maxDaysPastDue: number | null;
+  paidCount: number;
+  lateCount: number;
+  latePct: number | null;
+  avgDaysLate: number | null;
+};
+
+async function latePayers(ctx: Ctx): Promise<LatePayer[]> {
+  const res = await ctx.app.request(`/api/companies/${ctx.companyId}/late-payers`, {
+    headers: headers(ctx),
+  });
+  if (res.status !== 200) throw new Error(`late-payers failed: ${res.status} ${await res.text()}`);
+  return ((await res.json()) as { latePayers: LatePayer[] }).latePayers;
+}
+
+// TMC-262. The company-wide half of the reliability math the contact page has
+// had since #500 — same SQL, opposite direction. "Is this customer reliable"
+// needs you to already suspect them; "who should I be chasing" is the question
+// an operator actually has.
+//
+// Dates are deliberately years in the past so "overdue" holds whatever day the
+// suite runs. Nothing here mocks the clock.
+describe('GET /api/companies/:id/late-payers', () => {
+  it('ranks by overdue money and carries the days late and the pattern', async () => {
+    const { ctx, close } = await setup('late-rank@example.com');
+    try {
+      const dave = await createContact(ctx, "Dave's Landscaping");
+      const small = await createContact(ctx, 'Small Fry');
+
+      // Dave: a big open invoice, plus one he settled a month after it was due.
+      await invoice(ctx, dave, {
+        number: 'INV-1',
+        subtotal: '2400.00',
+        issueDate: '2020-01-01',
+        dueDate: '2020-01-15',
+      });
+      const settledLate = await invoice(ctx, dave, {
+        number: 'INV-2',
+        subtotal: '500.00',
+        issueDate: '2019-01-01',
+        dueDate: '2019-01-15',
+      });
+      await pay(ctx, settledLate, { amount: '500.00', receivedOn: '2019-02-15' });
+
+      await invoice(ctx, small, {
+        number: 'INV-3',
+        subtotal: '100.00',
+        issueDate: '2020-01-01',
+        dueDate: '2020-01-15',
+      });
+
+      const rows = await latePayers(ctx);
+      expect(rows.map((r) => r.name)).toEqual(["Dave's Landscaping", 'Small Fry']);
+
+      const [d] = rows;
+      expect(d?.overdueAmount).toBe('2400.00');
+      expect(d?.overdueCount).toBe(1);
+      // Settled 31 days after the due date.
+      expect(d?.avgDaysLate).toBe(31);
+      expect(d?.lateCount).toBe(1);
+      expect(d?.paidCount).toBe(1);
+      expect(d?.maxDaysPastDue).toBeGreaterThan(0);
+    } finally {
+      await close();
+    }
+  });
+
+  it('leaves out a customer who pays on time and owes nothing', async () => {
+    const { ctx, close } = await setup('late-clean@example.com');
+    try {
+      const good = await createContact(ctx, 'Prompt Pay');
+      const id = await invoice(ctx, good, {
+        number: 'INV-1',
+        subtotal: '900.00',
+        issueDate: '2020-01-01',
+        dueDate: '2020-01-15',
+      });
+      await pay(ctx, id, { amount: '900.00', receivedOn: '2020-01-10' });
+
+      expect(await latePayers(ctx)).toEqual([]);
+    } finally {
+      await close();
+    }
+  });
+
+  // The TMC-216 / TMC-253 defect class: a $1,000 invoice carrying a $600 deposit
+  // is $400 of risk. Reporting the gross would put this customer above someone
+  // genuinely sitting on more money.
+  it('nets a deposit out of the overdue exposure', async () => {
+    const { ctx, close } = await setup('late-deposit@example.com');
+    try {
+      const cust = await createContact(ctx, 'Half Paid');
+      const id = await invoice(ctx, cust, {
+        number: 'INV-1',
+        subtotal: '1000.00',
+        issueDate: '2020-01-01',
+        dueDate: '2020-01-15',
+      });
+      await pay(ctx, id, { amount: '600.00', receivedOn: '2020-01-05' });
+
+      const [row] = await latePayers(ctx);
+      expect(row?.overdueAmount).toBe('400.00');
+      expect(row?.outstanding).toBe('400.00');
+      // Still open, so it is not a settled invoice and carries no pay history.
+      expect(row?.paidCount).toBe(0);
+    } finally {
+      await close();
+    }
+  });
+});

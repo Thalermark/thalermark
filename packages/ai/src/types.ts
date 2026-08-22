@@ -101,11 +101,55 @@ export interface CashFlowSignals {
   trailingMonths: { month: string; moneyIn: string; moneyOut: string }[]; // month: YYYY-MM
   owed: string;
   overdueCount: number;
-  // Last on purpose. JSON.stringify emits keys in insertion order and the route
-  // hashes that string, so this position is load-bearing for the cache key —
-  // moving it later silently changes every company's hash. See ExtractionInput
-  // for why it is required-but-nullable.
+  // ORDER IS LOAD-BEARING. APPEND ONLY, NEVER REORDER. JSON.stringify emits keys
+  // in insertion order and the route hashes that string, so moving an existing
+  // field silently changes every company's cache key. Appending a new one at the
+  // end changes every hash too, which is correct and wanted: a new signal means
+  // the cached sentence was written without knowing it. Bump
+  // CASH_FLOW_NUDGE_VERSION alongside an append regardless, so a prompt edit
+  // riding in the same change is covered as well.
+  //
+  // businessType stays in this position, ahead of the appended block below,
+  // because it was last when it was added and moving it now would buy nothing.
+  // See ExtractionInput for why it is required-but-nullable.
   businessType: string | null;
+
+  // --- appended for TMC-229 ---
+  //
+  // Everything above this line was, with one exception, already printed on the
+  // dashboard the nudge sits on. `owed` is a single A/R total and `overdueCount`
+  // a bare count, so the premium reasoning call's entire novel-information
+  // budget was cashOnHand — and the nudge could only ever paraphrase the tiles
+  // roughly 200px above it. These three fields are what make a nudge able to say
+  // something the screen does not.
+
+  // Who owes, how late, and whether lateness is their habit rather than a
+  // one-off. Ranked worst-first and capped small: the model gets the few that
+  // matter, never a ledger dump. Empty when nobody is overdue and nobody has a
+  // late history, which is a real and common state.
+  latePayers: {
+    name: string;
+    // Owed on this contact's open invoices, net of any deposits already taken.
+    outstanding: string;
+    // Days past due on their worst still-open invoice. Null when they owe
+    // nothing overdue and appear on their history alone.
+    daysPastDue: number | null;
+    lateCount: number;
+    paidCount: number;
+  }[];
+
+  // Where spend actually moved against this company's own trailing history, so
+  // a nudge can name the category or the vendor instead of restating the Money
+  // out tile. `typical` is a per-30-day figure, directly comparable to `recent`.
+  categoryMovers: SpendingMover[];
+  merchantMovers: SpendingMover[];
+}
+
+export interface SpendingMover {
+  label: string;
+  recent: string;
+  typical: string;
+  pctOver: number;
 }
 
 // One nudge. tone drives styling: good (reassuring), warning (needs attention —

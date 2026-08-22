@@ -304,3 +304,123 @@ export async function buildCustomerInsights(
     lastInvoiceOn: totals?.lastInvoiceOn ?? null,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Late-payer detection (TMC-262), company-wide.
+//
+// The per-contact half of this already existed above and is not duplicated
+// here: reliabilityColumns() is the same SQL, reused verbatim, so the ranked
+// list and the contact page cannot disagree about whether someone pays late.
+// What was missing was only the direction of the question. buildCustomerInsights
+// answers "is THIS customer reliable" from a page you reach by already
+// suspecting them. Nothing answered "who should I be chasing", which is the
+// question an operator actually has, and which no screen could ask because
+// there was no company-wide read.
+//
+// DETERMINISTIC, NO MODEL. Ranking by money and counting days is arithmetic;
+// an LLM would only rephrase it, and TMC-262 is explicit that if narration adds
+// nothing it should not be paid for per call. Same posture as spending
+// anomalies and the send-check.
+//
+// "Late" is settlement after the due date, measured off invoices.paid_at —
+// which is NOT the old header flag. syncInvoiceSettlement stamps it from the
+// latest receipt's received_on and clears it when a refund reopens the invoice,
+// so it is the date the money actually finished arriving. Overdue exposure is
+// net of payments for the same reason A/R aging is: a $1,000 invoice carrying a
+// $600 deposit is $400 of risk, not $1,000 (TMC-216 / TMC-253).
+export type LatePayer = {
+  contactId: string;
+  name: string;
+  // Money at risk right now.
+  outstanding: string;
+  overdueAmount: string;
+  overdueCount: number;
+  // The worst currently-open invoice, in days past its due date. Null when this
+  // contact owes nothing overdue and is listed for their history alone.
+  maxDaysPastDue: number | null;
+  // Whether lateness is a pattern or a one-off.
+  paidCount: number;
+  lateCount: number;
+  latePct: number | null;
+  avgDaysLate: number | null;
+};
+
+// `today` is the COMPANY's today, resolved by the caller through its timezone
+// (TMC-258). Not derived here: this file's older todayYmd() is UTC, and passing
+// the resolved date in is what keeps a 7pm-Central read from calling an invoice
+// overdue on the day it is due.
+export async function buildLatePayers(
+  tx: Database | Transaction,
+  args: { accountId: string; companyId: string; today: string; limit?: number },
+): Promise<LatePayer[]> {
+  const { accountId, companyId, today, limit = 5 } = args;
+  const paid = paidPerInvoice(tx, accountId);
+  const owedExpr = sql`${invoices.total} - coalesce(${paid.paid}, 0)`;
+
+  const rows = await tx
+    .select({
+      contactId: contacts.id,
+      name: contacts.name,
+      outstanding: sql<string>`coalesce(sum(${owedExpr}) filter (where ${invoices.status} = 'sent'), 0)::numeric(15,2)`,
+      // Days past due on the worst still-open invoice. Postgres date subtraction
+      // yields an integer number of days directly.
+      maxDaysPastDue: sql<
+        number | null
+      >`max(${today}::date - ${invoices.dueDate}) filter (where ${invoices.status} = 'sent' and ${invoices.dueDate} < ${today})::int`,
+      ...reliabilityColumns(today, owedExpr),
+    })
+    .from(invoices)
+    .innerJoin(contacts, eq(contacts.id, invoices.contactId))
+    .leftJoin(paid, eq(paid.invoiceId, invoices.id))
+    .where(
+      and(
+        eq(invoices.accountId, accountId),
+        eq(invoices.companyId, companyId),
+        // Archived contacts are NOT excluded. Archiving drops a contact out of
+        // the pickers; it does not forgive the debt. Someone who owes $2,400 and
+        // was archived by mistake is exactly who this list exists to surface.
+        inArray(invoices.status, ['sent', 'paid']),
+      ),
+    )
+    .groupBy(contacts.id, contacts.name)
+    // Earns a place by owing something overdue, or by having paid late before.
+    // A customer who always pays on time and owes nothing is not news.
+    .having(
+      sql`count(*) filter (where ${invoices.status} = 'sent' and ${invoices.dueDate} < ${today}) > 0
+        or count(*) filter (where ${invoices.paidAt} is not null and (${invoices.paidAt} at time zone 'UTC')::date > ${invoices.dueDate}) > 0`,
+    )
+    // Money first, then how long it has been sitting, then how often they do
+    // this. Ordering by pattern first would put a chronic $40 late-payer above
+    // someone sitting on $9,000, which is not the call an operator would make.
+    .orderBy(
+      desc(
+        sql`coalesce(sum(${owedExpr}) filter (where ${invoices.status} = 'sent' and ${invoices.dueDate} < ${today}), 0)`,
+      ),
+      desc(
+        sql`max(${today}::date - ${invoices.dueDate}) filter (where ${invoices.status} = 'sent')`,
+      ),
+    )
+    .limit(limit);
+
+  return rows.map((r) => {
+    const reliability = summariseReliability({
+      paidCount: r.paidCount,
+      lateCount: r.lateCount,
+      avgDaysLate: r.avgDaysLate,
+      overdueCount: r.overdueCount,
+      overdueTotal: r.overdueTotal,
+    });
+    return {
+      contactId: r.contactId,
+      name: r.name,
+      outstanding: r.outstanding,
+      overdueAmount: reliability.overdueTotal,
+      overdueCount: reliability.overdueCount,
+      maxDaysPastDue: r.maxDaysPastDue,
+      paidCount: reliability.paidCount,
+      lateCount: reliability.lateCount,
+      latePct: reliability.latePct,
+      avgDaysLate: reliability.avgDaysLate,
+    };
+  });
+}
