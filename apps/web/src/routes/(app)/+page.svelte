@@ -93,8 +93,33 @@
   // "What to watch" nudges (cashflow). trackEvent no-ops server-side / when
   // opted out; re-fires on period change (a fresh view of that period's
   // insights), matching report_viewed's re-fire-on-navigation behaviour.
+  // Late-payer detection (deterministic, TMC-262). Ranked worst-first by what is
+  // overdue; empty when nobody owes anything late and nobody has a late history,
+  // which is the healthy case and shows nothing at all.
+  const latePayers = $derived(data.latePayers);
+
+  // The same omission rules the advisor prompt uses, for the same reason: one
+  // settled invoice is not a pattern, and a contact listed on history alone has
+  // no open invoice to be days past due on. Saying either anyway is a confident
+  // sentence about something the data does not support.
+  function chaseLine(p: (typeof latePayers)[number]): string {
+    const parts = [`${fmt(p.outstanding)} outstanding`];
+    if (p.maxDaysPastDue !== null) parts.push(`${p.maxDaysPastDue} days past due`);
+    if (p.paidCount >= 2 && p.lateCount > 0) {
+      parts.push(`paid late ${p.lateCount} of ${p.paidCount} times`);
+    }
+    return parts.join(' · ');
+  }
+
   $effect(() => {
     if (showAnomalies) trackEvent({ name: 'ai_insight_viewed', insight_type: 'anomaly' });
+  });
+
+  // 'late_payer' was already in the AI_INSIGHT_TYPES taxonomy (validation +
+  // telemetry) and had never had a surface to fire from — the feature it was
+  // named for did not exist until TMC-262.
+  $effect(() => {
+    if (latePayers.length > 0) trackEvent({ name: 'ai_insight_viewed', insight_type: 'late_payer' });
   });
 
   $effect(() => {
@@ -260,6 +285,30 @@
 </dl>
 {/if}
 
+{#if latePayers.length > 0}
+  <!--
+    Above "Unusual spending" on purpose. Both are deterministic and free, but
+    chasing money already earned is a higher-value action than noticing money
+    spent, and this is the only surface in the product that answers "who do I
+    call" without the operator first suspecting someone and opening their page.
+  -->
+  <section class="mt-8">
+    <h2 class="label">Who to chase</h2>
+    <ul class="mt-3 space-y-3">
+      {#each latePayers as p (p.contactId)}
+        <li
+          class="rounded-sm border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-fg/80 transition-colors hover:border-danger/50"
+        >
+          <a href="/contacts/{p.contactId}" class="block">
+            <span class="font-medium text-fg">{p.name}</span>
+            <span class="mt-0.5 block text-fg/70">{chaseLine(p)}</span>
+          </a>
+        </li>
+      {/each}
+    </ul>
+  </section>
+{/if}
+
 {#if showAnomalies}
   <section class="mt-8">
     <h2 class="label">Unusual spending</h2>
@@ -302,9 +351,14 @@
       Making the nudge follow the toggle is the fuller answer and is deliberately
       NOT done here: companies.cash_flow_nudges is a single cached value per
       company, so three toggle states sharing one slot would regenerate on every
-      switch and triple the model spend for one page view. That belongs with the
-      signals rework on TMC-229, which is already changing what the cache key is
-      made of.
+      switch and triple the model spend for one page view.
+
+      TMC-229 HAS NOW LANDED and did not change that call — one cache slot per
+      company, still month-to-date. What it did instead was make the prompt name
+      the period in the sentence itself ("SAY WHICH stretch, in the same words
+      used below"), so the nudge now carries its own window in its text as well
+      as in this label. Two independent statements of the same fact, which is
+      what a figure sitting next to a differently-scoped tile needs.
     -->
     <section class="mt-8">
       <h2 class="label">What to watch</h2>

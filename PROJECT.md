@@ -165,11 +165,14 @@ Precedent: Cal.com, Mattermost, Plane all run this exact model.
 ### Position
 - **Dashboard** — one screen: money in, money out, what's owed, what you owe
 
-### AI Layer (Pro / BYOK)
+### AI Layer
+*Model-backed (Pro / BYOK):*
 - **Cash flow nudges** — "January is historically slow; you have $800"
-- **Late payer detection** — "this client pays late 80% of the time"
-- **Anomaly flagging** — "expenses 40% higher than 3-month average"
 - **Expense categorization** — AI suggests, user confirms
+
+*Deterministic, free, no model call (ratified TMC-262):*
+- **Late payer detection** — "this client pays late 3 of the last 4 times"
+- **Anomaly flagging** — "expenses 40% higher than 3-month average"
 
 ### Infrastructure (built first, before features)
 - **Telemetry module** — opt-in, anonymous, fully documented (see TELEMETRY.md). Trust signal, built before MVP features.
@@ -207,14 +210,18 @@ Precedent: Cal.com, Mattermost, Plane all run this exact model.
 
 ## AI Layer — MVP Scope
 
-Not ChatGPT bolted on. Woven into the core interaction. Available to Pro+ tier on SaaS and to self-hosters with BYOK.
+Not ChatGPT bolted on. Woven into the core interaction.
 
-**MVP:**
-- **Anomaly flagging** — "your expenses are 40% higher than your 3 month average"
+**Not all of the insight layer calls a model, and that is a decision rather than an oversight (TMC-262).** Where a figure is arithmetic — ranking by money owed, counting days late, comparing spend to a trailing window — computing it deterministically is instant, identical every time, and free to the user, and an LLM could only rephrase it. A model is paid for where interpretation is genuinely the product. So the paid tier buys narration and vision, not the insight layer wholesale.
+
+**MVP, model-backed** (Pro+ on SaaS, BYOK on self-host):
 - **Cash flow nudges** — "based on your history, January is slow — you have $800 in the bank"
-- **Invoice intelligence** — "this client pays late 80% of the time"
 - **Expense categorization suggestions** — AI suggests, user confirms
 - **Receipt extraction** — vision LLM reads receipt images and structures the data (see Expenses MVP)
+
+**MVP, deterministic and free:**
+- **Anomaly flagging** — "your expenses are 40% higher than your 3 month average"
+- **Late payer detection** — who owes, how late, and whether lateness is their habit. Ranked worst-first on the dashboard, and the same computation feeds the cash-flow nudge so the two cannot disagree.
 
 **v1.1:**
 - **Tax readiness** — structured quarterly tracker (moved to v1.1 as a real product surface, not just a one-line insight)

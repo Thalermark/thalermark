@@ -41,6 +41,15 @@ export const load: PageServerLoad = async (event) => {
     ? await anomaliesRes.json()
     : { enoughHistory: false, overall: null, categories: [] };
 
+  // Who to chase (TMC-262). Same posture as the anomalies above and for the same
+  // reason: deterministic, no model call, so it resolves with the position
+  // rather than streaming, and a non-OK degrades to an empty list rather than
+  // failing the page.
+  const latePayersRes = await client.api.companies[':id']['late-payers'].$get({
+    param: { id: company.id },
+  });
+  const latePayers = latePayersRes.ok ? (await latePayersRes.json()).latePayers : [];
+
   // Point-in-time entity counts for the count-tile row (NOT period-bound, so
   // they ignore the period toggle): invoices split into overdue / awaiting /
   // draft, plus open (sent) estimates. Cheap COUNT aggregates; best-effort —
@@ -129,6 +138,7 @@ export const load: PageServerLoad = async (event) => {
     pendingInvites,
     nudges,
     anomalies,
+    latePayers,
     counts,
     revenueTrend,
   };

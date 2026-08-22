@@ -27,6 +27,9 @@ const signals = {
   owed: '0.00',
   overdueCount: 0,
   businessType: 'sole_prop',
+  latePayers: [],
+  categoryMovers: [],
+  merchantMovers: [],
 };
 
 describe('every production model call is bounded', () => {

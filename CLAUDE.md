@@ -100,7 +100,7 @@ Business type (sole prop / LLC / partnership / S-corp / C-corp) is picked once a
 
 **Position:** dashboard — in, out, owed, owing.
 
-**AI (Pro+/BYOK):** cash flow nudges, late payer detection, anomaly flagging, expense categorization. *Receipt extraction is also AI-powered.*
+**AI (Pro+/BYOK):** cash flow nudges, expense categorization. *Receipt extraction is also AI-powered.* **Anomaly flagging and late payer detection shipped deterministic and free** (TMC-262): ranking by money owed, counting days late and comparing spend against a trailing window are arithmetic, so no model is called and no entitlement gates them. They are still part of the insight layer, they are just not part of what the paid tier buys.
 
 **Infrastructure:** telemetry module built first as a trust signal.
 
@@ -114,14 +114,23 @@ Nothing else until MVP is excellent.
 
 ## AI Layer
 
-Not a chatbot in the corner. Woven into the core:
+Not a chatbot in the corner. Woven into the core. **"AI layer" means the insight layer, and not all of it calls a model** — the split below is deliberate and was ratified on TMC-262: if a number is arithmetic, computing it deterministically is cheaper, instant, identical every time, and free to the user. A model is paid for only where interpretation is the product.
 
-- Natural language queries against user's own data
-- Anomaly flagging
-- Cash flow nudges based on history
-- Late payer detection
-- Tax readiness estimates (US-first, not financial advice)
+Model-backed (needs a configured connection at Settings → AI):
+
+- Cash flow nudges based on history — the reasoning model narrates ledger signals it is forbidden to compute
 - Expense categorisation suggestions
+- Receipt extraction (vision) — shipped, and was never on the original list
+
+Deterministic, free, no model call:
+
+- Anomaly flagging — spend vs the company's own trailing window
+- Late payer detection — who owes, how late, and whether lateness is their habit
+
+Documented but not built (both ticketed under the v1.1 roadmap, TMC-132):
+
+- Natural language queries against user's own data (TMC-128)
+- Tax readiness estimates, structured (TMC-126)
 
 LLM: Anthropic Claude default (Sonnet 4.6 for reasoning, Haiku 4.5 for fast/cheap) via Vercel AI SDK. Self-hosters can swap to OpenAI, a local Ollama, or a custom OpenAI-compatible endpoint from **Settings → AI** (per-account, encrypted, verified — not an env var). BYOK on SaaS Pro is post-MVP.
 
