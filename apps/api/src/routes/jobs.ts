@@ -8,10 +8,12 @@ import {
   timeTimers,
 } from '@thalermark/db';
 import {
+  billingUnitLabel,
   centsToMoney,
+  isBillingUnit,
   jobCreateSchema,
   jobUpdateSchema,
-  timeEntryCreateSchema,
+  timeEntryCreateOnJobSchema,
   timeEntryUpdateSchema,
 } from '@thalermark/validation';
 import { and, asc, desc, eq, getTableColumns, ilike, isNull } from 'drizzle-orm';
@@ -32,6 +34,33 @@ import { applyCursor, keysetOrderBy, parseLimit, slicePage } from '../lib/pagina
 import { UUID_RE, escapeLike } from '../lib/route-helpers.js';
 import { requireCapability } from '../middleware/authz.js';
 import type { RlsVariables } from '../middleware/rls-context.js';
+
+// Which of minutes / quantity a job's billing unit actually requires (TMC-264).
+//
+// The body schema cannot answer this: the job is a foreign key, so the unit is
+// only known after the row is read. The schema catches the case that is wrong
+// under EVERY unit (recording neither); this catches the unit-specific half.
+//
+// Returns a Zod-shaped issue rather than a bare code, so the caller hands it
+// back inside the same { error: 'invalid_body', issues } envelope a schema
+// failure produces and both clients' existing field-error rendering covers it.
+function missingForUnit(
+  billingUnit: string,
+  body: { minutes?: number | null; quantity?: string | null },
+): { path: string[]; message: string } | null {
+  // Unknown units are treated as hours, matching the column default and
+  // therefore what any row written before TMC-264 means.
+  if (!isBillingUnit(billingUnit) || billingUnit === 'hour') {
+    return body.minutes == null ? { path: ['minutes'], message: 'Enter how long it took.' } : null;
+  }
+  if (body.quantity != null) return null;
+  // '2' forces the plural: "Enter how many visits you did." Passing the real
+  // quantity would be circular, since its absence is the error.
+  return {
+    path: ['quantity'],
+    message: `Enter how many ${billingUnitLabel(billingUnit, '2')} you did.`,
+  };
+}
 
 // Jobs and time entries (TMC-181, TMC-180) — a self-contained per-domain
 // sub-app, same shape as the others (see app.ts for the modular-sub-apps
@@ -448,7 +477,7 @@ export function jobsRoutes() {
         '/api/jobs/:id/time',
         requireCapability('sales:write'),
         validator('json', (value, c) => {
-          const parsed = timeEntryCreateSchema.omit({ jobId: true }).safeParse(value);
+          const parsed = timeEntryCreateOnJobSchema.safeParse(value);
           if (!parsed.success) {
             return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
           }
@@ -463,11 +492,22 @@ export function jobsRoutes() {
           const accountId = c.get('accountId');
 
           const [job] = await tx
-            .select({ id: jobs.id, companyId: jobs.companyId })
+            .select({ id: jobs.id, companyId: jobs.companyId, billingUnit: jobs.billingUnit })
             .from(jobs)
             .where(and(eq(jobs.id, jobId), eq(jobs.accountId, accountId)))
             .limit(1);
           if (!job) return c.json({ error: 'job_not_found' }, 404);
+
+          // WHICH FIELD IS REQUIRED DEPENDS ON THE JOB (TMC-264), which the body
+          // schema cannot see — the job is a foreign key resolved right here. The
+          // schema already rejected an entry recording NEITHER; this is the
+          // unit-specific half.
+          //
+          // Returned in the same { error, issues } shape a schema failure uses,
+          // so both clients' existing field-error handling covers it and no raw
+          // code reaches a user (TMC-219 / TMC-220).
+          const missing = missingForUnit(job.billingUnit, body);
+          if (missing) return c.json({ error: 'invalid_body', issues: [missing] }, 400);
 
           const id = uuidv7();
           const row = {
@@ -476,7 +516,13 @@ export function jobsRoutes() {
             companyId: job.companyId,
             jobId,
             entryDate: body.entryDate,
-            minutes: body.minutes,
+            minutes: body.minutes ?? null,
+            // Stored on every entry regardless of unit. An hourly job ignores it
+            // at billing time and a per-visit job ignores minutes, but changing
+            // the job's unit later must not need the work re-entered.
+            quantity: body.quantity ?? null,
+            startTime: body.startTime ?? null,
+            endTime: body.endTime ?? null,
             note: body.note ?? null,
             rate: body.rate ?? null,
             sourceItemId: body.sourceItemId ?? null,
@@ -514,7 +560,7 @@ export function jobsRoutes() {
           // make this call. Threading it separately would be four more fetches
           // for a string this query is already holding.
           const [job] = await tx
-            .select({ id: jobs.id, name: jobs.name })
+            .select({ id: jobs.id, name: jobs.name, billingUnit: jobs.billingUnit })
             .from(jobs)
             .where(and(eq(jobs.id, jobId), eq(jobs.accountId, accountId)))
             .limit(1);
@@ -531,10 +577,16 @@ export function jobsRoutes() {
             .where(and(...conditions))
             .orderBy(desc(timeEntries.entryDate), desc(timeEntries.id));
 
-          const totalMinutes = rows.reduce((sum, r) => sum + r.minutes, 0);
+          // Null minutes contribute nothing rather than poisoning the sum
+          // (TMC-264): on a non-hourly job the duration is optional.
+          const totalMinutes = rows.reduce((sum, r) => sum + (r.minutes ?? 0), 0);
           return c.json({
             timeEntries: rows,
             jobName: job.name,
+            // The unit rides along for the same reason jobName does: all four
+            // invoice forms seed rows from this call and need it to compute the
+            // line quantity and label, and they all already make this request.
+            billingUnit: job.billingUnit,
             totalMinutes,
             totalHours: displayHours(totalMinutes),
           });
@@ -677,6 +729,24 @@ export function jobsRoutes() {
           // Editing hours already on a sent invoice would silently disagree with
           // the line the customer was billed for. Change the invoice instead.
           if (current.billedInvoiceId) return c.json({ error: 'time_entry_billed' }, 409);
+
+          // The unit rule (TMC-264) re-checked against the MERGED row, not the
+          // patch. The update schema only judges fields the caller actually
+          // sent — it has to, or a one-field rename would be rejected for
+          // omitting a duration it never intended to touch — so clearing
+          // `minutes` on an hourly job is only visible once the patch is laid
+          // over the stored row.
+          const [ownerJob] = await tx
+            .select({ billingUnit: jobs.billingUnit })
+            .from(jobs)
+            .where(and(eq(jobs.id, current.jobId), eq(jobs.accountId, accountId)))
+            .limit(1);
+          const merged = {
+            minutes: 'minutes' in patch ? (patch.minutes ?? null) : current.minutes,
+            quantity: 'quantity' in patch ? (patch.quantity ?? null) : current.quantity,
+          };
+          const missing = missingForUnit(ownerJob?.billingUnit ?? 'hour', merged);
+          if (missing) return c.json({ error: 'invalid_body', issues: [missing] }, 400);
 
           const [updated] = await tx
             .update(timeEntries)

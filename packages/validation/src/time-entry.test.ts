@@ -2,11 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { multiplyMoney } from './money.js';
 import {
   MINUTES_IN_A_DAY,
+  billingUnitLabel,
+  formatClockTime,
   hoursFromMinutes,
   hoursUnitLabel,
+  minutesFromClockSpan,
   minutesFromDuration,
   timeEntryCreateSchema,
   timeEntryLineDescription,
+  timeEntryQuantity,
   timeEntryUpdateSchema,
 } from './time-entry.js';
 
@@ -167,5 +171,133 @@ describe('hoursUnitLabel', () => {
   it('treats a trimmed and an untrimmed one as the same quantity', () => {
     expect(hoursUnitLabel('1.0000')).toBe('hour');
     expect(hoursUnitLabel('1')).toBe('hour');
+  });
+});
+
+describe('minutesFromClockSpan', () => {
+  it('reads a plain shift', () => {
+    expect(minutesFromClockSpan('08:15', '16:30')).toEqual({
+      minutes: 495,
+      crossesMidnight: false,
+    });
+    // The estate-sale contractor's case from TMC-265: knows the clock, not the
+    // decimal. 8:15 to 4:30 is 8.25 hours and nobody should have to work it out.
+    expect(hoursFromMinutes(495)).toBe('8.2500');
+  });
+
+  it('treats an end before the start as the next day, in ONE entry', () => {
+    // Owner decision 2026-08-22: detect and confirm, do not split. Someone
+    // reaching for a time card wants the hours, not a lesson about midnight.
+    expect(minutesFromClockSpan('22:00', '06:00')).toEqual({
+      minutes: 480,
+      crossesMidnight: true,
+    });
+  });
+
+  it('keeps an overnight span inside the one-day cap', () => {
+    // TMC-265 framed the cap as a conflict needing an exception. It is not: the
+    // cap rejects an entry LONGER than 24 hours and says nothing about crossing
+    // midnight. The longest possible crossing span is one minute under the cap.
+    const span = minutesFromClockSpan('00:01', '00:00');
+    expect(span?.minutes).toBe(MINUTES_IN_A_DAY - 1);
+    expect(span?.minutes).toBeLessThanOrEqual(MINUTES_IN_A_DAY);
+  });
+
+  it('accepts the seconds an input type=time can emit', () => {
+    expect(minutesFromClockSpan('08:15:00', '16:30:00')?.minutes).toBe(495);
+  });
+
+  it('refuses a zero-length shift rather than logging nothing', () => {
+    expect(minutesFromClockSpan('09:00', '09:00')).toBeNull();
+  });
+
+  it('refuses what it cannot read instead of guessing', () => {
+    for (const [a, b] of [
+      ['', '10:00'],
+      ['25:00', '10:00'],
+      ['9', '10:00'],
+      ['09:60', '10:00'],
+      ['9am', '5pm'],
+    ]) {
+      expect(minutesFromClockSpan(a as string, b as string)).toBeNull();
+    }
+  });
+});
+
+describe('billingUnitLabel', () => {
+  it('pluralises every unit in the closed set', () => {
+    expect(billingUnitLabel('visit', '1')).toBe('visit');
+    expect(billingUnitLabel('visit', '3')).toBe('visits');
+    expect(billingUnitLabel('night', '1')).toBe('night');
+    expect(billingUnitLabel('night', '2')).toBe('nights');
+    expect(billingUnitLabel('day', '1')).toBe('day');
+    expect(billingUnitLabel('day', '5')).toBe('days');
+    expect(billingUnitLabel('job', '1')).toBe('job');
+    expect(billingUnitLabel('hour', '1.0000')).toBe('hour');
+    expect(billingUnitLabel('hour', '0.5000')).toBe('hours');
+  });
+
+  it('falls back to hours for a unit it does not know', () => {
+    // 'hour' is the column default, so a row written before TMC-264 means hours.
+    expect(billingUnitLabel('yard', '3')).toBe('hours');
+  });
+});
+
+describe('timeEntryQuantity', () => {
+  it('derives from minutes on an hourly job, exactly as before', () => {
+    expect(timeEntryQuantity({ minutes: 195, quantity: null }, 'hour')).toBe('3.2500');
+  });
+
+  // The defect TMC-264 exists to prevent. Three 30-minute visits are minutes=90;
+  // deriving the quantity would invoice "1.5 visits", which the customer can see
+  // is wrong.
+  it('bills the COUNT on a per-visit job, never the derived hours', () => {
+    expect(timeEntryQuantity({ minutes: 90, quantity: '3.0000' }, 'visit')).toBe('3.0000');
+  });
+
+  it('ignores a recorded duration when the job does not bill by it', () => {
+    // The duration is still stored, and still feeds effective-hourly. It just
+    // has no say in what goes on the invoice.
+    expect(timeEntryQuantity({ minutes: 30, quantity: '1.0000' }, 'night')).toBe('1.0000');
+  });
+
+  it('is null when there is nothing to bill in the job’s unit', () => {
+    expect(timeEntryQuantity({ minutes: null, quantity: null }, 'hour')).toBeNull();
+    expect(timeEntryQuantity({ minutes: 90, quantity: null }, 'visit')).toBeNull();
+  });
+});
+
+describe('timeEntryLineDescription with clock times', () => {
+  it('says when the work happened when it knows', () => {
+    expect(
+      timeEntryLineDescription({
+        entryDate: '2026-08-12',
+        note: 'Overnight stay',
+        startTime: '19:00',
+        endTime: '07:00',
+      }),
+    ).toBe('Aug 12, 7:00pm to 7:00am · Overnight stay');
+  });
+
+  it('is unchanged for a typed or stopwatch entry', () => {
+    expect(timeEntryLineDescription({ entryDate: '2026-08-12', note: 'Dog sitting' })).toBe(
+      'Aug 12 · Dog sitting',
+    );
+  });
+
+  it('needs both times before it claims a span', () => {
+    expect(
+      timeEntryLineDescription({ entryDate: '2026-08-12', note: 'X', startTime: '09:00' }),
+    ).toBe('Aug 12 · X');
+  });
+});
+
+describe('formatClockTime', () => {
+  it('reads as a member of the public would say it', () => {
+    expect(formatClockTime('00:00')).toBe('12:00am');
+    expect(formatClockTime('07:00')).toBe('7:00am');
+    expect(formatClockTime('12:00')).toBe('12:00pm');
+    expect(formatClockTime('15:30')).toBe('3:30pm');
+    expect(formatClockTime('23:59')).toBe('11:59pm');
   });
 });

@@ -2,13 +2,14 @@ import {
   type InvoiceLineItemInput,
   type LineItemType,
   addMoney,
+  billingUnitLabel,
+  formatQuantity,
   formatUnitPrice,
-  hoursFromMinutes,
-  hoursUnitLabel,
   invoiceUpdateSchema,
   multiplyMoney,
   sumMoney,
   timeEntryLineDescription,
+  timeEntryQuantity,
   unitPriceFromTotal,
 } from '@thalermark/validation';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
@@ -96,12 +97,21 @@ export default function EditInvoice() {
   const [taxPolicies, setTaxPolicies] = useState<TaxPolicyLite[]>([]);
   // Names the job on a seeded line when the entry carries no note of its own.
   const [jobName, setJobName] = useState('');
+  // The job's billing unit (TMC-264). 'hour' until the job says otherwise,
+  // which is what every job written before this means.
+  const [billingUnit, setBillingUnit] = useState('hour');
   const [pendingTime, setPendingTime] = useState<
     {
       id: string;
       entryDate: string;
-      minutes: number;
-      hours: string;
+      // Nullable since TMC-264 — optional on a job that does not bill by hours.
+      minutes: number | null;
+      // The billable count in the job's unit. Never null on a row that survives
+      // the filter where this is set, but typed honestly because
+      // timeEntryQuantity can return null and the filter is what rules it out.
+      quantity: string | null;
+      startTime: string | null;
+      endTime: string | null;
       note: string | null;
       rate: string | null;
     }[]
@@ -161,17 +171,23 @@ export default function EditInvoice() {
             query: { unbilled: 'true' },
           });
           if (active && timeRes.ok) {
-            const { timeEntries, jobName } = await timeRes.json();
+            const { timeEntries, jobName, billingUnit } = await timeRes.json();
             setJobName(jobName);
+            setBillingUnit(billingUnit);
             setPendingTime(
-              timeEntries.map((t) => ({
-                id: t.id,
-                entryDate: t.entryDate,
-                minutes: t.minutes,
-                hours: hoursFromMinutes(t.minutes),
-                note: t.note,
-                rate: t.rate,
-              })),
+              timeEntries
+                .map((t) => ({
+                  id: t.id,
+                  entryDate: t.entryDate,
+                  minutes: t.minutes,
+                  // The job's unit decides the billable amount (TMC-264).
+                  quantity: timeEntryQuantity(t, billingUnit),
+                  startTime: t.startTime,
+                  endTime: t.endTime,
+                  note: t.note,
+                  rate: t.rate,
+                }))
+                .filter((t) => t.quantity !== null),
             );
           }
         }
@@ -211,18 +227,23 @@ export default function EditInvoice() {
       if (!s) return s;
       const added: Row[] = pendingTime.map((t) => {
         const unitPrice = t.rate ?? '0';
+        // Non-null by construction: entries with nothing billable are filtered
+        // out when pendingTime is built.
+        const quantity = t.quantity as string;
         return {
           description: timeEntryLineDescription({
             entryDate: t.entryDate,
             note: t.note,
             jobName,
+            startTime: t.startTime,
+            endTime: t.endTime,
           }),
-          quantity: t.hours,
-          unitLabel: hoursUnitLabel(t.hours),
+          quantity,
+          unitLabel: billingUnitLabel(billingUnit, quantity),
           unitPrice: formatUnitPrice(unitPrice),
           // Same multiplyMoney every typed row uses, so a billed hour and a
           // hand-typed hour cannot round differently.
-          amount: multiplyMoney(t.hours, unitPrice),
+          amount: multiplyMoney(quantity, unitPrice),
           sourceItemId: null,
           timeEntryId: t.id,
           type: 'service' as LineItemType,
@@ -442,19 +463,27 @@ export default function EditInvoice() {
             {pendingTime.length > 0 ? (
               <View className="rounded-sm border border-gold-deep/30 bg-gold-deep/5 p-4">
                 <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
-                  Unbilled hours on this job
+                  Unbilled work on this job
                 </Text>
+                {/*
+                  Reads in the job's own unit (TMC-264): "3 visits", not "1.5 h".
+                  The picker has to name the same thing the seeded line will, or
+                  the user ticks hours and gets visits.
+                */}
                 {pendingTime.map((t) => (
                   <View key={t.id} className="mt-2 flex-row items-center gap-3">
                     <Text className="w-24 text-sm text-ink-subtle">{t.entryDate}</Text>
-                    <Text className="w-14 font-mono text-sm text-ink/80">
-                      {formatUnitPrice(t.hours)} h
+                    <Text className="w-16 font-mono text-sm text-ink/80">
+                      {formatQuantity(t.quantity ?? '0')}{' '}
+                      {billingUnitLabel(billingUnit, t.quantity ?? '0')}
                     </Text>
                     <Text className="flex-1 text-sm text-ink-muted" numberOfLines={1}>
                       {t.note ?? ''}
                     </Text>
                     <Text className="font-mono text-xs text-ink-subtle">
-                      {t.rate ? `$${formatUnitPrice(t.rate)}/h` : 'no rate'}
+                      {t.rate
+                        ? `$${formatUnitPrice(t.rate)}/${billingUnitLabel(billingUnit, '1')}`
+                        : 'no rate'}
                     </Text>
                   </View>
                 ))}

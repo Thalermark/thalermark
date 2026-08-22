@@ -6,7 +6,7 @@ import {
   jobs,
   timeEntries,
 } from '@thalermark/db';
-import { centsToMoney, hoursFromMinutes, multiplyMoney, toCents } from '@thalermark/validation';
+import { centsToMoney, multiplyMoney, timeEntryQuantity, toCents } from '@thalermark/validation';
 import { and, eq, inArray, isNotNull, isNull, notInArray, sql } from 'drizzle-orm';
 
 // Shared job-costing math (TMC-181). routes/jobs.ts, routes/invoices.ts and the
@@ -282,9 +282,10 @@ export function jobMade(
 // priced — which is why unratedMinutes comes back alongside and the surfaces
 // render it as its own caveat.
 //
-// Priced through hoursFromMinutes + multiplyMoney, the same 4dp path the invoice
-// form uses. A "ready to bill" that disagrees with the invoice it produces is
-// worse than not showing one.
+// Priced through timeEntryQuantity + multiplyMoney, the same 4dp path the
+// invoice form uses. A "ready to bill" that disagrees with the invoice it
+// produces is worse than not showing one — which is why this reads the job's
+// billing unit rather than assuming hours (TMC-264).
 export async function jobUnbilled(
   tx: Transaction,
   accountId: string,
@@ -294,13 +295,20 @@ export async function jobUnbilled(
   const byJob = new Map<string, { cents: number; unratedMinutes: number }>();
   if (jobIds && jobIds.length === 0) return byJob;
 
+  // Joined to jobs for the billing unit (TMC-264). "Ready to bill" has to be
+  // priced the way the invoice will actually be priced, and on a per-visit job
+  // that is count x rate, not hours x rate. Pricing it as hours here would
+  // produce exactly the disagreement the comment above forbids.
   const rows = await tx
     .select({
       jobId: timeEntries.jobId,
       minutes: timeEntries.minutes,
+      quantity: timeEntries.quantity,
       rate: timeEntries.rate,
+      billingUnit: jobs.billingUnit,
     })
     .from(timeEntries)
+    .innerJoin(jobs, eq(jobs.id, timeEntries.jobId))
     .where(
       and(
         eq(timeEntries.accountId, accountId),
@@ -313,9 +321,16 @@ export async function jobUnbilled(
   for (const row of rows) {
     const at = byJob.get(row.jobId) ?? { cents: 0, unratedMinutes: 0 };
     if (row.rate === null) {
-      at.unratedMinutes += row.minutes;
+      // KNOWN UNDER-REPORT: an unrated entry on a non-hourly job may carry no
+      // duration at all, so it adds nothing here and the "unpriced work" caveat
+      // does not mention it. Widening the caveat to a second unit would change
+      // its shape on both clients; recorded rather than quietly fixed.
+      at.unratedMinutes += row.minutes ?? 0;
     } else {
-      at.cents += toCents(multiplyMoney(hoursFromMinutes(row.minutes), row.rate));
+      const qty = timeEntryQuantity(row, row.billingUnit);
+      // Null means this entry records nothing billable in its job's unit. Skip
+      // it rather than pricing a zero line.
+      if (qty !== null) at.cents += toCents(multiplyMoney(qty, row.rate));
     }
     byJob.set(row.jobId, at);
   }

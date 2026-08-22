@@ -302,6 +302,13 @@
       "when": 1786558218740,
       "tag": "0042_stripe_connect_account_truth",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1787422267944,
+      "tag": "0043_time_entry_unit_and_clock",
+      "breakpoints": true
     }
   ]
 }

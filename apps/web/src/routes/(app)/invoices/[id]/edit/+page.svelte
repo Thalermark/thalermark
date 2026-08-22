@@ -9,7 +9,8 @@
     type LineItemType,
     addMoney,
     formatUnitPrice,
-    hoursUnitLabel,
+    billingUnitLabel,
+    formatQuantity,
     multiplyMoney,
     sumMoney,
     timeEntryLineDescription,
@@ -85,18 +86,24 @@
   function addTrackedTime() {
     const added: Row[] = pendingTime.map((t) => {
       const unitPrice = t.rate ?? '0';
+      // Non-null by construction: the loader drops entries with nothing billable
+      // in their job's unit.
+      const quantity = t.quantity as string;
       return {
         description: timeEntryLineDescription({
           entryDate: t.entryDate,
           note: t.note,
           jobName: data.jobName,
+          // A time-card entry names its clock span on the line (TMC-265).
+          startTime: t.startTime,
+          endTime: t.endTime,
         }),
-        quantity: t.hours,
-        unitLabel: hoursUnitLabel(t.hours),
+        quantity,
+        unitLabel: billingUnitLabel(data.billingUnit, quantity),
         unitPrice: formatUnitPrice(unitPrice),
         // Priced through the same multiplyMoney every typed row uses, so a
         // billed hour and a hand-typed hour cannot round differently.
-        amount: multiplyMoney(t.hours, unitPrice),
+        amount: multiplyMoney(quantity, unitPrice),
         sourceItemId: null,
         // Labour is a service — routes revenue to 4000 in the hidden ledger.
         type: 'service' as LineItemType,
@@ -259,17 +266,25 @@
     -->
     {#if pendingTime.length > 0}
       <div class="rounded-sm border border-accent/30 bg-accent/5 p-4">
-        <p class="label">Unbilled hours on this job</p>
+        <p class="label">Unbilled work on this job</p>
         <ul class="mt-2 divide-y divide-fg/10">
           {#each pendingTime as t (t.id)}
             <li class="flex items-center gap-3 py-1.5 text-sm">
               <span class="w-24 shrink-0 text-fg/60">{t.entryDate}</span>
-              <span class="w-16 shrink-0 font-mono tabular-nums text-fg/80">
-                {formatUnitPrice(t.hours)} h
+              <!--
+                Reads in the job's own unit (TMC-264): "3 visits", not "1.5 h".
+                The picker has to name the same thing the seeded line will, or
+                the user ticks hours and gets visits.
+              -->
+              <span class="w-20 shrink-0 font-mono tabular-nums text-fg/80">
+                {formatQuantity(t.quantity ?? '0')}
+                {billingUnitLabel(data.billingUnit, t.quantity ?? '0')}
               </span>
               <span class="min-w-0 flex-1 truncate text-fg/70">{t.note ?? ''}</span>
               <span class="shrink-0 font-mono tabular-nums text-fg/60">
-                {t.rate ? `$${formatUnitPrice(t.rate)}/h` : 'no rate'}
+                {t.rate
+                  ? `$${formatUnitPrice(t.rate)}/${billingUnitLabel(data.billingUnit, '1')}`
+                  : 'no rate'}
               </span>
             </li>
           {/each}

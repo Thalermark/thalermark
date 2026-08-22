@@ -1,7 +1,7 @@
 import { apiErrorMessage } from '$lib/api-errors';
 import { serverApiClient } from '$lib/api.server';
 import { error, fail, redirect } from '@sveltejs/kit';
-import { minutesFromDuration } from '@thalermark/validation';
+import { isBillingUnit, minutesFromClockSpan, minutesFromDuration } from '@thalermark/validation';
 import type { Actions, PageServerLoad } from './$types';
 
 // Job detail: the margin block, the invoices the job emitted, and its time log.
@@ -23,7 +23,7 @@ export const load: PageServerLoad = async (event) => {
   const job = await jobRes.json();
   const time = timeRes.ok
     ? await timeRes.json()
-    : { timeEntries: [], totalMinutes: 0, totalHours: '0.00' };
+    : { timeEntries: [], jobName: '', billingUnit: 'hour', totalMinutes: 0, totalHours: '0.00' };
   // The caller's running stopwatch, if any — on this job or another. One read
   // answers both "is my timer on THIS job" and "which job is holding it".
   const timerRes = await client.api.timer.$get();
@@ -92,13 +92,81 @@ export const actions: Actions = {
     return { stoppedMinutes: minutes, stoppedNote: note };
   },
 
+  // How this job bills (TMC-264), asked once and changeable after the fact.
+  //
+  // Changing it RE-READS existing entries rather than rewriting them: each row
+  // keeps both its minutes and its count, and the unit decides which one reaches
+  // the invoice. So someone who logged three visits as hours fixes the job
+  // instead of re-entering the work.
+  setBillingUnit: async (event) => {
+    const client = serverApiClient(event);
+    const data = await event.request.formData();
+    const billingUnit = String(data.get('billingUnit') ?? '');
+    if (!isBillingUnit(billingUnit)) {
+      return fail(400, { actionError: 'That is not a unit this job can bill in.' });
+    }
+    const res = await client.api.jobs[':id'].$patch({
+      param: { id: event.params.id },
+      // `confirm` belongs to the close-with-unbilled-work guard on setStatus and
+      // is irrelevant here, but the route's query validator types it as required
+      // on every PATCH.
+      query: { confirm: undefined },
+      json: { billingUnit },
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      return fail(res.status, {
+        actionError: apiErrorMessage(body?.error, 'That could not be changed. Try again.', body),
+      });
+    }
+    redirect(303, `/jobs/${event.params.id}`);
+  },
+
   logTime: async (event) => {
     const client = serverApiClient(event);
     const data = await event.request.formData();
-    // Shared with mobile (@thalermark/validation) so the same typed string can
-    // never become two different durations.
-    const minutes = minutesFromDuration(String(data.get('duration') ?? ''));
-    if (minutes === null) return fail(400, { timeError: 'Enter hours like 3.25 or 3:15.' });
+    const unit = String(data.get('billingUnit') ?? 'hour');
+    const billsByHour = unit === 'hour';
+
+    // THREE WAYS IN, ONE RECORD OUT. A typed duration, a stopwatch (which fills
+    // the duration field rather than logging directly), and now a time card
+    // (TMC-265) — which also resolves to a duration here rather than becoming a
+    // second kind of entry.
+    //
+    // The card wins when both are filled, because someone who typed clock times
+    // meant them; the duration box may still be holding a stale stopwatch value.
+    const startTime = String(data.get('startTime') ?? '').trim();
+    const endTime = String(data.get('endTime') ?? '').trim();
+    let minutes: number | null = null;
+    if (startTime && endTime) {
+      const span = minutesFromClockSpan(startTime, endTime);
+      if (span === null) {
+        return fail(400, { timeError: 'Check the start and end times.' });
+      }
+      // An overnight span stays ONE entry, dated by its start (owner decision).
+      // The client already showed the computed hours and said it ran overnight,
+      // so nothing is being decided here that the user has not seen.
+      minutes = span.minutes;
+    } else if (startTime || endTime) {
+      return fail(400, { timeError: 'Enter both a start and an end time, or neither.' });
+    } else {
+      // Shared with mobile (@thalermark/validation) so the same typed string can
+      // never become two different durations.
+      minutes = minutesFromDuration(String(data.get('duration') ?? ''));
+    }
+
+    // On an hourly job the duration IS the billable amount, so it is required.
+    // On any other unit it is optional context for effective-hourly.
+    if (billsByHour && minutes === null) {
+      return fail(400, { timeError: 'Enter hours like 3.25 or 3:15.' });
+    }
+
+    // The count, in the job's own unit. Required on a non-hourly job for the
+    // same reason hours are required on an hourly one: it is what gets billed.
+    const quantityRaw = String(data.get('quantity') ?? '').trim();
+    if (!billsByHour && !quantityRaw) {
+      return fail(400, { timeError: 'Enter how many you did.' });
+    }
 
     const entryDate = String(data.get('entryDate') ?? '').trim();
     const note = String(data.get('note') ?? '').trim();
@@ -109,6 +177,9 @@ export const actions: Actions = {
       json: {
         entryDate,
         minutes,
+        quantity: billsByHour ? undefined : quantityRaw,
+        startTime: startTime || undefined,
+        endTime: endTime || undefined,
         note: note || undefined,
         rate: rate || undefined,
       },

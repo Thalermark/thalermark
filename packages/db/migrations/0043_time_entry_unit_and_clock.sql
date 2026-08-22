@@ -1,0 +1,84 @@
+-- squawk-ignore-file ban-drop-not-null
+-- ban-drop-not-null stays ON globally (a universally-destructive guard), ignored
+-- for this file only, following 0010's precedent. Two halves to the
+-- justification, and only the second one is interesting:
+--
+--   The LOCK is a non-issue. Dropping NOT NULL is a catalog-only change with no
+--   table rewrite and no scan, so it is instantaneous whatever the row count —
+--   unlike the rules excluded wholesale in .squawk.toml, this one does not fire
+--   on table size.
+--
+--   The CLIENT BREAKAGE is the real warning, and it is real here. Every reader
+--   of time_entries.minutes was written against a NOT NULL column. This change
+--   is only safe because the same commit widens them: the Drizzle column, the
+--   validation schemas, the two job-margin aggregations (coalesced to 0, so a
+--   null duration contributes nothing rather than poisoning a SUM), the invoice
+--   seeding on both clients, and the job screen on web and mobile. A reader
+--   left assuming non-null would not crash — it would quietly compute an
+--   effective hourly rate against a denominator it invented, which is worse.
+--
+-- TMC-264 / TMC-265 — a job says how it bills, and an entry can be typed as a
+-- clock span.
+--
+-- Both land together because they are the same three columns on the same table
+-- and splitting them would mean two migrations against time_entries in one
+-- release for no benefit.
+--
+-- TMC-264, THE UNIT. `unitLabel: 'hour'` was a literal at all four invoice
+-- seeding sites, and reading it from somewhere else would not have helped
+-- because there was nowhere to read it from: time_entries stores minutes and
+-- nothing else dimensional. So a dog sitter whose real unit is the visit has
+-- been converting to hours in her head to use the feature, and the ICP prices
+-- per visit, per night or per day far more often than per hour.
+--
+-- A label swap alone would LIE. Three 30-minute visits are minutes = 90, so a
+-- quantity still derived from minutes would invoice "1.5 visits" — wrong in a
+-- way the customer can see. Hence a real quantity column rather than a label.
+--
+-- The unit lives on the JOB, not the entry (owner decision, 2026-08-22: shape B
+-- storage with shape C interaction). The ICP bills the same way every time, so
+-- asking once per job is the right number of questions, and it matches the
+-- product's existing instinct of asking the buyer exactly one question at
+-- purchase time rather than one per line.
+--
+-- WHY minutes LOSES ITS NOT NULL. On a per-visit job the duration is optional:
+-- the count is what gets billed, and the time is worth recording only if the
+-- operator wants effective-hourly out of it. The schema comment's reasoning for
+-- minutes-not-hours is untouched and still right — it is still the smallest
+-- unit anyone enters, still integral, still the only rounding step. It is now
+-- merely optional on jobs that do not bill by it.
+--
+-- No CHECK enforcing "minutes or quantity is present". Adding one to a
+-- populated table needs a NOT VALID dance for a rule the validation layer
+-- already states, and this table follows items.type and companies.business_type
+-- in keeping that class of constraint in the app layer.
+--
+-- TMC-265, THE CLOCK. A time card is an INPUT METHOD, not a new kind of record:
+-- it produces an ordinary time entry, exactly as the stopwatch fills the
+-- duration field rather than logging directly. But storing only the computed
+-- minutes throws away the clock times, and TMC-263 has just established that
+-- when the work happened matters on the customer's invoice. A care-giver line
+-- reading 7:00am to 3:00pm is far more defensible when a client questions the
+-- bill than one reading 8 hours.
+--
+-- `time` and not `timestamptz`, deliberately. These are wall-clock times
+-- belonging to the BUSINESS, the same way entry_date is a bare calendar date
+-- and for the same reason (TMC-258): 7am is 7am regardless of where the person
+-- reading the invoice is sitting. Attaching a zone would make the pair drift
+-- against the entry_date they belong to.
+--
+-- Nullable with no default, so every existing entry is exactly what it already
+-- was: a typed duration with no clock times, which is true.
+--
+-- Hand-authored rather than generated, following 0039 and 0042: the drizzle
+-- snapshot has drifted behind the hand-authored migrations and `generate`
+-- re-emits their columns.
+SET search_path TO public;--> statement-breakpoint
+ALTER TABLE "jobs" ADD COLUMN "billing_unit" text DEFAULT 'hour' NOT NULL;--> statement-breakpoint
+-- numeric(15,4) matches invoice_line_items.quantity exactly, so a billed visit
+-- drops onto a line the same shape a hand-typed one has and cannot round
+-- differently.
+ALTER TABLE "time_entries" ADD COLUMN "quantity" numeric(15, 4);--> statement-breakpoint
+ALTER TABLE "time_entries" ALTER COLUMN "minutes" DROP NOT NULL;--> statement-breakpoint
+ALTER TABLE "time_entries" ADD COLUMN "start_time" time;--> statement-breakpoint
+ALTER TABLE "time_entries" ADD COLUMN "end_time" time;

@@ -6,9 +6,9 @@ import {
   type InvoiceUpdateInput,
   type LineItemType,
   addMoney,
-  hoursFromMinutes,
   invoiceUpdateSchema,
   sumMoney,
+  timeEntryQuantity,
 } from '@thalermark/validation';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -69,31 +69,44 @@ export const load: PageServerLoad = async (event) => {
   let unbilledTime: {
     id: string;
     entryDate: string;
-    minutes: number;
-    hours: string;
+    // Nullable since TMC-264 — optional on a job that does not bill by the hour.
+    minutes: number | null;
+    // The billable count in the job's unit. Never null on a row that survives
+    // the filter below, but typed honestly because timeEntryQuantity can return
+    // null and the filter is what rules it out.
+    quantity: string | null;
+    startTime: string | null;
+    endTime: string | null;
     note: string | null;
     rate: string | null;
   }[] = [];
   // Names the job on a seeded line when the entry carries no note of its own.
   let jobName = '';
+  let billingUnit = 'hour';
   if (invoice.jobId) {
     const timeRes = await client.api.jobs[':id'].time.$get({
       param: { id: invoice.jobId },
       query: { unbilled: undefined },
     });
     if (timeRes.ok) {
-      const { timeEntries, jobName: name } = await timeRes.json();
+      const { timeEntries, jobName: name, billingUnit: unit } = await timeRes.json();
       jobName = name;
+      billingUnit = unit;
       unbilledTime = timeEntries
         .filter((t) => t.billedInvoiceId === null)
         .map((t) => ({
           id: t.id,
           entryDate: t.entryDate,
           minutes: t.minutes,
-          hours: hoursFromMinutes(t.minutes),
+          // The job's own unit decides this, not the duration (TMC-264).
+          quantity: timeEntryQuantity(t, unit),
+          startTime: t.startTime,
+          endTime: t.endTime,
           note: t.note,
           rate: t.rate,
-        }));
+        }))
+        // Nothing billable in the job's unit, so there is no line to seed.
+        .filter((t) => t.quantity !== null);
     }
   }
 
@@ -102,6 +115,7 @@ export const load: PageServerLoad = async (event) => {
     initialContact,
     unbilledTime,
     jobName,
+    billingUnit,
     taxPolicies: taxPolicies.map((p) => ({
       id: p.id,
       name: p.name,

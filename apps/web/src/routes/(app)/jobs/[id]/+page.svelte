@@ -1,7 +1,17 @@
 <script lang="ts">
   import ConfirmSubmit from '$lib/components/ConfirmSubmit.svelte';
   import { may } from '$lib/perms';
-  import { formatUnitPrice, hoursFromMinutes, multiplyMoney, sumMoney } from '@thalermark/validation';
+  import {
+    BILLING_UNITS,
+    billingUnitLabel,
+    formatClockTime,
+    formatQuantity,
+    formatUnitPrice,
+    minutesFromClockSpan,
+    multiplyMoney,
+    sumMoney,
+    timeEntryQuantity,
+  } from '@thalermark/validation';
   import type { PageProps } from './$types';
 
   let { data, form }: PageProps = $props();
@@ -33,14 +43,42 @@
   // hoursFromMinutes at 4dp, and 50 minutes is 0.83 here against 0.8333 there —
   // a nickel apart at $15/h. Anything that must agree with the invoice goes
   // through entryValue below.
-  function hours(minutes: number): string {
-    return (Math.round((minutes / 60) * 100) / 100).toFixed(2);
+  function hours(minutes: number | null): string {
+    return (Math.round(((minutes ?? 0) / 60) * 100) / 100).toFixed(2);
+  }
+
+  // The job's own unit (TMC-264), and how one entry reads in it.
+  const unit = $derived(time.billingUnit);
+  const billsByHour = $derived(unit === 'hour');
+
+  // What one entry contributes, in whatever the job bills in. Null when it
+  // records nothing billable — an hourly entry with no duration, or a per-visit
+  // entry with no count.
+  function entryQty(entry: { minutes: number | null; quantity: string | null }): string | null {
+    return timeEntryQuantity(entry, unit);
+  }
+
+  // How an entry reads in the list: "3.25 h" on an hourly job, "3 visits"
+  // otherwise.
+  function entryAmountLabel(entry: {
+    minutes: number | null;
+    quantity: string | null;
+  }): string {
+    if (billsByHour) return `${hours(entry.minutes)} h`;
+    const qty = entry.quantity ?? '0';
+    return `${formatQuantity(qty)} ${billingUnitLabel(unit, qty)}`;
   }
 
   // What an entry will actually bill, priced exactly the way the invoice form
-  // prices it — same 4dp quantity, same multiplyMoney.
-  function entryValue(minutes: number, rate: string): string {
-    return multiplyMoney(hoursFromMinutes(minutes), rate);
+  // prices it — same 4dp quantity, same multiplyMoney. Reads the job's unit for
+  // the same reason: a "ready to bill" that disagrees with the invoice it
+  // produces is worse than showing none.
+  function entryValue(
+    entry: { minutes: number | null; quantity: string | null },
+    rate: string,
+  ): string {
+    const qty = entryQty(entry);
+    return qty === null ? '0.00' : multiplyMoney(qty, rate);
   }
 
   // Tracked hours not yet on an invoice — what "Bill this job" would add right
@@ -50,7 +88,7 @@
     sumMoney(
       time.timeEntries
         .filter((e) => !e.billedInvoiceId && e.rate)
-        .map((e) => entryValue(e.minutes, e.rate as string)),
+        .map((e) => entryValue(e, e.rate as string)),
     ),
   );
 
@@ -91,10 +129,36 @@
     form?.stoppedMinutes ? (Math.round((form.stoppedMinutes / 60) * 100) / 100).toFixed(2) : '',
   );
 
+  // The time card (TMC-265). A third way in, beside the duration box and the
+  // stopwatch, and the only one that is both after-the-fact AND arithmetic-free:
+  // the duration field needs mental maths, and the stopwatch has to be
+  // remembered at the START of the work, which is exactly when nobody is
+  // thinking about an app.
+  let cardStart = $state('');
+  let cardEnd = $state('');
+  const cardSpan = $derived(
+    cardStart && cardEnd ? minutesFromClockSpan(cardStart, cardEnd) : null,
+  );
+  // Shown live so the user SEES the result before submitting. That sighting is
+  // the "confirm" half of the owner's detect-and-confirm call: no modal, no
+  // second question, just the hours stated plainly and the overnight run named.
+  const cardSummary = $derived.by(() => {
+    if (!cardStart || !cardEnd) return '';
+    if (!cardSpan) return 'Check those times.';
+    const h = Math.floor(cardSpan.minutes / 60);
+    const m = cardSpan.minutes % 60;
+    const span = m === 0 ? `${h}h` : `${h}h ${m}m`;
+    return cardSpan.crossesMidnight
+      ? `${span}, running past midnight. Logged on the start date.`
+      : span;
+  });
+
   const unratedMinutes = $derived(
     time.timeEntries
       .filter((e) => !e.billedInvoiceId && !e.rate)
-      .reduce((total, e) => total + e.minutes, 0),
+      // Null minutes contribute nothing rather than poisoning the sum: on a
+      // non-hourly job the duration is optional (TMC-264).
+      .reduce((total, e) => total + (e.minutes ?? 0), 0),
   );
 </script>
 
@@ -148,6 +212,25 @@
           Bill this job
         </button>
       {/if}
+      <!--
+        Asked once per job rather than per entry, because the audience bills the
+        same way every time (TMC-264). Submits on change: a select that needs a
+        separate save button is a select people leave unsaved.
+      -->
+      <form method="post" action="?/setBillingUnit">
+        <label for="billingUnit" class="sr-only">How this job bills</label>
+        <select
+          id="billingUnit"
+          name="billingUnit"
+          value={unit}
+          onchange={(e) => (e.currentTarget as HTMLSelectElement).form?.requestSubmit()}
+          class="rounded-sm border border-fg/15 bg-surface-2 px-3 py-1.5 font-mono text-xs uppercase tracking-widest text-fg/60 transition-colors hover:border-accent hover:text-accent"
+        >
+          {#each BILLING_UNITS as u (u)}
+            <option value={u}>by the {u}</option>
+          {/each}
+        </select>
+      </form>
       <form method="post" action="?/setStatus">
         <input type="hidden" name="status" value={job.status === 'open' ? 'closed' : 'open'} />
         <button
@@ -323,28 +406,89 @@
     on its own row BELOW the Log button, which put a field after the submit and
     read as an afterthought.
   -->
+  <!--
+    Named so the time-card inputs below can submit with it via form=. They sit
+    inside their own <details> for presentation, which puts them outside this
+    element in the DOM — the attribute is what keeps them one submission.
+  -->
   <form
+    id="logTimeForm"
     method="post"
     action="?/logTime"
-    class="mt-4 grid gap-3 sm:grid-cols-[9.5rem_6rem_8rem_1fr_auto]"
+    class="mt-4 grid gap-3 {billsByHour
+      ? 'sm:grid-cols-[9.5rem_6rem_8rem_1fr_auto]'
+      : 'sm:grid-cols-[9.5rem_6rem_6rem_8rem_1fr_auto]'}"
   >
+    <!--
+      The job's unit rides along so the action knows which field is the billable
+      one without re-reading the job (TMC-264).
+    -->
+    <input type="hidden" name="billingUnit" value={unit} />
     <div>
       <label for="entryDate" class="label block">Date</label>
       <input id="entryDate" name="entryDate" type="date" value={today} required class="field mt-1" />
     </div>
-    <div>
-      <label for="duration" class="label block">Hours</label>
-      <input
-        id="duration"
-        name="duration"
-        type="text"
-        inputmode="decimal"
-        placeholder="3.25"
-        required
-        value={stoppedDuration}
-        class="field mt-1"
-      />
-    </div>
+    {#if billsByHour}
+      <div>
+        <label for="duration" class="label block">Hours</label>
+        <!--
+          NOT `required`, unlike before. There are now two ways to supply a
+          duration — this box, or the time card below — and a required attribute
+          here would block a submission the card has already answered. The action
+          rejects an entry with neither.
+        -->
+        <input
+          id="duration"
+          name="duration"
+          type="text"
+          inputmode="decimal"
+          placeholder="3.25"
+          value={stoppedDuration}
+          class="field mt-1"
+        />
+      </div>
+    {:else}
+      <!--
+        A per-visit, per-night or per-day job bills a COUNT, and that count is
+        what goes on the invoice (TMC-264). Defaulted to 1 because one entry is
+        almost always one visit — the sitter logging tonight's stay should not
+        have to type the number.
+      -->
+      <div>
+        <label for="quantity" class="label block capitalize">
+          {billingUnitLabel(unit, '2')}
+        </label>
+        <input
+          id="quantity"
+          name="quantity"
+          type="text"
+          inputmode="decimal"
+          placeholder="1"
+          value="1"
+          required
+          class="field mt-1"
+        />
+      </div>
+      <!--
+        THE STOPWATCH'S ANSWER ON A NON-HOURLY JOB (TMC-264 asked for one).
+        A timer cannot produce a visit count, so it fills this instead: an
+        OPTIONAL duration that feeds effective-hourly and never touches what the
+        customer is billed. A dog sitter can still learn what a 30-minute visit
+        earns her per hour without that number reaching the invoice.
+      -->
+      <div>
+        <label for="duration" class="label block">Time spent</label>
+        <input
+          id="duration"
+          name="duration"
+          type="text"
+          inputmode="decimal"
+          placeholder="optional"
+          value={stoppedDuration}
+          class="field mt-1"
+        />
+      </div>
+    {/if}
     <div>
       <label for="rate" class="label block">Rate</label>
       <!--
@@ -384,6 +528,55 @@
     Open by default only while one is running, so a timer you left going is never
     hidden behind a closed fold.
   -->
+  <!--
+    The time card, presented exactly as the stopwatch is because the owner named
+    it as the model: a sibling disclosure, closed by default, with the plain
+    field above staying primary.
+
+    Open when it is holding something, so a half-typed card is never hidden
+    behind a closed fold — the same rule the stopwatch follows.
+  -->
+  <details class="mt-4" open={Boolean(cardStart || cardEnd)}>
+    <summary class="label cursor-pointer select-none hover:text-accent">
+      Type a start and end time
+    </summary>
+    <div class="mt-3 flex flex-wrap items-end gap-3">
+      <div>
+        <label for="startTime" class="label block">Started</label>
+        <input
+          id="startTime"
+          name="startTime"
+          type="time"
+          form="logTimeForm"
+          bind:value={cardStart}
+          class="field mt-1"
+        />
+      </div>
+      <div>
+        <label for="endTime" class="label block">Finished</label>
+        <input
+          id="endTime"
+          name="endTime"
+          type="time"
+          form="logTimeForm"
+          bind:value={cardEnd}
+          class="field mt-1"
+        />
+      </div>
+      {#if cardSummary}
+        <p class="pb-2 text-sm text-fg/70">{cardSummary}</p>
+      {/if}
+    </div>
+    <p class="mt-2 text-xs text-fg/50">
+      {#if billsByHour}
+        Filling these in wins over the hours box above.
+      {:else}
+        Optional. It records how long the work took, which is what the effective
+        hourly figure is worth{billsByHour ? '' : ' — it does not change what gets billed'}.
+      {/if}
+    </p>
+  </details>
+
   <details class="mt-4" open={Boolean(timer)}>
     <summary class="label cursor-pointer select-none hover:text-accent">Use a stopwatch</summary>
     <div class="mt-3">
@@ -427,7 +620,18 @@
     {#each time.timeEntries as entry (entry.id)}
       <li class="flex items-center justify-between gap-4 px-5 py-3 text-sm">
         <span class="w-28 shrink-0 text-fg/60">{entry.entryDate}</span>
-        <span class="w-16 shrink-0 font-mono tabular-nums text-fg/80">{hours(entry.minutes)} h</span>
+        <span class="w-20 shrink-0 font-mono tabular-nums text-fg/80">
+          {entryAmountLabel(entry)}
+        </span>
+        <!--
+          A time-card entry says when it ran (TMC-265). Typed and stopwatch
+          entries have no clock times and render nothing here.
+        -->
+        {#if entry.startTime && entry.endTime}
+          <span class="w-36 shrink-0 text-xs text-fg/50">
+            {formatClockTime(entry.startTime)} to {formatClockTime(entry.endTime)}
+          </span>
+        {/if}
         <span class="min-w-0 flex-1 truncate text-fg/70">{entry.note ?? ''}</span>
         <!--
           What these hours are worth, and what they'll bill at. Silent when no
@@ -436,9 +640,9 @@
         -->
         {#if entry.rate}
           <span class="shrink-0 text-right font-mono tabular-nums text-fg/60">
-            ${formatUnitPrice(entry.rate)}/h
+            ${formatUnitPrice(entry.rate)}/{billingUnitLabel(unit, '1')}
             <span class="ml-2 text-fg/80">
-              {fmt(entryValue(entry.minutes, entry.rate))}
+              {fmt(entryValue(entry, entry.rate))}
             </span>
           </span>
         {/if}
@@ -458,7 +662,7 @@
             triggerClass="link text-xs"
           >
             {#snippet body()}
-              The {hours(entry.minutes)} h logged on {entry.entryDate} is deleted for good — there is
+              The {entryAmountLabel(entry)} logged on {entry.entryDate} is deleted for good — there is
               no undo, so you would be typing the date, the hours, the rate and the note in again. It
               comes off this job's hours{entry.rate ? " and off what's ready to bill" : ''}. These
               hours aren't on an invoice, so nothing changes on your books.

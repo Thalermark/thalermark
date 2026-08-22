@@ -9,11 +9,11 @@ import {
   type LineItemType,
   addMoney,
   contactCreateSchema,
-  hoursFromMinutes,
   invoiceCreateSchema,
   localDayPlus,
   localToday,
   sumMoney,
+  timeEntryQuantity,
 } from '@thalermark/validation';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -53,16 +53,27 @@ async function loadUnbilledTime(client: ServerApiClient, jobId: string) {
     param: { id: jobId },
     query: { unbilled: 'true' },
   });
-  if (!res.ok) return [];
-  const { timeEntries } = await res.json();
-  return timeEntries.map((t) => ({
-    id: t.id,
-    entryDate: t.entryDate,
-    minutes: t.minutes,
-    hours: hoursFromMinutes(t.minutes),
-    note: t.note,
-    rate: t.rate,
-  }));
+  if (!res.ok) return { entries: [], billingUnit: 'hour' as const };
+  const { timeEntries, billingUnit } = await res.json();
+  return {
+    // The job's own unit rides along (TMC-264). Deriving the quantity from
+    // minutes here would invoice three 30-minute visits as "1.5 visits".
+    billingUnit,
+    entries: timeEntries
+      .map((t) => ({
+        id: t.id,
+        entryDate: t.entryDate,
+        minutes: t.minutes,
+        quantity: timeEntryQuantity(t, billingUnit),
+        startTime: t.startTime,
+        endTime: t.endTime,
+        note: t.note,
+        rate: t.rate,
+      }))
+      // An entry recording nothing billable in its job's unit is skipped rather
+      // than seeded as a zero line.
+      .filter((t) => t.quantity !== null),
+  };
 }
 
 export const load: PageServerLoad = async (event) => {
@@ -115,8 +126,10 @@ export const load: PageServerLoad = async (event) => {
   // the honest entry point — you decide to bill a job while looking at the job,
   // not while staring at an empty invoice.
   const jobId = event.url.searchParams.get('jobId') ?? '';
-  const unbilledTime =
-    jobId && jobs.some((j) => j.id === jobId) ? await loadUnbilledTime(client, jobId) : [];
+  const unbilled =
+    jobId && jobs.some((j) => j.id === jobId)
+      ? await loadUnbilledTime(client, jobId)
+      : { entries: [], billingUnit: 'hour' as const };
 
   // The job's customer, for prefilling the contact picker when billing a job.
   // Null when the job has none — a job doesn't need a customer to be useful.
@@ -138,7 +151,8 @@ export const load: PageServerLoad = async (event) => {
     jobs,
     jobId: jobs.some((j) => j.id === jobId) ? jobId : '',
     jobContact,
-    unbilledTime,
+    unbilledTime: unbilled.entries,
+    billingUnit: unbilled.billingUnit,
     // Company-level "show on invoices" defaults — seed the from-block checkboxes
     // on a fresh invoice. The user can override per invoice; the API persists
     // whatever the form submits.
