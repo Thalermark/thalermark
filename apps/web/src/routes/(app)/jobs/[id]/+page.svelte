@@ -144,6 +144,16 @@
     note = '';
     cardStart = '';
     cardEnd = '';
+    // The mode goes back too. A stop forces the view to Duration to show where
+    // it put its value, so clearing that value while leaving the view where the
+    // stop parked it is a half-reset — the user is left in a mode they never
+    // picked, looking at an empty box.
+    logMode = 'duration';
+    // Belt and braces: reset the form ELEMENT as well, so anything uncontrolled
+    // in the row (the date, the rate, the count) returns to the default it was
+    // rendered with rather than whatever was typed over it. Without this Clear
+    // silently means "clear some of it".
+    document.querySelector<HTMLFormElement>('#logTimeForm')?.reset();
   }
 
   // The time card (TMC-265). A third way in, beside the duration box and the
@@ -716,9 +726,20 @@
       type="button" is load-bearing: a bare <button> inside a form defaults to
       submit, which would log the entry it is meant to discard.
     -->
-    {#if hasEntryInput}
-      <button type="button" onclick={clearEntry} class="link text-sm">Clear</button>
-    {/if}
+    <!--
+      ALWAYS RENDERED, disabled when there is nothing to clear, rather than
+      appearing and vanishing. A control that disappears the moment it works
+      cannot be told apart from one that did nothing — which is exactly how this
+      was reported.
+    -->
+    <button
+      type="button"
+      onclick={clearEntry}
+      disabled={!hasEntryInput}
+      class="link text-sm disabled:cursor-default disabled:opacity-40 disabled:hover:no-underline"
+    >
+      Clear
+    </button>
   </div>
   <p class="mt-2 text-xs text-fg/50">
     Leave the rate blank for work you're not charging for — it still counts toward what the job cost
