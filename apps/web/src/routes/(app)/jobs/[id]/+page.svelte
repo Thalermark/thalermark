@@ -543,29 +543,50 @@
         harmless. `formnovalidate` because starting a timer must not be blocked
         by a required field somewhere else in the row.
       -->
+      <!--
+        NOT `.btn`. Log is this form's submit and has to stay the loudest thing
+        in it; a filled Start sitting beside a filled Log made the secondary
+        action read as the primary one. Outlined, matching the mode chips above
+        and the Close job control at the top of the page.
+
+        No "Stopwatch" label either — the selected chip directly above already
+        says that, and repeating it labelled the button with the mode rather
+        than with anything the user did not already know. Only the running state
+        gets a label, because the elapsed figure beside it needs one.
+      -->
       <div class="flex items-end">
         {#if timerOnThisJob}
           <div>
             <span class="label block">Running</span>
             <div class="mt-1 flex items-center gap-3">
               <span class="font-mono text-2xl leading-none tabular-nums text-accent">{elapsed}</span>
-              <button type="submit" formaction="?/stopTimer" formnovalidate class="btn">
+              <button
+                type="submit"
+                formaction="?/stopTimer"
+                formnovalidate
+                class="rounded-sm border border-accent px-4 py-2 font-mono text-xs uppercase tracking-widest text-accent transition-colors hover:bg-accent/10"
+              >
                 Stop
               </button>
             </div>
           </div>
         {:else if timer}
-          <div>
-            <span class="label block">Running elsewhere</span>
-            <button type="button" disabled class="btn mt-1 opacity-50">Start</button>
-          </div>
+          <button
+            type="button"
+            disabled
+            class="rounded-sm border border-fg/15 px-4 py-2 font-mono text-xs uppercase tracking-widest text-fg/40"
+          >
+            Running elsewhere
+          </button>
         {:else}
-          <div>
-            <span class="label block">Stopwatch</span>
-            <button type="submit" formaction="?/startTimer" formnovalidate class="btn mt-1">
-              Start
-            </button>
-          </div>
+          <button
+            type="submit"
+            formaction="?/startTimer"
+            formnovalidate
+            class="rounded-sm border border-fg/25 px-4 py-2 font-mono text-xs uppercase tracking-widest text-fg/70 transition-colors hover:border-accent hover:text-accent"
+          >
+            Start
+          </button>
         {/if}
       </div>
     {:else}
