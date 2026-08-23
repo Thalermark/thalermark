@@ -568,9 +568,17 @@
         input boxes.
       -->
       {#if timerOnThisJob}
-        <div>
+        <!--
+          flex-col + flex-1 rather than a height matching `.field`. The cell
+          already stretches to the row's height (the form's align-items is the
+          default stretch), so letting the control row claim what is left under
+          the label and centre inside it puts the elapsed figure on the inputs'
+          own centre line — without this file having to know what `.field`
+          resolves to, or having to be edited again when it changes.
+        -->
+        <div class="flex flex-col">
           <span class="label block">Running</span>
-          <div class="mt-1 flex items-center gap-3">
+          <div class="mt-1 flex flex-1 items-center gap-3">
             <span class="font-mono text-2xl leading-none tabular-nums text-accent">{elapsed}</span>
             <button
               type="submit"
