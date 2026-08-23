@@ -1,9 +1,12 @@
 import {
+  billingUnitLabel,
+  formatQuantity,
   formatUnitPrice,
-  hoursFromMinutes,
+  minutesFromClockSpan,
   minutesFromDuration,
   multiplyMoney,
   sumMoney,
+  timeEntryQuantity,
 } from '@thalermark/validation';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
@@ -52,10 +55,14 @@ type JobDetail = {
 type TimeEntry = {
   id: string;
   entryDate: string;
-  minutes: number;
+  minutes: number | null;
   note: string | null;
   rate: string | null;
   billedInvoiceId: string | null;
+  // Nullable since TMC-264 — optional on a job that does not bill by hours.
+  quantity: string | null;
+  startTime: string | null;
+  endTime: string | null;
 };
 
 const fmt = (s: string) =>
@@ -64,11 +71,30 @@ const fmt = (s: string) =>
 // DISPLAY only, 2dp. Never use for money: billing converts at 4dp via
 // hoursFromMinutes, and 50 minutes is 0.83 here against 0.8333 there — a nickel
 // apart at $15/h. Anything that must agree with an invoice uses entryValue.
-const hours = (minutes: number) => (Math.round((minutes / 60) * 100) / 100).toFixed(2);
+const hours = (minutes: number | null) =>
+  (Math.round(((minutes ?? 0) / 60) * 100) / 100).toFixed(2);
 
-// What an entry will actually bill, priced the way the invoice form prices it.
-const entryValue = (minutes: number, rate: string) =>
-  multiplyMoney(hoursFromMinutes(minutes), rate);
+// What an entry will actually bill, priced the way the invoice form prices it —
+// which means reading the JOB's unit rather than assuming hours (TMC-264). A
+// "ready to bill" that disagrees with the invoice it produces is worse than none.
+const entryValue = (
+  entry: { minutes: number | null; quantity: string | null },
+  rate: string,
+  billingUnit: string,
+) => {
+  const qty = timeEntryQuantity(entry, billingUnit);
+  return qty === null ? '0.00' : multiplyMoney(qty, rate);
+};
+
+// How an entry reads in the list: "3.25 h" on an hourly job, "3 visits" other.
+const entryAmountLabel = (
+  entry: { minutes: number | null; quantity: string | null },
+  billingUnit: string,
+) => {
+  if (billingUnit === 'hour') return `${hours(entry.minutes)} h`;
+  const qty = entry.quantity ?? '0';
+  return `${formatQuantity(qty)} ${billingUnitLabel(billingUnit, qty)}`;
+};
 
 function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
@@ -81,10 +107,34 @@ export default function JobDetailScreen() {
 
   const [job, setJob] = useState<JobDetail | null>(null);
   const [entries, setEntries] = useState<TimeEntry[]>([]);
+  // How this job bills (TMC-264). 'hour' until the job says otherwise, which is
+  // what every job written before this means.
+  const [billingUnit, setBillingUnit] = useState('hour');
+  const billsByHour = billingUnit === 'hour';
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
 
   const [duration, setDuration] = useState('');
+  // The time card (TMC-265): a third way in, beside the duration box and the
+  // stopwatch, and the only one that is both after-the-fact and arithmetic-free.
+  const [cardStart, setCardStart] = useState('');
+  const [cardEnd, setCardEnd] = useState('');
+  // The count, in the job's own unit (TMC-264). Defaulted to 1 because one entry
+  // is almost always one visit.
+  const [quantity, setQuantity] = useState('1');
+  // Mirrors web's wording exactly. Two clients describing one overnight shift
+  // differently is the same class of bug as two clients rounding it differently.
+  const cardSpan = cardStart && cardEnd ? minutesFromClockSpan(cardStart, cardEnd) : null;
+  const cardSummary = (() => {
+    if (!cardStart || !cardEnd) return '';
+    if (!cardSpan) return 'Check those times.';
+    const h = Math.floor(cardSpan.minutes / 60);
+    const m = cardSpan.minutes % 60;
+    const span = m === 0 ? `${h}h` : `${h}h ${m}m`;
+    return cardSpan.crossesMidnight
+      ? `${span}, running past midnight. Logged on the start date.`
+      : span;
+  })();
   const [note, setNote] = useState('');
   const [rate, setRate] = useState('');
   // Prefilled from the last rate used on this job — most work is billed at one
@@ -126,13 +176,15 @@ export default function JobDetailScreen() {
   const readyToBill = sumMoney(
     entries
       .filter((e) => !e.billedInvoiceId && e.rate !== null)
-      .map((e) => entryValue(e.minutes, e.rate ?? '0')),
+      .map((e) => entryValue(e, e.rate ?? '0', billingUnit)),
   );
   // Unbilled hours with no rate, so "ready to bill" is never mistaken for
   // everything uncharged.
   const unratedMinutes = entries
     .filter((e) => !e.billedInvoiceId && !e.rate)
-    .reduce((total, e) => total + e.minutes, 0);
+    // Null minutes contribute nothing rather than poisoning the sum: on a
+    // non-hourly job the duration is optional (TMC-264).
+    .reduce((total, e) => total + (e.minutes ?? 0), 0);
   // An unsent draft already on this job — billing again would start a second one
   // and burn another invoice number on a blank.
   const openDraft = job?.invoices.find((i) => i.status === 'draft');
@@ -149,8 +201,10 @@ export default function JobDetailScreen() {
     }
     setJob((await jobRes.json()) as JobDetail);
     if (timeRes.ok) {
-      const rows = ((await timeRes.json()).timeEntries ?? []) as TimeEntry[];
+      const timeBody = await timeRes.json();
+      const rows = (timeBody.timeEntries ?? []) as TimeEntry[];
       setEntries(rows);
+      setBillingUnit(timeBody.billingUnit ?? 'hour');
       // Newest-first, so the first row carrying a rate is the last one used.
       // Only seeds once, so it never overwrites what the user is typing.
       const last = rows.find((r) => r.rate)?.rate;
@@ -188,13 +242,46 @@ export default function JobDetailScreen() {
 
   async function logTime() {
     setTimeError(null);
-    // Shared with web (@thalermark/validation) so the same typed string cannot
-    // become two different durations.
-    const minutes = minutesFromDuration(duration);
-    if (minutes === null) {
+
+    // THREE WAYS IN, ONE RECORD OUT — the same resolution order web uses, and it
+    // has to stay the same order or the two clients turn one typed thing into
+    // two different durations. A time card wins over the duration box, because
+    // someone who typed clock times meant them and the box may still hold a
+    // stale stopwatch value.
+    let minutes: number | null = null;
+    if (cardStart && cardEnd) {
+      const span = minutesFromClockSpan(cardStart, cardEnd);
+      if (span === null) {
+        setTimeError('Check the start and end times.');
+        return;
+      }
+      // Overnight stays ONE entry, dated by its start (owner decision). The
+      // summary below the fields already said so before this ran.
+      minutes = span.minutes;
+    } else if (cardStart || cardEnd) {
+      setTimeError('Enter both a start and an end time, or neither.');
+      return;
+    } else if (duration.trim()) {
+      // Shared with web (@thalermark/validation) so the same typed string cannot
+      // become two different durations.
+      minutes = minutesFromDuration(duration);
+      if (minutes === null) {
+        setTimeError('Enter hours like 3.25 or 3:15.');
+        return;
+      }
+    }
+
+    // On an hourly job the duration IS what gets billed, so it is required. On
+    // any other unit it is optional context for effective-hourly (TMC-264).
+    if (billsByHour && minutes === null) {
       setTimeError('Enter hours like 3.25 or 3:15.');
       return;
     }
+    if (!billsByHour && !quantity.trim()) {
+      setTimeError(`Enter how many ${billingUnitLabel(billingUnit, '2')} you did.`);
+      return;
+    }
+
     setLogging(true);
     try {
       const res = await api.api.jobs[':id'].time.$post({
@@ -202,17 +289,23 @@ export default function JobDetailScreen() {
         json: {
           entryDate: todayIso(),
           minutes,
+          quantity: billsByHour ? undefined : quantity.trim(),
+          startTime: cardStart || undefined,
+          endTime: cardEnd || undefined,
           note: note.trim() || undefined,
           rate: rate.trim() || undefined,
         },
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
-        setTimeError(body?.error ?? 'Could not log those hours.');
+        setTimeError(body?.error ?? 'Could not log that.');
         return;
       }
       setDuration('');
       setNote('');
+      setCardStart('');
+      setCardEnd('');
+      setQuantity('1');
       await load();
     } catch {
       setTimeError('Could not log those hours.');
@@ -517,13 +610,27 @@ export default function JobDetailScreen() {
                 the start of a job is exactly when nobody is thinking about an app.
               */}
               <View className="flex-row gap-2">
-                <TextInput
-                  value={duration}
-                  onChangeText={setDuration}
-                  placeholder="3.25"
-                  keyboardType="decimal-pad"
-                  className="w-24 rounded-sm border border-field bg-cream-warm px-3 py-2.5 text-ink"
-                />
+                {billsByHour ? (
+                  <TextInput
+                    value={duration}
+                    onChangeText={setDuration}
+                    placeholder="3.25"
+                    keyboardType="decimal-pad"
+                    className="w-24 rounded-sm border border-field bg-cream-warm px-3 py-2.5 text-ink"
+                  />
+                ) : (
+                  /*
+                    A per-visit, per-night or per-day job bills a COUNT, and the
+                    count is what reaches the invoice (TMC-264).
+                  */
+                  <TextInput
+                    value={quantity}
+                    onChangeText={setQuantity}
+                    placeholder="1"
+                    keyboardType="decimal-pad"
+                    className="w-20 rounded-sm border border-field bg-cream-warm px-3 py-2.5 text-ink"
+                  />
+                )}
                 <TextInput
                   value={note}
                   onChangeText={setNote}
@@ -532,10 +639,53 @@ export default function JobDetailScreen() {
                   className="flex-1 rounded-sm border border-field bg-cream-warm px-3 py-2.5 text-ink"
                 />
               </View>
+              {/*
+                THE STOPWATCH'S ANSWER ON A NON-HOURLY JOB. A timer cannot
+                produce a visit count, so it fills this instead: an OPTIONAL
+                duration feeding effective-hourly that never touches what the
+                customer is billed.
+              */}
+              {billsByHour ? null : (
+                <TextInput
+                  value={duration}
+                  onChangeText={setDuration}
+                  placeholder="Time spent — optional"
+                  keyboardType="decimal-pad"
+                  className="mt-2 rounded-sm border border-field bg-cream-warm px-3 py-2.5 text-ink"
+                />
+              )}
+              {/*
+                The time card (TMC-265), matching web's field order and its
+                resolution rule. Plain text rather than a native time picker:
+                two pickers would be four taps and a modal each, where the whole
+                point is that typing 8:15 is faster than working out 8.25.
+              */}
+              <View className="mt-2 flex-row gap-2">
+                <TextInput
+                  value={cardStart}
+                  onChangeText={setCardStart}
+                  placeholder="Started 08:15"
+                  className="flex-1 rounded-sm border border-field bg-cream-warm px-3 py-2.5 text-ink"
+                />
+                <TextInput
+                  value={cardEnd}
+                  onChangeText={setCardEnd}
+                  placeholder="Finished 16:30"
+                  className="flex-1 rounded-sm border border-field bg-cream-warm px-3 py-2.5 text-ink"
+                />
+              </View>
+              {/*
+                Shown live, before anything is submitted. That sighting IS the
+                confirm half of the owner's detect-and-confirm call: no modal, no
+                second question, just the hours stated and the overnight run named.
+              */}
+              {cardSummary ? (
+                <Text className="mt-1 text-sm text-ink-muted">{cardSummary}</Text>
+              ) : null}
               <TextInput
                 value={rate}
                 onChangeText={setRate}
-                placeholder="Rate per hour — optional"
+                placeholder={`Rate per ${billingUnitLabel(billingUnit, '1')} — optional`}
                 keyboardType="decimal-pad"
                 className="mt-2 rounded-sm border border-field bg-cream-warm px-3 py-2.5 text-ink"
               />
@@ -621,8 +771,8 @@ export default function JobDetailScreen() {
                   }`}
                 >
                   <Text className="w-24 text-sm text-ink-subtle">{entry.entryDate}</Text>
-                  <Text className="w-16 font-mono text-sm text-ink/80">
-                    {hours(entry.minutes)} h
+                  <Text className="w-20 font-mono text-sm text-ink/80">
+                    {entryAmountLabel(entry, billingUnit)}
                   </Text>
                   <Text className="flex-1 pr-2 text-sm text-ink-muted" numberOfLines={1}>
                     {entry.note ?? ''}
@@ -633,7 +783,7 @@ export default function JobDetailScreen() {
                   */}
                   {entry.rate ? (
                     <Text className="pr-2 font-mono text-xs text-ink-subtle">
-                      ${formatUnitPrice(entry.rate)}/h
+                      ${formatUnitPrice(entry.rate)}/{billingUnitLabel(billingUnit, '1')}
                     </Text>
                   ) : null}
                   {entry.billedInvoiceId ? (

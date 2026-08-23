@@ -1,4 +1,14 @@
-import { bigint, date, index, numeric, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import {
+  bigint,
+  date,
+  index,
+  numeric,
+  pgTable,
+  text,
+  time,
+  timestamp,
+  uuid,
+} from 'drizzle-orm/pg-core';
 import { accounts } from './accounts.js';
 import { companies } from './companies.js';
 import { invoices } from './invoices.js';
@@ -43,7 +53,44 @@ export const timeEntries = pgTable(
     // rounding is baked into storage. Hours are derived at billing time via
     // priceString in @thalermark/validation, the same rounding every other line
     // goes through. bigint rather than integer to satisfy squawk.
-    minutes: bigint('minutes', { mode: 'number' }).notNull(),
+    //
+    // NULLABLE SINCE TMC-264, and the reasoning above is unchanged — minutes is
+    // still the smallest unit, still integral, still the only rounding step. It
+    // is now merely OPTIONAL on a job that does not bill by it. A dog sitter
+    // logging "1 visit" has a duration only if she chooses to record one, and
+    // its sole consumer there is effective-hourly, which already returns null
+    // (rendering a dash) when it has no denominator.
+    //
+    // Required on a job billing by the hour, enforced in @thalermark/validation
+    // rather than by a CHECK — see the migration for why.
+    minutes: bigint('minutes', { mode: 'number' }),
+    // The count in the JOB's billing unit (TMC-264). Null on an hourly job,
+    // where the count IS the duration and is derived from minutes at billing
+    // time exactly as before.
+    //
+    // WHY A REAL COLUMN AND NOT A LABEL. Three 30-minute visits are minutes =
+    // 90. A quantity still derived from minutes would put "1.5 visits" on the
+    // invoice — wrong in a way the customer can see, which is what makes this a
+    // storage change rather than a copy change.
+    //
+    // numeric(15,4) matches invoice_line_items.quantity exactly, so a billed
+    // visit and a hand-typed line cannot round differently.
+    quantity: numeric('quantity', { precision: 15, scale: 4 }),
+    // The clock times a time-card entry was typed as (TMC-265). Both null for a
+    // typed duration or a stopwatch entry, which is every entry before this.
+    //
+    // Bare `time`, no zone, for the same reason entryDate is a bare `date`:
+    // these are the BUSINESS's wall clock (TMC-258). A care giver's shift is
+    // 7:00am to 3:00pm on the invoice regardless of where the person reading it
+    // is sitting, and attaching a zone would let the pair drift against the
+    // entryDate they belong to.
+    //
+    // Kept rather than discarded after computing minutes because TMC-263
+    // established that WHEN the work happened matters on the customer's
+    // invoice: "7:00am to 3:00pm" survives a client questioning the bill far
+    // better than "8 hours" does.
+    startTime: time('start_time'),
+    endTime: time('end_time'),
     note: text('note'),
     // Snapshot of the billing rate, at invoice_line_items.unit_price scale
     // (15,4) so hours x rate lands exactly where a hand-typed line would.

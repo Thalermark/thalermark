@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { isoDateString } from './money.js';
+import { BILLING_UNITS } from './time-entry.js';
 
 // Jobs (TMC-181) — the named unit of work that exists before any invoice does.
 //
@@ -30,6 +31,10 @@ export const jobCreateSchema = z
     // knows which he means.
     name: z.string().trim().min(1).max(200),
     contactId: z.string().uuid().nullable().optional(),
+    // How this job bills, asked once here rather than on every entry (TMC-264).
+    // Optional and defaulting to 'hour' in the column, so a client that never
+    // sends it gets exactly the pre-TMC-264 behaviour.
+    billingUnit: z.enum(BILLING_UNITS).optional(),
     startedOn: isoDateString.optional(),
     endedOn: isoDateString.optional(),
   })
@@ -46,6 +51,12 @@ export const jobUpdateSchema = z
     name: z.string().trim().min(1).max(200).optional(),
     contactId: z.string().uuid().nullable().optional(),
     status: z.enum(JOB_STATUSES).optional(),
+    // Changeable after the fact. It re-reads how EXISTING entries bill, which is
+    // the point: someone who logged three visits as hours by mistake fixes the
+    // job rather than re-entering the work. The entries themselves are untouched
+    // — each keeps both its minutes and its count, and the unit decides which
+    // one reaches the invoice.
+    billingUnit: z.enum(BILLING_UNITS).optional(),
     startedOn: isoDateString.nullable().optional(),
     endedOn: isoDateString.nullable().optional(),
   })

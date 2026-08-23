@@ -2,16 +2,16 @@ import {
   type InvoiceLineItemInput,
   type LineItemType,
   addMoney,
+  billingUnitLabel,
   contactCreateSchema,
   formatUnitPrice,
-  hoursFromMinutes,
-  hoursUnitLabel,
   invoiceCreateSchema,
   localDayPlus,
   localToday,
   multiplyMoney,
   sumMoney,
   timeEntryLineDescription,
+  timeEntryQuantity,
   unitPriceFromTotal,
 } from '@thalermark/validation';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
@@ -206,31 +206,41 @@ export default function NewInvoice() {
             query: { unbilled: 'true' },
           });
           if (active && timeRes.ok) {
-            const { timeEntries, jobName } = await timeRes.json();
-            const seeded = timeEntries.map((t): Row => {
-              const quantity = hoursFromMinutes(t.minutes);
-              const unitPrice = t.rate ?? '0';
-              return {
-                timeEntryId: t.id,
-                description: timeEntryLineDescription({
-                  entryDate: t.entryDate,
-                  note: t.note,
-                  jobName,
-                }),
-                quantity,
-                unitLabel: hoursUnitLabel(quantity),
-                unitPrice,
-                amount: multiplyMoney(quantity, unitPrice),
-                sourceItemId: null,
-                // Labour is a service — routes revenue to 4000 in the hidden
-                // ledger.
-                type: 'service',
-                // Whether labour is taxable varies by state and trade; guessing
-                // is worse than the user ticking the row.
-                taxable: false,
-                taxPolicyId: '',
-              };
-            });
+            const { timeEntries, jobName, billingUnit } = await timeRes.json();
+            const seeded = timeEntries
+              // Nothing billable in the job's unit means no line to seed
+              // (TMC-264): an hourly entry with no duration, or a per-visit one
+              // with no count.
+              .filter((t) => timeEntryQuantity(t, billingUnit) !== null)
+              .map((t): Row => {
+                // The job's unit decides this, not the duration. Deriving it would
+                // invoice three 30-minute visits as "1.5 visits".
+                const quantity = timeEntryQuantity(t, billingUnit) as string;
+                const unitPrice = t.rate ?? '0';
+                return {
+                  timeEntryId: t.id,
+                  description: timeEntryLineDescription({
+                    entryDate: t.entryDate,
+                    note: t.note,
+                    jobName,
+                    // A time-card entry names its clock span (TMC-265).
+                    startTime: t.startTime,
+                    endTime: t.endTime,
+                  }),
+                  quantity,
+                  unitLabel: billingUnitLabel(billingUnit, quantity),
+                  unitPrice,
+                  amount: multiplyMoney(quantity, unitPrice),
+                  sourceItemId: null,
+                  // Labour is a service — routes revenue to 4000 in the hidden
+                  // ledger.
+                  type: 'service',
+                  // Whether labour is taxable varies by state and trade; guessing
+                  // is worse than the user ticking the row.
+                  taxable: false,
+                  taxPolicyId: '',
+                };
+              });
             if (seeded.length > 0) setRows([...seeded, blankRow()]);
           }
         }

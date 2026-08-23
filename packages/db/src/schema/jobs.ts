@@ -52,6 +52,29 @@ export const jobs = pgTable(
     // items.type and companies.business_type. Closing is a filing action, not a
     // state machine: it hides the job from the pickers and nothing else.
     status: text('status').notNull().default('open'),
+    // How this job bills, asked ONCE at the job rather than per entry (TMC-264).
+    // 'hour' | 'visit' | 'day' | 'night' | 'job'. App-layer enum, CHECK deferred
+    // — same call as status above and items.type.
+    //
+    // WHY THE JOB AND NOT THE ENTRY. The audience bills the same way every time:
+    // a dog walker charges per visit on every visit, a sitter per night on every
+    // night. Asking per entry would ask a question whose answer never changes,
+    // and asking it on the invoice line would be too late — the hours are
+    // already logged by then.
+    //
+    // 'hour' is the default and reproduces exactly the old behaviour: quantity
+    // derives from minutes, which is what every pre-TMC-264 entry did and what
+    // every existing job keeps doing untouched.
+    //
+    // A CLOSED SET, not free text, and that is a real limitation worth naming:
+    // a lawn crew pricing per yard cannot say "yard" here. The set is closed
+    // because these five have known plurals and the invoice line has to read
+    // "3 visits" rather than "3 visitss" — the same reason hoursUnitLabel exists
+    // and the same trap items.unit_label's comment describes. The seeded line's
+    // unitLabel stays editable on both clients, so a per-yard business can still
+    // correct it on the invoice; widening this set is a data change, not a
+    // schema one, whenever someone asks.
+    billingUnit: text('billing_unit').notNull().default('hour'),
     // Both nullable. The user may never bother, and a job with no dates is
     // still a perfectly good container.
     startedOn: date('started_on', { mode: 'string' }),

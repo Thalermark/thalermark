@@ -10,7 +10,7 @@
     type LineItemType,
     addMoney,
     formatUnitPrice,
-    hoursUnitLabel,
+    billingUnitLabel,
     multiplyMoney,
     sumMoney,
     timeEntryLineDescription,
@@ -72,12 +72,23 @@
     const jobName = data.jobs.find((j) => j.id === data.jobId)?.name ?? '';
     return data.unbilledTime.map((t) => {
       const unitPrice = t.rate ?? '0';
+      // Non-null by construction: the loader drops entries with nothing billable
+      // in their job's unit, so every row here has a quantity.
+      const quantity = t.quantity as string;
       return {
-        description: timeEntryLineDescription({ entryDate: t.entryDate, note: t.note, jobName }),
-        quantity: t.hours,
-        unitLabel: hoursUnitLabel(t.hours),
+        description: timeEntryLineDescription({
+          entryDate: t.entryDate,
+          note: t.note,
+          jobName,
+          // A time-card entry says WHEN on the line (TMC-265). Typed and
+          // stopwatch entries carry no clock times and read exactly as before.
+          startTime: t.startTime,
+          endTime: t.endTime,
+        }),
+        quantity,
+        unitLabel: billingUnitLabel(data.billingUnit, quantity),
         unitPrice: formatUnitPrice(unitPrice),
-        amount: multiplyMoney(t.hours, unitPrice),
+        amount: multiplyMoney(quantity, unitPrice),
         sourceItemId: null,
         // Labour is a service — routes revenue to 4000 in the hidden ledger.
         type: 'service' as LineItemType,

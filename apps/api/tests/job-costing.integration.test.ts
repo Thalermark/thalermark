@@ -2221,3 +2221,173 @@ describe('closing a job with money still on it', () => {
     }
   });
 });
+
+// TMC-264 / TMC-265. The job says how it bills, and an entry can be typed as a
+// clock span. Both land on the same three columns, so they are exercised
+// together.
+describe('a job bills in its own unit', () => {
+  beforeEach(resetDb);
+
+  async function createJobWithUnit(ctx: Ctx, name: string, billingUnit: string): Promise<string> {
+    const res = await ctx.app.request('/api/jobs', {
+      method: 'POST',
+      headers: ctx.headers,
+      body: JSON.stringify({ companyId: ctx.companyId, name, billingUnit }),
+    });
+    if (res.status !== 201) throw new Error(`job create failed: ${res.status}`);
+    return ((await res.json()) as { id: string }).id;
+  }
+
+  async function postTime(ctx: Ctx, jobId: string, json: Record<string, unknown>) {
+    return ctx.app.request(`/api/jobs/${jobId}/time`, {
+      method: 'POST',
+      headers: ctx.headers,
+      body: JSON.stringify({ entryDate: '2026-06-11', ...json }),
+    });
+  }
+
+  it('defaults to hours, so every job written before this is untouched', async () => {
+    const ctx = await setup('unit-default@test.com');
+    try {
+      const jobId = await makeJob(ctx, 'Fence repair');
+      const res = await ctx.app.request(`/api/jobs/${jobId}/time`, { headers: ctx.headers });
+      expect(((await res.json()) as { billingUnit: string }).billingUnit).toBe('hour');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  // The defect the whole ticket exists to prevent. Three 30-minute visits are
+  // minutes=90; a quantity derived from minutes would bill "1.5 visits".
+  it('bills the count, not the derived hours, on a per-visit job', async () => {
+    const ctx = await setup('unit-visit@test.com');
+    try {
+      const jobId = await createJobWithUnit(ctx, 'Sadie walks', 'visit');
+      const res = await postTime(ctx, jobId, { minutes: 90, quantity: '3.0000', rate: '20.0000' });
+      expect(res.status).toBe(201);
+
+      const listed = await ctx.app.request(`/api/jobs/${jobId}/time`, { headers: ctx.headers });
+      const body = (await listed.json()) as {
+        billingUnit: string;
+        timeEntries: { minutes: number | null; quantity: string | null }[];
+      };
+      expect(body.billingUnit).toBe('visit');
+      // BOTH are stored. The unit decides which one reaches the invoice, so
+      // changing the job's unit later must not need the work re-entered.
+      expect(body.timeEntries[0]?.quantity).toBe('3.0000');
+      expect(body.timeEntries[0]?.minutes).toBe(90);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('takes a per-visit entry with no duration at all', async () => {
+    const ctx = await setup('unit-no-duration@test.com');
+    try {
+      const jobId = await createJobWithUnit(ctx, 'Overnight stays', 'night');
+      const res = await postTime(ctx, jobId, { quantity: '1.0000', rate: '75.0000' });
+      expect(res.status).toBe(201);
+      expect(((await res.json()) as { minutes: number | null }).minutes).toBeNull();
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('names the unit when the count is missing on a non-hourly job', async () => {
+    const ctx = await setup('unit-missing-count@test.com');
+    try {
+      const jobId = await createJobWithUnit(ctx, 'Sadie walks', 'visit');
+      const res = await postTime(ctx, jobId, { minutes: 90 });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { issues: { message: string }[] };
+      // Plain English, not a raw code — TMC-219 / TMC-220.
+      expect(body.issues[0]?.message).toBe('Enter how many visits you did.');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('still requires a duration on an hourly job', async () => {
+    const ctx = await setup('unit-missing-hours@test.com');
+    try {
+      const jobId = await makeJob(ctx, 'Fence repair');
+      const res = await postTime(ctx, jobId, { quantity: '3.0000' });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { issues: { message: string }[] };
+      expect(body.issues[0]?.message).toBe('Enter how long it took.');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('rejects an entry recording neither, whatever the unit', async () => {
+    const ctx = await setup('unit-empty@test.com');
+    try {
+      const jobId = await makeJob(ctx, 'Fence repair');
+      expect((await postTime(ctx, jobId, {})).status).toBe(400);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  // "Ready to bill" has to be priced the way the invoice will be priced, or the
+  // two disagree at the moment money is involved.
+  it('prices ready-to-bill in the job’s unit', async () => {
+    const ctx = await setup('unit-ready@test.com');
+    try {
+      const jobId = await createJobWithUnit(ctx, 'Sadie walks', 'visit');
+      await postTime(ctx, jobId, { minutes: 90, quantity: '3.0000', rate: '20.0000' });
+      const res = await ctx.app.request(`/api/jobs?companyId=${ctx.companyId}`, {
+        headers: ctx.headers,
+      });
+      const body = (await res.json()) as { jobs: { id: string; readyToBill: string }[] };
+      // 3 visits x $20, NOT 1.5 hours x $20.
+      expect(body.jobs.find((j) => j.id === jobId)?.readyToBill).toBe('60.00');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  // TMC-265. The clock times are kept, not discarded after computing minutes,
+  // because when the work happened matters on the customer's invoice.
+  it('stores the clock times a time card was typed as', async () => {
+    const ctx = await setup('unit-timecard@test.com');
+    try {
+      const jobId = await makeJob(ctx, 'Overnight care');
+      const res = await postTime(ctx, jobId, {
+        minutes: 480,
+        startTime: '22:00',
+        endTime: '06:00',
+        rate: '18.0000',
+      });
+      expect(res.status).toBe(201);
+      const entry = (await res.json()) as { startTime: string; endTime: string; minutes: number };
+      // The create response echoes what was sent; the stored `time` column reads
+      // back with seconds. Both are asserted because the clients see both, and
+      // formatClockTime accepts either shape for exactly this reason.
+      expect(entry.startTime).toBe('22:00');
+      // ONE entry for an overnight shift, dated by its start (owner decision).
+      expect(entry.minutes).toBe(480);
+
+      const listed = await ctx.app.request(`/api/jobs/${jobId}/time`, { headers: ctx.headers });
+      const rows = (await listed.json()) as {
+        timeEntries: { startTime: string; endTime: string }[];
+      };
+      expect(rows.timeEntries[0]?.startTime).toBe('22:00:00');
+      expect(rows.timeEntries[0]?.endTime).toBe('06:00:00');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('refuses a start with no end', async () => {
+    const ctx = await setup('unit-halfcard@test.com');
+    try {
+      const jobId = await makeJob(ctx, 'Overnight care');
+      const res = await postTime(ctx, jobId, { minutes: 60, startTime: '22:00' });
+      expect(res.status).toBe(400);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+});
