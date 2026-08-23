@@ -509,6 +509,46 @@
         <label for="endTime" class="label block">Finished</label>
         <input id="endTime" name="endTime" type="time" bind:value={cardEnd} class="field mt-1" />
       </div>
+    {:else if mode === 'stopwatch'}
+      <!--
+        THE TIMER SITS IN THE ROW, not in a block underneath it.
+
+        It used to render below the form, which left the duration box still
+        showing in the row above while the stopwatch lived somewhere else
+        entirely — two controls for one number, visually unrelated, which is the
+        same disconnection the mode selector was supposed to end.
+
+        `formaction` rather than a nested <form>: nesting is illegal HTML, and
+        these buttons want the main form's element without its action. Neither
+        timer action reads any field, so carrying the row's data along is
+        harmless. `formnovalidate` because starting a timer must not be blocked
+        by a required field somewhere else in the row.
+      -->
+      <div class="flex items-end">
+        {#if timerOnThisJob}
+          <div>
+            <span class="label block">Running</span>
+            <div class="mt-1 flex items-center gap-3">
+              <span class="font-mono text-2xl leading-none tabular-nums text-accent">{elapsed}</span>
+              <button type="submit" formaction="?/stopTimer" formnovalidate class="btn">
+                Stop
+              </button>
+            </div>
+          </div>
+        {:else if timer}
+          <div>
+            <span class="label block">Running elsewhere</span>
+            <button type="button" disabled class="btn mt-1 opacity-50">Start</button>
+          </div>
+        {:else}
+          <div>
+            <span class="label block">Stopwatch</span>
+            <button type="submit" formaction="?/startTimer" formnovalidate class="btn mt-1">
+              Start
+            </button>
+          </div>
+        {/if}
+      </div>
     {:else}
       <div class="w-24">
         <label for="duration" class="label block">
@@ -569,34 +609,29 @@
   {/if}
 
   {#if mode === 'stopwatch'}
-    <div class="mt-3">
-      {#if timerOnThisJob}
-        <form method="post" action="?/stopTimer" class="flex items-center gap-3">
-          <span class="font-mono text-2xl tabular-nums text-accent">{elapsed}</span>
-          <button type="submit" class="btn">Stop</button>
-          <span class="text-xs text-fg/50">Stopping fills in the hours — it doesn't log them.</span>
-        </form>
-      {:else if timer}
-        <!--
-          Held by another job. Naming it and linking there is the whole point:
-          the user is standing at THIS job and the thing blocking them is
-          somewhere else. Auto-stopping the other one would silently log it with
-          the drive in between inside it.
-        -->
-        <p class="text-sm text-fg/70">
-          Running on <a href="/jobs/{timer.jobId}" class="link">{timer.jobName}</a> for {elapsed}.
-          Stop it there first — only one timer runs at a time, or the same minute
-          gets billed to two customers.
-        </p>
-      {:else}
-        <form method="post" action="?/startTimer">
-          <button type="submit" class="btn">Start</button>
-        </form>
-      {/if}
-      {#if form?.timerError}
-        <p class="mt-2 text-xs text-danger">{form.timerError}</p>
-      {/if}
-    </div>
+    <!--
+      Only what will not fit in a row cell. The controls themselves are up in the
+      row; this is the sentence that has to be readable, and the one that has to
+      link somewhere.
+    -->
+    {#if timerOnThisJob}
+      <p class="mt-2 text-xs text-fg/50">Stopping fills in the hours — it doesn't log them.</p>
+    {:else if timer}
+      <!--
+        Held by another job. Naming it and linking there is the whole point: the
+        user is standing at THIS job and the thing blocking them is somewhere
+        else. Auto-stopping the other one would silently log it with the drive in
+        between inside it.
+      -->
+      <p class="mt-2 text-sm text-fg/70">
+        Running on <a href="/jobs/{timer.jobId}" class="link">{timer.jobName}</a> for {elapsed}. Stop
+        it there first — only one timer runs at a time, or the same minute gets billed to two
+        customers.
+      </p>
+    {/if}
+    {#if form?.timerError}
+      <p class="mt-2 text-xs text-danger">{form.timerError}</p>
+    {/if}
   {/if}
 
   {#if form?.timeError}
