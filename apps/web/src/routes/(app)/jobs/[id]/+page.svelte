@@ -554,41 +554,52 @@
         than with anything the user did not already know. Only the running state
         gets a label, because the elapsed figure beside it needs one.
       -->
-      <div class="flex items-end">
-        {#if timerOnThisJob}
-          <div>
-            <span class="label block">Running</span>
-            <div class="mt-1 flex items-center gap-3">
-              <span class="font-mono text-2xl leading-none tabular-nums text-accent">{elapsed}</span>
-              <button
-                type="submit"
-                formaction="?/stopTimer"
-                formnovalidate
-                class="rounded-sm border border-accent px-4 py-2 font-mono text-xs uppercase tracking-widest text-accent transition-colors hover:bg-accent/10"
-              >
-                Stop
-              </button>
-            </div>
+      <!--
+        ALIGNMENT IS PER STATE, not one wrapper for all three.
+
+        A `flex items-end` around the lot bottom-aligned this cell inside a row
+        the date input stretches taller, which pushed the Running label ~24px
+        below DATE and RATE. Every other cell is top-aligned, and that is exactly
+        what lines their labels up.
+
+        So the labelled state is a plain cell like its neighbours, and only the
+        bare buttons get `self-end` — with no label above them they would
+        otherwise float at the top of the row instead of sitting level with the
+        input boxes.
+      -->
+      {#if timerOnThisJob}
+        <div>
+          <span class="label block">Running</span>
+          <div class="mt-1 flex items-center gap-3">
+            <span class="font-mono text-2xl leading-none tabular-nums text-accent">{elapsed}</span>
+            <button
+              type="submit"
+              formaction="?/stopTimer"
+              formnovalidate
+              class="rounded-sm border border-accent px-4 py-2 font-mono text-xs uppercase tracking-widest text-accent transition-colors hover:bg-accent/10"
+            >
+              Stop
+            </button>
           </div>
-        {:else if timer}
-          <button
-            type="button"
-            disabled
-            class="rounded-sm border border-fg/15 px-4 py-2 font-mono text-xs uppercase tracking-widest text-fg/40"
-          >
-            Running elsewhere
-          </button>
-        {:else}
-          <button
-            type="submit"
-            formaction="?/startTimer"
-            formnovalidate
-            class="rounded-sm border border-fg/25 px-4 py-2 font-mono text-xs uppercase tracking-widest text-fg/70 transition-colors hover:border-accent hover:text-accent"
-          >
-            Start
-          </button>
-        {/if}
-      </div>
+        </div>
+      {:else if timer}
+        <button
+          type="button"
+          disabled
+          class="self-end rounded-sm border border-fg/15 px-4 py-2 font-mono text-xs uppercase tracking-widest text-fg/40"
+        >
+          Running elsewhere
+        </button>
+      {:else}
+        <button
+          type="submit"
+          formaction="?/startTimer"
+          formnovalidate
+          class="self-end rounded-sm border border-fg/25 px-4 py-2 font-mono text-xs uppercase tracking-widest text-fg/70 transition-colors hover:border-accent hover:text-accent"
+        >
+          Start
+        </button>
+      {/if}
     {:else}
       <div class="w-24">
         <label for="duration" class="label block">
