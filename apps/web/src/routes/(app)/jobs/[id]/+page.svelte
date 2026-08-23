@@ -128,11 +128,23 @@
     return h > 0 ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m`;
   });
 
-  // A stop hands back minutes rather than logging — this drops them into the
-  // duration field so the note and rate are still the user's to fill in.
-  const stoppedDuration = $derived(
-    form?.stoppedMinutes ? (Math.round((form.stoppedMinutes / 60) * 100) / 100).toFixed(2) : '',
-  );
+  // EVERY PER-ENTRY FIELD IS BOUND, so Clear can empty them and so a stopped
+  // stopwatch can seed one without freezing anything. Date and rate are
+  // deliberately NOT here: they are sticky defaults that survive an entry, and
+  // clearing them would make logging a second entry harder than the first.
+  let duration = $state('');
+  let note = $state('');
+  let cardStart = $state('');
+  let cardEnd = $state('');
+
+  const hasEntryInput = $derived(Boolean(duration || note || cardStart || cardEnd));
+
+  function clearEntry() {
+    duration = '';
+    note = '';
+    cardStart = '';
+    cardEnd = '';
+  }
 
   // The time card (TMC-265). A third way in, beside the duration box and the
   // stopwatch, and the only one that is both after-the-fact AND arithmetic-free:
@@ -149,24 +161,31 @@
   ] as const;
   let logMode = $state<(typeof LOG_MODES)[number]['key']>('duration');
 
-  // Two cases override the user's pick, and both are about never hiding a fact:
+  // ONE override, not two. A timer running ON THIS JOB must be visible, or one
+  // left going is lost behind a mode nobody selected — this replaces the old
+  // `open={Boolean(timer)}` on the stopwatch disclosure.
   //
-  //   a timer running ON THIS JOB must be visible, or one left going is lost
-  //   behind a mode nobody selected. This replaces the old `open={Boolean(timer)}`
-  //   on the stopwatch disclosure.
-  //
-  //   a timer JUST STOPPED filled the duration box, so showing the duration is
-  //   how the user sees what it put there. Without this the stop reads as having
-  //   done nothing, since its value would land in a hidden field.
-  //
-  // Derived rather than an $effect writing to logMode: an effect would fight the
-  // user every time they clicked a mode while a timer ran.
-  const mode = $derived(
-    timerOnThisJob ? 'stopwatch' : stoppedDuration ? 'duration' : logMode,
-  );
+  // A JUST-STOPPED timer used to be a second override here, and that was a bug:
+  // `stoppedDuration ? 'duration' : logMode` stayed true for as long as the
+  // action result hung around, so after one stop the mode buttons went dead and
+  // there was no way back to the time card. Seeding is a ONE-TIME event, so it
+  // belongs in the effect below, which sets logMode once and then leaves the
+  // user alone.
+  const mode = $derived(timerOnThisJob ? 'stopwatch' : logMode);
 
-  let cardStart = $state('');
-  let cardEnd = $state('');
+  // Seed the duration from a stop, exactly once per action result. Keyed on the
+  // form object's identity rather than on the minutes value, so stopping twice
+  // at the same elapsed time still seeds the second one.
+  let seededFrom: unknown = $state(null);
+  $effect(() => {
+    if (form && form.stoppedMinutes != null && form !== seededFrom) {
+      seededFrom = form;
+      duration = (Math.round((form.stoppedMinutes / 60) * 100) / 100).toFixed(2);
+      // Show the user where the stop put its value. Once — they can switch away
+      // immediately afterwards, which is the whole point of the fix above.
+      logMode = 'duration';
+    }
+  });
   const cardSpan = $derived(
     cardStart && cardEnd ? minutesFromClockSpan(cardStart, cardEnd) : null,
   );
@@ -564,7 +583,7 @@
           type="text"
           inputmode="decimal"
           placeholder={billsByHour ? '3.25' : 'optional'}
-          value={stoppedDuration}
+          bind:value={duration}
           class="field mt-1"
         />
       </div>
@@ -595,7 +614,14 @@
     -->
     <div class="w-full">
       <label for="note" class="label block">What you did</label>
-      <input id="note" name="note" type="text" maxlength="1000" class="field mt-1" />
+      <input
+        id="note"
+        name="note"
+        type="text"
+        maxlength="1000"
+        bind:value={note}
+        class="field mt-1"
+      />
     </div>
   </form>
 
@@ -639,7 +665,21 @@
   {/if}
 
   <!-- After every way of filling the form, never above one of them. -->
-  <button type="submit" form="logTimeForm" class="btn mt-3">Log</button>
+  <div class="mt-3 flex items-center gap-3">
+    <button type="submit" form="logTimeForm" class="btn">Log</button>
+    <!--
+      Shown only when there is something to clear, so it never sits there as an
+      inert control on an empty form. It empties the per-entry fields and leaves
+      the date and the rate alone — those are sticky defaults, and wiping them
+      would make the second entry of a session harder to type than the first.
+
+      type="button" is load-bearing: a bare <button> inside a form defaults to
+      submit, which would log the entry it is meant to discard.
+    -->
+    {#if hasEntryInput}
+      <button type="button" onclick={clearEntry} class="link text-sm">Clear</button>
+    {/if}
+  </div>
   <p class="mt-2 text-xs text-fg/50">
     Leave the rate blank for work you're not charging for — it still counts toward what the job cost
     you in time.
