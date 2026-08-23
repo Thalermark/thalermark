@@ -547,7 +547,13 @@
         class="field mt-1"
       />
     </div>
-    <div class="min-w-48 flex-1">
+    <!--
+      Its own row. Sharing one with Date / Hours / Rate squeezed it to whatever
+      was left over, which on a non-hourly job (one field wider) was a box too
+      narrow to read back what you had typed. It is also the only free-text
+      field here, so it is the one that actually benefits from the width.
+    -->
+    <div class="w-full">
       <label for="note" class="label block">What you did</label>
       <input id="note" name="note" type="text" maxlength="1000" class="field mt-1" />
     </div>
