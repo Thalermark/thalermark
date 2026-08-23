@@ -129,12 +129,16 @@ export const actions: Actions = {
     const billsByHour = unit === 'hour';
 
     // THREE WAYS IN, ONE RECORD OUT. A typed duration, a stopwatch (which fills
-    // the duration field rather than logging directly), and now a time card
-    // (TMC-265) — which also resolves to a duration here rather than becoming a
-    // second kind of entry.
+    // the duration field rather than logging directly), and a time card (TMC-265)
+    // — which also resolves to a duration here rather than becoming a second kind
+    // of entry.
     //
-    // The card wins when both are filled, because someone who typed clock times
-    // meant them; the duration box may still be holding a stale stopwatch value.
+    // The card winning over the duration is now a BELT-AND-BRACES GUARD rather
+    // than a rule anyone has to know. The form renders exactly one mode's inputs
+    // at a time, so both arriving together is unreachable from the UI. It stays
+    // because a hand-rolled POST can still send both, and silently averaging two
+    // contradictory durations would be worse than picking the one the user
+    // typed as clock times.
     const startTime = String(data.get('startTime') ?? '').trim();
     const endTime = String(data.get('endTime') ?? '').trim();
     let minutes: number | null = null;
