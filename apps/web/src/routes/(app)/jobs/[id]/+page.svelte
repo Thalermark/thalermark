@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import ConfirmSubmit from '$lib/components/ConfirmSubmit.svelte';
   import { may } from '$lib/perms';
   import {
@@ -132,7 +133,16 @@
   // stopwatch can seed one without freezing anything. Date and rate are
   // deliberately NOT here: they are sticky defaults that survive an entry, and
   // clearing them would make logging a second entry harder than the first.
-  let duration = $state('');
+  // Seeded, not assigned by an effect. Every action on this page is a plain form
+  // POST — there is no use:enhance anywhere here — so a stop is a full page load
+  // and this component is rebuilt with the result in `form`. A $state initialiser
+  // runs exactly once per mount, which is precisely the "seed it once" semantics
+  // an effect was being used to fake.
+  let duration = $state(
+    untrack(() =>
+      form?.stoppedMinutes ? (Math.round((form.stoppedMinutes / 60) * 100) / 100).toFixed(2) : '',
+    ),
+  );
   let note = $state('');
   let cardStart = $state('');
   let cardEnd = $state('');
@@ -144,11 +154,9 @@
     note = '';
     cardStart = '';
     cardEnd = '';
-    // The mode goes back too. A stop forces the view to Duration to show where
-    // it put its value, so clearing that value while leaving the view where the
-    // stop parked it is a half-reset — the user is left in a mode they never
-    // picked, looking at an empty box.
-    logMode = 'duration';
+    // The mode is deliberately LEFT ALONE. Clearing while in Start & end almost
+    // always means "I typed the wrong times", so snapping back to Duration would
+    // take away the very input they were about to reuse.
     // Belt and braces: reset the form ELEMENT as well, so anything uncontrolled
     // in the row (the date, the rate, the count) returns to the default it was
     // rendered with rather than whatever was typed over it. Without this Clear
@@ -169,33 +177,26 @@
     { key: 'card', label: 'Start & end' },
     { key: 'stopwatch', label: 'Stopwatch' },
   ] as const;
-  let logMode = $state<(typeof LOG_MODES)[number]['key']>('duration');
-
-  // ONE override, not two. A timer running ON THIS JOB must be visible, or one
-  // left going is lost behind a mode nobody selected — this replaces the old
-  // `open={Boolean(timer)}` on the stopwatch disclosure.
+  // NO OVERRIDE. `mode` is whatever the user last picked, full stop, and the
+  // selector is therefore always live.
   //
-  // A JUST-STOPPED timer used to be a second override here, and that was a bug:
-  // `stoppedDuration ? 'duration' : logMode` stayed true for as long as the
-  // action result hung around, so after one stop the mode buttons went dead and
-  // there was no way back to the time card. Seeding is a ONE-TIME event, so it
-  // belongs in the effect below, which sets logMode once and then leaves the
-  // user alone.
-  const mode = $derived(timerOnThisJob ? 'stopwatch' : logMode);
-
-  // Seed the duration from a stop, exactly once per action result. Keyed on the
-  // form object's identity rather than on the minutes value, so stopping twice
-  // at the same elapsed time still seeds the second one.
-  let seededFrom: unknown = $state(null);
-  $effect(() => {
-    if (form && form.stoppedMinutes != null && form !== seededFrom) {
-      seededFrom = form;
-      duration = (Math.round((form.stoppedMinutes / 60) * 100) / 100).toFixed(2);
-      // Show the user where the stop put its value. Once — they can switch away
-      // immediately afterwards, which is the whole point of the fix above.
-      logMode = 'duration';
-    }
-  });
+  // It used to be `timerOnThisJob ? 'stopwatch' : logMode`, which LOCKED the
+  // selector for as long as a timer ran: clicks set logMode and the ternary
+  // discarded them, so the buttons rendered as if they worked and did nothing.
+  // A seeding $effect sat on top of that and made it worse — it compared
+  // `form !== seededFrom` where seededFrom was $state, and Svelte 5 wraps an
+  // object assigned into $state in a proxy, so that identity check can never
+  // become false and the effect kept forcing the mode back.
+  //
+  // Both existed to serve one honest requirement: never HIDE a running timer.
+  // That is a question about what to show on ARRIVAL, so it belongs in the
+  // initialiser below, not in a rule that outranks the user forever after.
+  // untrack() states the intent Svelte would otherwise only warn about: this
+  // reads the value ONCE, on arrival, and deliberately does not follow it. A
+  // derived here would be the bug we just removed.
+  let logMode = $state<(typeof LOG_MODES)[number]['key']>(
+    untrack(() => (timer?.jobId === job.id ? 'stopwatch' : 'duration')),
+  );
   const cardSpan = $derived(
     cardStart && cardEnd ? minutesFromClockSpan(cardStart, cardEnd) : null,
   );
@@ -478,8 +479,8 @@
       <button
         type="button"
         onclick={() => (logMode = m.key)}
-        aria-pressed={mode === m.key}
-        class="rounded-sm border px-3 py-1 font-mono text-xs uppercase tracking-widest transition-colors {mode ===
+        aria-pressed={logMode === m.key}
+        class="rounded-sm border px-3 py-1 font-mono text-xs uppercase tracking-widest transition-colors {logMode ===
         m.key
           ? 'border-accent text-accent'
           : 'border-fg/15 text-fg/60 hover:border-fg/40 hover:text-fg'}"
@@ -487,6 +488,21 @@
         {m.label}
       </button>
     {/each}
+    <!--
+      The selector no longer forces itself to Stopwatch while a timer runs, so a
+      timer could otherwise be left running out of sight. On ARRIVAL the
+      initialiser opens on Stopwatch; after that the user is free to look
+      elsewhere, and this says the timer is still going while they do.
+    -->
+    {#if timerOnThisJob && logMode !== 'stopwatch'}
+      <button
+        type="button"
+        onclick={() => (logMode = 'stopwatch')}
+        class="font-mono text-xs uppercase tracking-widest text-accent hover:underline"
+      >
+        Timer running · {elapsed}
+      </button>
+    {/if}
   </div>
 
   <!--
@@ -523,7 +539,7 @@
       </div>
     {/if}
 
-    {#if mode === 'card'}
+    {#if logMode === 'card'}
       <div class="w-32">
         <label for="startTime" class="label block">Started</label>
         <input
@@ -538,7 +554,7 @@
         <label for="endTime" class="label block">Finished</label>
         <input id="endTime" name="endTime" type="time" bind:value={cardEnd} class="field mt-1" />
       </div>
-    {:else if mode === 'stopwatch'}
+    {:else if logMode === 'stopwatch'}
       <!--
         THE TIMER SITS IN THE ROW, not in a block underneath it.
 
@@ -675,7 +691,7 @@
     </div>
   </form>
 
-  {#if mode === 'card' && cardSummary}
+  {#if logMode === 'card' && cardSummary}
     <!--
       The computed span, stated before anything is submitted. That sighting is
       the "confirm" half of the owner's detect-and-confirm call on an overnight
@@ -684,7 +700,7 @@
     <p class="mt-2 text-sm text-fg/70">{cardSummary}</p>
   {/if}
 
-  {#if mode === 'stopwatch'}
+  {#if logMode === 'stopwatch'}
     <!--
       Only what will not fit in a row cell. The controls themselves are up in the
       row; this is the sentence that has to be readable, and the one that has to
