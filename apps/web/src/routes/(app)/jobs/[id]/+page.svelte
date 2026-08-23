@@ -416,8 +416,8 @@
     method="post"
     action="?/logTime"
     class="mt-4 grid gap-3 {billsByHour
-      ? 'sm:grid-cols-[9.5rem_6rem_8rem_1fr_auto]'
-      : 'sm:grid-cols-[9.5rem_6rem_6rem_8rem_1fr_auto]'}"
+      ? 'sm:grid-cols-[9.5rem_6rem_8rem_1fr]'
+      : 'sm:grid-cols-[9.5rem_6rem_6rem_8rem_1fr]'}"
   >
     <!--
       The job's unit rides along so the action knows which field is the billable
@@ -509,9 +509,6 @@
     <div>
       <label for="note" class="label block">What you did</label>
       <input id="note" name="note" type="text" maxlength="1000" class="field mt-1" />
-    </div>
-    <div class="flex items-end">
-      <button type="submit" class="btn">Log</button>
     </div>
   </form>
   <p class="mt-2 text-xs text-fg/50">
@@ -608,9 +605,26 @@
       {/if}
     </div>
   </details>
+  <!--
+    THE SUBMIT SITS AFTER EVERY WAY OF FILLING THE FORM, and that is the whole
+    point of it being down here rather than in the grid row above.
+
+    It used to live at the end of that row, which put it ABOVE the two
+    disclosures that feed it. Anyone who opened the time card first had no
+    visible way to submit: the only button was up and to the right, attached to
+    a row they had deliberately skipped. The stopwatch got away with the old
+    placement because it has its own Stop button and says plainly that stopping
+    fills in the hours rather than logging them, which hands the user back
+    upward. The time card has no such handoff, so the button had to move.
+
+    `form=` rather than nesting, the same attribute the time-card inputs use:
+    the disclosures are presentation and should not have to live inside the
+    <form> element to submit with it.
+  -->
   {#if form?.timeError}
-    <p class="mt-2 text-xs text-danger">{form.timeError}</p>
+    <p class="mt-3 text-xs text-danger" data-form-error role="alert">{form.timeError}</p>
   {/if}
+  <button type="submit" form="logTimeForm" class="btn mt-3">Log</button>
 {/if}
 
 {#if time.timeEntries.length === 0}
