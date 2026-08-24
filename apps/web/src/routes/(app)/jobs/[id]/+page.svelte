@@ -1,9 +1,11 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import ConfirmSubmit from '$lib/components/ConfirmSubmit.svelte';
   import { may } from '$lib/perms';
   import {
     BILLING_UNITS,
     billingUnitLabel,
+    entryUnit,
     formatClockTime,
     formatQuantity,
     formatUnitPrice,
@@ -48,25 +50,43 @@
   }
 
   // The job's own unit (TMC-264), and how one entry reads in it.
-  const unit = $derived(time.billingUnit);
-  const billsByHour = $derived(unit === 'hour');
+  // The job's DEFAULT unit. Not the answer for any given line any more — one
+  // job can mix them, so every read below resolves through entryUnit().
+  const jobUnit = $derived(time.billingUnit);
+
+  // What the line being typed right now bills in. Seeded from the job, then the
+  // user's to change per entry. untrack() because this reads the job's default
+  // ONCE, on arrival: following it would overwrite a deliberate override every
+  // time the job reloaded.
+  let lineUnit = $state<string>(untrack(() => time.billingUnit));
+  const billsByHour = $derived(lineUnit === 'hour');
+  // "Hours" was hard-coded, which read as a lie on a job billing by the visit.
+  // Capitalised at render because the labels are lowercase nouns.
+  const workHeading = $derived(
+    `${billingUnitLabel(jobUnit, '2').charAt(0).toUpperCase()}${billingUnitLabel(jobUnit, '2').slice(1)}`,
+  );
 
   // What one entry contributes, in whatever the job bills in. Null when it
   // records nothing billable — an hourly entry with no duration, or a per-visit
   // entry with no count.
   function entryQty(entry: { minutes: number | null; quantity: string | null }): string | null {
-    return timeEntryQuantity(entry, unit);
+    return timeEntryQuantity(entry, jobUnit);
   }
 
   // How an entry reads in the list: "3.25 h" on an hourly job, "3 visits"
   // otherwise.
+  // Each row reads in the unit IT was logged in, not the job's and not the one
+  // currently selected in the form above. A list that relabels itself when you
+  // change the form's picker would be describing the wrong thing.
   function entryAmountLabel(entry: {
     minutes: number | null;
     quantity: string | null;
+    unit: string | null;
   }): string {
-    if (billsByHour) return `${hours(entry.minutes)} h`;
+    const u = entryUnit(entry, jobUnit);
+    if (u === 'hour') return `${hours(entry.minutes)} h`;
     const qty = entry.quantity ?? '0';
-    return `${formatQuantity(qty)} ${billingUnitLabel(unit, qty)}`;
+    return `${formatQuantity(qty)} ${billingUnitLabel(u, qty)}`;
   }
 
   // What an entry will actually bill, priced exactly the way the invoice form
@@ -123,19 +143,74 @@
     return h > 0 ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m`;
   });
 
-  // A stop hands back minutes rather than logging — this drops them into the
-  // duration field so the note and rate are still the user's to fill in.
-  const stoppedDuration = $derived(
-    form?.stoppedMinutes ? (Math.round((form.stoppedMinutes / 60) * 100) / 100).toFixed(2) : '',
+  // EVERY PER-ENTRY FIELD IS BOUND, so Clear can empty them and so a stopped
+  // stopwatch can seed one without freezing anything. Date and rate are
+  // deliberately NOT here: they are sticky defaults that survive an entry, and
+  // clearing them would make logging a second entry harder than the first.
+  // Seeded, not assigned by an effect. Every action on this page is a plain form
+  // POST — there is no use:enhance anywhere here — so a stop is a full page load
+  // and this component is rebuilt with the result in `form`. A $state initialiser
+  // runs exactly once per mount, which is precisely the "seed it once" semantics
+  // an effect was being used to fake.
+  let duration = $state(
+    untrack(() =>
+      form?.stoppedMinutes ? (Math.round((form.stoppedMinutes / 60) * 100) / 100).toFixed(2) : '',
+    ),
   );
+  let note = $state('');
+  let cardStart = $state('');
+  let cardEnd = $state('');
+
+  const hasEntryInput = $derived(Boolean(duration || note || cardStart || cardEnd));
+
+  function clearEntry() {
+    duration = '';
+    note = '';
+    cardStart = '';
+    cardEnd = '';
+    // The mode is deliberately LEFT ALONE. Clearing while in Start & end almost
+    // always means "I typed the wrong times", so snapping back to Duration would
+    // take away the very input they were about to reuse.
+    // Belt and braces: reset the form ELEMENT as well, so anything uncontrolled
+    // in the row (the date, the rate, the count) returns to the default it was
+    // rendered with rather than whatever was typed over it. Without this Clear
+    // silently means "clear some of it".
+    document.querySelector<HTMLFormElement>('#logTimeForm')?.reset();
+  }
 
   // The time card (TMC-265). A third way in, beside the duration box and the
   // stopwatch, and the only one that is both after-the-fact AND arithmetic-free:
   // the duration field needs mental maths, and the stopwatch has to be
   // remembered at the START of the work, which is exactly when nobody is
   // thinking about an app.
-  let cardStart = $state('');
-  let cardEnd = $state('');
+  // WHICH INPUT IS ON SCREEN. The three modes are exclusive by construction —
+  // only the chosen one is rendered — which is what removes the precedence rule
+  // the old layout had to explain in prose.
+  const LOG_MODES = [
+    { key: 'duration', label: 'Duration' },
+    { key: 'card', label: 'Start & end' },
+    { key: 'stopwatch', label: 'Stopwatch' },
+  ] as const;
+  // NO OVERRIDE. `mode` is whatever the user last picked, full stop, and the
+  // selector is therefore always live.
+  //
+  // It used to be `timerOnThisJob ? 'stopwatch' : logMode`, which LOCKED the
+  // selector for as long as a timer ran: clicks set logMode and the ternary
+  // discarded them, so the buttons rendered as if they worked and did nothing.
+  // A seeding $effect sat on top of that and made it worse — it compared
+  // `form !== seededFrom` where seededFrom was $state, and Svelte 5 wraps an
+  // object assigned into $state in a proxy, so that identity check can never
+  // become false and the effect kept forcing the mode back.
+  //
+  // Both existed to serve one honest requirement: never HIDE a running timer.
+  // That is a question about what to show on ARRIVAL, so it belongs in the
+  // initialiser below, not in a rule that outranks the user forever after.
+  // untrack() states the intent Svelte would otherwise only warn about: this
+  // reads the value ONCE, on arrival, and deliberately does not follow it. A
+  // derived here would be the bug we just removed.
+  let logMode = $state<(typeof LOG_MODES)[number]['key']>(
+    untrack(() => (timer?.jobId === job.id ? 'stopwatch' : 'duration')),
+  );
   const cardSpan = $derived(
     cardStart && cardEnd ? minutesFromClockSpan(cardStart, cardEnd) : null,
   );
@@ -222,7 +297,7 @@
         <select
           id="billingUnit"
           name="billingUnit"
-          value={unit}
+          value={jobUnit}
           onchange={(e) => (e.currentTarget as HTMLSelectElement).form?.requestSubmit()}
           class="rounded-sm border border-fg/15 bg-surface-2 px-3 py-1.5 font-mono text-xs uppercase tracking-widest text-fg/60 transition-colors hover:border-accent hover:text-accent"
         >
@@ -393,71 +468,121 @@
   </ul>
 {/if}
 
-<h2 class="mt-10 font-serif text-2xl font-light text-fg">Hours</h2>
+<h2 class="mt-10 font-serif text-2xl font-light text-fg">{workHeading}</h2>
 
 {#if canWrite}
   <!--
-    A plain duration field, not only a timer. Reconstructing "3 hours yesterday"
-    after the fact has to be as easy as running a stopwatch live, because the
-    start of a job is the moment nobody is thinking about software.
+    ONE WAY IN AT A TIME.
+
+    Three input modes used to be on screen at once: a duration box, a time-card
+    disclosure and a stopwatch disclosure. Two of them wrote the same field, so
+    the page had to explain its own precedence ("Filling these in wins over the
+    hours box above") — a sentence that only exists because two controls mean
+    the same thing and one silently beats the other. The owner rejected that
+    flow on sight.
+
+    Picking the mode makes the modes exclusive. Only the chosen inputs are
+    rendered, so there is no precedence left to explain, no hint text, and no
+    way to fill two fields that disagree. The action still resolves a card ahead
+    of a duration, but that is now a belt-and-braces guard rather than a rule the
+    user has to know.
   -->
   <!--
-    One row, left to right: when, how long, how much, what, go. Rate used to sit
-    on its own row BELOW the Log button, which put a field after the submit and
-    read as an afterthought.
+    WHAT THIS LINE BILLS IN (TMC-264, revised).
+
+    The unit began on the job, asked once and inherited. That holds for a lawn
+    crew and breaks for the audience the feature was built for: a sitter charges
+    a flat rate for a drop-in visit AND an hourly rate when she stays the
+    afternoon, on one job for one customer.
+
+    So it is per line, seeded from the job's default — which is why the job-level
+    picker at the top of the page survives. Answering it once still covers the
+    common case; this row is the exception to it.
   -->
-  <!--
-    Named so the time-card inputs below can submit with it via form=. They sit
-    inside their own <details> for presentation, which puts them outside this
-    element in the DOM — the attribute is what keeps them one submission.
-  -->
-  <form
-    id="logTimeForm"
-    method="post"
-    action="?/logTime"
-    class="mt-4 grid gap-3 {billsByHour
-      ? 'sm:grid-cols-[9.5rem_6rem_8rem_1fr_auto]'
-      : 'sm:grid-cols-[9.5rem_6rem_6rem_8rem_1fr_auto]'}"
-  >
+  <div class="mt-4 flex flex-wrap items-center gap-2">
+    <span class="label">This line bills by the</span>
+    {#each BILLING_UNITS as u (u)}
+      <button
+        type="button"
+        onclick={() => (lineUnit = u)}
+        aria-pressed={lineUnit === u}
+        class="rounded-sm border px-3 py-1 font-mono text-xs uppercase tracking-widest transition-colors {lineUnit ===
+        u
+          ? 'border-accent text-accent'
+          : 'border-fg/15 text-fg/60 hover:border-fg/40 hover:text-fg'}"
+      >
+        {u}
+      </button>
+    {/each}
+    {#if lineUnit !== jobUnit}
+      <button
+        type="button"
+        onclick={() => (lineUnit = jobUnit)}
+        class="link text-xs"
+        title="Back to what this job usually bills by"
+      >
+        Reset to {jobUnit}
+      </button>
+    {/if}
+  </div>
+
+  <div class="mt-3 flex flex-wrap items-center gap-2">
+    <span class="label">How long?</span>
+    {#each LOG_MODES as m (m.key)}
+      <button
+        type="button"
+        onclick={() => (logMode = m.key)}
+        aria-pressed={logMode === m.key}
+        class="rounded-sm border px-3 py-1 font-mono text-xs uppercase tracking-widest transition-colors {logMode ===
+        m.key
+          ? 'border-accent text-accent'
+          : 'border-fg/15 text-fg/60 hover:border-fg/40 hover:text-fg'}"
+      >
+        {m.label}
+      </button>
+    {/each}
     <!--
-      The job's unit rides along so the action knows which field is the billable
-      one without re-reading the job (TMC-264).
+      The selector no longer forces itself to Stopwatch while a timer runs, so a
+      timer could otherwise be left running out of sight. On ARRIVAL the
+      initialiser opens on Stopwatch; after that the user is free to look
+      elsewhere, and this says the timer is still going while they do.
     -->
-    <input type="hidden" name="billingUnit" value={unit} />
-    <div>
+    {#if timerOnThisJob && logMode !== 'stopwatch'}
+      <button
+        type="button"
+        onclick={() => (logMode = 'stopwatch')}
+        class="font-mono text-xs uppercase tracking-widest text-accent hover:underline"
+      >
+        Timer running · {elapsed}
+      </button>
+    {/if}
+  </div>
+
+  <!--
+    Flex rather than a fixed grid: the field set changes with the mode and with
+    the job's billing unit, and column maths for every permutation is how a
+    layout ends up with an empty cell where a field used to be.
+  -->
+  <form id="logTimeForm" method="post" action="?/logTime" class="mt-3 flex flex-wrap gap-3">
+    <!--
+      The unit THIS LINE bills in, which may differ from the job's default. The
+      action needs it to know which field is the billable one.
+    -->
+    <input type="hidden" name="unit" value={lineUnit} />
+    <div class="w-36">
       <label for="entryDate" class="label block">Date</label>
       <input id="entryDate" name="entryDate" type="date" value={today} required class="field mt-1" />
     </div>
-    {#if billsByHour}
-      <div>
-        <label for="duration" class="label block">Hours</label>
-        <!--
-          NOT `required`, unlike before. There are now two ways to supply a
-          duration — this box, or the time card below — and a required attribute
-          here would block a submission the card has already answered. The action
-          rejects an entry with neither.
-        -->
-        <input
-          id="duration"
-          name="duration"
-          type="text"
-          inputmode="decimal"
-          placeholder="3.25"
-          value={stoppedDuration}
-          class="field mt-1"
-        />
-      </div>
-    {:else}
+
+    {#if !billsByHour}
       <!--
         A per-visit, per-night or per-day job bills a COUNT, and that count is
-        what goes on the invoice (TMC-264). Defaulted to 1 because one entry is
-        almost always one visit — the sitter logging tonight's stay should not
-        have to type the number.
+        what reaches the invoice (TMC-264). Always shown, whatever the mode:
+        the mode picks how the DURATION is entered, and on these jobs the
+        duration is only ever optional context for effective-hourly.
       -->
-      <div>
-        <label for="quantity" class="label block capitalize">
-          {billingUnitLabel(unit, '2')}
-        </label>
+      <div class="w-24">
+        <label for="quantity" class="label block capitalize">{billingUnitLabel(lineUnit, '2')}</label>
         <input
           id="quantity"
           name="quantity"
@@ -469,27 +594,125 @@
           class="field mt-1"
         />
       </div>
+    {/if}
+
+    {#if logMode === 'card'}
+      <div class="w-32">
+        <label for="startTime" class="label block">Started</label>
+        <input
+          id="startTime"
+          name="startTime"
+          type="time"
+          bind:value={cardStart}
+          class="field mt-1"
+        />
+      </div>
+      <div class="w-32">
+        <label for="endTime" class="label block">Finished</label>
+        <input id="endTime" name="endTime" type="time" bind:value={cardEnd} class="field mt-1" />
+      </div>
+    {:else if logMode === 'stopwatch'}
       <!--
-        THE STOPWATCH'S ANSWER ON A NON-HOURLY JOB (TMC-264 asked for one).
-        A timer cannot produce a visit count, so it fills this instead: an
-        OPTIONAL duration that feeds effective-hourly and never touches what the
-        customer is billed. A dog sitter can still learn what a 30-minute visit
-        earns her per hour without that number reaching the invoice.
+        THE TIMER SITS IN THE ROW, not in a block underneath it.
+
+        It used to render below the form, which left the duration box still
+        showing in the row above while the stopwatch lived somewhere else
+        entirely — two controls for one number, visually unrelated, which is the
+        same disconnection the mode selector was supposed to end.
+
+        `formaction` rather than a nested <form>: nesting is illegal HTML, and
+        these buttons want the main form's element without its action. Neither
+        timer action reads any field, so carrying the row's data along is
+        harmless. `formnovalidate` because starting a timer must not be blocked
+        by a required field somewhere else in the row.
       -->
-      <div>
-        <label for="duration" class="label block">Time spent</label>
+      <!--
+        NOT `.btn`. Log is this form's submit and has to stay the loudest thing
+        in it; a filled Start sitting beside a filled Log made the secondary
+        action read as the primary one. Outlined, matching the mode chips above
+        and the Close job control at the top of the page.
+
+        No "Stopwatch" label either — the selected chip directly above already
+        says that, and repeating it labelled the button with the mode rather
+        than with anything the user did not already know. Only the running state
+        gets a label, because the elapsed figure beside it needs one.
+      -->
+      <!--
+        ALIGNMENT IS PER STATE, not one wrapper for all three.
+
+        A `flex items-end` around the lot bottom-aligned this cell inside a row
+        the date input stretches taller, which pushed the Running label ~24px
+        below DATE and RATE. Every other cell is top-aligned, and that is exactly
+        what lines their labels up.
+
+        So the labelled state is a plain cell like its neighbours, and only the
+        bare buttons get `self-end` — with no label above them they would
+        otherwise float at the top of the row instead of sitting level with the
+        input boxes.
+      -->
+      {#if timerOnThisJob}
+        <!--
+          flex-col + flex-1 rather than a height matching `.field`. The cell
+          already stretches to the row's height (the form's align-items is the
+          default stretch), so letting the control row claim what is left under
+          the label and centre inside it puts the elapsed figure on the inputs'
+          own centre line — without this file having to know what `.field`
+          resolves to, or having to be edited again when it changes.
+        -->
+        <div class="flex flex-col">
+          <span class="label block">Running</span>
+          <div class="mt-1 flex flex-1 items-center gap-3">
+            <span class="font-mono text-2xl leading-none tabular-nums text-accent">{elapsed}</span>
+            <button
+              type="submit"
+              formaction="?/stopTimer"
+              formnovalidate
+              class="rounded-sm border border-accent px-4 py-2 font-mono text-xs uppercase tracking-widest text-accent transition-colors hover:bg-accent/10"
+            >
+              Stop
+            </button>
+          </div>
+        </div>
+      {:else if timer}
+        <button
+          type="button"
+          disabled
+          class="self-end rounded-sm border border-fg/15 px-4 py-2 font-mono text-xs uppercase tracking-widest text-fg/40"
+        >
+          Running elsewhere
+        </button>
+      {:else}
+        <button
+          type="submit"
+          formaction="?/startTimer"
+          formnovalidate
+          class="self-end rounded-sm border border-fg/25 px-4 py-2 font-mono text-xs uppercase tracking-widest text-fg/70 transition-colors hover:border-accent hover:text-accent"
+        >
+          Start
+        </button>
+      {/if}
+    {:else}
+      <div class="w-24">
+        <label for="duration" class="label block">
+          {billsByHour ? 'Hours' : 'Time spent'}
+        </label>
+        <!--
+          Not `required` even on an hourly job: the stopwatch mode fills this
+          after the fact, and the action rejects an entry that records nothing.
+        -->
         <input
           id="duration"
           name="duration"
           type="text"
           inputmode="decimal"
-          placeholder="optional"
-          value={stoppedDuration}
+          placeholder={billsByHour ? '3.25' : 'optional'}
+          bind:value={duration}
           class="field mt-1"
         />
       </div>
     {/if}
-    <div>
+
+    <div class="w-28">
       <label for="rate" class="label block">Rate</label>
       <!--
         Prefilled from the last rate used on this job. Most work is billed at one
@@ -506,111 +729,95 @@
         class="field mt-1"
       />
     </div>
-    <div>
+    <!--
+      Its own row. Sharing one with Date / Hours / Rate squeezed it to whatever
+      was left over, which on a non-hourly job (one field wider) was a box too
+      narrow to read back what you had typed. It is also the only free-text
+      field here, so it is the one that actually benefits from the width.
+    -->
+    <div class="w-full">
       <label for="note" class="label block">What you did</label>
-      <input id="note" name="note" type="text" maxlength="1000" class="field mt-1" />
-    </div>
-    <div class="flex items-end">
-      <button type="submit" class="btn">Log</button>
+      <input
+        id="note"
+        name="note"
+        type="text"
+        maxlength="1000"
+        bind:value={note}
+        class="field mt-1"
+      />
     </div>
   </form>
-  <p class="mt-2 text-xs text-fg/50">
-    Leave the rate blank for hours you're not charging for — they still count toward what the job
-    cost you in time.
-  </p>
 
-  <!--
-    The stopwatch, behind a disclosure. Typing a duration is the path that
-    actually gets used — the timer has to be remembered at the START of the work,
-    which is exactly when nobody is thinking about an app. So it is available,
-    not urged.
-
-    Open by default only while one is running, so a timer you left going is never
-    hidden behind a closed fold.
-  -->
-  <!--
-    The time card, presented exactly as the stopwatch is because the owner named
-    it as the model: a sibling disclosure, closed by default, with the plain
-    field above staying primary.
-
-    Open when it is holding something, so a half-typed card is never hidden
-    behind a closed fold — the same rule the stopwatch follows.
-  -->
-  <details class="mt-4" open={Boolean(cardStart || cardEnd)}>
-    <summary class="label cursor-pointer select-none hover:text-accent">
-      Type a start and end time
-    </summary>
-    <div class="mt-3 flex flex-wrap items-end gap-3">
-      <div>
-        <label for="startTime" class="label block">Started</label>
-        <input
-          id="startTime"
-          name="startTime"
-          type="time"
-          form="logTimeForm"
-          bind:value={cardStart}
-          class="field mt-1"
-        />
-      </div>
-      <div>
-        <label for="endTime" class="label block">Finished</label>
-        <input
-          id="endTime"
-          name="endTime"
-          type="time"
-          form="logTimeForm"
-          bind:value={cardEnd}
-          class="field mt-1"
-        />
-      </div>
-      {#if cardSummary}
-        <p class="pb-2 text-sm text-fg/70">{cardSummary}</p>
-      {/if}
-    </div>
-    <p class="mt-2 text-xs text-fg/50">
-      {#if billsByHour}
-        Filling these in wins over the hours box above.
-      {:else}
-        Optional. It records how long the work took, which is what the effective
-        hourly figure is worth{billsByHour ? '' : ' — it does not change what gets billed'}.
-      {/if}
-    </p>
-  </details>
-
-  <details class="mt-4" open={Boolean(timer)}>
-    <summary class="label cursor-pointer select-none hover:text-accent">Use a stopwatch</summary>
-    <div class="mt-3">
-      {#if timerOnThisJob}
-        <form method="post" action="?/stopTimer" class="flex items-center gap-3">
-          <span class="font-mono text-2xl tabular-nums text-accent">{elapsed}</span>
-          <button type="submit" class="btn">Stop</button>
-          <span class="text-xs text-fg/50">Stopping fills in the hours — it doesn't log them.</span>
-        </form>
-      {:else if timer}
-        <!--
-          Held by another job. Naming it and linking there is the whole point:
-          the user is standing at THIS job and the thing blocking them is
-          somewhere else. Auto-stopping the other one would silently log it with
-          the drive in between inside it.
-        -->
-        <p class="text-sm text-fg/70">
-          Running on <a href="/jobs/{timer.jobId}" class="link">{timer.jobName}</a> for {elapsed}.
-          Stop it there first — only one timer runs at a time, or the same minute
-          gets billed to two customers.
-        </p>
-      {:else}
-        <form method="post" action="?/startTimer">
-          <button type="submit" class="btn">Start</button>
-        </form>
-      {/if}
-      {#if form?.timerError}
-        <p class="mt-2 text-xs text-danger">{form.timerError}</p>
-      {/if}
-    </div>
-  </details>
-  {#if form?.timeError}
-    <p class="mt-2 text-xs text-danger">{form.timeError}</p>
+  {#if logMode === 'card' && cardSummary}
+    <!--
+      The computed span, stated before anything is submitted. That sighting is
+      the "confirm" half of the owner's detect-and-confirm call on an overnight
+      shift: no modal, no second question.
+    -->
+    <p class="mt-2 text-sm text-fg/70">{cardSummary}</p>
   {/if}
+
+  {#if logMode === 'stopwatch'}
+    <!--
+      Only what will not fit in a row cell. The controls themselves are up in the
+      row; this is the sentence that has to be readable, and the one that has to
+      link somewhere.
+    -->
+    {#if timerOnThisJob}
+      <p class="mt-2 text-xs text-fg/50">Stopping fills in the hours — it doesn't log them.</p>
+    {:else if timer}
+      <!--
+        Held by another job. Naming it and linking there is the whole point: the
+        user is standing at THIS job and the thing blocking them is somewhere
+        else. Auto-stopping the other one would silently log it with the drive in
+        between inside it.
+      -->
+      <p class="mt-2 text-sm text-fg/70">
+        Running on <a href="/jobs/{timer.jobId}" class="link">{timer.jobName}</a> for {elapsed}. Stop
+        it there first — only one timer runs at a time, or the same minute gets billed to two
+        customers.
+      </p>
+    {/if}
+    {#if form?.timerError}
+      <p class="mt-2 text-xs text-danger">{form.timerError}</p>
+    {/if}
+  {/if}
+
+  {#if form?.timeError}
+    <p class="mt-3 text-xs text-danger" data-form-error role="alert">{form.timeError}</p>
+  {/if}
+
+  <!-- After every way of filling the form, never above one of them. -->
+  <div class="mt-3 flex items-center gap-3">
+    <button type="submit" form="logTimeForm" class="btn">Log</button>
+    <!--
+      Shown only when there is something to clear, so it never sits there as an
+      inert control on an empty form. It empties the per-entry fields and leaves
+      the date and the rate alone — those are sticky defaults, and wiping them
+      would make the second entry of a session harder to type than the first.
+
+      type="button" is load-bearing: a bare <button> inside a form defaults to
+      submit, which would log the entry it is meant to discard.
+    -->
+    <!--
+      ALWAYS RENDERED, disabled when there is nothing to clear, rather than
+      appearing and vanishing. A control that disappears the moment it works
+      cannot be told apart from one that did nothing — which is exactly how this
+      was reported.
+    -->
+    <button
+      type="button"
+      onclick={clearEntry}
+      disabled={!hasEntryInput}
+      class="link text-sm disabled:cursor-default disabled:opacity-40 disabled:hover:no-underline"
+    >
+      Clear
+    </button>
+  </div>
+  <p class="mt-2 text-xs text-fg/50">
+    Leave the rate blank for work you're not charging for — it still counts toward what the job cost
+    you in time.
+  </p>
 {/if}
 
 {#if time.timeEntries.length === 0}
@@ -640,7 +847,7 @@
         -->
         {#if entry.rate}
           <span class="shrink-0 text-right font-mono tabular-nums text-fg/60">
-            ${formatUnitPrice(entry.rate)}/{billingUnitLabel(unit, '1')}
+            ${formatUnitPrice(entry.rate)}/{billingUnitLabel(entryUnit(entry, jobUnit), '1')}
             <span class="ml-2 text-fg/80">
               {fmt(entryValue(entry, entry.rate))}
             </span>

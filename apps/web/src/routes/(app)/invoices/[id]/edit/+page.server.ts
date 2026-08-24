@@ -75,6 +75,8 @@ export const load: PageServerLoad = async (event) => {
     // the filter below, but typed honestly because timeEntryQuantity can return
     // null and the filter is what rules it out.
     quantity: string | null;
+    // The line's own billing unit; null inherits the job's.
+    unit: string | null;
     startTime: string | null;
     endTime: string | null;
     note: string | null;
@@ -100,6 +102,7 @@ export const load: PageServerLoad = async (event) => {
           minutes: t.minutes,
           // The job's own unit decides this, not the duration (TMC-264).
           quantity: timeEntryQuantity(t, unit),
+          unit: t.unit,
           startTime: t.startTime,
           endTime: t.endTime,
           note: t.note,

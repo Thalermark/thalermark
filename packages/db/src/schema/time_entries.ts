@@ -76,6 +76,17 @@ export const timeEntries = pgTable(
     // numeric(15,4) matches invoice_line_items.quantity exactly, so a billed
     // visit and a hand-typed line cannot round differently.
     quantity: numeric('quantity', { precision: 15, scale: 4 }),
+    // This line's own billing unit, overriding the job's (TMC-264, revised).
+    //
+    // NULL = inherit jobs.billing_unit, which is what every row written before
+    // this meant, so there was nothing to backfill. One job can now mix units: a
+    // sitter charges a flat rate for a drop-in visit AND an hourly rate for an
+    // afternoon, on the same job for the same customer, and forcing one unit per
+    // job made her split the work or convert in her head.
+    //
+    // Resolve through entryUnit() in @thalermark/validation rather than a raw
+    // coalesce — both clients need the same answer when seeding an invoice line.
+    unit: text('unit'),
     // The clock times a time-card entry was typed as (TMC-265). Both null for a
     // typed duration or a stopwatch entry, which is every entry before this.
     //

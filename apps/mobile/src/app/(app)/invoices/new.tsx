@@ -4,6 +4,7 @@ import {
   addMoney,
   billingUnitLabel,
   contactCreateSchema,
+  entryUnit,
   formatUnitPrice,
   invoiceCreateSchema,
   localDayPlus,
@@ -228,7 +229,8 @@ export default function NewInvoice() {
                     endTime: t.endTime,
                   }),
                   quantity,
-                  unitLabel: billingUnitLabel(billingUnit, quantity),
+                  // The LINE's own unit — one job can mix them (TMC-264, revised).
+                  unitLabel: billingUnitLabel(entryUnit(t, billingUnit), quantity),
                   unitPrice,
                   amount: multiplyMoney(quantity, unitPrice),
                   sourceItemId: null,

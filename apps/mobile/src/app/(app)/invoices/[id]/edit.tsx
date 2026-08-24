@@ -3,6 +3,7 @@ import {
   type LineItemType,
   addMoney,
   billingUnitLabel,
+  entryUnit,
   formatQuantity,
   formatUnitPrice,
   invoiceUpdateSchema,
@@ -110,6 +111,8 @@ export default function EditInvoice() {
       // the filter where this is set, but typed honestly because
       // timeEntryQuantity can return null and the filter is what rules it out.
       quantity: string | null;
+      // This line's own billing unit; null inherits the job's.
+      unit: string | null;
       startTime: string | null;
       endTime: string | null;
       note: string | null;
@@ -182,6 +185,7 @@ export default function EditInvoice() {
                   minutes: t.minutes,
                   // The job's unit decides the billable amount (TMC-264).
                   quantity: timeEntryQuantity(t, billingUnit),
+                  unit: t.unit,
                   startTime: t.startTime,
                   endTime: t.endTime,
                   note: t.note,
@@ -239,7 +243,8 @@ export default function EditInvoice() {
             endTime: t.endTime,
           }),
           quantity,
-          unitLabel: billingUnitLabel(billingUnit, quantity),
+          // The LINE's own unit — one job can mix them (TMC-264, revised).
+          unitLabel: billingUnitLabel(entryUnit(t, billingUnit), quantity),
           unitPrice: formatUnitPrice(unitPrice),
           // Same multiplyMoney every typed row uses, so a billed hour and a
           // hand-typed hour cannot round differently.
@@ -475,14 +480,14 @@ export default function EditInvoice() {
                     <Text className="w-24 text-sm text-ink-subtle">{t.entryDate}</Text>
                     <Text className="w-16 font-mono text-sm text-ink/80">
                       {formatQuantity(t.quantity ?? '0')}{' '}
-                      {billingUnitLabel(billingUnit, t.quantity ?? '0')}
+                      {billingUnitLabel(entryUnit(t, billingUnit), t.quantity ?? '0')}
                     </Text>
                     <Text className="flex-1 text-sm text-ink-muted" numberOfLines={1}>
                       {t.note ?? ''}
                     </Text>
                     <Text className="font-mono text-xs text-ink-subtle">
                       {t.rate
-                        ? `$${formatUnitPrice(t.rate)}/${billingUnitLabel(billingUnit, '1')}`
+                        ? `$${formatUnitPrice(t.rate)}/${billingUnitLabel(entryUnit(t, billingUnit), '1')}`
                         : 'no rate'}
                     </Text>
                   </View>
