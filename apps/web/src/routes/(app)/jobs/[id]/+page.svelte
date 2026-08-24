@@ -708,27 +708,28 @@
       {/if}
     {:else}
       <!--
-        w-40, not w-24. "Hours spent" does not fit the narrower cell at this
-        tracking, and a wrapped label is not a cosmetic problem: it makes the
-        cell taller, which pushes its input BELOW the inputs either side of it.
-        That is the same misalignment the Running label had, from the same cause.
+        w-28. The label is short enough not to need more, which is the better
+        fix than the wide cell that preceded it: "Time spent (hours)" wrapped in
+        a w-24 box, made the cell taller, and pushed its input BELOW the boxes
+        either side — the same misalignment the Running label had.
 
-        Sized with headroom rather than to fit exactly, so a copy edit does not
-        silently reintroduce the wrap. whitespace-nowrap on the label makes that
-        failure loud (overflow) instead of silent (a dropped field) if it ever
-        does outgrow the cell again.
+        whitespace-nowrap keeps that failure loud. If the copy ever outgrows the
+        cell again it overflows visibly rather than quietly dropping a field out
+        of the row, which is the version that took a screenshot to notice.
       -->
-      <div class="w-40">
+      <div class="w-28">
         <!--
-          NAMES ITS UNIT IN BOTH BRANCHES. The hourly branch always said "Hours";
-          the non-hourly one said "Time spent" with a placeholder of "optional",
-          naming neither the unit nor a format. Someone billing by the job typed
-          "30" for half an hour, got 30 HOURS, blew the one-day cap, and was shown
-          a generic error (owner report, 2026-08-23).
+          "Hours" IN BOTH BRANCHES, because it is hours in both. The non-hourly
+          branch used to say "Time spent" with a placeholder of "optional",
+          naming neither the unit nor a format — so someone billing by the job
+          typed "30" for half an hour, got 30 HOURS, blew the one-day cap, and
+          was shown a generic error (owner report, 2026-08-23).
+
+          Naming the unit is the whole fix. The two branches differ only in
+          whether the field is required, and the placeholder carries that:
+          "3.25" is an amount to bill, "0:30" reads as an aside.
         -->
-        <label for="duration" class="label block whitespace-nowrap">
-          {billsByHour ? 'Hours' : 'Hours spent'}
-        </label>
+        <label for="duration" class="label block whitespace-nowrap">Hours</label>
         <!--
           Not `required` even on an hourly job: the stopwatch mode fills this
           after the fact, and the action rejects an entry that records nothing.
