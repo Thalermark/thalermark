@@ -725,9 +725,14 @@
           typed "30" for half an hour, got 30 HOURS, blew the one-day cap, and
           was shown a generic error (owner report, 2026-08-23).
 
-          Naming the unit is the whole fix. The two branches differ only in
-          whether the field is required, and the placeholder carries that:
-          "3.25" is an amount to bill, "0:30" reads as an aside.
+          Naming the unit is the whole fix, and it belongs on the LABEL. That
+          frees the placeholder to carry the other difference between the two
+          branches — whether the field is required at all.
+
+          Cost, accepted: "0:30" also advertised the h:mm form the parser has
+          always taken, and nobody discovers that on their own. With the label
+          saying Hours, half an hour is "0.5", which is the natural thing to
+          type anyway.
         -->
         <label for="duration" class="label block whitespace-nowrap">Hours</label>
         <!--
@@ -739,7 +744,7 @@
           name="duration"
           type="text"
           inputmode="decimal"
-          placeholder={billsByHour ? '3.25' : '0:30'}
+          placeholder={billsByHour ? '3.25' : 'optional'}
           bind:value={duration}
           class="field mt-1"
         />
