@@ -1,4 +1,4 @@
-import { isCodeShaped, messageForApiError } from '@thalermark/validation';
+import { firstIssueMessage, isCodeShaped, messageForApiError } from '@thalermark/validation';
 
 // Shared translation for API error codes that any posting route can return.
 //
@@ -62,24 +62,6 @@ function closedThroughOf(body: unknown): string | undefined {
 // `formErrorFor(code) ?? apiErrorMessage(code, 'A sentence.', body)`, so
 // route-specific copy still wins where it exists — it just is not load-bearing
 // for correctness any more.
-
-// The first human-readable zod issue message out of an { issues: [...] } body.
-// Defensive throughout: this reads a response from the network, and a shape that
-// does not match must fall through to the catalogue rather than throw.
-function firstIssueMessage(body: unknown): string | null {
-  if (!body || typeof body !== 'object') return null;
-  const issues = (body as { issues?: unknown }).issues;
-  if (!Array.isArray(issues)) return null;
-  for (const issue of issues) {
-    const message = (issue as { message?: unknown })?.message;
-    // Zod emits internal-sounding defaults for some codes; a message that reads
-    // like a sentence is one we wrote for a person.
-    if (typeof message === 'string' && message.trim() && !isCodeShaped(message)) {
-      return message;
-    }
-  }
-  return null;
-}
 
 export function apiErrorMessage(
   code: string | undefined,

@@ -236,6 +236,37 @@ export function isCodeShaped(value: string): boolean {
   return CODE_SHAPED.test(value.trim());
 }
 
+// The first human-readable zod issue out of an { issues: [...] } error body.
+//
+// `invalid_body` carries a field-level list, and those messages are written for
+// the person looking at the form ("Enter how many visits you did", "That is more
+// than a day"). Mapping the CODE first threw all of that away and printed a
+// catalogue sentence naming no field and giving no reason, so the user had to
+// guess which box was wrong (owner report, 2026-08-23: typed 30 meaning half an
+// hour, was told only that some details were not right).
+//
+// Shared rather than per client for the same reason the catalogue is: web and
+// mobile were byte-identical copies once and drifted the moment one was edited.
+//
+// Only the FIRST issue: this renders as one line under a form, and a stack reads
+// worse than the one that will actually block the save. Defensive throughout —
+// this parses a network response, and a shape that does not match must fall
+// through to the catalogue rather than throw.
+export function firstIssueMessage(body: unknown): string | undefined {
+  if (!body || typeof body !== 'object') return undefined;
+  const issues = (body as { issues?: unknown }).issues;
+  if (!Array.isArray(issues)) return undefined;
+  for (const issue of issues) {
+    const message = (issue as { message?: unknown })?.message;
+    // Zod emits internal-sounding defaults for some codes; a message that reads
+    // like a sentence is one we wrote for a person (TMC-219 / TMC-220).
+    if (typeof message === 'string' && message.trim() && !isCodeShaped(message)) {
+      return message;
+    }
+  }
+  return undefined;
+}
+
 // The sentence for a code, or undefined when the catalogue has never heard of
 // it. Callers decide what to do with undefined — see each client's helper, which
 // falls back to a sentence supplied by the screen rather than to the code.
