@@ -21,6 +21,8 @@ import {
 // invoice.
 export const MINUTES_IN_A_DAY = 1440;
 
+const CAP_MESSAGE = 'That is more than a day. Enter hours like 3.25, or 0:30 for half an hour.';
+
 // How a job bills (TMC-264). Asked ONCE on the job, inherited by every entry.
 //
 // A CLOSED SET because the invoice line has to read "3 visits" and not
@@ -170,7 +172,12 @@ const RECORD_SOMETHING = {
 const timeEntryFields = {
   entryDate: isoDateString,
   // Nullable since TMC-264: optional on a job that does not bill by the hour.
-  minutes: z.number().int().positive().max(MINUTES_IN_A_DAY).nullable().optional(),
+  // The cap's message is written for a HUMAN TYPING HOURS, because that is what
+  // every entry form asks for. Zod's default said "Enter 1440 or less", quoting
+  // a minute count the user never typed and cannot relate to the box in front of
+  // them. Someone entering "30" for half an hour hit it and learned nothing
+  // (owner report, 2026-08-23).
+  minutes: z.number().int().positive().max(MINUTES_IN_A_DAY, CAP_MESSAGE).nullable().optional(),
   // The count in this line's unit. Null when the line bills by the hour, where
   // the count IS the duration.
   quantity: quantityString.nullable().optional(),
@@ -224,7 +231,7 @@ export type TimeEntryCreateInput = z.infer<typeof timeEntryCreateSchema>;
 export const timeEntryUpdateSchema = z
   .object({
     entryDate: isoDateString.optional(),
-    minutes: z.number().int().positive().max(MINUTES_IN_A_DAY).nullable().optional(),
+    minutes: z.number().int().positive().max(MINUTES_IN_A_DAY, CAP_MESSAGE).nullable().optional(),
     quantity: quantityString.nullable().optional(),
     unit: z.enum(BILLING_UNITS).nullable().optional(),
     startTime: clockTimeString.nullable().optional(),

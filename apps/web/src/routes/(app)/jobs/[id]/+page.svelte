@@ -706,8 +706,15 @@
       {/if}
     {:else}
       <div class="w-24">
+        <!--
+          NAMES ITS UNIT IN BOTH BRANCHES. The hourly branch always said "Hours";
+          the non-hourly one said "Time spent" with a placeholder of "optional",
+          naming neither the unit nor a format. Someone billing by the job typed
+          "30" for half an hour, got 30 HOURS, blew the one-day cap, and was shown
+          a generic error (owner report, 2026-08-23).
+        -->
         <label for="duration" class="label block">
-          {billsByHour ? 'Hours' : 'Time spent'}
+          {billsByHour ? 'Hours' : 'Time spent (hours)'}
         </label>
         <!--
           Not `required` even on an hourly job: the stopwatch mode fills this
@@ -718,7 +725,7 @@
           name="duration"
           type="text"
           inputmode="decimal"
-          placeholder={billsByHour ? '3.25' : 'optional'}
+          placeholder={billsByHour ? '3.25' : '0:30'}
           bind:value={duration}
           class="field mt-1"
         />
