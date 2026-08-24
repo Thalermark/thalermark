@@ -10,6 +10,7 @@ import {
 import {
   billingUnitLabel,
   centsToMoney,
+  entryUnit,
   isBillingUnit,
   jobCreateSchema,
   jobUpdateSchema,
@@ -45,12 +46,13 @@ import type { RlsVariables } from '../middleware/rls-context.js';
 // back inside the same { error: 'invalid_body', issues } envelope a schema
 // failure produces and both clients' existing field-error rendering covers it.
 function missingForUnit(
-  billingUnit: string,
+  resolvedUnit: string,
   body: { minutes?: number | null; quantity?: string | null },
 ): { path: string[]; message: string } | null {
-  // Unknown units are treated as hours, matching the column default and
-  // therefore what any row written before TMC-264 means.
-  if (!isBillingUnit(billingUnit) || billingUnit === 'hour') {
+  // The unit is already RESOLVED by the caller through entryUnit(): this line's
+  // own override if it set one, otherwise the job's default. Unknown values
+  // resolve to hours there, matching the column default.
+  if (!isBillingUnit(resolvedUnit) || resolvedUnit === 'hour') {
     return body.minutes == null ? { path: ['minutes'], message: 'Enter how long it took.' } : null;
   }
   if (body.quantity != null) return null;
@@ -58,7 +60,7 @@ function missingForUnit(
   // quantity would be circular, since its absence is the error.
   return {
     path: ['quantity'],
-    message: `Enter how many ${billingUnitLabel(billingUnit, '2')} you did.`,
+    message: `Enter how many ${billingUnitLabel(resolvedUnit, '2')} you did.`,
   };
 }
 
@@ -506,7 +508,11 @@ export function jobsRoutes() {
           // Returned in the same { error, issues } shape a schema failure uses,
           // so both clients' existing field-error handling covers it and no raw
           // code reaches a user (TMC-219 / TMC-220).
-          const missing = missingForUnit(job.billingUnit, body);
+          // This LINE's unit, not the job's: one job can mix them (a drop-in
+          // visit and an hourly afternoon for the same customer), so the
+          // required-field rule has to be judged per entry.
+          const lineUnit = entryUnit(body, job.billingUnit);
+          const missing = missingForUnit(lineUnit, body);
           if (missing) return c.json({ error: 'invalid_body', issues: [missing] }, 400);
 
           const id = uuidv7();
@@ -521,6 +527,10 @@ export function jobsRoutes() {
             // at billing time and a per-visit job ignores minutes, but changing
             // the job's unit later must not need the work re-entered.
             quantity: body.quantity ?? null,
+            // Stored ONLY when it differs from the job's default, so a job whose
+            // entries really are all one unit keeps null throughout and follows
+            // the job if that default is later changed.
+            unit: lineUnit === job.billingUnit ? null : lineUnit,
             startTime: body.startTime ?? null,
             endTime: body.endTime ?? null,
             note: body.note ?? null,
@@ -744,8 +754,12 @@ export function jobsRoutes() {
           const merged = {
             minutes: 'minutes' in patch ? (patch.minutes ?? null) : current.minutes,
             quantity: 'quantity' in patch ? (patch.quantity ?? null) : current.quantity,
+            unit: 'unit' in patch ? (patch.unit ?? null) : current.unit,
           };
-          const missing = missingForUnit(ownerJob?.billingUnit ?? 'hour', merged);
+          const missing = missingForUnit(
+            entryUnit(merged, ownerJob?.billingUnit ?? 'hour'),
+            merged,
+          );
           if (missing) return c.json({ error: 'invalid_body', issues: [missing] }, 400);
 
           const [updated] = await tx

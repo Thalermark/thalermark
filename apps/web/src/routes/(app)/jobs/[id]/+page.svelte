@@ -5,6 +5,7 @@
   import {
     BILLING_UNITS,
     billingUnitLabel,
+    entryUnit,
     formatClockTime,
     formatQuantity,
     formatUnitPrice,
@@ -49,30 +50,43 @@
   }
 
   // The job's own unit (TMC-264), and how one entry reads in it.
-  const unit = $derived(time.billingUnit);
-  const billsByHour = $derived(unit === 'hour');
+  // The job's DEFAULT unit. Not the answer for any given line any more — one
+  // job can mix them, so every read below resolves through entryUnit().
+  const jobUnit = $derived(time.billingUnit);
+
+  // What the line being typed right now bills in. Seeded from the job, then the
+  // user's to change per entry. untrack() because this reads the job's default
+  // ONCE, on arrival: following it would overwrite a deliberate override every
+  // time the job reloaded.
+  let lineUnit = $state<string>(untrack(() => time.billingUnit));
+  const billsByHour = $derived(lineUnit === 'hour');
   // "Hours" was hard-coded, which read as a lie on a job billing by the visit.
   // Capitalised at render because the labels are lowercase nouns.
   const workHeading = $derived(
-    `${billingUnitLabel(unit, '2').charAt(0).toUpperCase()}${billingUnitLabel(unit, '2').slice(1)}`,
+    `${billingUnitLabel(jobUnit, '2').charAt(0).toUpperCase()}${billingUnitLabel(jobUnit, '2').slice(1)}`,
   );
 
   // What one entry contributes, in whatever the job bills in. Null when it
   // records nothing billable — an hourly entry with no duration, or a per-visit
   // entry with no count.
   function entryQty(entry: { minutes: number | null; quantity: string | null }): string | null {
-    return timeEntryQuantity(entry, unit);
+    return timeEntryQuantity(entry, jobUnit);
   }
 
   // How an entry reads in the list: "3.25 h" on an hourly job, "3 visits"
   // otherwise.
+  // Each row reads in the unit IT was logged in, not the job's and not the one
+  // currently selected in the form above. A list that relabels itself when you
+  // change the form's picker would be describing the wrong thing.
   function entryAmountLabel(entry: {
     minutes: number | null;
     quantity: string | null;
+    unit: string | null;
   }): string {
-    if (billsByHour) return `${hours(entry.minutes)} h`;
+    const u = entryUnit(entry, jobUnit);
+    if (u === 'hour') return `${hours(entry.minutes)} h`;
     const qty = entry.quantity ?? '0';
-    return `${formatQuantity(qty)} ${billingUnitLabel(unit, qty)}`;
+    return `${formatQuantity(qty)} ${billingUnitLabel(u, qty)}`;
   }
 
   // What an entry will actually bill, priced exactly the way the invoice form
@@ -283,7 +297,7 @@
         <select
           id="billingUnit"
           name="billingUnit"
-          value={unit}
+          value={jobUnit}
           onchange={(e) => (e.currentTarget as HTMLSelectElement).form?.requestSubmit()}
           class="rounded-sm border border-fg/15 bg-surface-2 px-3 py-1.5 font-mono text-xs uppercase tracking-widest text-fg/60 transition-colors hover:border-accent hover:text-accent"
         >
@@ -473,7 +487,46 @@
     of a duration, but that is now a belt-and-braces guard rather than a rule the
     user has to know.
   -->
+  <!--
+    WHAT THIS LINE BILLS IN (TMC-264, revised).
+
+    The unit began on the job, asked once and inherited. That holds for a lawn
+    crew and breaks for the audience the feature was built for: a sitter charges
+    a flat rate for a drop-in visit AND an hourly rate when she stays the
+    afternoon, on one job for one customer.
+
+    So it is per line, seeded from the job's default — which is why the job-level
+    picker at the top of the page survives. Answering it once still covers the
+    common case; this row is the exception to it.
+  -->
   <div class="mt-4 flex flex-wrap items-center gap-2">
+    <span class="label">This line bills by the</span>
+    {#each BILLING_UNITS as u (u)}
+      <button
+        type="button"
+        onclick={() => (lineUnit = u)}
+        aria-pressed={lineUnit === u}
+        class="rounded-sm border px-3 py-1 font-mono text-xs uppercase tracking-widest transition-colors {lineUnit ===
+        u
+          ? 'border-accent text-accent'
+          : 'border-fg/15 text-fg/60 hover:border-fg/40 hover:text-fg'}"
+      >
+        {u}
+      </button>
+    {/each}
+    {#if lineUnit !== jobUnit}
+      <button
+        type="button"
+        onclick={() => (lineUnit = jobUnit)}
+        class="link text-xs"
+        title="Back to what this job usually bills by"
+      >
+        Reset to {jobUnit}
+      </button>
+    {/if}
+  </div>
+
+  <div class="mt-3 flex flex-wrap items-center gap-2">
     <span class="label">How long?</span>
     {#each LOG_MODES as m (m.key)}
       <button
@@ -511,7 +564,11 @@
     layout ends up with an empty cell where a field used to be.
   -->
   <form id="logTimeForm" method="post" action="?/logTime" class="mt-3 flex flex-wrap gap-3">
-    <input type="hidden" name="billingUnit" value={unit} />
+    <!--
+      The unit THIS LINE bills in, which may differ from the job's default. The
+      action needs it to know which field is the billable one.
+    -->
+    <input type="hidden" name="unit" value={lineUnit} />
     <div class="w-36">
       <label for="entryDate" class="label block">Date</label>
       <input id="entryDate" name="entryDate" type="date" value={today} required class="field mt-1" />
@@ -525,7 +582,7 @@
         duration is only ever optional context for effective-hourly.
       -->
       <div class="w-24">
-        <label for="quantity" class="label block capitalize">{billingUnitLabel(unit, '2')}</label>
+        <label for="quantity" class="label block capitalize">{billingUnitLabel(lineUnit, '2')}</label>
         <input
           id="quantity"
           name="quantity"
@@ -790,7 +847,7 @@
         -->
         {#if entry.rate}
           <span class="shrink-0 text-right font-mono tabular-nums text-fg/60">
-            ${formatUnitPrice(entry.rate)}/{billingUnitLabel(unit, '1')}
+            ${formatUnitPrice(entry.rate)}/{billingUnitLabel(entryUnit(entry, jobUnit), '1')}
             <span class="ml-2 text-fg/80">
               {fmt(entryValue(entry, entry.rate))}
             </span>

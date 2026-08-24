@@ -1,6 +1,7 @@
 import {
   BILLING_UNITS,
   billingUnitLabel,
+  entryUnit,
   formatQuantity,
   formatUnitPrice,
   minutesFromClockSpan,
@@ -62,6 +63,8 @@ type TimeEntry = {
   billedInvoiceId: string | null;
   // Nullable since TMC-264 — optional on a job that does not bill by hours.
   quantity: string | null;
+  // This line's own unit; null inherits the job's.
+  unit: string | null;
   startTime: string | null;
   endTime: string | null;
 };
@@ -97,13 +100,16 @@ const entryValue = (
 };
 
 // How an entry reads in the list: "3.25 h" on an hourly job, "3 visits" other.
+// Each row reads in the unit IT was logged in, not the job's and not the one
+// currently selected in the form above.
 const entryAmountLabel = (
-  entry: { minutes: number | null; quantity: string | null },
-  billingUnit: string,
+  entry: { minutes: number | null; quantity: string | null; unit: string | null },
+  jobUnit: string,
 ) => {
-  if (billingUnit === 'hour') return `${hours(entry.minutes)} h`;
+  const u = entryUnit(entry, jobUnit);
+  if (u === 'hour') return `${hours(entry.minutes)} h`;
   const qty = entry.quantity ?? '0';
-  return `${formatQuantity(qty)} ${billingUnitLabel(billingUnit, qty)}`;
+  return `${formatQuantity(qty)} ${billingUnitLabel(u, qty)}`;
 };
 
 function todayIso(): string {
@@ -120,7 +126,14 @@ export default function JobDetailScreen() {
   // How this job bills (TMC-264). 'hour' until the job says otherwise, which is
   // what every job written before this means.
   const [billingUnit, setBillingUnit] = useState('hour');
-  const billsByHour = billingUnit === 'hour';
+  // What the line being typed right now bills in (TMC-264, revised). Seeded from
+  // the job's default, then the user's to change per entry — one job can mix
+  // them, which is the point of the revision.
+  const [lineUnit, setLineUnit] = useState('hour');
+  // Seeded once. Following the job's default forever would overwrite a
+  // deliberate override every time the screen refreshed.
+  const lineUnitSeeded = useRef(false);
+  const billsByHour = lineUnit === 'hour';
   // "Hours" was hard-coded, which reads as a lie on a job billing by the visit.
   const unitPlural = billingUnitLabel(billingUnit, '2');
   const workHeading = unitPlural.charAt(0).toUpperCase() + unitPlural.slice(1);
@@ -249,7 +262,12 @@ export default function JobDetailScreen() {
       const timeBody = await timeRes.json();
       const rows = (timeBody.timeEntries ?? []) as TimeEntry[];
       setEntries(rows);
-      setBillingUnit(timeBody.billingUnit ?? 'hour');
+      const jobUnit = timeBody.billingUnit ?? 'hour';
+      setBillingUnit(jobUnit);
+      if (!lineUnitSeeded.current) {
+        lineUnitSeeded.current = true;
+        setLineUnit(jobUnit);
+      }
       // Newest-first, so the first row carrying a rate is the last one used.
       // Only seeds once, so it never overwrites what the user is typing.
       const last = rows.find((r) => r.rate)?.rate;
@@ -329,7 +347,7 @@ export default function JobDetailScreen() {
       return;
     }
     if (!billsByHour && !quantity.trim()) {
-      setTimeError(`Enter how many ${billingUnitLabel(billingUnit, '2')} you did.`);
+      setTimeError(`Enter how many ${billingUnitLabel(lineUnit, '2')} you did.`);
       return;
     }
 
@@ -341,6 +359,7 @@ export default function JobDetailScreen() {
           entryDate: todayIso(),
           minutes,
           quantity: billsByHour ? undefined : quantity.trim(),
+          unit: lineUnit as 'hour' | 'visit' | 'day' | 'night' | 'job',
           startTime: cardStart || undefined,
           endTime: cardEnd || undefined,
           note: note.trim() || undefined,
@@ -374,6 +393,10 @@ export default function JobDetailScreen() {
     const previous = billingUnit;
     // Optimistic: the row re-labels immediately, and reverts if the API refuses.
     setBillingUnit(next);
+    // The line follows: changing what the job usually bills by is a statement
+    // about the next entry too, and leaving the line on the old unit would make
+    // the picker look broken.
+    setLineUnit(next);
     const res = await api.api.jobs[':id'].$patch({
       param: { id },
       query: { confirm: undefined },
@@ -381,6 +404,7 @@ export default function JobDetailScreen() {
     });
     if (!res.ok) {
       setBillingUnit(previous);
+      setLineUnit(previous);
       setUnitError('That could not be changed. Try again.');
       return;
     }
@@ -695,7 +719,7 @@ export default function JobDetailScreen() {
                 below is asking for, so it reads better next to it.
               */}
               <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
-                Bills by the
+                This job usually bills by the
               </Text>
               <View className="mt-2 flex-row flex-wrap gap-2">
                 {BILLING_UNITS.map((u) => (
@@ -719,6 +743,51 @@ export default function JobDetailScreen() {
                 ))}
               </View>
               {unitError ? <Text className="mt-2 text-xs text-oxblood">{unitError}</Text> : null}
+
+              {/*
+                WHAT THIS LINE BILLS IN (TMC-264, revised).
+
+                The unit began on the job, asked once and inherited. That holds
+                for a lawn crew and breaks for the audience the feature was built
+                for: a sitter charges a flat rate for a drop-in visit AND an
+                hourly rate when she stays the afternoon, on one job for one
+                customer.
+
+                Per line, seeded from the job — which is why the job picker above
+                survives. Answering it once still covers the common case; this row
+                is the exception to it.
+              */}
+              <Text className="mt-4 font-mono text-xs uppercase tracking-widest text-ink-subtle">
+                This line bills by the
+              </Text>
+              <View className="mt-2 flex-row flex-wrap items-center gap-2">
+                {BILLING_UNITS.map((u) => (
+                  <Pressable
+                    key={u}
+                    onPress={() => setLineUnit(u)}
+                    className={
+                      lineUnit === u
+                        ? 'rounded-sm border border-gold-deep px-3 py-1.5'
+                        : 'rounded-sm border border-ink/15 px-3 py-1.5'
+                    }
+                  >
+                    <Text
+                      className={`font-mono text-xs uppercase tracking-widest ${
+                        lineUnit === u ? 'text-gold-deep' : 'text-ink-subtle'
+                      }`}
+                    >
+                      {u}
+                    </Text>
+                  </Pressable>
+                ))}
+                {lineUnit === billingUnit ? null : (
+                  <Pressable onPress={() => setLineUnit(billingUnit)} className="justify-center">
+                    <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle underline">
+                      Reset
+                    </Text>
+                  </Pressable>
+                )}
+              </View>
 
               {/*
                 ONE WAY IN AT A TIME, matching web. The duration box, the time
@@ -938,7 +1007,8 @@ export default function JobDetailScreen() {
                   */}
                   {entry.rate ? (
                     <Text className="pr-2 font-mono text-xs text-ink-subtle">
-                      ${formatUnitPrice(entry.rate)}/{billingUnitLabel(billingUnit, '1')}
+                      ${formatUnitPrice(entry.rate)}/
+                      {billingUnitLabel(entryUnit(entry, billingUnit), '1')}
                     </Text>
                   ) : null}
                   {entry.billedInvoiceId ? (

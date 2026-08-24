@@ -125,7 +125,10 @@ export const actions: Actions = {
   logTime: async (event) => {
     const client = serverApiClient(event);
     const data = await event.request.formData();
-    const unit = String(data.get('billingUnit') ?? 'hour');
+    // The LINE's unit, which may differ from the job's default (TMC-264,
+    // revised). The API resolves it again against the job and stores it only
+    // when it is genuinely an override.
+    const unit = String(data.get('unit') ?? 'hour');
     const billsByHour = unit === 'hour';
 
     // THREE WAYS IN, ONE RECORD OUT. A typed duration, a stopwatch (which fills
@@ -182,6 +185,7 @@ export const actions: Actions = {
         entryDate,
         minutes,
         quantity: billsByHour ? undefined : quantityRaw,
+        unit: isBillingUnit(unit) ? unit : undefined,
         startTime: startTime || undefined,
         endTime: endTime || undefined,
         note: note || undefined,

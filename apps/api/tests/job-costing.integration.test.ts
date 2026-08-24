@@ -2348,6 +2348,62 @@ describe('a job bills in its own unit', () => {
     }
   });
 
+  // The revision that matters most: one job, two units. A sitter charges a flat
+  // rate for a drop-in visit AND an hourly rate when she stays the afternoon,
+  // for the same customer on the same job.
+  it('bills two lines of one job in different units', async () => {
+    const ctx = await setup('unit-mixed@test.com');
+    try {
+      const jobId = await createJobWithUnit(ctx, 'Sadie', 'visit');
+      // Inherits the job: a drop-in, half an hour of it, billed as one visit.
+      await postTime(ctx, jobId, { minutes: 30, quantity: '1.0000', rate: '25.0000' });
+      // Overrides it: an afternoon, billed by the hour.
+      await postTime(ctx, jobId, { minutes: 195, unit: 'hour', rate: '20.0000' });
+
+      const res = await ctx.app.request(`/api/jobs?companyId=${ctx.companyId}`, {
+        headers: ctx.headers,
+      });
+      const body = (await res.json()) as { jobs: { id: string; readyToBill: string }[] };
+      // 1 visit x $25 = 25.00, plus 3.25 hours x $20 = 65.00. Pricing the second
+      // line as a visit, or the first as hours, gives neither figure.
+      expect(body.jobs.find((j) => j.id === jobId)?.readyToBill).toBe('90.00');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('stores an override but leaves an inherited unit null', async () => {
+    const ctx = await setup('unit-inherit@test.com');
+    try {
+      const jobId = await createJobWithUnit(ctx, 'Sadie', 'visit');
+      await postTime(ctx, jobId, { quantity: '1.0000', rate: '25.0000' });
+      await postTime(ctx, jobId, { minutes: 60, unit: 'hour', rate: '20.0000' });
+
+      const listed = await ctx.app.request(`/api/jobs/${jobId}/time`, { headers: ctx.headers });
+      const rows = (await listed.json()) as { timeEntries: { unit: string | null }[] };
+      const units = rows.timeEntries.map((r) => r.unit).sort();
+      // Null for the line that agreed with the job, so changing the job's
+      // default later still moves it; explicit only for the exception.
+      expect(units).toEqual(['hour', null]);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('names the LINE\u2019s unit when its count is missing', async () => {
+    const ctx = await setup('unit-line-missing@test.com');
+    try {
+      // Hourly job, but this line claims to be per-night and brings no count.
+      const jobId = await makeJob(ctx, 'Fence repair');
+      const res = await postTime(ctx, jobId, { minutes: 60, unit: 'night' });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { issues: { message: string }[] };
+      expect(body.issues[0]?.message).toBe('Enter how many nights you did.');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
   // TMC-265. The clock times are kept, not discarded after computing minutes,
   // because when the work happened matters on the customer's invoice.
   it('stores the clock times a time card was typed as', async () => {

@@ -1,0 +1,35 @@
+-- TMC-264 — one job, mixed units.
+--
+-- 0043 put the billing unit on the JOB, asked once and inherited by every entry.
+-- The reasoning was that the audience bills the same way every time, and for a
+-- lot of them that holds. It does not hold for the ones this feature was built
+-- for: a dog sitter charges a flat rate for a single drop-in visit AND an hourly
+-- rate when she stays the afternoon, on the same job, for the same customer.
+-- Forcing one unit per job makes her either split the work across two jobs or
+-- convert in her head, which is the exact thing TMC-264 exists to stop.
+--
+-- So the unit becomes a property of the ENTRY, with the job's unit demoted to a
+-- default rather than a rule.
+--
+-- NULLABLE, AND THAT IS THE WHOLE DESIGN. NULL means "whatever this job bills
+-- in", which is precisely what every row written before this migration meant —
+-- so there is no backfill, no default to choose, and no behaviour change for a
+-- job whose entries really are all one unit. A non-null value is an explicit
+-- override for that line alone.
+--
+-- Resolution lives in @thalermark/validation (entryUnit) rather than in a
+-- COALESCE here, because both clients need the same answer when they seed an
+-- invoice line, and the API is not the only reader.
+--
+-- jobs.billing_unit is deliberately KEPT. Deleting it would trade one problem
+-- for another: the picker would move from once-per-job to once-per-line, and a
+-- lawn crew logging forty hourly entries would answer the same question forty
+-- times. It is the prefill; this column is the exception to it.
+--
+-- No CHECK, matching 0043 and items.type — the app layer owns the enum.
+--
+-- Hand-authored rather than generated, following 0039 / 0042 / 0043: the drizzle
+-- snapshot has drifted behind the hand-authored migrations and `generate`
+-- re-emits their columns.
+SET search_path TO public;--> statement-breakpoint
+ALTER TABLE "time_entries" ADD COLUMN "unit" text;

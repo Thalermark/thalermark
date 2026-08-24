@@ -112,13 +112,33 @@ export function minutesFromClockSpan(start: string, end: string): ClockSpan | nu
 // with no duration, or a per-visit entry with no count). Callers skip those
 // rather than seeding a zero line.
 export function timeEntryQuantity(
-  entry: { minutes?: number | null; quantity?: string | null },
-  billingUnit: string,
+  entry: { minutes?: number | null; quantity?: string | null; unit?: string | null },
+  jobBillingUnit: string,
 ): string | null {
-  if (!isBillingUnit(billingUnit) || billingUnit === 'hour') {
+  const unit = entryUnit(entry, jobBillingUnit);
+  if (unit === 'hour') {
     return entry.minutes == null ? null : hoursFromMinutes(entry.minutes);
   }
   return entry.quantity ?? null;
+}
+
+// WHICH UNIT THIS LINE BILLS IN.
+//
+// The unit began as a property of the JOB, asked once and inherited. That holds
+// for a lawn crew and breaks for the audience the feature was built for: a dog
+// sitter charges a flat rate for a drop-in visit AND an hourly rate when she
+// stays the afternoon, on one job for one customer. So it became a property of
+// the ENTRY, with the job's unit demoted to a default.
+//
+// A null entry unit means "whatever this job bills in", which is exactly what
+// every row written before that change meant. An unrecognised value on either
+// falls back to hours, matching the column default.
+//
+// One function, called by the API and by both clients, because a line seeded on
+// a phone and the same line seeded on a desktop must not bill differently.
+export function entryUnit(entry: { unit?: string | null }, jobBillingUnit: string): BillingUnit {
+  if (entry.unit && isBillingUnit(entry.unit)) return entry.unit;
+  return isBillingUnit(jobBillingUnit) ? jobBillingUnit : 'hour';
 }
 
 // "HH:MM" or "HH:MM:SS", the two shapes an <input type="time"> emits. A bare
@@ -151,9 +171,11 @@ const timeEntryFields = {
   entryDate: isoDateString,
   // Nullable since TMC-264: optional on a job that does not bill by the hour.
   minutes: z.number().int().positive().max(MINUTES_IN_A_DAY).nullable().optional(),
-  // The count in the job's own unit. Null on an hourly job, where the count is
-  // the duration.
+  // The count in this line's unit. Null when the line bills by the hour, where
+  // the count IS the duration.
   quantity: quantityString.nullable().optional(),
+  // This line's own unit. Omitted or null inherits the job's.
+  unit: z.enum(BILLING_UNITS).nullable().optional(),
   // What a time card was typed as (TMC-265). Both or neither; a start with no
   // end is a half-finished thought, not a record. Kept alongside the computed
   // minutes because when the work happened matters on the invoice (TMC-263).
@@ -204,6 +226,7 @@ export const timeEntryUpdateSchema = z
     entryDate: isoDateString.optional(),
     minutes: z.number().int().positive().max(MINUTES_IN_A_DAY).nullable().optional(),
     quantity: quantityString.nullable().optional(),
+    unit: z.enum(BILLING_UNITS).nullable().optional(),
     startTime: clockTimeString.nullable().optional(),
     endTime: clockTimeString.nullable().optional(),
     note: z.string().trim().max(1000).nullable().optional(),

@@ -3,6 +3,7 @@ import { multiplyMoney } from './money.js';
 import {
   MINUTES_IN_A_DAY,
   billingUnitLabel,
+  entryUnit,
   formatClockTime,
   hoursFromMinutes,
   hoursUnitLabel,
@@ -299,5 +300,41 @@ describe('formatClockTime', () => {
     expect(formatClockTime('12:00')).toBe('12:00pm');
     expect(formatClockTime('15:30')).toBe('3:30pm');
     expect(formatClockTime('23:59')).toBe('11:59pm');
+  });
+});
+
+describe('entryUnit — one job, mixed units', () => {
+  it('inherits the job when the line says nothing', () => {
+    // What every row written before the per-line unit meant, so nothing had to
+    // be backfilled.
+    expect(entryUnit({ unit: null }, 'visit')).toBe('visit');
+    expect(entryUnit({}, 'hour')).toBe('hour');
+  });
+
+  it('lets a line override its job', () => {
+    // The case the whole revision exists for: a sitter charging a flat rate for
+    // a drop-in AND an hourly rate for an afternoon, on one job.
+    expect(entryUnit({ unit: 'hour' }, 'visit')).toBe('hour');
+    expect(entryUnit({ unit: 'visit' }, 'hour')).toBe('visit');
+  });
+
+  it('falls back to hours when either value is unrecognised', () => {
+    expect(entryUnit({ unit: 'yard' }, 'visit')).toBe('visit');
+    expect(entryUnit({ unit: null }, 'furlong')).toBe('hour');
+  });
+});
+
+describe('timeEntryQuantity with a per-line unit', () => {
+  it('bills one job’s lines in different units', () => {
+    const job = 'visit';
+    // A drop-in: one visit, half an hour of it, billed as the visit.
+    expect(timeEntryQuantity({ minutes: 30, quantity: '1.0000', unit: null }, job)).toBe('1.0000');
+    // An afternoon on the same job, overridden to hours.
+    expect(timeEntryQuantity({ minutes: 195, quantity: null, unit: 'hour' }, job)).toBe('3.2500');
+  });
+
+  it('is null when the line records nothing in its own unit', () => {
+    expect(timeEntryQuantity({ minutes: 90, quantity: null, unit: 'visit' }, 'hour')).toBeNull();
+    expect(timeEntryQuantity({ minutes: null, quantity: '2', unit: 'hour' }, 'visit')).toBeNull();
   });
 });

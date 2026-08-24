@@ -11,6 +11,7 @@
     addMoney,
     formatUnitPrice,
     billingUnitLabel,
+    entryUnit,
     multiplyMoney,
     sumMoney,
     timeEntryLineDescription,
@@ -86,7 +87,8 @@
           endTime: t.endTime,
         }),
         quantity,
-        unitLabel: billingUnitLabel(data.billingUnit, quantity),
+        // The LINE's own unit — one job can mix them (TMC-264, revised).
+        unitLabel: billingUnitLabel(entryUnit(t, data.billingUnit), quantity),
         unitPrice: formatUnitPrice(unitPrice),
         amount: multiplyMoney(quantity, unitPrice),
         sourceItemId: null,

@@ -304,6 +304,8 @@ export async function jobUnbilled(
       jobId: timeEntries.jobId,
       minutes: timeEntries.minutes,
       quantity: timeEntries.quantity,
+      // The LINE's unit, and the job's as its fallback. One job can mix them.
+      unit: timeEntries.unit,
       rate: timeEntries.rate,
       billingUnit: jobs.billingUnit,
     })

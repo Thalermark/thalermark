@@ -10,6 +10,7 @@
     addMoney,
     formatUnitPrice,
     billingUnitLabel,
+    entryUnit,
     formatQuantity,
     multiplyMoney,
     sumMoney,
@@ -278,12 +279,12 @@
               -->
               <span class="w-20 shrink-0 font-mono tabular-nums text-fg/80">
                 {formatQuantity(t.quantity ?? '0')}
-                {billingUnitLabel(data.billingUnit, t.quantity ?? '0')}
+                {billingUnitLabel(entryUnit(t, data.billingUnit), t.quantity ?? '0')}
               </span>
               <span class="min-w-0 flex-1 truncate text-fg/70">{t.note ?? ''}</span>
               <span class="shrink-0 font-mono tabular-nums text-fg/60">
                 {t.rate
-                  ? `$${formatUnitPrice(t.rate)}/${billingUnitLabel(data.billingUnit, '1')}`
+                  ? `$${formatUnitPrice(t.rate)}/${billingUnitLabel(entryUnit(t, data.billingUnit), '1')}`
                   : 'no rate'}
               </span>
             </li>

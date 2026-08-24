@@ -65,6 +65,7 @@ async function loadUnbilledTime(client: ServerApiClient, jobId: string) {
         entryDate: t.entryDate,
         minutes: t.minutes,
         quantity: timeEntryQuantity(t, billingUnit),
+        unit: t.unit,
         startTime: t.startTime,
         endTime: t.endTime,
         note: t.note,
