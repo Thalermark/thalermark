@@ -2426,6 +2426,42 @@ describe('a job bills in its own unit', () => {
     }
   });
 
+  // The money bug, end to end. Log hours on an hourly job, then switch the job to
+  // nights. The hours must still be billable — they used to vanish from
+  // ready-to-bill entirely, because an entry with no count returned null and null
+  // means "skip".
+  it('keeps hours billable after the job switches to a non-hourly unit', async () => {
+    const ctx = await setup('unit-switch-keeps-hours@test.com');
+    try {
+      const jobId = await makeJob(ctx, 'Overnight care'); // starts hourly
+      await postTime(ctx, jobId, { minutes: 240, rate: '15.0000' });
+
+      const before = await ctx.app.request(`/api/jobs?companyId=${ctx.companyId}`, {
+        headers: ctx.headers,
+      });
+      const b = (await before.json()) as { jobs: { id: string; readyToBill: string }[] };
+      expect(b.jobs.find((j) => j.id === jobId)?.readyToBill).toBe('60.00');
+
+      // The operator decides this job bills by the night from now on.
+      const patched = await ctx.app.request(`/api/jobs/${jobId}`, {
+        method: 'PATCH',
+        headers: ctx.headers,
+        body: JSON.stringify({ billingUnit: 'night' }),
+      });
+      expect(patched.status).toBe(200);
+
+      const after = await ctx.app.request(`/api/jobs?companyId=${ctx.companyId}`, {
+        headers: ctx.headers,
+      });
+      const a = (await after.json()) as { jobs: { id: string; readyToBill: string }[] };
+      // Still $60.00. It read $0.00 before the fix, and the four hours could not
+      // be invoiced at all.
+      expect(a.jobs.find((j) => j.id === jobId)?.readyToBill).toBe('60.00');
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
   // TMC-265. The clock times are kept, not discarded after computing minutes,
   // because when the work happened matters on the customer's invoice.
   it('stores the clock times a time card was typed as', async () => {

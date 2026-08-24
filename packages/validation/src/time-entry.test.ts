@@ -262,9 +262,19 @@ describe('timeEntryQuantity', () => {
     expect(timeEntryQuantity({ minutes: 30, quantity: '1.0000' }, 'night')).toBe('1.0000');
   });
 
-  it('is null when there is nothing to bill in the job’s unit', () => {
+  it('is null only when the entry genuinely records nothing billable', () => {
+    // Nothing at all: no duration, no count.
     expect(timeEntryQuantity({ minutes: null, quantity: null }, 'hour')).toBeNull();
-    expect(timeEntryQuantity({ minutes: 90, quantity: null }, 'visit')).toBeNull();
+    // An EXPLICIT non-hourly unit with no count. The operator said this line is
+    // visits; it has none, so there is nothing to put on an invoice.
+    expect(timeEntryQuantity({ minutes: 90, quantity: null, unit: 'visit' }, 'hour')).toBeNull();
+  });
+
+  // This assertion used to read `{ minutes: 90, quantity: null }` on a visit job
+  // => null, and that WAS the bug: an hours entry on a job later switched to a
+  // non-hourly unit silently stopped being billable. It bills as hours now.
+  it('bills an inherited entry with only a duration as hours', () => {
+    expect(timeEntryQuantity({ minutes: 90, quantity: null }, 'visit')).toBe('1.5000');
   });
 });
 
@@ -336,5 +346,34 @@ describe('timeEntryQuantity with a per-line unit', () => {
   it('is null when the line records nothing in its own unit', () => {
     expect(timeEntryQuantity({ minutes: 90, quantity: null, unit: 'visit' }, 'hour')).toBeNull();
     expect(timeEntryQuantity({ minutes: null, quantity: '2', unit: 'hour' }, 'visit')).toBeNull();
+  });
+});
+
+// Found on a real job (owner, 2026-08-24). Entries logged as HOURS, on a job
+// whose unit was later switched to nights, rendered "0 nights" — and were
+// silently dropped from invoice seeding and from ready-to-bill, because a null
+// quantity means "nothing billable here". Real rated work stopped being
+// billable, which makes this a money bug rather than a display one.
+describe('entryUnit never reinterprets an entry into a unit it has no data for', () => {
+  it('keeps an hours entry as hours when the job switches to nights', () => {
+    expect(entryUnit({ unit: null, quantity: null, minutes: 240 }, 'night')).toBe('hour');
+  });
+
+  it('still bills that entry, rather than dropping it', () => {
+    // The regression: this returned null, and null means skip.
+    expect(timeEntryQuantity({ minutes: 240, quantity: null, unit: null }, 'night')).toBe('4.0000');
+  });
+
+  it('still lets an entry WITH a count follow the job', () => {
+    // The property worth keeping: a count carries over untouched, so one visit
+    // becomes one night if the operator decides that is what this job bills.
+    expect(entryUnit({ unit: null, quantity: '1.0000', minutes: 30 }, 'night')).toBe('night');
+    expect(timeEntryQuantity({ minutes: 30, quantity: '1.0000', unit: null }, 'night')).toBe(
+      '1.0000',
+    );
+  });
+
+  it('an explicit override still wins over both rules', () => {
+    expect(entryUnit({ unit: 'job', quantity: null, minutes: 60 }, 'night')).toBe('job');
   });
 });

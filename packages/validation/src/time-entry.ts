@@ -138,8 +138,30 @@ export function timeEntryQuantity(
 //
 // One function, called by the API and by both clients, because a line seeded on
 // a phone and the same line seeded on a desktop must not bill differently.
-export function entryUnit(entry: { unit?: string | null }, jobBillingUnit: string): BillingUnit {
+export function entryUnit(
+  entry: { unit?: string | null; quantity?: string | null; minutes?: number | null },
+  jobBillingUnit: string,
+): BillingUnit {
   if (entry.unit && isBillingUnit(entry.unit)) return entry.unit;
+
+  // AN ENTRY CANNOT BE REINTERPRETED INTO A UNIT IT HAS NO DATA FOR.
+  //
+  // Inheriting the job's default is right for an entry carrying a COUNT: one
+  // visit becomes one night if the operator later decides that is what this job
+  // bills, and the count carries over untouched.
+  //
+  // It is WRONG for an entry carrying only a duration. Hours entries have no
+  // count at all, so inheriting a switch to nights made timeEntryQuantity return
+  // null for them — which is not a display problem. Null means "nothing billable
+  // here", so the invoice seeding filtered them out and jobUnbilled skipped them,
+  // and several hours of rated, unbilled work silently stopped being billable.
+  // Found on a real job (owner, 2026-08-24): three entries of 240, 360 and 720
+  // minutes reading "0 nights" and absent from ready-to-bill.
+  //
+  // So an entry with no count is an HOURS entry, whatever its job now says. That
+  // is the only unit its own data can express.
+  if (entry.quantity == null && entry.minutes != null) return 'hour';
+
   return isBillingUnit(jobBillingUnit) ? jobBillingUnit : 'hour';
 }
 
