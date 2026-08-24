@@ -1,4 +1,5 @@
 import {
+  BILLING_UNITS,
   billingUnitLabel,
   formatQuantity,
   formatUnitPrice,
@@ -9,7 +10,7 @@ import {
   timeEntryQuantity,
 } from '@thalermark/validation';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -65,6 +66,15 @@ type TimeEntry = {
   endTime: string | null;
 };
 
+// The three ways in, in the order they are offered. Same labels as web: two
+// clients naming one input mode differently is the same class of drift as two
+// clients rounding one duration differently.
+const LOG_MODES = [
+  { key: 'duration', label: 'Duration' },
+  { key: 'card', label: 'Start & end' },
+  { key: 'stopwatch', label: 'Stopwatch' },
+] as const;
+
 const fmt = (s: string) =>
   Number(s).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 
@@ -111,6 +121,10 @@ export default function JobDetailScreen() {
   // what every job written before this means.
   const [billingUnit, setBillingUnit] = useState('hour');
   const billsByHour = billingUnit === 'hour';
+  // "Hours" was hard-coded, which reads as a lie on a job billing by the visit.
+  const unitPlural = billingUnitLabel(billingUnit, '2');
+  const workHeading = unitPlural.charAt(0).toUpperCase() + unitPlural.slice(1);
+
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
 
@@ -141,6 +155,28 @@ export default function JobDetailScreen() {
   // rate, and retyping it every entry is the friction that stops people logging.
   const [ratePrefilled, setRatePrefilled] = useState(false);
   const [timeError, setTimeError] = useState<string | null>(null);
+  const hasEntryInput = Boolean(duration || note || cardStart || cardEnd);
+
+  // Empties the per-entry fields and LEAVES THE MODE ALONE. Clearing while in
+  // Start & end almost always means the times were wrong, so snapping back to
+  // Duration would take away the input about to be reused. Date has no field
+  // here (entries stamp today) and the rate is a sticky prefill, so neither is
+  // touched — same split as web.
+  function clearEntry() {
+    setDuration('');
+    setNote('');
+    setCardStart('');
+    setCardEnd('');
+    setTimeError(null);
+  }
+  const [unitError, setUnitError] = useState<string | null>(null);
+  // Once per screen: the first load that finds a timer already running on this
+  // job opens on Stopwatch. Guarded so it can never yank the user back there on
+  // a later refresh — that guard IS the web bug, avoided rather than repeated.
+  //
+  // A ref, not state: it must not re-render and must not enter load()'s dep
+  // array, or flipping it would rebuild load and fetch the screen twice.
+  const openedOnTimer = useRef(false);
   const [logging, setLogging] = useState(false);
   const [confirmClose, setConfirmClose] = useState<string | null>(null);
 
@@ -152,7 +188,16 @@ export default function JobDetailScreen() {
     startedAt: string;
   } | null>(null);
   const [timerError, setTimerError] = useState<string | null>(null);
-  const [showTimer, setShowTimer] = useState(false);
+  // WHICH INPUT IS ON SCREEN (matching web, TMC-265). The three modes are
+  // exclusive — only the chosen one renders — which is what removes the
+  // precedence rule the stacked layout had to explain in prose.
+  //
+  // Replaces the old `showTimer` disclosure. On web the equivalent override
+  // ("force stopwatch while a timer runs") turned out to LOCK the selector, so
+  // this deliberately has no override: a running timer decides the INITIAL mode
+  // and nothing more. The lazy useState initialiser is the same "read once on
+  // arrival" semantics web gets from a $state initialiser.
+  const [logMode, setLogMode] = useState<'duration' | 'card' | 'stopwatch'>('duration');
   // Ticks locally off startedAt. Elapsed is never accumulated, so a backgrounded
   // app or a device clock that disagrees cannot drift it.
   const [nowMs, setNowMs] = useState(Date.now());
@@ -219,8 +264,14 @@ export default function JobDetailScreen() {
     if (timerRes.ok) {
       const { timer: running } = await timerRes.json();
       setTimer(running);
-      // A timer left running is never hidden behind a closed fold.
-      if (running) setShowTimer(true);
+      // A timer already running on THIS job decides the mode we ARRIVE in, and
+      // nothing after that. Guarded by openedOnTimer so a later refresh can
+      // never yank the user back — web shipped that as a permanent override and
+      // it silently ate every mode click until it was found by hand.
+      if (running && running.jobId === id && !openedOnTimer.current) {
+        openedOnTimer.current = true;
+        setLogMode('stopwatch');
+      }
     }
     setLoading(false);
   }, [id]);
@@ -314,6 +365,31 @@ export default function JobDetailScreen() {
     }
   }
 
+  // How this job bills (TMC-264). Mobile could READ the unit but had no way to
+  // SET it, so every job on a phone was permanently by-the-hour and the feature
+  // was unreachable without opening the web app. Same PATCH the web action makes.
+  async function changeBillingUnit(next: string) {
+    if (next === billingUnit) return;
+    setUnitError(null);
+    const previous = billingUnit;
+    // Optimistic: the row re-labels immediately, and reverts if the API refuses.
+    setBillingUnit(next);
+    const res = await api.api.jobs[':id'].$patch({
+      param: { id },
+      query: { confirm: undefined },
+      json: { billingUnit: next as 'hour' | 'visit' | 'day' | 'night' | 'job' },
+    });
+    if (!res.ok) {
+      setBillingUnit(previous);
+      setUnitError('That could not be changed. Try again.');
+      return;
+    }
+    // Re-read rather than trust the optimistic value: the unit decides which
+    // stored figure reaches an invoice, so every derived total on this screen
+    // has to be recomputed from the server rather than guessed at.
+    await load();
+  }
+
   async function startTimer() {
     setTimerError(null);
     // No body: the API accepts an optional note at start, but neither client
@@ -349,6 +425,10 @@ export default function JobDetailScreen() {
     }
     const { minutes } = await res.json();
     setDuration((Math.round((minutes / 60) * 100) / 100).toFixed(2));
+    // Show where the stop put its value. ONCE, as a plain state change rather
+    // than a rule — the user can move straight off it again, which is exactly
+    // what web's version got wrong by expressing the same intent as an override.
+    setLogMode('duration');
     await load();
   }
 
@@ -600,28 +680,97 @@ export default function JobDetailScreen() {
             </View>
           )}
 
-          <Text className="mt-10 font-serif text-2xl font-light text-ink">Hours</Text>
+          <Text className="mt-10 font-serif text-2xl font-light text-ink">{workHeading}</Text>
 
           {canWrite ? (
             <View className="mt-3">
               {/*
-                A plain duration field, not a timer. Reconstructing "3 hours
-                yesterday" has to be as easy as running a stopwatch live, because
-                the start of a job is exactly when nobody is thinking about an app.
+                HOW THIS JOB BILLS (TMC-264). Mobile could read the unit but had
+                no way to set it, so every job on a phone was stuck by-the-hour
+                and the feature was unreachable without opening the web app.
+
+                Web puts this in the page header beside Close job. Here it sits
+                with the entry form instead: a phone header has no room for a
+                fifth control, and this is the thing that decides what the field
+                below is asking for, so it reads better next to it.
               */}
-              <View className="flex-row gap-2">
-                {billsByHour ? (
-                  <TextInput
-                    value={duration}
-                    onChangeText={setDuration}
-                    placeholder="3.25"
-                    keyboardType="decimal-pad"
-                    className="w-24 rounded-sm border border-field bg-cream-warm px-3 py-2.5 text-ink"
-                  />
-                ) : (
+              <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
+                Bills by the
+              </Text>
+              <View className="mt-2 flex-row flex-wrap gap-2">
+                {BILLING_UNITS.map((u) => (
+                  <Pressable
+                    key={u}
+                    onPress={() => changeBillingUnit(u)}
+                    className={
+                      billingUnit === u
+                        ? 'rounded-sm border border-gold-deep px-3 py-1.5'
+                        : 'rounded-sm border border-ink/15 px-3 py-1.5'
+                    }
+                  >
+                    <Text
+                      className={`font-mono text-xs uppercase tracking-widest ${
+                        billingUnit === u ? 'text-gold-deep' : 'text-ink-subtle'
+                      }`}
+                    >
+                      {u}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+              {unitError ? <Text className="mt-2 text-xs text-oxblood">{unitError}</Text> : null}
+
+              {/*
+                ONE WAY IN AT A TIME, matching web. The duration box, the time
+                card and the stopwatch used to be stacked and all visible, two of
+                them writing the same field — so the form carried an implicit
+                precedence nobody could see. Picking the mode makes them
+                exclusive and the precedence disappears.
+              */}
+              <Text className="mt-4 font-mono text-xs uppercase tracking-widest text-ink-subtle">
+                How long?
+              </Text>
+              <View className="mt-2 flex-row flex-wrap gap-2">
+                {LOG_MODES.map((m) => (
+                  <Pressable
+                    key={m.key}
+                    onPress={() => setLogMode(m.key)}
+                    className={
+                      logMode === m.key
+                        ? 'rounded-sm border border-gold-deep px-3 py-1.5'
+                        : 'rounded-sm border border-ink/15 px-3 py-1.5'
+                    }
+                  >
+                    <Text
+                      className={`font-mono text-xs uppercase tracking-widest ${
+                        logMode === m.key ? 'text-gold-deep' : 'text-ink-subtle'
+                      }`}
+                    >
+                      {m.label}
+                    </Text>
+                  </Pressable>
+                ))}
+                {/*
+                  Nothing forces the stopwatch view any more, so a timer could be
+                  left running out of sight. This says it is still going and
+                  jumps back to it.
+                */}
+                {timer && timer.jobId === id && logMode !== 'stopwatch' ? (
+                  <Pressable onPress={() => setLogMode('stopwatch')} className="justify-center">
+                    <Text className="font-mono text-xs uppercase tracking-widest text-gold-deep">
+                      Timer · {elapsed}
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
+
+              <View className="mt-3 flex-row gap-2">
+                {billsByHour ? null : (
                   /*
                     A per-visit, per-night or per-day job bills a COUNT, and the
-                    count is what reaches the invoice (TMC-264).
+                    count is what reaches the invoice. Always shown whatever the
+                    mode: the mode picks how the DURATION is entered, and on
+                    these jobs the duration is only optional context.
                   */
                   <TextInput
                     value={quantity}
@@ -631,57 +780,96 @@ export default function JobDetailScreen() {
                     className="w-20 rounded-sm border border-field bg-cream-warm px-3 py-2.5 text-ink"
                   />
                 )}
-                <TextInput
-                  value={note}
-                  onChangeText={setNote}
-                  placeholder="What you did"
-                  maxLength={1000}
-                  className="flex-1 rounded-sm border border-field bg-cream-warm px-3 py-2.5 text-ink"
-                />
+                {logMode === 'card' ? (
+                  <>
+                    {/*
+                      Plain text rather than a native time picker: two pickers
+                      would be four taps and a modal each, where the whole point
+                      is that typing 8:15 beats working out 8.25.
+                    */}
+                    <TextInput
+                      value={cardStart}
+                      onChangeText={setCardStart}
+                      placeholder="Started 08:15"
+                      className="flex-1 rounded-sm border border-field bg-cream-warm px-3 py-2.5 text-ink"
+                    />
+                    <TextInput
+                      value={cardEnd}
+                      onChangeText={setCardEnd}
+                      placeholder="Finished 16:30"
+                      className="flex-1 rounded-sm border border-field bg-cream-warm px-3 py-2.5 text-ink"
+                    />
+                  </>
+                ) : logMode === 'stopwatch' ? (
+                  /*
+                    THE STOPWATCH SITS IN THE ROW, where the duration field
+                    would be, rather than in a separate disclosure underneath —
+                    two controls for one number, visually unrelated, is the
+                    disconnection the mode selector exists to end.
+                  */
+                  <View className="flex-1 flex-row items-center gap-3">
+                    {timer && timer.jobId === id ? (
+                      <>
+                        <Text className="font-mono text-2xl text-gold-deep">{elapsed}</Text>
+                        <Pressable
+                          onPress={stopTimer}
+                          className="rounded-sm border border-gold-deep px-4 py-2.5"
+                        >
+                          <Text className="font-mono text-xs uppercase tracking-widest text-gold-deep">
+                            Stop
+                          </Text>
+                        </Pressable>
+                      </>
+                    ) : timer ? (
+                      <Pressable onPress={() => router.push(`/jobs/${timer.jobId}`)}>
+                        <Text className="text-sm text-ink-muted">
+                          Running on {timer.jobName} for {elapsed}. Stop it there first — only one
+                          timer runs at a time, or the same minute gets billed to two customers.
+                        </Text>
+                      </Pressable>
+                    ) : (
+                      <Pressable
+                        onPress={startTimer}
+                        className="rounded-sm border border-ink/25 px-4 py-2.5"
+                      >
+                        <Text className="font-mono text-xs uppercase tracking-widest text-ink-muted">
+                          Start
+                        </Text>
+                      </Pressable>
+                    )}
+                  </View>
+                ) : (
+                  <TextInput
+                    value={duration}
+                    onChangeText={setDuration}
+                    placeholder={billsByHour ? '3.25' : 'Time spent — optional'}
+                    keyboardType="decimal-pad"
+                    className="flex-1 rounded-sm border border-field bg-cream-warm px-3 py-2.5 text-ink"
+                  />
+                )}
               </View>
-              {/*
-                THE STOPWATCH'S ANSWER ON A NON-HOURLY JOB. A timer cannot
-                produce a visit count, so it fills this instead: an OPTIONAL
-                duration feeding effective-hourly that never touches what the
-                customer is billed.
-              */}
-              {billsByHour ? null : (
-                <TextInput
-                  value={duration}
-                  onChangeText={setDuration}
-                  placeholder="Time spent — optional"
-                  keyboardType="decimal-pad"
-                  className="mt-2 rounded-sm border border-field bg-cream-warm px-3 py-2.5 text-ink"
-                />
-              )}
-              {/*
-                The time card (TMC-265), matching web's field order and its
-                resolution rule. Plain text rather than a native time picker:
-                two pickers would be four taps and a modal each, where the whole
-                point is that typing 8:15 is faster than working out 8.25.
-              */}
-              <View className="mt-2 flex-row gap-2">
-                <TextInput
-                  value={cardStart}
-                  onChangeText={setCardStart}
-                  placeholder="Started 08:15"
-                  className="flex-1 rounded-sm border border-field bg-cream-warm px-3 py-2.5 text-ink"
-                />
-                <TextInput
-                  value={cardEnd}
-                  onChangeText={setCardEnd}
-                  placeholder="Finished 16:30"
-                  className="flex-1 rounded-sm border border-field bg-cream-warm px-3 py-2.5 text-ink"
-                />
-              </View>
-              {/*
-                Shown live, before anything is submitted. That sighting IS the
-                confirm half of the owner's detect-and-confirm call: no modal, no
-                second question, just the hours stated and the overnight run named.
-              */}
-              {cardSummary ? (
+
+              {logMode === 'card' && cardSummary ? (
+                /*
+                  Shown live, before anything is submitted. That sighting IS the
+                  confirm half of the owner's detect-and-confirm call on an
+                  overnight shift: no modal, no second question.
+                */
                 <Text className="mt-1 text-sm text-ink-muted">{cardSummary}</Text>
               ) : null}
+              {logMode === 'stopwatch' && timer && timer.jobId === id ? (
+                <Text className="mt-1 text-xs text-ink-subtle">
+                  Stopping fills in the hours — it doesn't log them.
+                </Text>
+              ) : null}
+
+              <TextInput
+                value={note}
+                onChangeText={setNote}
+                placeholder="What you did"
+                maxLength={1000}
+                className="mt-2 rounded-sm border border-field bg-cream-warm px-3 py-2.5 text-ink"
+              />
               <TextInput
                 value={rate}
                 onChangeText={setRate}
@@ -689,71 +877,38 @@ export default function JobDetailScreen() {
                 keyboardType="decimal-pad"
                 className="mt-2 rounded-sm border border-field bg-cream-warm px-3 py-2.5 text-ink"
               />
-              <Pressable
-                onPress={logTime}
-                disabled={logging}
-                className="mt-2 items-center rounded-sm border border-ink/20 px-4 py-2.5 active:bg-cream-warm disabled:opacity-50"
-              >
-                {logging ? (
-                  <ActivityIndicator className="text-ink" />
-                ) : (
-                  <Text className="font-mono text-xs uppercase tracking-widest text-ink-muted">
-                    Log hours
-                  </Text>
-                )}
-              </Pressable>
-              {timeError ? <Text className="mt-2 text-xs text-oxblood">{timeError}</Text> : null}
-            </View>
-          ) : null}
 
-          {canWrite ? (
-            <View className="mt-4">
-              {/*
-                Behind a disclosure. Typing a duration is the path that actually
-                gets used — a stopwatch has to be remembered at the START of the
-                work, which is exactly when nobody is thinking about an app. So
-                it is available, not urged.
-              */}
-              <Pressable onPress={() => setShowTimer((v) => !v)}>
-                <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
-                  {showTimer ? '− Stopwatch' : '+ Use a stopwatch'}
-                </Text>
-              </Pressable>
-              {showTimer ? (
-                <View className="mt-3">
-                  {timer && timer.jobId === id ? (
-                    <View className="flex-row items-center gap-3">
-                      <Text className="font-mono text-2xl text-gold-deep">{elapsed}</Text>
-                      <Pressable
-                        onPress={stopTimer}
-                        className="rounded-sm bg-ink px-4 py-2.5 active:bg-gold-deep"
-                      >
-                        <Text className="text-sm font-medium text-cream">Stop</Text>
-                      </Pressable>
-                      <Text className="flex-1 text-xs text-ink-subtle">
-                        Stopping fills in the hours — it doesn't log them.
-                      </Text>
-                    </View>
-                  ) : timer ? (
-                    <Pressable onPress={() => router.push(`/jobs/${timer.jobId}`)}>
-                      <Text className="text-sm text-ink-muted">
-                        Running on {timer.jobName} for {elapsed}. Stop it there first — only one
-                        timer runs at a time, or the same minute gets billed to two customers.
-                      </Text>
-                    </Pressable>
+              <View className="mt-2 flex-row items-center gap-3">
+                <Pressable
+                  onPress={logTime}
+                  disabled={logging}
+                  className="flex-1 items-center rounded-sm border border-ink/20 px-4 py-2.5 active:bg-cream-warm disabled:opacity-50"
+                >
+                  {logging ? (
+                    <ActivityIndicator className="text-ink" />
                   ) : (
-                    <Pressable
-                      onPress={startTimer}
-                      className="self-start rounded-sm bg-ink px-4 py-2.5 active:bg-gold-deep"
-                    >
-                      <Text className="text-sm font-medium text-cream">Start</Text>
-                    </Pressable>
+                    <Text className="font-mono text-xs uppercase tracking-widest text-ink-muted">
+                      Log
+                    </Text>
                   )}
-                  {timerError ? (
-                    <Text className="mt-2 text-xs text-oxblood">{timerError}</Text>
-                  ) : null}
-                </View>
-              ) : null}
+                </Pressable>
+                {/*
+                  Always rendered, disabled when empty, rather than appearing and
+                  vanishing: a control that disappears the moment it works cannot
+                  be told apart from one that did nothing.
+                */}
+                <Pressable
+                  onPress={clearEntry}
+                  disabled={!hasEntryInput}
+                  className={hasEntryInput ? '' : 'opacity-40'}
+                >
+                  <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
+                    Clear
+                  </Text>
+                </Pressable>
+              </View>
+              {timeError ? <Text className="mt-2 text-xs text-oxblood">{timeError}</Text> : null}
+              {timerError ? <Text className="mt-2 text-xs text-oxblood">{timerError}</Text> : null}
             </View>
           ) : null}
 
