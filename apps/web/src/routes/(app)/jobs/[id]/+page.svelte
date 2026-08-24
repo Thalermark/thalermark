@@ -58,7 +58,7 @@
   // user's to change per entry. untrack() because this reads the job's default
   // ONCE, on arrival: following it would overwrite a deliberate override every
   // time the job reloaded.
-  let lineUnit = $state<string>(untrack(() => time.billingUnit));
+  let lineUnit = $state<string>(untrack(() => form?.typed?.unit ?? time.billingUnit));
   const billsByHour = $derived(lineUnit === 'hour');
   // "Hours" was hard-coded, which read as a lie on a job billing by the visit.
   // Capitalised at render because the labels are lowercase nouns.
@@ -152,14 +152,21 @@
   // and this component is rebuilt with the result in `form`. A $state initialiser
   // runs exactly once per mount, which is precisely the "seed it once" semantics
   // an effect was being used to fake.
+  // Restored from a rejected submit when there is one, otherwise seeded from a
+  // stopwatch stop, otherwise empty. A failed entry used to lose everything the
+  // user typed, because a plain POST re-renders the page and these reset.
   let duration = $state(
-    untrack(() =>
-      form?.stoppedMinutes ? (Math.round((form.stoppedMinutes / 60) * 100) / 100).toFixed(2) : '',
+    untrack(
+      () =>
+        form?.typed?.duration ??
+        (form?.stoppedMinutes
+          ? (Math.round((form.stoppedMinutes / 60) * 100) / 100).toFixed(2)
+          : ''),
     ),
   );
-  let note = $state('');
-  let cardStart = $state('');
-  let cardEnd = $state('');
+  let note = $state(untrack(() => form?.typed?.note ?? ''));
+  let cardStart = $state(untrack(() => form?.typed?.startTime ?? ''));
+  let cardEnd = $state(untrack(() => form?.typed?.endTime ?? ''));
 
   const hasEntryInput = $derived(Boolean(duration || note || cardStart || cardEnd));
 
@@ -209,7 +216,13 @@
   // reads the value ONCE, on arrival, and deliberately does not follow it. A
   // derived here would be the bug we just removed.
   let logMode = $state<(typeof LOG_MODES)[number]['key']>(
-    untrack(() => (timer?.jobId === job.id ? 'stopwatch' : 'duration')),
+    untrack(() => {
+      // A rejected time-card submit comes back to the time card, not to Duration
+      // — otherwise the restored clock times are sitting in a mode that does not
+      // render them, which reads as the entry having been eaten.
+      if (form?.typed?.startTime || form?.typed?.endTime) return 'card';
+      return timer?.jobId === job.id ? 'stopwatch' : 'duration';
+    }),
   );
   const cardSpan = $derived(
     cardStart && cardEnd ? minutesFromClockSpan(cardStart, cardEnd) : null,
@@ -581,15 +594,17 @@
         the mode picks how the DURATION is entered, and on these jobs the
         duration is only ever optional context for effective-hourly.
       -->
-      <div class="w-24">
-        <label for="quantity" class="label block capitalize">{billingUnitLabel(lineUnit, '2')}</label>
+      <div class="w-28">
+        <label for="quantity" class="label block capitalize whitespace-nowrap">
+          {billingUnitLabel(lineUnit, '2')}
+        </label>
         <input
           id="quantity"
           name="quantity"
           type="text"
           inputmode="decimal"
           placeholder="1"
-          value="1"
+          value={form?.typed?.quantity || '1'}
           required
           class="field mt-1"
         />
@@ -692,10 +707,34 @@
         </button>
       {/if}
     {:else}
-      <div class="w-24">
-        <label for="duration" class="label block">
-          {billsByHour ? 'Hours' : 'Time spent'}
-        </label>
+      <!--
+        w-28. The label is short enough not to need more, which is the better
+        fix than the wide cell that preceded it: "Time spent (hours)" wrapped in
+        a w-24 box, made the cell taller, and pushed its input BELOW the boxes
+        either side — the same misalignment the Running label had.
+
+        whitespace-nowrap keeps that failure loud. If the copy ever outgrows the
+        cell again it overflows visibly rather than quietly dropping a field out
+        of the row, which is the version that took a screenshot to notice.
+      -->
+      <div class="w-28">
+        <!--
+          "Hours" IN BOTH BRANCHES, because it is hours in both. The non-hourly
+          branch used to say "Time spent" with a placeholder of "optional",
+          naming neither the unit nor a format — so someone billing by the job
+          typed "30" for half an hour, got 30 HOURS, blew the one-day cap, and
+          was shown a generic error (owner report, 2026-08-23).
+
+          Naming the unit is the whole fix, and it belongs on the LABEL. That
+          frees the placeholder to carry the other difference between the two
+          branches — whether the field is required at all.
+
+          Cost, accepted: "0:30" also advertised the h:mm form the parser has
+          always taken, and nobody discovers that on their own. With the label
+          saying Hours, half an hour is "0.5", which is the natural thing to
+          type anyway.
+        -->
+        <label for="duration" class="label block whitespace-nowrap">Hours</label>
         <!--
           Not `required` even on an hourly job: the stopwatch mode fills this
           after the fact, and the action rejects an entry that records nothing.
@@ -725,7 +764,7 @@
         type="text"
         inputmode="decimal"
         placeholder="—"
-        value={lastRate}
+        value={form?.typed?.rate ?? lastRate}
         class="field mt-1"
       />
     </div>

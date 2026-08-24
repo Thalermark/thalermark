@@ -1,4 +1,4 @@
-import { isCodeShaped, messageForApiError } from '@thalermark/validation';
+import { firstIssueMessage, isCodeShaped, messageForApiError } from '@thalermark/validation';
 
 // The mobile half of the shared error vocabulary (TMC-220). The catalogue itself
 // lives in @thalermark/validation so this file and its web twin cannot drift —
@@ -59,6 +59,12 @@ export function apiErrorMessage(
   // catalogue with the rest.
   if (code === 'period_closed') return periodClosedMessage(closedThroughOf(body));
   if (code === 'company_retired') return COMPANY_RETIRED_MESSAGE;
+
+  // A field-level message beats the catalogue entry — see firstIssueMessage.
+  if (code === 'invalid_body') {
+    const first = firstIssueMessage(body);
+    if (first) return first;
+  }
 
   const known = messageForApiError(code);
   if (known) return known;

@@ -1,4 +1,4 @@
-import { isCodeShaped, messageForApiError } from '@thalermark/validation';
+import { firstIssueMessage, isCodeShaped, messageForApiError } from '@thalermark/validation';
 
 // Shared translation for API error codes that any posting route can return.
 //
@@ -62,6 +62,7 @@ function closedThroughOf(body: unknown): string | undefined {
 // `formErrorFor(code) ?? apiErrorMessage(code, 'A sentence.', body)`, so
 // route-specific copy still wins where it exists — it just is not load-bearing
 // for correctness any more.
+
 export function apiErrorMessage(
   code: string | undefined,
   fallback: string,
@@ -71,6 +72,21 @@ export function apiErrorMessage(
   // catalogue with the rest.
   if (code === 'period_closed') return periodClosedMessage(closedThroughOf(body));
   if (code === 'company_retired') return COMPANY_RETIRED_MESSAGE;
+
+  // A FIELD-LEVEL MESSAGE BEATS THE CATALOGUE ENTRY. `invalid_body` carries a
+  // zod issue list, and those messages are written for the person looking at the
+  // form ("Enter how many visits you did", "That is more than a day"). Mapping
+  // the code first threw all of that away and printed "Some of those details are
+  // not right. Check the form and try again" — which names no field and gives no
+  // reason, so the user has to guess which box is wrong (owner report,
+  // 2026-08-23: typed 30 for half an hour, was told nothing).
+  //
+  // Only the FIRST issue: this renders as one line under the form, and a stack
+  // of them reads worse than the one that will actually block the save.
+  if (code === 'invalid_body') {
+    const first = firstIssueMessage(body);
+    if (first) return first;
+  }
 
   const known = messageForApiError(code);
   if (known) return known;

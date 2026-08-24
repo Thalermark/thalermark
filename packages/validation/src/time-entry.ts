@@ -21,6 +21,8 @@ import {
 // invoice.
 export const MINUTES_IN_A_DAY = 1440;
 
+const CAP_MESSAGE = 'That is more than a day. Enter hours like 3.25, or 0:30 for half an hour.';
+
 // How a job bills (TMC-264). Asked ONCE on the job, inherited by every entry.
 //
 // A CLOSED SET because the invoice line has to read "3 visits" and not
@@ -136,8 +138,30 @@ export function timeEntryQuantity(
 //
 // One function, called by the API and by both clients, because a line seeded on
 // a phone and the same line seeded on a desktop must not bill differently.
-export function entryUnit(entry: { unit?: string | null }, jobBillingUnit: string): BillingUnit {
+export function entryUnit(
+  entry: { unit?: string | null; quantity?: string | null; minutes?: number | null },
+  jobBillingUnit: string,
+): BillingUnit {
   if (entry.unit && isBillingUnit(entry.unit)) return entry.unit;
+
+  // AN ENTRY CANNOT BE REINTERPRETED INTO A UNIT IT HAS NO DATA FOR.
+  //
+  // Inheriting the job's default is right for an entry carrying a COUNT: one
+  // visit becomes one night if the operator later decides that is what this job
+  // bills, and the count carries over untouched.
+  //
+  // It is WRONG for an entry carrying only a duration. Hours entries have no
+  // count at all, so inheriting a switch to nights made timeEntryQuantity return
+  // null for them — which is not a display problem. Null means "nothing billable
+  // here", so the invoice seeding filtered them out and jobUnbilled skipped them,
+  // and several hours of rated, unbilled work silently stopped being billable.
+  // Found on a real job (owner, 2026-08-24): three entries of 240, 360 and 720
+  // minutes reading "0 nights" and absent from ready-to-bill.
+  //
+  // So an entry with no count is an HOURS entry, whatever its job now says. That
+  // is the only unit its own data can express.
+  if (entry.quantity == null && entry.minutes != null) return 'hour';
+
   return isBillingUnit(jobBillingUnit) ? jobBillingUnit : 'hour';
 }
 
@@ -170,7 +194,12 @@ const RECORD_SOMETHING = {
 const timeEntryFields = {
   entryDate: isoDateString,
   // Nullable since TMC-264: optional on a job that does not bill by the hour.
-  minutes: z.number().int().positive().max(MINUTES_IN_A_DAY).nullable().optional(),
+  // The cap's message is written for a HUMAN TYPING HOURS, because that is what
+  // every entry form asks for. Zod's default said "Enter 1440 or less", quoting
+  // a minute count the user never typed and cannot relate to the box in front of
+  // them. Someone entering "30" for half an hour hit it and learned nothing
+  // (owner report, 2026-08-23).
+  minutes: z.number().int().positive().max(MINUTES_IN_A_DAY, CAP_MESSAGE).nullable().optional(),
   // The count in this line's unit. Null when the line bills by the hour, where
   // the count IS the duration.
   quantity: quantityString.nullable().optional(),
@@ -224,7 +253,7 @@ export type TimeEntryCreateInput = z.infer<typeof timeEntryCreateSchema>;
 export const timeEntryUpdateSchema = z
   .object({
     entryDate: isoDateString.optional(),
-    minutes: z.number().int().positive().max(MINUTES_IN_A_DAY).nullable().optional(),
+    minutes: z.number().int().positive().max(MINUTES_IN_A_DAY, CAP_MESSAGE).nullable().optional(),
     quantity: quantityString.nullable().optional(),
     unit: z.enum(BILLING_UNITS).nullable().optional(),
     startTime: clockTimeString.nullable().optional(),

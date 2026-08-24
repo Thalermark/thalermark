@@ -10,7 +10,6 @@ import {
 import {
   billingUnitLabel,
   centsToMoney,
-  entryUnit,
   isBillingUnit,
   jobCreateSchema,
   jobUpdateSchema,
@@ -508,10 +507,23 @@ export function jobsRoutes() {
           // Returned in the same { error, issues } shape a schema failure uses,
           // so both clients' existing field-error handling covers it and no raw
           // code reaches a user (TMC-219 / TMC-220).
-          // This LINE's unit, not the job's: one job can mix them (a drop-in
-          // visit and an hourly afternoon for the same customer), so the
-          // required-field rule has to be judged per entry.
-          const lineUnit = entryUnit(body, job.billingUnit);
+          // WHAT THE CALLER IS TRYING TO LOG — deliberately NOT entryUnit().
+          //
+          // The two questions look identical and are not:
+          //
+          //   READING an existing row asks "what can this data express?", and
+          //   must never reinterpret an hours entry into a unit it has no count
+          //   for. entryUnit() answers that, and it is why switching a job to
+          //   nights no longer makes its logged hours unbillable.
+          //
+          //   CREATING a row asks "what did they mean?", and there is no
+          //   existing data to protect. An omitted unit means the job's default,
+          //   so a per-visit job still demands a count instead of quietly
+          //   accepting a bare duration as hours.
+          //
+          // Collapsing the two made this route accept a countless entry on a
+          // per-visit job, which is the exact validation the unit exists for.
+          const lineUnit = body.unit && isBillingUnit(body.unit) ? body.unit : job.billingUnit;
           const missing = missingForUnit(lineUnit, body);
           if (missing) return c.json({ error: 'invalid_body', issues: [missing] }, 400);
 
@@ -756,10 +768,13 @@ export function jobsRoutes() {
             quantity: 'quantity' in patch ? (patch.quantity ?? null) : current.quantity,
             unit: 'unit' in patch ? (patch.unit ?? null) : current.unit,
           };
-          const missing = missingForUnit(
-            entryUnit(merged, ownerJob?.billingUnit ?? 'hour'),
-            merged,
-          );
+          // Same split as create: what the caller MEANS, not what the stored
+          // data can express.
+          const mergedUnit =
+            merged.unit && isBillingUnit(merged.unit)
+              ? merged.unit
+              : (ownerJob?.billingUnit ?? 'hour');
+          const missing = missingForUnit(mergedUnit, merged);
           if (missing) return c.json({ error: 'invalid_body', issues: [missing] }, 400);
 
           const [updated] = await tx

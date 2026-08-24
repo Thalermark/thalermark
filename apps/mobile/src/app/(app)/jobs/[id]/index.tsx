@@ -24,6 +24,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from '../../../../lib/api';
+import { apiErrorMessage } from '../../../../lib/api-errors';
 import { useMay } from '../../../../lib/role';
 
 // Mirror of apps/web's /jobs/[id]. The margin block leads, and the number it
@@ -368,7 +369,11 @@ export default function JobDetailScreen() {
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
-        setTimeError(body?.error ?? 'Could not log that.');
+        // Was `body?.error`, which printed the raw code — hitting the one-day cap
+        // showed the user the literal string "invalid_body". That is exactly the
+        // class TMC-219 / TMC-220 exist to prevent, and every other mobile screen
+        // already routes through this helper.
+        setTimeError(apiErrorMessage(body?.error, 'Could not log that.', body));
         return;
       }
       setDuration('');
@@ -911,7 +916,13 @@ export default function JobDetailScreen() {
                   <TextInput
                     value={duration}
                     onChangeText={setDuration}
-                    placeholder={billsByHour ? '3.25' : 'Time spent — optional'}
+                    // NAMES THE UNIT. Mobile has no field labels — placeholders
+                    // are the labels here — so "Time spent" named neither the
+                    // unit nor a format, and the placeholder vanishes the moment
+                    // you type. Someone billing by the job typed 30 for half an
+                    // hour and got thirty hours (owner report, 2026-08-23); web
+                    // had a label to fix, mobile has only this.
+                    placeholder={billsByHour ? 'Hours, like 3.25' : 'Hours (optional)'}
                     keyboardType="decimal-pad"
                     className="flex-1 rounded-sm border border-field bg-cream-warm px-3 py-2.5 text-ink"
                   />

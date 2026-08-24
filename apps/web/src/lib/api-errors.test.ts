@@ -65,3 +65,44 @@ describe('apiErrorMessage', () => {
     expect(apiErrorMessage(undefined, 'That could not be saved.')).toBe('That could not be saved.');
   });
 });
+
+describe('invalid_body surfaces the field message, not the catalogue entry', () => {
+  // Owner report 2026-08-23: typed "30" meaning half an hour into a field
+  // measured in hours, got 30 HOURS, blew the one-day cap, and was told "Some of
+  // those details are not right" — which names no field and gives no reason.
+  it('prefers a zod issue message over the generic invalid_body copy', () => {
+    expect(
+      apiErrorMessage('invalid_body', 'fallback', {
+        error: 'invalid_body',
+        issues: [
+          {
+            path: ['minutes'],
+            message: 'That is more than a day. Enter hours like 3.25, or 0:30 for half an hour.',
+          },
+        ],
+      }),
+    ).toBe('That is more than a day. Enter hours like 3.25, or 0:30 for half an hour.');
+  });
+
+  it('falls back to the catalogue when the body carries no usable issue', () => {
+    for (const body of [
+      null,
+      undefined,
+      {},
+      { issues: [] },
+      { issues: 'nope' },
+      { issues: [{}] },
+    ]) {
+      const msg = apiErrorMessage('invalid_body', 'fallback', body);
+      expect(msg).not.toBe('fallback');
+      expect(msg.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('ignores a code-shaped issue message rather than showing it raw', () => {
+    // TMC-219 / TMC-220: a snake_case code must never reach a user as copy.
+    expect(
+      apiErrorMessage('invalid_body', 'fallback', { issues: [{ message: 'too_big' }] }),
+    ).not.toBe('too_big');
+  });
+});
