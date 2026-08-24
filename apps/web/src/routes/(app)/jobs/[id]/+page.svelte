@@ -594,8 +594,10 @@
         the mode picks how the DURATION is entered, and on these jobs the
         duration is only ever optional context for effective-hourly.
       -->
-      <div class="w-24">
-        <label for="quantity" class="label block capitalize">{billingUnitLabel(lineUnit, '2')}</label>
+      <div class="w-28">
+        <label for="quantity" class="label block capitalize whitespace-nowrap">
+          {billingUnitLabel(lineUnit, '2')}
+        </label>
         <input
           id="quantity"
           name="quantity"
@@ -705,7 +707,18 @@
         </button>
       {/if}
     {:else}
-      <div class="w-24">
+      <!--
+        w-40, not w-24. "Hours spent" does not fit the narrower cell at this
+        tracking, and a wrapped label is not a cosmetic problem: it makes the
+        cell taller, which pushes its input BELOW the inputs either side of it.
+        That is the same misalignment the Running label had, from the same cause.
+
+        Sized with headroom rather than to fit exactly, so a copy edit does not
+        silently reintroduce the wrap. whitespace-nowrap on the label makes that
+        failure loud (overflow) instead of silent (a dropped field) if it ever
+        does outgrow the cell again.
+      -->
+      <div class="w-40">
         <!--
           NAMES ITS UNIT IN BOTH BRANCHES. The hourly branch always said "Hours";
           the non-hourly one said "Time spent" with a placeholder of "optional",
@@ -713,8 +726,8 @@
           "30" for half an hour, got 30 HOURS, blew the one-day cap, and was shown
           a generic error (owner report, 2026-08-23).
         -->
-        <label for="duration" class="label block">
-          {billsByHour ? 'Hours' : 'Time spent (hours)'}
+        <label for="duration" class="label block whitespace-nowrap">
+          {billsByHour ? 'Hours' : 'Hours spent'}
         </label>
         <!--
           Not `required` even on an hourly job: the stopwatch mode fills this
