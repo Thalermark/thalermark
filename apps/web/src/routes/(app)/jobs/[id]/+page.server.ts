@@ -131,6 +131,24 @@ export const actions: Actions = {
     const unit = String(data.get('unit') ?? 'hour');
     const billsByHour = unit === 'hour';
 
+    // WHAT THE USER TYPED, returned with every failure below.
+    //
+    // These forms are plain POSTs (no use:enhance anywhere on this page), so a
+    // fail() re-renders the page from scratch and every field resets to its
+    // initial value. That meant any rejected entry silently threw away the
+    // duration, the note and the clock times, and the user had to retype the
+    // thing they were being corrected about. Echoing them back lets the page
+    // restore what was there.
+    const typed = {
+      unit,
+      duration: String(data.get('duration') ?? ''),
+      quantity: String(data.get('quantity') ?? ''),
+      startTime: String(data.get('startTime') ?? ''),
+      endTime: String(data.get('endTime') ?? ''),
+      note: String(data.get('note') ?? ''),
+      rate: String(data.get('rate') ?? ''),
+    };
+
     // THREE WAYS IN, ONE RECORD OUT. A typed duration, a stopwatch (which fills
     // the duration field rather than logging directly), and a time card (TMC-265)
     // — which also resolves to a duration here rather than becoming a second kind
@@ -148,14 +166,14 @@ export const actions: Actions = {
     if (startTime && endTime) {
       const span = minutesFromClockSpan(startTime, endTime);
       if (span === null) {
-        return fail(400, { timeError: 'Check the start and end times.' });
+        return fail(400, { timeError: 'Check the start and end times.', typed });
       }
       // An overnight span stays ONE entry, dated by its start (owner decision).
       // The client already showed the computed hours and said it ran overnight,
       // so nothing is being decided here that the user has not seen.
       minutes = span.minutes;
     } else if (startTime || endTime) {
-      return fail(400, { timeError: 'Enter both a start and an end time, or neither.' });
+      return fail(400, { timeError: 'Enter both a start and an end time, or neither.', typed });
     } else {
       // Shared with mobile (@thalermark/validation) so the same typed string can
       // never become two different durations.
@@ -165,14 +183,14 @@ export const actions: Actions = {
     // On an hourly job the duration IS the billable amount, so it is required.
     // On any other unit it is optional context for effective-hourly.
     if (billsByHour && minutes === null) {
-      return fail(400, { timeError: 'Enter hours like 3.25 or 3:15.' });
+      return fail(400, { timeError: 'Enter hours like 3.25 or 3:15.', typed });
     }
 
     // The count, in the job's own unit. Required on a non-hourly job for the
     // same reason hours are required on an hourly one: it is what gets billed.
     const quantityRaw = String(data.get('quantity') ?? '').trim();
     if (!billsByHour && !quantityRaw) {
-      return fail(400, { timeError: 'Enter how many you did.' });
+      return fail(400, { timeError: 'Enter how many you did.', typed });
     }
 
     const entryDate = String(data.get('entryDate') ?? '').trim();
@@ -196,6 +214,7 @@ export const actions: Actions = {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
       return fail(res.status, {
         timeError: apiErrorMessage(body?.error, 'That could not be recorded. Try again.', body),
+        typed,
       });
     }
     redirect(303, `/jobs/${event.params.id}`);

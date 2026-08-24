@@ -2404,6 +2404,28 @@ describe('a job bills in its own unit', () => {
     }
   });
 
+  // Reported from web: pick the "job" unit, then fill the OPTIONAL time-spent
+  // field, and it errors. Reproduced at the API boundary first to find out which
+  // side owns the bug.
+  it('accepts a non-hourly line that also records an optional duration', async () => {
+    const ctx = await setup('unit-optional-duration@test.com');
+    try {
+      const jobId = await makeJob(ctx, 'Fence repair'); // job default: hour
+      const res = await postTime(ctx, jobId, {
+        quantity: '1',
+        unit: 'job',
+        minutes: 30,
+        rate: '15.00',
+      });
+      expect(res.status).toBe(201);
+      const row = (await res.json()) as { unit: string | null; minutes: number; quantity: string };
+      expect(row.unit).toBe('job');
+      expect(row.minutes).toBe(30);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
   // TMC-265. The clock times are kept, not discarded after computing minutes,
   // because when the work happened matters on the customer's invoice.
   it('stores the clock times a time card was typed as', async () => {
