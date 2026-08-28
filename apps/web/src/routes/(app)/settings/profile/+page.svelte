@@ -1,11 +1,12 @@
 <script lang="ts">
+  import ConfirmSubmit from '$lib/components/ConfirmSubmit.svelte';
   import { onMount, untrack } from 'svelte';
   import { invalidateAll } from '$app/navigation';
   import { authClient } from '$lib/auth-client';
   import PasswordStrength from '$lib/components/PasswordStrength.svelte';
   import { checkPassword } from '@thalermark/validation';
 
-  let { data } = $props();
+  let { data, form } = $props();
 
   // --- Display name ---
   // Seed the editable field from the load once; untrack so it isn't re-captured
@@ -218,4 +219,58 @@
       You sign in with a connected account, so there's no password on this account to change.
     </p>
   {/if}
+</section>
+
+<!-- Deleting yourself, NOT deleting a business. Those are different doors and the
+     product has both: "Close this business" under Settings → Business ends a
+     company, this ends your own access to everything. Someone invited to help
+     with the invoicing for three months needs this one, and it must not read as
+     if it touches the books (TMC-268). -->
+<section class="mt-12 rounded-sm border border-danger/30 bg-danger/5">
+  <header class="border-b border-danger/20 px-6 py-5">
+    <span class="eyebrow text-danger">Deleting your profile</span>
+    <p class="mt-2 max-w-prose text-sm leading-relaxed text-fg/70">
+      This removes you from every business you have been invited to and closes your sign-in for
+      good. The work you did stays where it is: invoices you sent and expenses you logged still
+      belong to those businesses, and still show your name.
+    </p>
+    <p class="mt-2 max-w-prose text-sm leading-relaxed text-fg/60">
+      This is about you, not about a business. To wind down a business itself, use
+      <a class="link" href="/settings/business">Close this business</a> instead.
+    </p>
+  </header>
+  <div class="px-6 py-5">
+    {#if form?.ownedWorkspaces?.length}
+      <!-- Refused because other people are relying on them. Named, so the next
+           step is obvious rather than a dead end. -->
+      <div class="mb-4 rounded-sm border border-warning/40 bg-warning/5 px-4 py-3">
+        <p class="text-sm text-fg">
+          Other people are still working in
+          {#each form.ownedWorkspaces as name, i (name)}<span class="font-medium"
+              >{name}</span
+            >{i < form.ownedWorkspaces.length - 1 ? ', ' : ''}{/each}, which you own.
+        </p>
+        <p class="mt-2 text-sm text-fg/70">
+          Hand it over to someone else under <a class="link" href="/settings/team">Team</a>, or close
+          the business first. Then you can delete your profile.
+        </p>
+      </div>
+    {/if}
+    {#if form?.deleteError}
+      <p class="mb-4 text-sm text-danger">{form.deleteError}</p>
+    {/if}
+    <ConfirmSubmit
+      action="?/deleteProfile"
+      label="Delete my profile"
+      title="Delete your profile?"
+      confirmLabel="Delete my profile"
+      triggerClass="rounded-sm border border-danger/40 px-3 py-1.5 text-sm font-medium text-danger transition-colors hover:bg-danger/10"
+    >
+      {#snippet body()}
+        You are signed out everywhere and removed from every business you were invited to. You
+        cannot sign back in with this email, though you could sign up again as someone new. Nothing
+        anyone else owns is deleted.
+      {/snippet}
+    </ConfirmSubmit>
+  </div>
 </section>

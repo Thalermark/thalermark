@@ -1,8 +1,16 @@
 import { randomBytes } from 'node:crypto';
-import { accounts, authUser, invitations, memberships } from '@thalermark/db';
+import {
+  accounts,
+  authAccount,
+  authSession,
+  authUser,
+  invitations,
+  memberships,
+} from '@thalermark/db';
 import { disableTelemetry, enableTelemetry, isTelemetryDisabled } from '@thalermark/telemetry';
 import { can, inviteRoleSchema, telemetryUpdateSchema } from '@thalermark/validation';
-import { and, asc, desc, eq, gt, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, isNull, ne, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 import { v7 as uuidv7 } from 'uuid';
@@ -178,6 +186,91 @@ export function accountRoutes(deps: AppDeps) {
         }
         await enableTelemetry(tx);
         return c.json({ enabled: true, decided: true, disabled: false });
+      })
+      // Delete my profile (TMC-268). Removes the person from every workspace they
+      // were invited to and ends their ability to sign in. This is the door an
+      // invited helper needs when the work stops: it is about THEM, not about
+      // anybody's business, and it touches no ledger.
+      //
+      // A bootstrap path — user-scoped, not account-scoped. Someone leaving may
+      // belong to several workspaces or, by the end of this call, to none, so
+      // requiring an x-account-id would be asking which workspace they are
+      // leaving from when the answer is "all of them".
+      //
+      // NOT a hard delete. audit_events.actor_user_id is NOT NULL and references
+      // auth_user, so removing the row would take the history with it and an
+      // owner would lose the record of who did the work. The row is tombstoned
+      // instead: personal data blanked, email replaced with a non-routable
+      // placeholder (which frees the real one for a fresh sign-up), and the
+      // snapshotted actor_name on each audit row keeps the history readable.
+      .post('/api/me/profile/delete', async (c) => {
+        const userId = c.get('userId');
+
+        // Refused only where OTHER PEOPLE depend on them. Deleting the owner of a
+        // shared workspace would orphan it or silently close somebody's business,
+        // which is a bigger decision than "I am done here" — the same reason the
+        // team screen refuses to let an owner leave. The workspaces are named so
+        // the answer is actionable rather than a flat no.
+        //
+        // The "other people" part is load-bearing, not a refinement. Sign-up
+        // seeds every new user their own starter workspace and makes them its
+        // owner (packages/auth), so "owns a workspace" is true of literally
+        // everyone and gating on it would refuse every request this route can
+        // ever receive. A workspace with only you in it is yours to walk away
+        // from; it simply becomes memberless, which is exactly the state the
+        // reaper is for (TMC-288).
+        const others = alias(memberships, 'others');
+        const owned = await bootstrapDb
+          .selectDistinct({ accountId: memberships.accountId, name: accounts.name })
+          .from(memberships)
+          .innerJoin(accounts, eq(accounts.id, memberships.accountId))
+          .innerJoin(
+            others,
+            and(eq(others.accountId, memberships.accountId), ne(others.userId, userId)),
+          )
+          .where(and(eq(memberships.userId, userId), eq(memberships.role, 'owner')));
+        if (owned.length > 0) {
+          return c.json(
+            {
+              error: 'owner_must_hand_over',
+              workspaces: owned.map((o) => ({ accountId: o.accountId, name: o.name })),
+            },
+            409,
+          );
+        }
+
+        const [me] = await bootstrapDb
+          .select({ email: authUser.email, deletedAt: authUser.deletedAt })
+          .from(authUser)
+          .where(eq(authUser.id, userId))
+          .limit(1);
+        if (!me) return c.json({ error: 'not_found' }, 404);
+        if (me.deletedAt) return c.json({ ok: true });
+
+        await bootstrapDb.transaction(async (tx) => {
+          // Out of every workspace. Their audit rows stay, and still name them.
+          await tx.delete(memberships).where(eq(memberships.userId, userId));
+          // Pending invitations match on EMAIL at accept time, so leaving one
+          // behind would hand it to whoever next signs up with that address —
+          // which this delete deliberately makes possible.
+          await tx.delete(invitations).where(eq(invitations.email, me.email));
+          // Credentials and live sessions: signed out everywhere, immediately.
+          await tx.delete(authAccount).where(eq(authAccount.userId, userId));
+          await tx.delete(authSession).where(eq(authSession.userId, userId));
+          await tx
+            .update(authUser)
+            .set({
+              // Unique + NOT NULL, so it is replaced rather than nulled. The
+              // placeholder domain is reserved by RFC 6761 and cannot receive
+              // mail. Swapping it is what frees the real address.
+              email: `deleted-${userId}@invalid`,
+              name: null,
+              image: null,
+              deletedAt: new Date(),
+            })
+            .where(eq(authUser.id, userId));
+        });
+        return c.json({ ok: true });
       })
       .get('/api/account/export', requireCapability('reports:export'), async (c) => {
         // Full-account data export ("Settings → Export"). Bulk read of every

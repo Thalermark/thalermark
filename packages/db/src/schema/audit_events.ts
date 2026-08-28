@@ -22,6 +22,13 @@ export const auditEvents = pgTable(
     actorUserId: uuid('actor_user_id')
       .notNull()
       .references(() => authUser.id),
+    // The actor's display name AS IT WAS when the row was written. The read
+    // prefers the live name off auth_user and falls back to this, so a rename
+    // still shows through history for someone who is still here, while a deleted
+    // profile pins to the name that was true at the time. Without it, a workspace
+    // whose helpers come and go fills up with "Unknown" and stops answering the
+    // one question an audit trail exists to answer (TMC-268).
+    actorName: text('actor_name'),
     entityType: text('entity_type').notNull(),
     entityId: uuid('entity_id').notNull(),
     action: text('action').notNull(),
