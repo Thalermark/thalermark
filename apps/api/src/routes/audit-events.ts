@@ -103,7 +103,13 @@ export function auditEventsRoutes() {
         action: auditEvents.action,
         entityType: auditEvents.entityType,
         entityId: auditEvents.entityId,
+        // Live name first so a rename shows through history; the snapshot on the
+        // row is the fallback, which is what a deleted profile resolves to
+        // (TMC-268). Without the snapshot this went straight to 'Unknown' and a
+        // workspace whose helpers had left stopped saying who did the work.
         actorName: authUser.name,
+        actorNameAtTime: auditEvents.actorName,
+        actorDeletedAt: authUser.deletedAt,
         actorIsSystem: authUser.isSystem,
         createdAt: auditEvents.createdAt,
         before: auditEvents.before,
@@ -305,7 +311,10 @@ export function auditEventsRoutes() {
         entityType: r.entityType,
         entityId: r.entityId,
         entityLabel: feedMode ? (labelMap.get(`${r.entityType}:${r.entityId}`) ?? null) : null,
-        actorName: r.actorIsSystem ? 'System' : (r.actorName ?? 'Unknown'),
+        actorName: r.actorIsSystem ? 'System' : (r.actorName ?? r.actorNameAtTime ?? 'Unknown'),
+        // Lets the UI mark someone who has since left, so the owner can tell
+        // "Sarah did this" from "Sarah did this and is no longer on the team".
+        actorRemoved: !r.actorIsSystem && r.actorDeletedAt != null,
         createdAt: r.createdAt,
         before: r.before,
         after: r.after,

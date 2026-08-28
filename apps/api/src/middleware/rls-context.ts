@@ -61,6 +61,9 @@ const BOOTSTRAP_PATH_PATTERNS: RegExp[] = [
   // tenant tx — the handler reads/writes via bootstrapDb, gated by the session
   // email matching the invitation.
   /^\/api\/me\/invitations$/,
+  // Deleting your own profile. User-scoped, never account-scoped: the person may
+  // belong to several workspaces or, once it succeeds, to none (TMC-268).
+  /^\/api\/me\/profile\/delete$/,
   /^\/api\/invitations\/[^/]+\/accept$/,
   /^\/api\/invitations\/[^/]+\/decline$/,
   /^\/api\/locations\/autocomplete$/,
@@ -142,7 +145,7 @@ function isDeferredTxPath(path: string): boolean {
 // audit/telemetry behaviour.
 function makeRunInTx(
   db: Database,
-  ctx: { accountId: string; userId: string },
+  ctx: { accountId: string; userId: string; userName: string | null },
   scheduleFlush: (db: Database, accountId: string) => void,
 ): RunInTx {
   return async (fn) => {
@@ -153,6 +156,7 @@ function makeRunInTx(
         tx,
         accountId: ctx.accountId,
         actorUserId: ctx.userId,
+        actorName: ctx.userName,
         onWrite: (entry) => {
           didWrite = true;
           search.note(entry.entityType, entry.entityId);
@@ -215,7 +219,14 @@ export function rlsContext({
     // work with c.var.runInTx (which opens short tenant txs on demand).
     if (isDeferredTxPath(c.req.path)) {
       c.set('accountId', accountId);
-      c.set('runInTx', makeRunInTx(db, { accountId, userId: session.user.id }, scheduleFlush));
+      c.set(
+        'runInTx',
+        makeRunInTx(
+          db,
+          { accountId, userId: session.user.id, userName: session.user.name ?? null },
+          scheduleFlush,
+        ),
+      );
       return next();
     }
 
@@ -231,6 +242,9 @@ export function rlsContext({
             tx,
             accountId,
             actorUserId: session.user.id,
+            // Snapshotted so this row still names them after they delete their
+            // profile (TMC-268).
+            actorName: session.user.name ?? null,
             onWrite: (entry) => {
               didWrite = true;
               search.note(entry.entityType, entry.entityId);

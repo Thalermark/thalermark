@@ -16,6 +16,10 @@ export type AuditWriterDeps = {
   tx: Transaction;
   accountId: string;
   actorUserId: string;
+  // The actor's display name at write time, snapshotted onto the row so the
+  // history survives them deleting their profile (TMC-268). Optional: the
+  // background sweeps write as the system actor and have no name to give.
+  actorName?: string | null;
   // Receives the entry that was just written. Callers use it both as the
   // "something was audited" signal that schedules the telemetry flush, and as
   // the invalidation key that marks an entity for search reprojection
@@ -28,6 +32,7 @@ export function createAuditWriter({
   tx,
   accountId,
   actorUserId,
+  actorName,
   onWrite,
 }: AuditWriterDeps): AuditWriter {
   return async (entry) => {
@@ -37,6 +42,7 @@ export function createAuditWriter({
     await tx.insert(auditEvents).values({
       id: uuidv7(),
       accountId,
+      actorName: actorName ?? null,
       companyId: entry.companyId,
       actorUserId,
       entityType: entry.entityType,

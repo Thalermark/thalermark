@@ -25,6 +25,13 @@ export const authUser = pgTable('auth_user', {
   // Read-only impersonation of any account for support; enforced via a separate
   // BYPASSRLS Postgres role at the API connection-pool layer.
   isStaff: boolean('is_staff').notNull().default(false),
+  // Set when the person deleted their own profile. The row survives because
+  // audit_events.actor_user_id is NOT NULL and references it, so removing it
+  // would take the history with it; the personal data does not survive — the
+  // delete path blanks the name and swaps the email for a non-routable
+  // placeholder, freeing the real address for a fresh sign-up. Non-null means
+  // "cannot sign in, is not a person any more" (TMC-268).
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
   // Synthetic actor for system-initiated mutations (recurring invoice jobs,
   // Stripe webhooks). Has no auth_account row, so cannot sign in. Filter by
   // `is_system = false` in any "people in your account" query.
