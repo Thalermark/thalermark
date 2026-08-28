@@ -1,6 +1,6 @@
 <script lang="ts">
+  import { publicApiBaseUrl } from '$lib/public-api-url';
   import { onMount } from 'svelte';
-  import { env } from '$env/dynamic/public';
   import { page } from '$app/state';
   import { authClient } from '$lib/auth-client';
 
@@ -17,7 +17,7 @@
   };
   type Status = 'loading' | 'ready' | 'invalid' | 'working' | 'declined' | 'error';
 
-  const apiUrl = env.PUBLIC_API_URL ?? 'http://localhost:3000';
+  const apiUrl = publicApiBaseUrl;
   const token = $derived(page.url.searchParams.get('token'));
   const session = $derived(page.data.session);
 

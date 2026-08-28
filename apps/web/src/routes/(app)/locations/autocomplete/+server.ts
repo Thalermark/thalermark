@@ -1,4 +1,5 @@
 import { env as privateEnv } from '$env/dynamic/private';
+import * as Sentry from '@sentry/sveltekit';
 import { error, json } from '@sveltejs/kit';
 import { createAddressAutocompleteProvider } from '@thalermark/location';
 import type { RequestHandler } from './$types.js';
@@ -41,7 +42,12 @@ export const GET: RequestHandler = async ({ url }) => {
     const predictions = await provider.autocomplete({ q, country, sessionToken });
     return json({ predictions });
   } catch (err) {
-    console.error('[locations/autocomplete]', err);
+    // Sentry, not console: this is the only error path in the app that a
+    // failing address provider produces, and on console it reaches nobody's
+    // dashboard. The request still degrades gracefully — the caller gets an
+    // empty list and a `degraded` flag — so the operator would otherwise never
+    // learn their geocoder is down (TMC-237).
+    Sentry.captureException(err, { tags: { route: 'locations/autocomplete' } });
     return json({ predictions: [], degraded: true });
   }
 };

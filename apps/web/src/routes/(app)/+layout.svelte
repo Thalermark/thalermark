@@ -2,6 +2,7 @@
   import { page } from '$app/state';
   import GlobalSearch from '$lib/components/GlobalSearch.svelte';
   import LegalConsent from '$lib/components/LegalConsent.svelte';
+  import NavProgress from '$lib/components/NavProgress.svelte';
   import TelemetryConsent from '$lib/components/TelemetryConsent.svelte';
   import UserMenu from '$lib/components/UserMenu.svelte';
   import { may } from '$lib/perms';
@@ -75,6 +76,8 @@
   let searchOpen = $state(false);
 
 </script>
+
+<NavProgress />
 
 <header class="border-b border-fg/10 bg-surface print:hidden">
   <div class="mx-auto flex max-w-5xl items-center justify-between gap-6 px-6 py-6">
