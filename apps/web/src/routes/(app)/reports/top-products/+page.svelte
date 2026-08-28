@@ -15,10 +15,15 @@
     Number(totalRaw).toLocaleString('en-US', { style: 'currency', currency: 'USD' }),
   );
 
+  // Both branches describe what is counted rather than naming the accounting
+  // basis; the 'paid' one used to append "(cash basis)" and its sibling never
+  // did, so the term leaked on one toggle position and not the other (TMC-233).
+  // The sentence already says "paid invoices only", which is the same fact in
+  // words the reader has.
   const basisNote = $derived(
     data.basis === 'sent'
       ? 'Pre-tax revenue from invoices that have been sent or paid.'
-      : 'Pre-tax revenue from paid invoices only (cash basis).',
+      : 'Pre-tax revenue from paid invoices only.',
   );
 
   const csvRows = $derived<CsvCell[][]>([

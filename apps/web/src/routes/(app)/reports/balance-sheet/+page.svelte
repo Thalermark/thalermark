@@ -127,7 +127,16 @@
 </div>
 
 {#if !report.balanced}
+  <!-- `balanced` is true by construction: a Postgres trigger makes every journal
+       entry balance, so adding balanced entries can never change the difference.
+       A false here therefore means a miscategorised account type, a bug in this
+       report, or SQL run outside the app — none of which the reader can fix, and
+       none of which a ledger adjustment would touch. So the copy tells them it is
+       not theirs to fix rather than naming "the ledger", which means nothing to a
+       solo owner, and says their data is intact at the moment of most alarm
+       (TMC-233). -->
   <p class="mt-4 rounded-sm border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
-    This balance sheet doesn't balance — the ledger may have drifted. Please report this.
+    These two totals should match and they don't. Nothing you entered has been lost, and there's
+    nothing to fix on your end. Please contact support.
   </p>
 {/if}

@@ -79,11 +79,14 @@ export default function BalanceSheetReport() {
               </View>
             </ReportCard>
 
+            {/* Mirrors web's wording exactly (TMC-233). `balanced` is true by
+                construction, so a false is never something the reader caused or
+                can fix; the copy says so and reassures that nothing was lost. */}
             {!d.balanced ? (
               <View className="mt-4 rounded-sm border border-oxblood/30 bg-oxblood/5 px-4 py-3">
                 <Text className="text-sm text-oxblood">
-                  This balance sheet doesn't balance — the ledger may have drifted. Please report
-                  this.
+                  These two totals should match and they don't. Nothing you entered has been lost,
+                  and there's nothing to fix on your end. Please contact support.
                 </Text>
               </View>
             ) : null}
