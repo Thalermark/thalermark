@@ -22,6 +22,28 @@ export type SearchSession = {
 //
 // Deduped by key: a request that audits the same invoice three times (create,
 // transition, email-sent) reprojects it once.
+//
+// THE FRESHNESS GUARANTEE, and it is deliberate (TMC-205).
+//
+// Reprojection happens INSIDE the mutation's transaction, so search is never
+// stale: rename a customer, search a second later, and you get the new name.
+// There is no catch-up window and no eventual-consistency caveat to explain to
+// anyone. For a tool people use at speed, "the thing I just touched is
+// findable" is worth paying for.
+//
+// The price was measured rather than assumed, because the obvious change is to
+// move this after COMMIT and the argument for that rests entirely on the cost
+// being noticeable (tests/search-write-cost.perf.test.ts, `SCALE_TEST=1`):
+//
+//   invoice save, 10 line items   6.7ms median, of which reprojection is 0.9ms  (~14%)
+//   bulk import, 500 contacts     178ms total, of which reprojection is   3ms  (~1%)
+//
+// Sub-millisecond on a save, and bulk is close to free because CHUNK batches the
+// whole import into one query — the case that looked like the worst is the best.
+//
+// So this stays in-transaction. Moving it post-commit would trade the guarantee
+// above, plus a second pool checkout on every write, to save 0.9ms nobody can
+// feel. Re-measure before revisiting; do not re-derive from first principles.
 export function createSearchSession(tx: Transaction, accountId: string): SearchSession {
   const pending = new Map<string, SearchKey>();
 
