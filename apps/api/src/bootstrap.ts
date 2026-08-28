@@ -277,6 +277,9 @@ export function createDefaultAppDeps(
     rateLimitEnabled: env.rateLimitEnabled,
     trustedOrigins: env.trustedOrigins,
     publicAppUrl: env.publicAppUrl,
+    // Baked into the image at build time, not configured — GET /api/build-info
+    // serves it so Settings → About can put the api's version beside web's.
+    appVersion: env.appVersion,
     socialProviders: enabledSocialProviders(env),
     mailer,
     resendWebhookSecret: env.resendWebhookSecret,

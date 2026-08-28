@@ -18,6 +18,7 @@ export type {
   AppType,
   AuditEventsAppType,
   BillsAppType,
+  BuildInfoAppType,
   CompaniesAppType,
   ContactsAppType,
   EntityTransferAppType,

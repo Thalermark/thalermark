@@ -6,6 +6,7 @@ import type {
   AppType,
   AuditEventsAppType,
   BillsAppType,
+  BuildInfoAppType,
   CompaniesAppType,
   ContactsAppType,
   EntityTransferAppType,
@@ -41,6 +42,7 @@ const baseUrl = () =>
 const mkMain = (...a: Parameters<typeof hc>) => hc<AppType>(...a);
 const mkAccount = (...a: Parameters<typeof hc>) => hc<AccountAppType>(...a);
 const mkBills = (...a: Parameters<typeof hc>) => hc<BillsAppType>(...a);
+const mkBuildInfo = (...a: Parameters<typeof hc>) => hc<BuildInfoAppType>(...a);
 const mkOwnerMoney = (...a: Parameters<typeof hc>) => hc<OwnerMoneyEventsAppType>(...a);
 const mkPurchases = (...a: Parameters<typeof hc>) => hc<PurchasesAppType>(...a);
 const mkLedger = (...a: Parameters<typeof hc>) => hc<LedgerAppType>(...a);
@@ -63,6 +65,7 @@ const mkEntityTransfer = (...a: Parameters<typeof hc>) => hc<EntityTransferAppTy
 type MainApi = ReturnType<typeof mkMain>['api'];
 type AccountApi = ReturnType<typeof mkAccount>['api'];
 type BillsApi = ReturnType<typeof mkBills>['api'];
+type BuildInfoApi = ReturnType<typeof mkBuildInfo>['api'];
 type OwnerMoneyApi = ReturnType<typeof mkOwnerMoney>['api'];
 type PurchasesApi = ReturnType<typeof mkPurchases>['api'];
 type LedgerApi = ReturnType<typeof mkLedger>['api'];
@@ -112,6 +115,7 @@ export type ServerApiClient = {
     // (app) layout load (state) and the legal-accept proxy (accept).
     legal: AccountApi['legal'];
     bills: BillsApi['bills'];
+    'build-info': BuildInfoApi['build-info'];
     'owner-money': OwnerMoneyApi['owner-money'];
     purchases: PurchasesApi['purchases'];
     ledger: LedgerApi['ledger'];
@@ -209,6 +213,7 @@ export function serverApiClient(event: RequestEvent): ServerApiClient {
     team: accountApi.team,
     legal: accountApi.legal,
     bills: hc<BillsAppType>(base, { headers, fetch: resilientFetch }).api.bills,
+    'build-info': hc<BuildInfoAppType>(base, { headers, fetch: resilientFetch }).api['build-info'],
     'owner-money': hc<OwnerMoneyEventsAppType>(base, { headers, fetch: resilientFetch }).api[
       'owner-money'
     ],

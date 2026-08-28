@@ -29,6 +29,7 @@ import { type RlsVariables, rlsContext } from './middleware/rls-context.js';
 import { accountRoutes } from './routes/account.js';
 import { auditEventsRoutes } from './routes/audit-events.js';
 import { billsRoutes } from './routes/bills.js';
+import { buildInfoRoutes } from './routes/build-info.js';
 import { companiesRoutes } from './routes/companies.js';
 import { contactsRoutes } from './routes/contacts.js';
 import { entityTransferRoutes } from './routes/entity-transfer.js';
@@ -96,6 +97,11 @@ export type AppDeps = {
   rateLimitEnabled?: boolean;
   trustedOrigins?: string[];
   publicAppUrl?: string;
+  // This build's version, served by GET /api/build-info so Settings → About can
+  // show the api's version next to web's compile-time one and make a mismatched
+  // rollout visible. Baked into the image by CI (APP_VERSION build-arg → ENV),
+  // never hand-set. Omitted in tests / embedder deps → the route answers 'dev'.
+  appVersion?: string;
   // Configured social-login provider ids ('google' | 'facebook' | 'twitter'),
   // surfaced by GET /api/social-providers so the web sign-in page renders only
   // the buttons that will work. Empty/omitted = email/password only. Built in
@@ -348,6 +354,7 @@ export function createApp(deps: AppDeps) {
   // provider, local-FS file serving, the mailer for document sends) rather than
   // the tenant tx, so they're constructed with deps here.
   app.route('/', socialProvidersRoutes(deps));
+  app.route('/', buildInfoRoutes(deps));
   app.route('/', searchRoutes(deps));
   app.route('/', locationsRoutes(deps));
   app.route('/', filesRoutes(deps));
@@ -381,6 +388,7 @@ export type MileageAppType = ReturnType<typeof mileageRoutes>;
 export type TaxPoliciesAppType = ReturnType<typeof taxPoliciesRoutes>;
 export type MoneyAccountsAppType = ReturnType<typeof moneyAccountsRoutes>;
 export type SocialProvidersAppType = ReturnType<typeof socialProvidersRoutes>;
+export type BuildInfoAppType = ReturnType<typeof buildInfoRoutes>;
 export type LocationsAppType = ReturnType<typeof locationsRoutes>;
 export type AuditEventsAppType = ReturnType<typeof auditEventsRoutes>;
 export type TelemetryAppType = ReturnType<typeof telemetryRoutes>;

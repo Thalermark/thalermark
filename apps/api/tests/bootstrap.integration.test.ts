@@ -73,6 +73,19 @@ describe('createDefaultAppDeps — the boot factory', () => {
     }
   });
 
+  it('carries the baked-in build version through to deps', async () => {
+    // The wire GET /api/build-info depends on. Without it the route still
+    // answers 200 with its 'dev' fallback, so a broken wire looks like a
+    // working feature everywhere except the one number it exists to report.
+    const { deps, handles } = createDefaultAppDeps(testEnv({ appVersion: 'v1.2.3' }));
+    try {
+      expect(deps.appVersion).toBe('v1.2.3');
+    } finally {
+      await handles.tenantDb.close();
+      await handles.bootstrapDb.close();
+    }
+  });
+
   it('aiEndpointPolicy overrides BOTH env knobs — seals tenant BYOK SSRF at both layers', async () => {
     // env would allow private endpoints AND allowlist a host; the forced policy must
     // win at BOTH the connect-time store guard and the request-time settings check —

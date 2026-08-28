@@ -5,8 +5,20 @@
   let { data }: PageProps = $props();
 
   // Compiled in at build time (Vite `define`, fed by the git tag / APP_VERSION
-  // build-arg). No runtime env, no API call — it's the version of this build.
+  // build-arg). No runtime env, no API call. It is the version of this build.
   const version = __APP_VERSION__;
+
+  // The API reports its own build separately (GET /api/build-info), because web
+  // and api are two images that can end up at different versions: a rollout that
+  // only half finished, a rolled back api, a stale cached web bundle. Null when
+  // the API could not be reached, which is not a mismatch, just unknown.
+  //
+  // Both sides resolve their version the same way (an explicit APP_VERSION, else
+  // `git describe --tags --always --long`), so in a dev checkout they agree on
+  // the commit and this stays quiet. It does fire if you commit while the dev
+  // server is running, because this page's number was frozen at start-up and the
+  // api's was not — which is a true statement about what is running.
+  const mismatched = $derived(data.apiVersion !== null && data.apiVersion !== version);
 
   const siteUrl = `https://${DOMAIN}`;
   const sourceUrl = 'https://github.com/Thalermark/thalermark';
@@ -100,8 +112,25 @@
   </header>
   <dl class="grid gap-4 px-6 py-6 text-sm">
     <div class="flex items-center justify-between gap-4">
-      <dt class="text-fg/60">{PRODUCT_NAME}</dt>
+      <dt class="text-fg/60">This page</dt>
       <dd class="font-mono text-fg">{version}</dd>
     </div>
+    <div class="flex items-center justify-between gap-4">
+      <dt class="text-fg/60">Server</dt>
+      <dd class="font-mono {data.apiVersion ? 'text-fg' : 'text-fg/40'}">
+        {data.apiVersion ?? 'unavailable'}
+      </dd>
+    </div>
   </dl>
+  {#if mismatched}
+    <!-- The two numbers come from different places on purpose: this page's is
+         compiled into the web build, the server's is read from its own image.
+         Showing them separately is only useful if a disagreement is called out,
+         because nobody compares two version strings by eye. -->
+    <p class="border-t border-fg/10 px-6 py-5 text-sm leading-relaxed text-fg/70">
+      These two normally match. They don't right now, which usually means an update finished only
+      part way. It often sorts itself out in a minute or two. If it doesn't, whoever runs this
+      server will want to know.
+    </p>
+  {/if}
 </section>

@@ -74,6 +74,40 @@ const weakDefaults: NodeJS.ProcessEnv = {
   BETTER_AUTH_URL: 'http://localhost:3000',
 };
 
+// The version GET /api/build-info reports. It exists to be compared against the
+// number compiled into the web bundle, so what matters is that the two resolve
+// the same way; the git fallback itself isn't asserted here because it depends
+// on the checkout and would flake for reasons unrelated to this code.
+describe('loadEnv — app version', () => {
+  const prod: NodeJS.ProcessEnv = {
+    NODE_ENV: 'production',
+    DATABASE_URL: 'postgres://thalermark:S3cure-pg-pw@db:5432/thalermark',
+    APP_DATABASE_URL: 'postgres://thalermark_app:An0ther-strong-pw@db:5432/thalermark',
+    PGBOSS_DATABASE_URL: 'postgres://thalermark_pgboss:Y3t-another-pw@db:5432/thalermark',
+    THALERMARK_APP_PASSWORD: 'An0ther-strong-pw',
+    THALERMARK_PGBOSS_PASSWORD: 'Y3t-another-pw',
+    BETTER_AUTH_SECRET: 'a-genuinely-random-secret-value-not-the-placeholder',
+    BETTER_AUTH_URL: 'https://app.thalermark.com',
+  };
+
+  it('an explicit APP_VERSION wins', () => {
+    expect(loadEnv({ ...base, APP_VERSION: 'v1.2.3' }).appVersion).toBe('v1.2.3');
+    expect(loadEnv({ ...prod, APP_VERSION: 'v1.2.3' }).appVersion).toBe('v1.2.3');
+  });
+
+  it("production without APP_VERSION reports 'dev' and shells out to nothing", () => {
+    // A released image always has the build-arg baked in, so this path only ever
+    // runs on a misconfigured deploy. It must not spawn git: there is no .git in
+    // the image and a server has no business starting subprocesses at boot that
+    // cannot succeed.
+    expect(loadEnv(prod).appVersion).toBe('dev');
+  });
+
+  it("a bare APP_VERSION= counts as unset, not as the version ''", () => {
+    expect(loadEnv({ ...prod, APP_VERSION: '' }).appVersion).toBe('dev');
+  });
+});
+
 describe('loadEnv — refuse weak default secrets in production', () => {
   it('production + shipped defaults throws, naming every offender', () => {
     let message = '';

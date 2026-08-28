@@ -71,6 +71,11 @@ const BOOTSTRAP_PATH_PATTERNS: RegExp[] = [
   // writes via bootstrapDb keyed on userId (same shape as /api/me).
   /^\/api\/legal$/,
   /^\/api\/legal\/accept$/,
+  // Which build is this api running (Settings → About). Deployment-scoped, not
+  // tenant-scoped — there is nothing account-specific to set a context for, and
+  // requiring x-account-id would make an informational page depend on the user
+  // having picked an account. Session-gated so the build isn't public.
+  /^\/api\/build-info$/,
 ];
 
 // Unauthed public endpoints: no session, no tenant context. Token in the URL
