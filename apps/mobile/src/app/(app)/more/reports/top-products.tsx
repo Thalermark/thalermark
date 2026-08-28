@@ -26,10 +26,13 @@ const BASES: { key: Basis; label: string }[] = [
 const fmt = (s: string) =>
   Number(s).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 
+// Mirrors web (TMC-233): both branches describe what is counted rather than
+// naming the accounting basis. The 'paid' branch used to append "(cash basis)"
+// while its sibling never did, so the term leaked on one toggle position only.
 const basisNote = (b: Basis) =>
   b === 'sent'
     ? 'Pre-tax revenue from invoices that have been sent or paid.'
-    : 'Pre-tax revenue from paid invoices only (cash basis).';
+    : 'Pre-tax revenue from paid invoices only.';
 
 export default function TopProducts() {
   const router = useRouter();
