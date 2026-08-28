@@ -201,7 +201,10 @@
     </div>
   </dl>
 
-  <div class="mt-10 overflow-hidden rounded-sm border border-fg/10 bg-surface-2">
+  <!-- overflow-x-auto, not overflow-hidden: at 375px the rightmost Amount column
+       was cut off with no way to reach it, on the one page in the product shown
+       to someone who is being asked for money (TMC-237). -->
+  <div class="mt-10 overflow-x-auto rounded-sm border border-fg/10 bg-surface-2">
     <table class="w-full text-left text-sm">
       <thead class="bg-surface">
         <tr class="label">

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { publicApiBaseUrl } from '$lib/public-api-url';
   import { onMount } from 'svelte';
   import { env } from '$env/dynamic/public';
   import { page } from '$app/state';
@@ -9,7 +10,7 @@
   import { COPY } from '@thalermark/brand';
   import { checkPassword } from '@thalermark/validation';
 
-  const apiUrl = env.PUBLIC_API_URL ?? 'http://localhost:3000';
+  const apiUrl = publicApiBaseUrl;
   const inviteToken = $derived(page.url.searchParams.get('invite'));
 
   // Optional legal-consent clickwrap. When the deploy provides BOTH a Terms and

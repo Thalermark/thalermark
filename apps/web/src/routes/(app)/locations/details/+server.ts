@@ -1,4 +1,5 @@
 import { env as privateEnv } from '$env/dynamic/private';
+import * as Sentry from '@sentry/sveltekit';
 import { error, json } from '@sveltejs/kit';
 import { createAddressAutocompleteProvider } from '@thalermark/location';
 import type { RequestHandler } from './$types.js';
@@ -24,7 +25,9 @@ export const GET: RequestHandler = async ({ url }) => {
     const suggestion = await provider.retrieve({ placeId, sessionToken });
     return json({ suggestion });
   } catch (err) {
-    console.error('[locations/details]', err);
+    // See the sibling autocomplete route: degraded responses hide the failure
+    // from the user by design, so the operator needs it reported (TMC-237).
+    Sentry.captureException(err, { tags: { route: 'locations/details' } });
     return json({ suggestion: null, degraded: true });
   }
 };

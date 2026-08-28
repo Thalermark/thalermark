@@ -1,8 +1,8 @@
-import { env } from '$env/dynamic/public';
 import type { AppType } from '@thalermark/api-contract';
 import { hc } from 'hono/client';
+import { publicApiBaseUrl } from './public-api-url.js';
 
-const baseUrl = env.PUBLIC_API_URL ?? 'http://localhost:3000';
+const baseUrl = publicApiBaseUrl;
 
 // On the browser, credentials: include lets the BA session cookie travel with
 // every request. On the server (hooks / load), the cookie has to be passed
