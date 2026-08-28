@@ -6,6 +6,7 @@
 // Add fields here as upstream slices need them (DB, auth, telemetry, etc.).
 // The skeleton only needs PORT + NODE_ENV.
 
+import { execSync } from 'node:child_process';
 import {
   BUNDLED_PRIVACY_URL,
   BUNDLED_TERMS_URL,
@@ -20,6 +21,19 @@ export type Env = {
   logLevel: LogLevel;
   errorTrackingDsn: string | undefined;
   release: string | undefined;
+  // The build's own version, baked into the image at build time: CI passes
+  // APP_VERSION as a build-arg to both image legs (the release tag on a tag
+  // build, else the commit SHA) and the api Dockerfile promotes it to ENV. Not
+  // something an operator sets or bumps by hand — that's the point, a forgotten
+  // version bump can't happen. 'dev' when unset (local runs, plain `docker
+  // build`). Already read by @thalermark/telemetry as product_version; served to
+  // signed-in users by GET /api/build-info so a deployment can be identified.
+  // Outside a built image it falls back to the git tag, mirroring what web and
+  // mobile already do, so a dev checkout reports the same number on both sides
+  // instead of a permanent phantom mismatch. Optional on the type so
+  // test/embedder Env literals needn't list it (loadEnv always resolves it; the
+  // route's own 'dev' default absorbs undefined).
+  appVersion?: string;
   // Superuser connection. Used for DDL only — migrations on boot and
   // app-role provisioning. Not for runtime traffic.
   databaseUrl: string;
@@ -185,6 +199,37 @@ export const DEFAULT_SEARCH_REINDEX_CRON = '17 3 * * 0';
 const VALID_NODE_ENVS: Env['nodeEnv'][] = ['development', 'test', 'production'];
 const VALID_LOG_LEVELS: LogLevel[] = ['debug', 'info', 'warning', 'error', 'fatal'];
 
+// The build's version, resolved the same way web (vite.config.ts) and mobile
+// (app.config.ts) resolve theirs: an explicit APP_VERSION first, else the git
+// description, else 'dev'. Keeping the ladder identical is the whole point. The
+// api's number is only useful next to web's, and if one side falls back to a tag
+// while the other falls back to a literal 'dev' then every developer checkout
+// looks like a half-finished rollout.
+//
+// --long, so the description always carries the commit (v0.1.0-beta.25-0-gb1765df)
+// rather than only when HEAD has moved past the tag. Not --dirty: an uncommitted
+// edit is not a different build in any sense worth reporting, and the suffix
+// changed as you typed while web's copy stayed frozen at dev-server start, so the
+// two disagreed constantly and never for a reason anyone should act on.
+//
+// The git step is skipped in production: a released image has APP_VERSION baked
+// in and carries no .git, so shelling out there could only ever fail, and a
+// server process should not spawn anything at boot it cannot use.
+function resolveAppVersion(source: NodeJS.ProcessEnv): string {
+  if (source.APP_VERSION) return source.APP_VERSION;
+  if (source.NODE_ENV === 'production') return 'dev';
+  try {
+    return execSync('git describe --tags --always --long', {
+      encoding: 'utf8',
+      // Swallow git's stderr; "not a git repository" is an expected outcome
+      // here, not something to print on every boot.
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    return 'dev';
+  }
+}
+
 export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
   const nodeEnv = source.NODE_ENV ?? 'development';
   if (!VALID_NODE_ENVS.includes(nodeEnv as Env['nodeEnv'])) {
@@ -209,6 +254,9 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     logLevel: logLevel as LogLevel,
     errorTrackingDsn: source.ERROR_TRACKING_DSN || undefined,
     release: source.RELEASE || undefined,
+    // Empty string (a bare `APP_VERSION=`) counts as unset, same as telemetry's
+    // resolveHostContext treats it.
+    appVersion: resolveAppVersion(source),
     databaseUrl,
     appDatabaseUrl,
     dbPoolMax: parsePositiveInt(source.DB_POOL_MAX, 10, 'DB_POOL_MAX'),
