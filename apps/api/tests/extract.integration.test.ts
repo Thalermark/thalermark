@@ -44,7 +44,6 @@ const SAMPLE_RESULT: ExtractionResult = {
   merchant: 'Acme Tools',
   total: '19.99',
   expenseDate: '2026-05-02',
-  taxAmount: '1.60',
   suggestedCategoryCode: '6000',
 };
 

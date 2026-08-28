@@ -8,7 +8,6 @@ function raw(overrides: Partial<RawExtraction> = {}): RawExtraction {
     merchant: 'Home Depot',
     total: 42.5,
     expenseDate: '2026-05-20',
-    taxAmount: 3.4,
     suggestedCategoryCode: '6000',
     ...overrides,
   };
@@ -20,21 +19,21 @@ describe('normalizeExtraction', () => {
       merchant: 'Home Depot',
       total: '42.50',
       expenseDate: '2026-05-20',
-      taxAmount: '3.40',
       suggestedCategoryCode: '6000',
     });
   });
 
-  it('formats money to 2 decimal places', () => {
-    const r = normalizeExtraction(raw({ total: 5, taxAmount: 0 }), ALLOWED);
-    expect(r.total).toBe('5.00');
-    expect(r.taxAmount).toBe('0.00');
+  it('formats money to 2 decimal places, zero included', () => {
+    expect(normalizeExtraction(raw({ total: 5 }), ALLOWED).total).toBe('5.00');
+    // Zero is a real total, not a missing one, so it must format rather than
+    // null out. This case used to ride on taxAmount, which no longer exists.
+    expect(normalizeExtraction(raw({ total: 0 }), ALLOWED).total).toBe('0.00');
   });
 
   it('nulls negative or non-finite money', () => {
-    const r = normalizeExtraction(raw({ total: -1, taxAmount: Number.POSITIVE_INFINITY }), ALLOWED);
-    expect(r.total).toBeNull();
-    expect(r.taxAmount).toBeNull();
+    expect(normalizeExtraction(raw({ total: -1 }), ALLOWED).total).toBeNull();
+    expect(normalizeExtraction(raw({ total: Number.POSITIVE_INFINITY }), ALLOWED).total).toBeNull();
+    expect(normalizeExtraction(raw({ total: Number.NaN }), ALLOWED).total).toBeNull();
   });
 
   it('trims merchant and nulls empties', () => {
@@ -64,7 +63,6 @@ describe('normalizeExtraction', () => {
         merchant: null,
         total: null,
         expenseDate: null,
-        taxAmount: null,
         suggestedCategoryCode: null,
       },
       ALLOWED,
@@ -73,7 +71,6 @@ describe('normalizeExtraction', () => {
       merchant: null,
       total: null,
       expenseDate: null,
-      taxAmount: null,
       suggestedCategoryCode: null,
     });
   });
