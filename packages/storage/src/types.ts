@@ -21,6 +21,16 @@ export interface GetSignedUrlOptions {
   // URL lifetime in seconds. Default 3600 (one hour) — long enough to render
   // a receipt in the browser, short enough that a leaked URL goes stale.
   expiresInSeconds?: number;
+  // When set, the URL saves to disk under this filename instead of rendering
+  // inline (content-disposition: attachment). Opt-in per URL rather than a
+  // property of the key, because the SAME object is wanted both ways: a receipt
+  // renders inline in an <img> and downloads from a button beside it. It is also
+  // why this can't be decided in the fs route by mime type — company logos are
+  // served through that same route and must stay inline (TMC-267).
+  //
+  // Callers are responsible for passing a filename that is safe to put in a
+  // header; both drivers reject anything else rather than trusting it.
+  downloadFilename?: string;
 }
 
 export interface StorageProvider {

@@ -63,12 +63,13 @@ export const load: PageServerLoad = async (event) => {
   // preview it. For s3 this is a presigned object-store URL the browser hits
   // directly; for local-FS it's a relative /api/files/<token> the api serves.
   // Best-effort — a failure just hides the preview, the record still renders.
-  let receipt: { url: string; contentType: string } | null = null;
+  let receipt: { url: string; downloadUrl: string; contentType: string } | null = null;
   if (expense.receiptStorageKey) {
     const rres = await client.api.expenses[':id'].receipt.$get({
       param: { id: event.params.id },
     });
-    if (rres.ok) receipt = (await rres.json()) as { url: string; contentType: string };
+    if (rres.ok)
+      receipt = (await rres.json()) as { url: string; downloadUrl: string; contentType: string };
   }
 
   // Job costing (TMC-174) — the pick list for "what was this for?". Issued

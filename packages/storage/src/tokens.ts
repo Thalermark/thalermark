@@ -10,6 +10,12 @@ export interface FileTokenPayload {
   key: string;
   // Expiry as a unix epoch in seconds.
   exp: number;
+  // Filename to force a download under, when the minting caller asked for one.
+  // Rides INSIDE the signed payload on purpose: it reaches the fs route as a
+  // response header, so if it were a query parameter anyone holding a token
+  // could choose the filename and, worse, inject header content. Signed, it can
+  // only be what the api put there.
+  download?: string;
 }
 
 function b64url(buf: Buffer): string {

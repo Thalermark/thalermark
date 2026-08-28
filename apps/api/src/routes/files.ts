@@ -38,7 +38,17 @@ export function filesRoutes(deps: AppDeps) {
     // PDF is the phishing/sniffing surface called out in review. Images stay
     // inline: company logos are served from this same route and rendered via
     // <img> on invoices and the public pay view, so attachment would break them.
-    if (mime === 'application/pdf') headers['content-disposition'] = 'attachment';
+    //
+    // A token minted WITH a filename overrides both cases: that is the Download
+    // button beside a receipt (TMC-267), which wants a save even for an image
+    // whose sibling <img> tag needs the plain inline token. The name arrives
+    // inside the signed payload and was validated at mint time, so it cannot
+    // carry a quote or a newline into this header.
+    if (payload.download) {
+      headers['content-disposition'] = `attachment; filename="${payload.download}"`;
+    } else if (mime === 'application/pdf') {
+      headers['content-disposition'] = 'attachment';
+    }
     return c.body(new Uint8Array(bytes), 200, headers);
   });
 }

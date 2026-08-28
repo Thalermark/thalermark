@@ -34,7 +34,7 @@ type Expense = {
   vendorContactId: string | null;
   vendorReview: string | null;
 };
-type Receipt = { url: string; contentType: string };
+type Receipt = { url: string; downloadUrl: string; contentType: string };
 // Job costing (TMC-174). A job is an issued invoice, labelled by customer so the
 // option reads like the work the user remembers. `target` is the current answer:
 // an invoice id, 'shared', or null for never-answered — shared being a real
@@ -105,7 +105,11 @@ export default function ExpenseDetail() {
       const rRes = await api.api.expenses[':id'].receipt.$get({ param: { id } });
       if (rRes.ok) {
         const r = await rRes.json();
-        receipt = { url: absolutize(r.url), contentType: r.contentType };
+        receipt = {
+          url: absolutize(r.url),
+          downloadUrl: absolutize(r.downloadUrl),
+          contentType: r.contentType,
+        };
       }
     }
     setDetail({
@@ -533,6 +537,22 @@ export default function ExpenseDetail() {
                       <Text className="text-gold-deep">View receipt (PDF) →</Text>
                     </Pressable>
                   )}
+
+                  {/* The app holds the only copy of a photographed receipt, so
+                      there has to be a way back out (TMC-267). Handing the URL to
+                      the system browser rather than saving in-app on purpose: the
+                      signed content-disposition makes it a download, and Safari
+                      puts it in Files. Doing it in-app would mean adding
+                      expo-sharing or expo-file-system, and a new native module
+                      costs a prebuild and a reinstall on every test device for a
+                      button. Revisit if receipts ever need to reach the photo
+                      library directly. */}
+                  <Pressable
+                    onPress={() => Linking.openURL(receipt.downloadUrl)}
+                    className="mt-3 rounded-sm border border-ink/15 bg-cream-warm px-4 py-3"
+                  >
+                    <Text className="text-gold-deep">Download receipt</Text>
+                  </Pressable>
 
                   {canWrite ? (
                     <View className="mt-3 flex-row gap-2">

@@ -292,6 +292,51 @@ describe('receipt capture', () => {
     }
   });
 
+  // TMC-267: the app holds the only copy of a photographed receipt, so the detail
+  // page carries a Download button. It needs a SECOND url over the same object,
+  // because the preview <img> needs the inline one; that is the pairing worth
+  // pinning, along with the fact that the filename is signed rather than
+  // attacker-chosen.
+  it('returns a second, download-flavoured URL for an image receipt', async () => {
+    const ctx = buildApp();
+    try {
+      const cookie = await signUp(ctx.app, 'rcpt-dl@example.com');
+      const { accountId, companyId } = await userContext('rcpt-dl@example.com');
+      const expenseId = await createExpense(ctx.app, cookie, accountId, companyId);
+      const auth = { cookie, 'x-account-id': accountId };
+
+      const bytes = new TextEncoder().encode('jpeg-bytes');
+      const up = await ctx.app.request(`/api/expenses/${expenseId}/receipt`, {
+        method: 'POST',
+        headers: auth,
+        body: uploadForm(bytes, 'image/jpeg', 'receipt.jpg'),
+      });
+      expect(up.status).toBe(201);
+
+      const getUrl = await ctx.app.request(`/api/expenses/${expenseId}/receipt`, { headers: auth });
+      const { url, downloadUrl } = (await getUrl.json()) as { url: string; downloadUrl: string };
+      expect(downloadUrl).toBeTruthy();
+      expect(downloadUrl).not.toBe(url);
+
+      // The preview URL must stay inline — an <img> renders from it, and the
+      // company-logo route shares this code path.
+      const inline = await ctx.app.request(url);
+      expect(inline.status).toBe(200);
+      expect(inline.headers.get('content-type')).toBe('image/jpeg');
+      expect(inline.headers.get('content-disposition')).toBeNull();
+
+      // The download URL saves, under a name built from the expense.
+      const saved = await ctx.app.request(downloadUrl);
+      expect(saved.status).toBe(200);
+      expect(saved.headers.get('content-type')).toBe('image/jpeg');
+      expect(saved.headers.get('content-disposition')).toBe(
+        'attachment; filename="receipt-home-depot-2026-05-20.jpg"',
+      );
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
   it('isolates receipts across accounts', async () => {
     const ctx = buildApp();
     try {

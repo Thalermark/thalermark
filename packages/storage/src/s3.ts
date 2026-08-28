@@ -6,6 +6,7 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { assertSafeDownloadFilename } from './filename.js';
 import type { PutObjectInput, StorageProvider } from './types.js';
 
 export interface S3ProviderConfig {
@@ -50,9 +51,20 @@ export function createS3Provider(config: S3ProviderConfig): StorageProvider {
       );
     },
     async getSignedDownloadUrl(key, opts) {
-      return getSignedUrl(client, new GetObjectCommand({ Bucket: config.bucket, Key: key }), {
-        expiresIn: opts?.expiresInSeconds ?? 3600,
-      });
+      // ResponseContentDisposition is part of the SIGNED query string, so a
+      // holder of the URL cannot change the filename or drop the attachment.
+      if (opts?.downloadFilename) assertSafeDownloadFilename(opts.downloadFilename);
+      return getSignedUrl(
+        client,
+        new GetObjectCommand({
+          Bucket: config.bucket,
+          Key: key,
+          ResponseContentDisposition: opts?.downloadFilename
+            ? `attachment; filename="${opts.downloadFilename}"`
+            : undefined,
+        }),
+        { expiresIn: opts?.expiresInSeconds ?? 3600 },
+      );
     },
     async getObject(key) {
       const res = await client.send(new GetObjectCommand({ Bucket: config.bucket, Key: key }));

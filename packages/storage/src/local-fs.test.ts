@@ -89,4 +89,31 @@ describe('local-fs provider', () => {
     ).rejects.toThrow(/escapes base dir/);
     await expect(readLocalObject(baseDir, '../../etc/passwd')).rejects.toThrow(/escapes base dir/);
   });
+
+  // TMC-267: the download filename rides INSIDE the signed token, so a holder of
+  // the URL can neither rename the file nor strip the attachment. The plain
+  // (no-filename) token must stay unchanged, because the same object is also
+  // served inline into an <img>.
+  it('carries a download filename in the signed token, and omits it when unasked', async () => {
+    const provider = createLocalFsProvider({ baseDir, secret: SECRET });
+
+    const inlineUrl = await provider.getSignedDownloadUrl(KEY);
+    const inline = verifyFileToken(inlineUrl.split('/').pop() as string, SECRET);
+    expect(inline?.key).toBe(KEY);
+    expect(inline?.download).toBeUndefined();
+
+    const dlUrl = await provider.getSignedDownloadUrl(KEY, {
+      downloadFilename: 'receipt-shell-2026-04-02.jpg',
+    });
+    const dl = verifyFileToken(dlUrl.split('/').pop() as string, SECRET);
+    expect(dl?.key).toBe(KEY);
+    expect(dl?.download).toBe('receipt-shell-2026-04-02.jpg');
+  });
+
+  it('refuses to mint a token for a header-unsafe filename', async () => {
+    const provider = createLocalFsProvider({ baseDir, secret: SECRET });
+    await expect(
+      provider.getSignedDownloadUrl(KEY, { downloadFilename: 'receipt\r\nX-Evil: 1' }),
+    ).rejects.toThrow(/unsafe download filename/);
+  });
 });

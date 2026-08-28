@@ -233,6 +233,20 @@
           View receipt (PDF) →
         </a>
       {/if}
+      <!-- The app holds the only copy of a photographed receipt, so there has to
+           be a way back out (TMC-267). A separate URL, not the preview one: the
+           <img> above needs its object served inline, this one carries a signed
+           content-disposition so the browser saves it under a readable name.
+           No `download` attribute — it is ignored cross-origin, which is exactly
+           the s3/R2 case, so the header is the only thing that actually works. -->
+      <div>
+        <a
+          href={data.receipt.downloadUrl}
+          class="inline-block rounded-sm border border-fg/20 px-3 py-2 text-sm text-fg hover:border-accent hover:text-accent"
+        >
+          Download receipt
+        </a>
+      </div>
       {#if canWrite}
         <div class="flex flex-wrap items-center gap-4">
           <!-- The slowest control on the page: a vision-model round trip, several

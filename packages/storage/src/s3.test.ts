@@ -21,4 +21,50 @@ describe('s3 provider', () => {
     expect(url).toContain('X-Amz-Signature=');
     expect(url).toContain('X-Amz-Expires=120');
   });
+
+  // TMC-267. The disposition is signed into the query string, so it is not
+  // something a URL holder can add, remove or rewrite.
+  it('signs a content-disposition into the URL when a download filename is given', async () => {
+    const provider = createS3Provider({
+      bucket: 'thalermark',
+      accessKeyId: 'key',
+      secretAccessKey: 'secret',
+      endpoint: 'http://localhost:9000',
+      region: 'us-east-1',
+    });
+    const url = await provider.getSignedDownloadUrl('accounts/a/receipt.jpg', {
+      downloadFilename: 'receipt-shell-2026-04-02.jpg',
+    });
+    expect(decodeURIComponent(url)).toContain(
+      'response-content-disposition=attachment; filename="receipt-shell-2026-04-02.jpg"',
+    );
+    // Signed, not merely appended: the presigner lists it among the covered params.
+    expect(decodeURIComponent(url)).toContain('response-content-disposition');
+    expect(url).toContain('X-Amz-Signature=');
+  });
+
+  it('omits the disposition entirely when no filename is given', async () => {
+    const provider = createS3Provider({
+      bucket: 'thalermark',
+      accessKeyId: 'key',
+      secretAccessKey: 'secret',
+      endpoint: 'http://localhost:9000',
+      region: 'us-east-1',
+    });
+    const url = await provider.getSignedDownloadUrl('accounts/a/receipt.jpg');
+    expect(url.toLowerCase()).not.toContain('response-content-disposition');
+  });
+
+  it('refuses a header-unsafe filename rather than escaping it', async () => {
+    const provider = createS3Provider({
+      bucket: 'thalermark',
+      accessKeyId: 'key',
+      secretAccessKey: 'secret',
+      endpoint: 'http://localhost:9000',
+      region: 'us-east-1',
+    });
+    await expect(
+      provider.getSignedDownloadUrl('accounts/a/receipt.jpg', { downloadFilename: 'a".jpg' }),
+    ).rejects.toThrow(/unsafe download filename/);
+  });
 });
