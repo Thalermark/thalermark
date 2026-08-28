@@ -10,7 +10,6 @@ export interface RawExtraction {
   merchant: string | null;
   total: number | null;
   expenseDate: string | null;
-  taxAmount: number | null;
   suggestedCategoryCode: string | null;
 }
 
@@ -51,7 +50,6 @@ export function normalizeExtraction(raw: RawExtraction, allowedCodes: string[]):
     total: money(raw.total),
     // Bare-date only; a timestamp or prose date is dropped rather than coerced.
     expenseDate: expenseDate && ISO_DATE_RE.test(expenseDate) ? expenseDate : null,
-    taxAmount: money(raw.taxAmount),
     suggestedCategoryCode: constrainCode(raw.suggestedCategoryCode, allowedCodes),
   };
 }

@@ -47,6 +47,38 @@ export function mimeForKey(key: string): string {
   return EXT_MIME[ext] ?? 'application/octet-stream';
 }
 
+// Names the file a receipt download lands as. Built from what the user
+// recognises (merchant + date) rather than a uuid, so a folder of saved receipts
+// is readable: "Shell" on 2026-04-02 becomes receipt-shell-2026-04-02.jpg.
+//
+// Slugged hard down to [a-z0-9-] because it ends up in a content-disposition
+// header and the storage layer refuses anything else outright rather than
+// escaping it. That refusal is the safety net; this is the part that makes sure
+// it never fires. "Ray's Lawn & Garden" becomes rays-lawn-garden; a merchant
+// with no ASCII letters at all drops out entirely rather than yielding a name
+// that leads with a dash.
+const RECEIPT_EXT_RE = /^[a-z0-9]{1,5}$/;
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+export function receiptFilename(merchant: string, expenseDate: string, key: string): string {
+  const dot = key.lastIndexOf('.');
+  const rawExt = dot >= 0 ? key.slice(dot + 1).toLowerCase() : '';
+  const ext = RECEIPT_EXT_RE.test(rawExt) ? `.${rawExt}` : '';
+  const slug = merchant
+    .toLowerCase()
+    // Apostrophes vanish rather than becoming separators, so "Ray's" reads as
+    // rays and not ray-s. Straight and curly both, since a merchant typed on a
+    // phone gets the curly one.
+    .replace(/['\u2019]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .slice(0, 40)
+    .replace(/^-+|-+$/g, '');
+  const date = ISO_DATE_RE.test(expenseDate) ? expenseDate : '';
+  // Always leads with "receipt", which guarantees the leading [a-z0-9] the
+  // storage guard requires even when both other parts drop out.
+  return `${['receipt', slug, date].filter(Boolean).join('-')}${ext}`;
+}
+
 // Expenses + bills post their open leg against the entity date (not the create
 // timestamp) so an expense/bill dated in a prior tax period lands there. Both
 // the expenses sub-app and the bills routes call this to turn a YYYY-MM-DD date

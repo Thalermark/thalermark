@@ -33,6 +33,7 @@ import {
   escapeLike,
   expenseDateToPostedAt,
   mimeForKey,
+  receiptFilename,
   resolveCoaAccounts,
   resolveVendorLink,
 } from '../lib/route-helpers.js';
@@ -928,6 +929,9 @@ export function expensesRoutes(deps: AppDeps) {
           .select({
             receiptStorageKey: expenses.receiptStorageKey,
             deletedAt: expenses.deletedAt,
+            // Only to name the downloaded file; neither is used for access.
+            merchant: expenses.merchant,
+            expenseDate: expenses.expenseDate,
           })
           .from(expenses)
           .where(and(eq(expenses.id, id), eq(expenses.accountId, accountId)))
@@ -935,10 +939,22 @@ export function expensesRoutes(deps: AppDeps) {
         if (!expense || expense.deletedAt) return c.json({ error: 'expense_not_found' }, 404);
         if (!expense.receiptStorageKey) return c.json({ error: 'no_receipt' }, 404);
 
-        const url = await deps.storage.getSignedDownloadUrl(expense.receiptStorageKey, {
-          expiresInSeconds: 3600,
-        });
-        return c.json({ url, contentType: mimeForKey(expense.receiptStorageKey) });
+        // Two URLs over the same object, because the page needs both at once:
+        // `url` renders inline in an <img>, `downloadUrl` saves to disk from the
+        // button beside it (TMC-267). Minting both here rather than behind a
+        // ?download flag keeps it to one round trip, and signing is cheap.
+        const [url, downloadUrl] = await Promise.all([
+          deps.storage.getSignedDownloadUrl(expense.receiptStorageKey, { expiresInSeconds: 3600 }),
+          deps.storage.getSignedDownloadUrl(expense.receiptStorageKey, {
+            expiresInSeconds: 3600,
+            downloadFilename: receiptFilename(
+              expense.merchant,
+              expense.expenseDate,
+              expense.receiptStorageKey,
+            ),
+          }),
+        ]);
+        return c.json({ url, downloadUrl, contentType: mimeForKey(expense.receiptStorageKey) });
       })
       // Delete the receipt: null the columns + audit, then drop the object as
       // the LAST await so a storage failure rolls the nulling back (the key

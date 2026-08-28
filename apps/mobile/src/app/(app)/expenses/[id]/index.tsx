@@ -34,13 +34,19 @@ type Expense = {
   vendorContactId: string | null;
   vendorReview: string | null;
 };
-type Receipt = { url: string; contentType: string };
+type Receipt = { url: string; downloadUrl: string; contentType: string };
 // Job costing (TMC-174). A job is an issued invoice, labelled by customer so the
 // option reads like the work the user remembers. `target` is the current answer:
 // an invoice id, 'shared', or null for never-answered — shared being a real
 // answer, not a skipped question.
 type Job = { id: string; number: string; issueDate: string; customerName: string | null };
 type Extraction = { merchant: string | null; total: string | null; expenseDate: string | null };
+// What the confirm card holds. The category arrives as a SIBLING of `extraction`
+// in the extract response, not inside it, which is how mobile came to drop it
+// while web applied it (TMC-235). Categorising is the highest-value thing the
+// model does for someone who does not know a chart of accounts, and the phone is
+// where the camera is, so this was the wrong field to lose.
+type Suggestion = Extraction & { categoryAccountId: string | null };
 type DetailState =
   | { state: 'loading' }
   | {
@@ -48,6 +54,10 @@ type DetailState =
       expense: Expense;
       categoryName: string | null;
       paymentName: string | null;
+      // id → display name for this company's chart of accounts. Already fetched
+      // to label the current category; kept so a suggested one can be shown as a
+      // name rather than a uuid.
+      accountNames: Record<string, string>;
       receipt: Receipt | null;
     }
   | { state: 'error' };
@@ -70,7 +80,7 @@ export default function ExpenseDetail() {
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [acting, setActing] = useState(false);
   const [receiptError, setReceiptError] = useState<string | null>(null);
-  const [extraction, setExtraction] = useState<Extraction | null>(null);
+  const [extraction, setExtraction] = useState<Suggestion | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [namedJobs, setNamedJobs] = useState<{ id: string; name: string }[]>([]);
   const [target, setTarget] = useState<string | null>(null);
@@ -95,23 +105,30 @@ export default function ExpenseDetail() {
     });
     let categoryName: string | null = null;
     let paymentName: string | null = null;
+    const accountNames: Record<string, string> = {};
     if (accRes.ok) {
       const { accounts } = await accRes.json();
-      categoryName = accounts.find((a) => a.id === e.categoryAccountId)?.name ?? null;
-      paymentName = accounts.find((a) => a.id === e.paymentAccountId)?.name ?? null;
+      for (const a of accounts) accountNames[a.id] = a.name;
+      categoryName = accountNames[e.categoryAccountId] ?? null;
+      paymentName = accountNames[e.paymentAccountId] ?? null;
     }
     let receipt: Receipt | null = null;
     if (e.receiptStorageKey) {
       const rRes = await api.api.expenses[':id'].receipt.$get({ param: { id } });
       if (rRes.ok) {
         const r = await rRes.json();
-        receipt = { url: absolutize(r.url), contentType: r.contentType };
+        receipt = {
+          url: absolutize(r.url),
+          downloadUrl: absolutize(r.downloadUrl),
+          contentType: r.contentType,
+        };
       }
     }
     setDetail({
       state: 'ready',
       categoryName,
       paymentName,
+      accountNames,
       receipt,
       expense: {
         companyId: e.companyId,
@@ -242,7 +259,14 @@ export default function ExpenseDetail() {
         setReceiptError(RECEIPT_ERRORS[code] ?? 'Extraction failed.');
         return;
       }
-      setExtraction((body as { extraction: Extraction }).extraction);
+      const parsed = body as {
+        extraction: Extraction;
+        suggestedCategoryAccountId: string | null;
+      };
+      setExtraction({
+        ...parsed.extraction,
+        categoryAccountId: parsed.suggestedCategoryAccountId ?? null,
+      });
     } catch {
       setReceiptError('Extraction failed.');
     } finally {
@@ -252,10 +276,18 @@ export default function ExpenseDetail() {
 
   async function onApply() {
     if (!extraction) return;
-    const json: { merchant?: string; amount?: string; expenseDate?: string } = {};
+    const json: {
+      merchant?: string;
+      amount?: string;
+      expenseDate?: string;
+      categoryAccountId?: string;
+    } = {};
     if (extraction.merchant) json.merchant = extraction.merchant;
     if (extraction.total) json.amount = extraction.total;
     if (extraction.expenseDate) json.expenseDate = extraction.expenseDate;
+    // A suggested category counts as a change on its own: a receipt the model
+    // could only categorise is still worth applying.
+    if (extraction.categoryAccountId) json.categoryAccountId = extraction.categoryAccountId;
     if (Object.keys(json).length === 0) {
       setExtraction(null);
       return;
@@ -534,6 +566,22 @@ export default function ExpenseDetail() {
                     </Pressable>
                   )}
 
+                  {/* The app holds the only copy of a photographed receipt, so
+                      there has to be a way back out (TMC-267). Handing the URL to
+                      the system browser rather than saving in-app on purpose: the
+                      signed content-disposition makes it a download, and Safari
+                      puts it in Files. Doing it in-app would mean adding
+                      expo-sharing or expo-file-system, and a new native module
+                      costs a prebuild and a reinstall on every test device for a
+                      button. Revisit if receipts ever need to reach the photo
+                      library directly. */}
+                  <Pressable
+                    onPress={() => Linking.openURL(receipt.downloadUrl)}
+                    className="mt-3 rounded-sm border border-ink/15 bg-cream-warm px-4 py-3"
+                  >
+                    <Text className="text-gold-deep">Download receipt</Text>
+                  </Pressable>
+
                   {canWrite ? (
                     <View className="mt-3 flex-row gap-2">
                       <Pressable
@@ -566,6 +614,20 @@ export default function ExpenseDetail() {
                         <Row label="Vendor" value={extraction.merchant ?? '—'} />
                         <Row label="Total" value={extraction.total ?? '—'} />
                         <Row label="Date" value={extraction.expenseDate ?? '—'} />
+                        {/* Shown, not applied silently: Apply changes the
+                            category too, so the card has to say so. Falls back to
+                            the id only if the account list failed to load, which
+                            is the same degraded case that leaves Category as an
+                            em-dash above. */}
+                        <Row
+                          label="Category"
+                          value={
+                            extraction.categoryAccountId
+                              ? (detail.accountNames[extraction.categoryAccountId] ??
+                                'Suggested category')
+                              : '—'
+                          }
+                        />
                       </View>
                       <View className="mt-3 flex-row gap-2">
                         <Pressable

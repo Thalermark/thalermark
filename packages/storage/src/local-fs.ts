@@ -1,5 +1,6 @@
 import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, resolve, sep } from 'node:path';
+import { assertSafeDownloadFilename } from './filename.js';
 import { signFileToken } from './tokens.js';
 import type { PutObjectInput, StorageProvider } from './types.js';
 
@@ -34,9 +35,10 @@ export function createLocalFsProvider(config: LocalFsProviderConfig): StoragePro
       await writeFile(full, body);
     },
     async getSignedDownloadUrl(key, opts) {
+      if (opts?.downloadFilename) assertSafeDownloadFilename(opts.downloadFilename);
       const ttl = opts?.expiresInSeconds ?? 3600;
       const exp = Math.floor(Date.now() / 1000) + ttl;
-      const token = signFileToken({ key, exp }, config.secret);
+      const token = signFileToken({ key, exp, download: opts?.downloadFilename }, config.secret);
       return `${urlPrefix}/${token}`;
     },
     async getObject(key) {

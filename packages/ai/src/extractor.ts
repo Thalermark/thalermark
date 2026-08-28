@@ -9,11 +9,14 @@ import type { ExtractionInput, ExtractionResult, ReceiptExtractor } from './type
 
 // What the model is asked to emit. Money as numbers (models emit JSON numbers
 // more reliably than pre-formatted strings); normalizeExtraction formats them.
+// taxAmount was requested here until 2026-08-28 and removed as dead (TMC-235):
+// it was normalised into ExtractionResult and then dropped at the API boundary,
+// because an expense has no tax column to put it in. Every scan paid output
+// tokens for a number nothing could read. Re-add it WITH the column, not before.
 const rawSchema = z.object({
   merchant: z.string().nullable().describe('Merchant / vendor name as printed'),
   total: z.number().nullable().describe('Grand total paid, in dollars'),
   expenseDate: z.string().nullable().describe('Date on the receipt as YYYY-MM-DD'),
-  taxAmount: z.number().nullable().describe('Sales tax portion, in dollars, if shown'),
   suggestedCategoryCode: z
     .string()
     .nullable()

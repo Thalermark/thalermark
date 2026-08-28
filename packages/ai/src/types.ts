@@ -46,7 +46,6 @@ export interface ExtractionResult {
   merchant: string | null;
   total: string | null;
   expenseDate: string | null;
-  taxAmount: string | null;
   suggestedCategoryCode: string | null;
 }
 
