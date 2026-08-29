@@ -3,8 +3,12 @@ name: Images
 # Builds the api + web container images.
 #   - pull_request (path-filtered): build only, NO push — catches a broken
 #     Dockerfile (e.g. a new workspace package missing from its COPY list)
-#     before merge, without building on docs/config-only PRs.
-#   - push tag v* / manual dispatch: build AND push to GHCR for deploy.
+#     before merge, without building on docs/config-only PRs. Both images are
+#     built here, because either Dockerfile could be the broken one.
+#   - push tag api-v* / web-v*: build AND push ONLY the tagged image. The two
+#     ship on their own schedules, so an api-only release must not mint a new
+#     web image; a pointless rebuild is drift with a version number on it.
+#   - manual dispatch: both, as an escape hatch.
 on:
   pull_request:
     paths:
@@ -15,7 +19,7 @@ on:
       - 'docker/**'
       - '.github/workflows/images.yml'
   push:
-    tags: ['v*']
+    tags: ['api-v*', 'web-v*']
   workflow_dispatch:
 
 concurrency:
@@ -27,12 +31,35 @@ permissions:
   packages: write
 
 jobs:
+  # Which images does this run build, and what version do they carry? A tag names
+  # exactly one component (api-v0.1.0 -> api); anything else builds both.
+  targets:
+    runs-on: ubuntu-latest
+    outputs:
+      apps: ${{ steps.pick.outputs.apps }}
+      version: ${{ steps.pick.outputs.version }}
+    steps:
+      - id: pick
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            tag="${{ github.ref_name }}"
+            # api-v0.1.0-beta.26 -> component "api", version "v0.1.0-beta.26".
+            # The component prefix is a routing device for CI and does not belong
+            # in the image tag or on the About page.
+            echo "apps=[\"${tag%%-*}\"]" >> "$GITHUB_OUTPUT"
+            echo "version=${tag#*-}" >> "$GITHUB_OUTPUT"
+          else
+            echo 'apps=["api","web"]' >> "$GITHUB_OUTPUT"
+            echo "version=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+
   images:
+    needs: targets
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
       matrix:
-        app: [api, web]
+        app: ${{ fromJSON(needs.targets.outputs.apps) }}
     steps:
       - uses: actions/checkout@v6
 
@@ -55,7 +82,7 @@ jobs:
           # GHCR paths must be lowercase; the org is "Thalermark".
           images: ghcr.io/thalermark/thalermark-${{ matrix.app }}
           tags: |
-            type=ref,event=tag
+            type=raw,value=${{ needs.targets.outputs.version }},enable=${{ github.ref_type == 'tag' }}
             type=sha
             type=raw,value=latest,enable=${{ github.ref_type == 'tag' }}
 
@@ -64,12 +91,12 @@ jobs:
         with:
           context: .
           file: apps/${{ matrix.app }}/Dockerfile
-          # App version passed to both image legs: the release tag on a tag
-          # build, else the commit SHA. Web bakes it into the build (Settings →
-          # About); the api reads it at runtime and stamps it onto the telemetry
-          # envelope (product_version). See each app's Dockerfile.
+          # The component's own version (tag with its routing prefix stripped),
+          # else the commit SHA. Web bakes it into the build (Settings → About);
+          # the api reads it at runtime and stamps it onto the telemetry envelope
+          # (product_version). See each app's Dockerfile.
           build-args: |
-            APP_VERSION=${{ github.ref_type == 'tag' && github.ref_name || github.sha }}
+            APP_VERSION=${{ needs.targets.outputs.version }}
           # PR = validate only; tag/manual = publish.
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
@@ -89,7 +116,10 @@ jobs:
   # API only: it has the DB + migrate-on-boot path where boot failures live; the
   # web image is a static Node server, lower risk.
   smoke:
-    needs: images
+    needs: [targets, images]
+    # Only when this run actually built the api; a web-only release has no api
+    # image to boot.
+    if: contains(needs.targets.outputs.apps, 'api')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

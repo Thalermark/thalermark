@@ -8,19 +8,33 @@ import { defineConfig } from 'vite';
 // at build time via `define`, so there's no runtime env dependency — it's the
 // version of THIS build, not whatever an env var happens to hold.
 //
-// This ladder is mirrored by the api (apps/api/src/env.ts resolveAppVersion) and
-// mobile (app.config.ts), and the three must stay identical: About now shows this
-// number beside the one the api reports, so any difference in how they're derived
-// reads to the user as a mismatched deployment. --long always carries the commit;
+// Mirrored by the api (apps/api/src/env.ts) and mobile (app.config.ts). The
+// three no longer resolve the same TAG — web-v*, api-v* and mobile-v* move
+// independently because the three ship independently — but they must still
+// resolve the same WAY, or About reports a mismatch that is not really there.
+// Tags from before the split are the fallback. --long always carries the commit;
 // --dirty is deliberately absent (it churned on every keystroke against a copy
 // frozen at dev-server start).
+function describeTag(match: string): string | undefined {
+  try {
+    return (
+      execSync(`git describe --tags --match '${match}' --always --long`, {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim() || undefined
+    );
+  } catch {
+    return undefined;
+  }
+}
+
 function appVersion(): string {
   if (process.env.APP_VERSION) return process.env.APP_VERSION;
-  try {
-    return execSync('git describe --tags --always --long', { encoding: 'utf8' }).trim();
-  } catch {
-    return 'dev';
-  }
+  const own = describeTag('web-v*');
+  if (own?.startsWith('web-v')) return own.slice('web-'.length);
+  const legacy = describeTag('v*');
+  if (legacy?.startsWith('v')) return legacy;
+  return 'dev';
 }
 
 export default defineConfig({
