@@ -237,7 +237,11 @@ export default function Home() {
 
   return (
     <SafeAreaView className="flex-1 bg-cream" edges={['top']}>
-      <ScrollView contentContainerClassName="px-6 pt-6 pb-16">
+      {/* pb-32, not pb-16: the offline banner is an absolute overlay sitting at
+          inset + 56 and is about 40px tall, so 64px of padding left it covering
+          the last card — which on this screen is the cash-flow nudge, the one
+          piece of writing on the dashboard worth reading (TMC-228). */}
+      <ScrollView contentContainerClassName="px-6 pt-6 pb-32">
         <View className="flex-row items-start justify-between">
           <View className="flex-1">
             <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
