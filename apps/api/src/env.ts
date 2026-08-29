@@ -204,7 +204,9 @@ const VALID_LOG_LEVELS: LogLevel[] = ['debug', 'info', 'warning', 'error', 'fata
 // description, else 'dev'. Keeping the ladder identical is the whole point. The
 // api's number is only useful next to web's, and if one side falls back to a tag
 // while the other falls back to a literal 'dev' then every developer checkout
-// looks like a half-finished rollout.
+// looks like a half-finished rollout. The three ladders no longer resolve the
+// SAME tag (that was the point of splitting them) but they must still resolve
+// the same WAY, or About reports a difference that is not really there.
 //
 // --long, so the description always carries the commit (v0.1.0-beta.25-0-gb1765df)
 // rather than only when HEAD has moved past the tag. Not --dirty: an uncommitted
@@ -215,19 +217,34 @@ const VALID_LOG_LEVELS: LogLevel[] = ['debug', 'info', 'warning', 'error', 'fata
 // The git step is skipped in production: a released image has APP_VERSION baked
 // in and carries no .git, so shelling out there could only ever fail, and a
 // server process should not spawn anything at boot it cannot use.
-function resolveAppVersion(source: NodeJS.ProcessEnv): string {
-  if (source.APP_VERSION) return source.APP_VERSION;
-  if (source.NODE_ENV === 'production') return 'dev';
+function describeTag(match: string): string | undefined {
   try {
-    return execSync('git describe --tags --always --long', {
+    const described = execSync(`git describe --tags --match '${match}' --always --long`, {
       encoding: 'utf8',
       // Swallow git's stderr; "not a git repository" is an expected outcome
       // here, not something to print on every boot.
       stdio: ['ignore', 'pipe', 'ignore'],
     }).trim();
+    return described || undefined;
   } catch {
-    return 'dev';
+    return undefined;
   }
+}
+
+// Each shipped component carries its own tag line (api-v*, web-v*, mobile-v*),
+// because they ship separately: an operator pulls the api and web images on
+// their own schedule, and a phone app can be months behind both. So this matches
+// api-v* rather than any tag, and strips the prefix so About shows a plain
+// version. Tags from before the split are the fallback, which keeps existing
+// checkouts truthful instead of collapsing them to 'dev'.
+function resolveAppVersion(source: NodeJS.ProcessEnv): string {
+  if (source.APP_VERSION) return source.APP_VERSION;
+  if (source.NODE_ENV === 'production') return 'dev';
+  const own = describeTag('api-v*');
+  if (own?.startsWith('api-v')) return own.slice('api-'.length);
+  const legacy = describeTag('v*');
+  if (legacy?.startsWith('v')) return legacy;
+  return 'dev';
 }
 
 export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {

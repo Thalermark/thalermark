@@ -54,6 +54,13 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      # Web and installed phone apps read the api contract, and no route is
+      # version-prefixed, so a newer api has to keep serving older clients.
+      # --frozen verifies the committed snapshot matches what the code produces;
+      # it never rewrites it here.
+      - name: Check the API contract
+        run: pnpm contract:check --frozen
+
       - name: Test
         run: pnpm test
 

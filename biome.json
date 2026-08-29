@@ -23,6 +23,7 @@
       "**/*.xcassets",
       "**/expo-env.d.ts",
       "**/*.generated.ts",
+      "packages/api-contract/contract.snapshot.json",
       "_archive",
       "genai",
       "spikes"
@@ -60,7 +61,7 @@
   },
   "overrides": [
     {
-      "include": ["apps/api/scripts/**", "packages/validation/scripts/**"],
+      "include": ["scripts/**", "apps/api/scripts/**", "packages/validation/scripts/**"],
       "linter": {
         "rules": {
           "suspicious": {
