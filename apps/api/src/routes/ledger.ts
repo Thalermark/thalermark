@@ -14,6 +14,7 @@ import {
 } from '@thalermark/validation';
 import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
+import { validator } from 'hono/validator';
 import { depreciateOnce } from '../lib/depreciation.js';
 import {
   MANUAL_ADJUSTMENT_REVERSAL_SOURCE,
@@ -70,98 +71,103 @@ type EntryLine = {
 export function ledgerRoutes() {
   return (
     new Hono<{ Variables: RlsVariables }>()
-      .post('/api/ledger/entries', requireCapability('ledger:adjust'), async (c) => {
-        const body = await c.req.json().catch(() => null);
-        const parsed = manualJournalEntryCreateSchema.safeParse(body);
-        if (!parsed.success) {
-          return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
-        }
+      .post(
+        '/api/ledger/entries',
+        requireCapability('ledger:adjust'),
+        validator('json', (value, c) => {
+          const parsed = manualJournalEntryCreateSchema.safeParse(value);
+          if (!parsed.success) {
+            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+          }
+          return parsed.data;
+        }),
+        async (c) => {
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+          const { companyId, postedOn, memo, lines } = c.req.valid('json');
 
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
-        const { companyId, postedOn, memo, lines } = parsed.data;
+          const [company] = await tx
+            .select({ id: companies.id })
+            .from(companies)
+            .where(and(eq(companies.id, companyId), eq(companies.accountId, accountId)))
+            .limit(1);
+          if (!company) return c.json({ error: 'company_not_found' }, 404);
 
-        const [company] = await tx
-          .select({ id: companies.id })
-          .from(companies)
-          .where(and(eq(companies.id, companyId), eq(companies.accountId, accountId)))
-          .limit(1);
-        if (!company) return c.json({ error: 'company_not_found' }, 404);
+          // Resolve + validate every chosen account in one query: it must belong
+          // to this company (account-scoped for defense in depth,
+          // [[architecture_account_id_explicit_filter]]) and be active. Any line
+          // referencing an unknown / other-company / archived account fails the
+          // whole entry with a clean 400 — manual entries can hit ANY account
+          // type, so there is no account_type restriction. The code/name come
+          // back too, to enrich the response without a second lookup.
+          const wantedIds = Array.from(new Set(lines.map((l) => l.coaAccountId)));
+          const coaRows = await tx
+            .select({
+              id: chartOfAccounts.id,
+              code: chartOfAccounts.code,
+              name: chartOfAccounts.name,
+              accountType: chartOfAccounts.accountType,
+            })
+            .from(chartOfAccounts)
+            .where(
+              and(
+                eq(chartOfAccounts.accountId, accountId),
+                eq(chartOfAccounts.companyId, companyId),
+                eq(chartOfAccounts.isActive, true),
+                inArray(chartOfAccounts.id, wantedIds),
+              ),
+            );
+          const byId = new Map(coaRows.map((r) => [r.id, r]));
+          if (byId.size !== wantedIds.length) {
+            return c.json({ error: 'invalid_account' }, 400);
+          }
 
-        // Resolve + validate every chosen account in one query: it must belong
-        // to this company (account-scoped for defense in depth,
-        // [[architecture_account_id_explicit_filter]]) and be active. Any line
-        // referencing an unknown / other-company / archived account fails the
-        // whole entry with a clean 400 — manual entries can hit ANY account
-        // type, so there is no account_type restriction. The code/name come
-        // back too, to enrich the response without a second lookup.
-        const wantedIds = Array.from(new Set(lines.map((l) => l.coaAccountId)));
-        const coaRows = await tx
-          .select({
-            id: chartOfAccounts.id,
-            code: chartOfAccounts.code,
-            name: chartOfAccounts.name,
-            accountType: chartOfAccounts.accountType,
-          })
-          .from(chartOfAccounts)
-          .where(
-            and(
-              eq(chartOfAccounts.accountId, accountId),
-              eq(chartOfAccounts.companyId, companyId),
-              eq(chartOfAccounts.isActive, true),
-              inArray(chartOfAccounts.id, wantedIds),
-            ),
-          );
-        const byId = new Map(coaRows.map((r) => [r.id, r]));
-        if (byId.size !== wantedIds.length) {
-          return c.json({ error: 'invalid_account' }, 400);
-        }
-
-        const postedAt = expenseDateToPostedAt(postedOn);
-        const postLines: ManualJournalLine[] = lines.map((l) => ({
-          coaAccountId: l.coaAccountId,
-          side: l.side,
-          amount: l.amount,
-        }));
-        const entryId = await postManualJournalEntry(tx, {
-          accountId,
-          companyId,
-          postedAt,
-          memo,
-          lines: postLines,
-        });
-
-        const entryLines: EntryLine[] = lines.map((l) => {
-          const acc = byId.get(l.coaAccountId);
-          return {
+          const postedAt = expenseDateToPostedAt(postedOn);
+          const postLines: ManualJournalLine[] = lines.map((l) => ({
             coaAccountId: l.coaAccountId,
-            code: acc?.code ?? '',
-            accountName: acc?.name ?? '',
-            accountType: acc?.accountType ?? '',
             side: l.side,
             amount: l.amount,
+          }));
+          const entryId = await postManualJournalEntry(tx, {
+            accountId,
+            companyId,
+            postedAt,
+            memo,
+            lines: postLines,
+          });
+
+          const entryLines: EntryLine[] = lines.map((l) => {
+            const acc = byId.get(l.coaAccountId);
+            return {
+              coaAccountId: l.coaAccountId,
+              code: acc?.code ?? '',
+              accountName: acc?.name ?? '',
+              accountType: acc?.accountType ?? '',
+              side: l.side,
+              amount: l.amount,
+            };
+          });
+          const created = {
+            id: entryId,
+            companyId,
+            postedAt: postedAt.toISOString(),
+            memo,
+            lines: entryLines,
+            reversed: false,
+            reversalId: null as string | null,
           };
-        });
-        const created = {
-          id: entryId,
-          companyId,
-          postedAt: postedAt.toISOString(),
-          memo,
-          lines: entryLines,
-          reversed: false,
-          reversalId: null as string | null,
-        };
 
-        await c.var.audit({
-          entityType: 'manual_adjustment',
-          entityId: entryId,
-          action: 'create',
-          after: created,
-          companyId,
-        });
+          await c.var.audit({
+            entityType: 'manual_adjustment',
+            entityId: entryId,
+            action: 'create',
+            after: created,
+            companyId,
+          });
 
-        return c.json(created, 201);
-      })
+          return c.json(created, 201);
+        },
+      )
       .get('/api/ledger/entries', async (c) => {
         const tx = c.get('tx');
         const accountId = c.get('accountId');
@@ -480,95 +486,101 @@ export function ledgerRoutes() {
           empty: plan === null,
         });
       })
-      .post('/api/ledger/period-closes', requireCapability('ledger:adjust'), async (c) => {
-        const body = await c.req.json().catch(() => null);
-        const parsed = periodCloseCreateSchema.safeParse(body);
-        if (!parsed.success) {
-          return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
-        }
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
-        const { companyId, fiscalYear } = parsed.data;
+      .post(
+        '/api/ledger/period-closes',
+        requireCapability('ledger:adjust'),
+        validator('json', (value, c) => {
+          const parsed = periodCloseCreateSchema.safeParse(value);
+          if (!parsed.success) {
+            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+          }
+          return parsed.data;
+        }),
+        async (c) => {
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+          const { companyId, fiscalYear } = c.req.valid('json');
 
-        const company = await companyForClose(tx, accountId, companyId);
-        if (!company) return c.json({ error: 'company_not_found' }, 404);
+          const company = await companyForClose(tx, accountId, companyId);
+          if (!company) return c.json({ error: 'company_not_found' }, 404);
 
-        const guard = await guardClosable(tx, {
-          accountId,
-          companyId,
-          fiscalYear,
-          timezone: company.timezone,
-        });
-        if ('error' in guard) return c.json({ error: guard.error }, guard.status);
-
-        // Book depreciation before rolling. The daily sweep posts year Y at 31 Dec
-        // of Y; closing Y before it has caught up would lose the deduction AND
-        // leave the sweep failing on that purchase every run afterwards, since the
-        // year would then be locked. Doing it here also matches what an accountant
-        // does — depreciation, then close.
-        const purchases = await tx
-          .select({ purchase: capitalPurchases })
-          .from(capitalPurchases)
-          .where(
-            and(
-              eq(capitalPurchases.accountId, accountId),
-              eq(capitalPurchases.companyId, companyId),
-              eq(capitalPurchases.taxTreatment, 'spread'),
-              isNull(capitalPurchases.deletedAt),
-            ),
-          );
-        for (const row of purchases) {
-          await depreciateOnce(tx, {
-            purchase: row.purchase,
-            convention: company.depreciationConvention as DepreciationConvention,
+          const guard = await guardClosable(tx, {
+            accountId,
+            companyId,
+            fiscalYear,
             timezone: company.timezone,
           });
-        }
+          if ('error' in guard) return c.json({ error: guard.error }, guard.status);
 
-        const equity = await resolveEquityTarget(tx, {
-          accountId,
-          companyId,
-          businessType: company.businessType,
-        });
-        if (!equity) return c.json({ error: 'equity_account_missing' }, 409);
+          // Book depreciation before rolling. The daily sweep posts year Y at 31 Dec
+          // of Y; closing Y before it has caught up would lose the deduction AND
+          // leave the sweep failing on that purchase every run afterwards, since the
+          // year would then be locked. Doing it here also matches what an accountant
+          // does — depreciation, then close.
+          const purchases = await tx
+            .select({ purchase: capitalPurchases })
+            .from(capitalPurchases)
+            .where(
+              and(
+                eq(capitalPurchases.accountId, accountId),
+                eq(capitalPurchases.companyId, companyId),
+                eq(capitalPurchases.taxTreatment, 'spread'),
+                isNull(capitalPurchases.deletedAt),
+              ),
+            );
+          for (const row of purchases) {
+            await depreciateOnce(tx, {
+              purchase: row.purchase,
+              convention: company.depreciationConvention as DepreciationConvention,
+              timezone: company.timezone,
+            });
+          }
 
-        const balances = await closingBalances(tx, {
-          accountId,
-          companyId,
-          closedThrough: guard.closedThrough,
-        });
-        const plan = buildClosingPlan(balances, equity);
-        if (!plan) return c.json({ error: 'nothing_to_close' }, 409);
+          const equity = await resolveEquityTarget(tx, {
+            accountId,
+            companyId,
+            businessType: company.businessType,
+          });
+          if (!equity) return c.json({ error: 'equity_account_missing' }, 409);
 
-        const { periodCloseId, journalEntryId } = await postYearEndClose(tx, {
-          accountId,
-          companyId,
-          fiscalYear,
-          closedThrough: guard.closedThrough,
-          plan,
-        });
+          const balances = await closingBalances(tx, {
+            accountId,
+            companyId,
+            closedThrough: guard.closedThrough,
+          });
+          const plan = buildClosingPlan(balances, equity);
+          if (!plan) return c.json({ error: 'nothing_to_close' }, 409);
 
-        const created = {
-          id: periodCloseId,
-          companyId,
-          fiscalYear,
-          closedThrough: guard.closedThrough.toISOString(),
-          journalEntryId,
-          netIncome: plan.netIncome,
-          withdrawals: plan.withdrawals,
-          equityCode: plan.equityCode,
-        };
+          const { periodCloseId, journalEntryId } = await postYearEndClose(tx, {
+            accountId,
+            companyId,
+            fiscalYear,
+            closedThrough: guard.closedThrough,
+            plan,
+          });
 
-        await c.var.audit({
-          entityType: 'period_close',
-          entityId: periodCloseId,
-          action: 'create',
-          after: created,
-          companyId,
-        });
+          const created = {
+            id: periodCloseId,
+            companyId,
+            fiscalYear,
+            closedThrough: guard.closedThrough.toISOString(),
+            journalEntryId,
+            netIncome: plan.netIncome,
+            withdrawals: plan.withdrawals,
+            equityCode: plan.equityCode,
+          };
 
-        return c.json(created, 201);
-      })
+          await c.var.audit({
+            entityType: 'period_close',
+            entityId: periodCloseId,
+            action: 'create',
+            after: created,
+            companyId,
+          });
+
+          return c.json(created, 201);
+        },
+      )
       // Re-open a closed year. Posts the reversal of the closing entry and soft-
       // deletes the row; the ledger stays append-only.
       .post(

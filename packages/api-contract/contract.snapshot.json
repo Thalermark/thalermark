@@ -7016,7 +7016,16 @@
       }
     },
     "$patch /api/account/telemetry": {
-      "request": "{}",
+      "request": {
+        "json": {
+          "enabled": {
+            "union": [
+              "false",
+              "true"
+            ]
+          }
+        }
+      },
       "response": {
         "decided": "true",
         "disabled": "false",
@@ -8576,6 +8585,40 @@
     },
     "$patch /api/mileage-trips/:id": {
       "request": {
+        "json": {
+          "jobId?": {
+            "union": [
+              "null",
+              "string",
+              "undefined"
+            ]
+          },
+          "miles?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          },
+          "purpose?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          },
+          "tripDate?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          },
+          "vehicleId?": {
+            "union": [
+              "null",
+              "string",
+              "undefined"
+            ]
+          }
+        },
         "param": {
           "id": "string"
         }
@@ -9208,7 +9251,34 @@
       }
     },
     "$post /api/bills": {
-      "request": "{}",
+      "request": {
+        "json": {
+          "amount": "string",
+          "billDate": "string",
+          "categoryAccountId": "string",
+          "companyId": "string",
+          "contactId": "string",
+          "currency?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          },
+          "dueDate": "string",
+          "memo?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          },
+          "reference?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          }
+        }
+      },
       "response": {
         "accountId": "string",
         "amount": "string",
@@ -9702,6 +9772,65 @@
     },
     "$post /api/companies/:id/copy-from": {
       "request": {
+        "json": {
+          "include?": {
+            "union": [
+              "undefined",
+              {
+                "branding?": {
+                  "union": [
+                    "false",
+                    "true",
+                    "undefined"
+                  ]
+                },
+                "contacts?": {
+                  "union": [
+                    "false",
+                    "true",
+                    "undefined"
+                  ]
+                },
+                "emailTemplates?": {
+                  "union": [
+                    "false",
+                    "true",
+                    "undefined"
+                  ]
+                },
+                "items?": {
+                  "union": [
+                    "false",
+                    "true",
+                    "undefined"
+                  ]
+                },
+                "profile?": {
+                  "union": [
+                    "false",
+                    "true",
+                    "undefined"
+                  ]
+                },
+                "recurringInvoices?": {
+                  "union": [
+                    "false",
+                    "true",
+                    "undefined"
+                  ]
+                },
+                "taxPolicies?": {
+                  "union": [
+                    "false",
+                    "true",
+                    "undefined"
+                  ]
+                }
+              }
+            ]
+          },
+          "sourceCompanyId": "string"
+        },
         "param": {
           "id": "string"
         }
@@ -9790,7 +9919,80 @@
       }
     },
     "$post /api/contacts": {
-      "request": "{}",
+      "request": {
+        "json": {
+          "addressLine1?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          },
+          "addressLine2?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          },
+          "city?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          },
+          "companyId": "string",
+          "country?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          },
+          "email?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          },
+          "isCustomer?": {
+            "union": [
+              "false",
+              "true",
+              "undefined"
+            ]
+          },
+          "isVendor?": {
+            "union": [
+              "false",
+              "true",
+              "undefined"
+            ]
+          },
+          "name": "string",
+          "notes?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          },
+          "phone?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          },
+          "postalCode?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          },
+          "region?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          }
+        }
+      },
       "response": {
         "accountId": "string",
         "addressLine1?": {
@@ -10065,13 +10267,175 @@
       }
     },
     "$post /api/contacts/import": {
-      "request": "{}",
+      "request": {
+        "json": {
+          "companyId": "string",
+          "rows": [
+            {
+              "addressLine1?": {
+                "union": [
+                  "string",
+                  "undefined"
+                ]
+              },
+              "addressLine2?": {
+                "union": [
+                  "string",
+                  "undefined"
+                ]
+              },
+              "city?": {
+                "union": [
+                  "string",
+                  "undefined"
+                ]
+              },
+              "country?": {
+                "union": [
+                  "string",
+                  "undefined"
+                ]
+              },
+              "email?": {
+                "union": [
+                  "string",
+                  "undefined"
+                ]
+              },
+              "isCustomer?": {
+                "union": [
+                  "false",
+                  "true",
+                  "undefined"
+                ]
+              },
+              "isVendor?": {
+                "union": [
+                  "false",
+                  "true",
+                  "undefined"
+                ]
+              },
+              "name": "string",
+              "notes?": {
+                "union": [
+                  "string",
+                  "undefined"
+                ]
+              },
+              "phone?": {
+                "union": [
+                  "string",
+                  "undefined"
+                ]
+              },
+              "postalCode?": {
+                "union": [
+                  "string",
+                  "undefined"
+                ]
+              },
+              "region?": {
+                "union": [
+                  "string",
+                  "undefined"
+                ]
+              }
+            }
+          ]
+        }
+      },
       "response": {
         "created": "number"
       }
     },
     "$post /api/entity-transfers": {
-      "request": "{}",
+      "request": {
+        "json": {
+          "businessType": {
+            "union": [
+              "\"c_corp\"",
+              "\"llc_single_member\"",
+              "\"partnership\"",
+              "\"s_corp\"",
+              "\"sole_prop\""
+            ]
+          },
+          "effectiveDate": "string",
+          "include?": {
+            "union": [
+              "undefined",
+              {
+                "branding?": {
+                  "union": [
+                    "false",
+                    "true",
+                    "undefined"
+                  ]
+                },
+                "contacts?": {
+                  "union": [
+                    "false",
+                    "true",
+                    "undefined"
+                  ]
+                },
+                "emailTemplates?": {
+                  "union": [
+                    "false",
+                    "true",
+                    "undefined"
+                  ]
+                },
+                "items?": {
+                  "union": [
+                    "false",
+                    "true",
+                    "undefined"
+                  ]
+                },
+                "profile?": {
+                  "union": [
+                    "false",
+                    "true",
+                    "undefined"
+                  ]
+                },
+                "recurringInvoices?": {
+                  "union": [
+                    "false",
+                    "true",
+                    "undefined"
+                  ]
+                },
+                "taxPolicies?": {
+                  "union": [
+                    "false",
+                    "true",
+                    "undefined"
+                  ]
+                }
+              }
+            ]
+          },
+          "name": "string",
+          "openInvoicesDisposition": {
+            "union": [
+              "\"stay\"",
+              "\"transfer\""
+            ]
+          },
+          "predecessorCompanyId": "string",
+          "transferAssetIds?": {
+            "union": [
+              "undefined",
+              [
+                "string"
+              ]
+            ]
+          }
+        }
+      },
       "response": {
         "assetsTransferred": "number",
         "copied": {
@@ -10117,7 +10481,114 @@
       }
     },
     "$post /api/estimates": {
-      "request": "{}",
+      "request": {
+        "json": {
+          "companyId": "string",
+          "contactId": "string",
+          "currency?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          },
+          "expiresOn?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          },
+          "issueDate": "string",
+          "lineItems": [
+            {
+              "amount": "string",
+              "description": "string",
+              "position": "number",
+              "quantity": "string",
+              "sourceItemId?": {
+                "union": [
+                  "string",
+                  "undefined"
+                ]
+              },
+              "taxable?": {
+                "union": [
+                  "false",
+                  "true",
+                  "undefined"
+                ]
+              },
+              "taxAmount?": {
+                "union": [
+                  "string",
+                  "undefined"
+                ]
+              },
+              "taxPolicyId?": {
+                "union": [
+                  "string",
+                  "undefined"
+                ]
+              },
+              "taxRatePct?": {
+                "union": [
+                  "string",
+                  "undefined"
+                ]
+              },
+              "type?": {
+                "union": [
+                  "\"product\"",
+                  "\"service\"",
+                  "undefined"
+                ]
+              },
+              "unitLabel?": {
+                "union": [
+                  "string",
+                  "undefined"
+                ]
+              },
+              "unitPrice": "string"
+            }
+          ],
+          "notes?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          },
+          "number": "string",
+          "showAddress?": {
+            "union": [
+              "false",
+              "true",
+              "undefined"
+            ]
+          },
+          "showEmail?": {
+            "union": [
+              "false",
+              "true",
+              "undefined"
+            ]
+          },
+          "showPhone?": {
+            "union": [
+              "false",
+              "true",
+              "undefined"
+            ]
+          },
+          "subtotal": "string",
+          "tax?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          },
+          "total": "string"
+        }
+      },
       "response": {
         "companyId": "string",
         "contactId": "string",
@@ -10844,7 +11315,35 @@
       }
     },
     "$post /api/expenses": {
-      "request": "{}",
+      "request": {
+        "json": {
+          "amount": "string",
+          "categoryAccountId": "string",
+          "companyId": "string",
+          "customerContactId?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          },
+          "expenseDate": "string",
+          "memo?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          },
+          "merchant": "string",
+          "paymentAccountId": "string",
+          "vendorContactId?": {
+            "union": [
+              "null",
+              "string",
+              "undefined"
+            ]
+          }
+        }
+      },
       "response": {
         "accountId": "string",
         "amount": "string",
@@ -11371,7 +11870,24 @@
       }
     },
     "$post /api/expenses/categorize": {
-      "request": "{}",
+      "request": {
+        "json": {
+          "amount?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          },
+          "companyId": "string",
+          "memo?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          },
+          "merchant": "string"
+        }
+      },
       "response": {
         "suggestedCategoryAccountId": {
           "union": [
@@ -11388,7 +11904,19 @@
       }
     },
     "$post /api/invitations": {
-      "request": "{}",
+      "request": {
+        "json": {
+          "email": "string",
+          "role": {
+            "union": [
+              "\"accountant\"",
+              "\"admin\"",
+              "\"member\"",
+              "\"viewer\""
+            ]
+          }
+        }
+      },
       "response": {
         "delivered": {
           "union": [
@@ -11423,7 +11951,122 @@
       }
     },
     "$post /api/invoices": {
-      "request": "{}",
+      "request": {
+        "json": {
+          "companyId": "string",
+          "contactId": "string",
+          "currency?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          },
+          "dueDate": "string",
+          "issueDate": "string",
+          "jobId?": {
+            "union": [
+              "null",
+              "string",
+              "undefined"
+            ]
+          },
+          "lineItems": [
+            {
+              "amount": "string",
+              "description": "string",
+              "position": "number",
+              "quantity": "string",
+              "sourceItemId?": {
+                "union": [
+                  "string",
+                  "undefined"
+                ]
+              },
+              "taxable?": {
+                "union": [
+                  "false",
+                  "true",
+                  "undefined"
+                ]
+              },
+              "taxAmount?": {
+                "union": [
+                  "string",
+                  "undefined"
+                ]
+              },
+              "taxPolicyId?": {
+                "union": [
+                  "string",
+                  "undefined"
+                ]
+              },
+              "taxRatePct?": {
+                "union": [
+                  "string",
+                  "undefined"
+                ]
+              },
+              "timeEntryId?": {
+                "union": [
+                  "string",
+                  "undefined"
+                ]
+              },
+              "type?": {
+                "union": [
+                  "\"product\"",
+                  "\"service\"",
+                  "undefined"
+                ]
+              },
+              "unitLabel?": {
+                "union": [
+                  "string",
+                  "undefined"
+                ]
+              },
+              "unitPrice": "string"
+            }
+          ],
+          "notes?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          },
+          "number": "string",
+          "showAddress?": {
+            "union": [
+              "false",
+              "true",
+              "undefined"
+            ]
+          },
+          "showEmail?": {
+            "union": [
+              "false",
+              "true",
+              "undefined"
+            ]
+          },
+          "showPhone?": {
+            "union": [
+              "false",
+              "true",
+              "undefined"
+            ]
+          },
+          "subtotal": "string",
+          "tax?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          },
+          "total": "string"
+        }
+      },
       "response": {
         "companyId": "string",
         "contactId": "string",
@@ -13098,7 +13741,56 @@
       }
     },
     "$post /api/items": {
-      "request": "{}",
+      "request": {
+        "json": {
+          "companyId": "string",
+          "defaultQuantity?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          },
+          "description?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          },
+          "name": "string",
+          "taxable?": {
+            "union": [
+              "false",
+              "true",
+              "undefined"
+            ]
+          },
+          "taxPolicyId?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          },
+          "type?": {
+            "union": [
+              "\"product\"",
+              "\"service\"",
+              "undefined"
+            ]
+          },
+          "unitLabel?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          },
+          "unitPrice?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          }
+        }
+      },
       "response": {
         "accountId": "string",
         "companyId": "string",
@@ -13247,13 +13939,107 @@
       }
     },
     "$post /api/items/import": {
-      "request": "{}",
+      "request": {
+        "json": {
+          "companyId": "string",
+          "rows": [
+            {
+              "archived?": {
+                "union": [
+                  "false",
+                  "true",
+                  "undefined"
+                ]
+              },
+              "defaultQuantity?": {
+                "union": [
+                  "string",
+                  "undefined"
+                ]
+              },
+              "description?": {
+                "union": [
+                  "string",
+                  "undefined"
+                ]
+              },
+              "name": "string",
+              "taxable?": {
+                "union": [
+                  "false",
+                  "true",
+                  "undefined"
+                ]
+              },
+              "taxPolicyId?": {
+                "union": [
+                  "string",
+                  "undefined"
+                ]
+              },
+              "type?": {
+                "union": [
+                  "\"product\"",
+                  "\"service\"",
+                  "undefined"
+                ]
+              },
+              "unitLabel?": {
+                "union": [
+                  "string",
+                  "undefined"
+                ]
+              },
+              "unitPrice?": {
+                "union": [
+                  "string",
+                  "undefined"
+                ]
+              }
+            }
+          ]
+        }
+      },
       "response": {
         "created": "number"
       }
     },
     "$post /api/jobs": {
-      "request": "{}",
+      "request": {
+        "json": {
+          "billingUnit?": {
+            "union": [
+              "\"day\"",
+              "\"hour\"",
+              "\"job\"",
+              "\"night\"",
+              "\"visit\"",
+              "undefined"
+            ]
+          },
+          "companyId": "string",
+          "contactId?": {
+            "union": [
+              "null",
+              "string",
+              "undefined"
+            ]
+          },
+          "endedOn?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          },
+          "name": "string",
+          "startedOn?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          }
+        }
+      },
       "response": {
         "accountId": "string",
         "billingUnit?": {
@@ -13449,7 +14235,25 @@
       }
     },
     "$post /api/ledger/entries": {
-      "request": "{}",
+      "request": {
+        "json": {
+          "companyId": "string",
+          "lines": [
+            {
+              "amount": "string",
+              "coaAccountId": "string",
+              "side": {
+                "union": [
+                  "\"credit\"",
+                  "\"debit\""
+                ]
+              }
+            }
+          ],
+          "memo": "string",
+          "postedOn": "string"
+        }
+      },
       "response": {
         "companyId": "string",
         "id": "string",
@@ -13497,7 +14301,12 @@
       }
     },
     "$post /api/ledger/period-closes": {
-      "request": "{}",
+      "request": {
+        "json": {
+          "companyId": "string",
+          "fiscalYear": "number"
+        }
+      },
       "response": {
         "closedThrough": "string",
         "companyId": "string",
@@ -13535,7 +14344,28 @@
       }
     },
     "$post /api/mileage-trips": {
-      "request": "{}",
+      "request": {
+        "json": {
+          "companyId": "string",
+          "jobId?": {
+            "union": [
+              "null",
+              "string",
+              "undefined"
+            ]
+          },
+          "miles": "string",
+          "purpose": "string",
+          "tripDate": "string",
+          "vehicleId?": {
+            "union": [
+              "null",
+              "string",
+              "undefined"
+            ]
+          }
+        }
+      },
       "response": {
         "accountId": "string",
         "companyId": "string",
@@ -13677,7 +14507,31 @@
       }
     },
     "$post /api/owner-money": {
-      "request": "{}",
+      "request": {
+        "json": {
+          "amount": "string",
+          "companyId": "string",
+          "kind": {
+            "union": [
+              "\"contribution\"",
+              "\"draw\""
+            ]
+          },
+          "memo?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          },
+          "moneyAccountId?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          },
+          "occurredOn": "string"
+        }
+      },
       "response": {
         "accountId": "string",
         "amount": "string",
@@ -13743,7 +14597,68 @@
       }
     },
     "$post /api/purchases": {
-      "request": "{}",
+      "request": {
+        "json": {
+          "amount": "string",
+          "companyId": "string",
+          "depreciationStartYear?": {
+            "union": [
+              "number",
+              "undefined"
+            ]
+          },
+          "description": "string",
+          "downPayment?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          },
+          "funding": {
+            "union": [
+              "\"financed\"",
+              "\"paid_in_full\""
+            ]
+          },
+          "memo?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          },
+          "paymentAccountId?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          },
+          "priorAccumulatedDepreciation?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          },
+          "purchaseDate": "string",
+          "taxTreatment": {
+            "union": [
+              "\"deduct_now\"",
+              "\"spread\""
+            ]
+          },
+          "usefulLifeYears?": {
+            "union": [
+              "number",
+              "undefined"
+            ]
+          },
+          "vendorContactId?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          }
+        }
+      },
       "response": {
         "accountId": "string",
         "amount": "string",
@@ -13877,7 +14792,112 @@
       }
     },
     "$post /api/recurring-invoices": {
-      "request": "{}",
+      "request": {
+        "json": {
+          "companyId": "string",
+          "contactId": "string",
+          "currency?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          },
+          "endDate?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          },
+          "frequency": {
+            "union": [
+              "\"monthly\"",
+              "\"weekly\"",
+              "\"yearly\""
+            ]
+          },
+          "intervalCount": "number",
+          "lineItems": [
+            {
+              "amount": "string",
+              "description": "string",
+              "position": "number",
+              "quantity": "string",
+              "sourceItemId?": {
+                "union": [
+                  "string",
+                  "undefined"
+                ]
+              },
+              "taxable?": {
+                "union": [
+                  "false",
+                  "true",
+                  "undefined"
+                ]
+              },
+              "taxAmount?": {
+                "union": [
+                  "string",
+                  "undefined"
+                ]
+              },
+              "taxPolicyId?": {
+                "union": [
+                  "string",
+                  "undefined"
+                ]
+              },
+              "taxRatePct?": {
+                "union": [
+                  "string",
+                  "undefined"
+                ]
+              },
+              "type?": {
+                "union": [
+                  "\"product\"",
+                  "\"service\"",
+                  "undefined"
+                ]
+              },
+              "unitLabel?": {
+                "union": [
+                  "string",
+                  "undefined"
+                ]
+              },
+              "unitPrice": "string"
+            }
+          ],
+          "maxOccurrences?": {
+            "union": [
+              "number",
+              "undefined"
+            ]
+          },
+          "netTermsDays?": {
+            "union": [
+              "number",
+              "undefined"
+            ]
+          },
+          "notes?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          },
+          "startDate": "string",
+          "subtotal": "string",
+          "tax?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          },
+          "total": "string"
+        }
+      },
       "response": {
         "companyId": "string",
         "contactId": "string",
@@ -14236,7 +15256,25 @@
       }
     },
     "$post /api/tax-policies": {
-      "request": "{}",
+      "request": {
+        "json": {
+          "companyId": "string",
+          "isDefault?": {
+            "union": [
+              "false",
+              "true",
+              "undefined"
+            ]
+          },
+          "name": "string",
+          "ratePct?": {
+            "union": [
+              "string",
+              "undefined"
+            ]
+          }
+        }
+      },
       "response": {
         "accountId": "string",
         "companyId": "string",
@@ -14324,13 +15362,124 @@
       }
     },
     "$post /api/telemetry/ingest": {
-      "request": "{}",
+      "request": {
+        "json": {
+          "events": [
+            {
+              "union": [
+                {
+                  "duration_seconds": "number",
+                  "name": "\"session_end\""
+                },
+                {
+                  "insight_type": {
+                    "union": [
+                      "\"anomaly\"",
+                      "\"cashflow\"",
+                      "\"late_payer\"",
+                      "\"seasonal\"",
+                      "\"tax_estimate\""
+                    ]
+                  },
+                  "name": "\"ai_insight_viewed\""
+                },
+                {
+                  "last_completed_step": {
+                    "union": [
+                      "\"company_setup\"",
+                      "\"first_client\"",
+                      "\"first_expense\"",
+                      "\"first_invoice\"",
+                      "null"
+                    ]
+                  },
+                  "name": "\"onboarding_abandoned\""
+                },
+                {
+                  "name": "\"expense_flow_abandoned\"",
+                  "step_reached": {
+                    "union": [
+                      "\"amount\"",
+                      "\"category\"",
+                      "\"receipt\"",
+                      "\"save\""
+                    ]
+                  }
+                },
+                {
+                  "name": "\"invoice_flow_abandoned\"",
+                  "step_reached": {
+                    "union": [
+                      "\"details\"",
+                      "\"line_items\"",
+                      "\"preview\"",
+                      "\"send\""
+                    ]
+                  }
+                },
+                {
+                  "name": "\"onboarding_step_completed\"",
+                  "step": "\"company_setup\""
+                },
+                {
+                  "name": "\"report_viewed\"",
+                  "report_type": {
+                    "union": [
+                      "\"ar-aging\"",
+                      "\"balance-sheet\"",
+                      "\"estimate-win-rate\"",
+                      "\"expenses-by-category\"",
+                      "\"general-ledger\"",
+                      "\"profit-and-loss\"",
+                      "\"revenue-over-time\"",
+                      "\"sales-by-customer\"",
+                      "\"sales-tax\"",
+                      "\"top-products\""
+                    ]
+                  }
+                },
+                {
+                  "name": "\"session_start\""
+                }
+              ]
+            }
+          ]
+        }
+      },
       "response": {
         "accepted": "number"
       }
     },
     "$post /api/vehicles": {
-      "request": "{}",
+      "request": {
+        "json": {
+          "anotherVehicleAvailable?": {
+            "union": [
+              "false",
+              "null",
+              "true",
+              "undefined"
+            ]
+          },
+          "companyId": "string",
+          "label": "string",
+          "personalUse?": {
+            "union": [
+              "\"none\"",
+              "\"some\"",
+              "null",
+              "undefined"
+            ]
+          },
+          "placedInServiceOn?": {
+            "union": [
+              "null",
+              "string",
+              "undefined"
+            ]
+          }
+        }
+      },
       "response": {
         "accountId": "string",
         "anotherVehicleAvailable": {
@@ -14639,7 +15788,35 @@
       }
     },
     "$put /api/owner-money/opening-balance": {
-      "request": "{}",
+      "request": {
+        "json": {
+          "union": [
+            {
+              "asOfDate": "string",
+              "cash": "string",
+              "companyId": "string",
+              "payables": "string",
+              "receivables": "string"
+            },
+            {
+              "asOfDate": "string",
+              "companyId": "string",
+              "lines": [
+                {
+                  "amount": "string",
+                  "coaAccountId": "string",
+                  "side": {
+                    "union": [
+                      "\"credit\"",
+                      "\"debit\""
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
       "response": {
         "accountId": "string",
         "asOfDate": "string",
@@ -14660,7 +15837,46 @@
       }
     },
     "$put /api/settings/ai": {
-      "request": "{}",
+      "request": {
+        "json": {
+          "apiKey?": {
+            "union": [
+              "null",
+              "string",
+              "undefined"
+            ]
+          },
+          "baseUrl?": {
+            "union": [
+              "null",
+              "string",
+              "undefined"
+            ]
+          },
+          "modelFast?": {
+            "union": [
+              "null",
+              "string",
+              "undefined"
+            ]
+          },
+          "modelReasoning?": {
+            "union": [
+              "null",
+              "string",
+              "undefined"
+            ]
+          },
+          "modelVision?": {
+            "union": [
+              "null",
+              "string",
+              "undefined"
+            ]
+          },
+          "provider": "string"
+        }
+      },
       "response": {
         "connection": {
           "union": [

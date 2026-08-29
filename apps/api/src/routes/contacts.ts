@@ -91,92 +91,109 @@ async function setContactArchived(
 export function contactsRoutes(deps: AppDeps) {
   return (
     new Hono<{ Variables: RlsVariables }>()
-      .post('/api/contacts', requireCapability('contacts:write'), async (c) => {
-        const body = await c.req.json().catch(() => null);
-        const parsed = contactCreateSchema.safeParse(body);
-        if (!parsed.success) {
-          return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
-        }
+      .post(
+        '/api/contacts',
+        requireCapability('contacts:write'),
+        validator('json', (value, c) => {
+          const parsed = contactCreateSchema.safeParse(value);
+          if (!parsed.success) {
+            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+          }
+          return parsed.data;
+        }),
+        async (c) => {
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
 
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
+          const [company] = await tx
+            .select({ id: companies.id })
+            .from(companies)
+            .where(
+              and(
+                eq(companies.id, c.req.valid('json').companyId),
+                eq(companies.accountId, accountId),
+              ),
+            )
+            .limit(1);
+          if (!company) return c.json({ error: 'company_not_found' }, 404);
 
-        const [company] = await tx
-          .select({ id: companies.id })
-          .from(companies)
-          .where(and(eq(companies.id, parsed.data.companyId), eq(companies.accountId, accountId)))
-          .limit(1);
-        if (!company) return c.json({ error: 'company_not_found' }, 404);
+          // First-client onboarding milestone (server-authoritative — see the
+          // ONBOARDING_STEPS note in @thalermark/validation). Checked BEFORE the
+          // insert so "the account's first contact" is honest; emitted after.
+          const [priorContact] = await tx
+            .select({ id: contacts.id })
+            .from(contacts)
+            .where(eq(contacts.accountId, accountId))
+            .limit(1);
 
-        // First-client onboarding milestone (server-authoritative — see the
-        // ONBOARDING_STEPS note in @thalermark/validation). Checked BEFORE the
-        // insert so "the account's first contact" is honest; emitted after.
-        const [priorContact] = await tx
-          .select({ id: contacts.id })
-          .from(contacts)
-          .where(eq(contacts.accountId, accountId))
-          .limit(1);
+          const id = uuidv7();
+          const row = { id, accountId, ...c.req.valid('json') };
+          await tx.insert(contacts).values(row);
+          await c.var.audit({
+            entityType: 'contact',
+            entityId: id,
+            action: 'create',
+            after: row,
+            companyId: c.req.valid('json').companyId,
+          });
 
-        const id = uuidv7();
-        const row = { id, accountId, ...parsed.data };
-        await tx.insert(contacts).values(row);
-        await c.var.audit({
-          entityType: 'contact',
-          entityId: id,
-          action: 'create',
-          after: row,
-          companyId: parsed.data.companyId,
-        });
+          // Telemetry (opt-in; no-op unless the account enabled it). "Client" is
+          // the TELEMETRY.md term for what the app calls a customer.
+          await emit(tx, { name: 'client_created' });
+          if (!priorContact) {
+            await emit(tx, { name: 'onboarding_step_completed', step: 'first_client' });
+          }
 
-        // Telemetry (opt-in; no-op unless the account enabled it). "Client" is
-        // the TELEMETRY.md term for what the app calls a customer.
-        await emit(tx, { name: 'client_created' });
-        if (!priorContact) {
-          await emit(tx, { name: 'onboarding_step_completed', step: 'first_client' });
-        }
-
-        return c.json(row, 201);
-      })
+          return c.json(row, 201);
+        },
+      )
       // Bulk CSV import (web). The importer parses + maps + previews client-side,
       // then posts the mapped rows as JSON. Registered before /api/contacts/:id
       // so Hono's first-match doesn't capture "import" as an :id. companyId is
       // supplied once and merged onto every row; the whole batch validated up
       // front (contactImportSchema), so this is atomic — every row lands or none.
-      .post('/api/contacts/import', requireCapability('contacts:write'), async (c) => {
-        const body = await c.req.json().catch(() => null);
-        const parsed = contactImportSchema.safeParse(body);
-        if (!parsed.success) {
-          return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
-        }
+      .post(
+        '/api/contacts/import',
+        requireCapability('contacts:write'),
+        validator('json', (value, c) => {
+          const parsed = contactImportSchema.safeParse(value);
+          if (!parsed.success) {
+            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+          }
+          return parsed.data;
+        }),
+        async (c) => {
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+          const { companyId } = c.req.valid('json');
 
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
-        const { companyId } = parsed.data;
+          const [company] = await tx
+            .select({ id: companies.id })
+            .from(companies)
+            .where(and(eq(companies.id, companyId), eq(companies.accountId, accountId)))
+            .limit(1);
+          if (!company) return c.json({ error: 'company_not_found' }, 404);
 
-        const [company] = await tx
-          .select({ id: companies.id })
-          .from(companies)
-          .where(and(eq(companies.id, companyId), eq(companies.accountId, accountId)))
-          .limit(1);
-        if (!company) return c.json({ error: 'company_not_found' }, 404);
+          // One INSERT for the batch; per-row audit so each customer's history tab
+          // shows its creation (action 'create', identical to the single path).
+          const rows = c.req
+            .valid('json')
+            .rows.map((r) => ({ id: uuidv7(), accountId, companyId, ...r }));
+          await tx.insert(contacts).values(rows);
+          for (const row of rows) {
+            await c.var.audit({
+              entityType: 'contact',
+              entityId: row.id,
+              action: 'create',
+              after: row,
+              companyId,
+            });
+            await emit(tx, { name: 'client_created' });
+          }
 
-        // One INSERT for the batch; per-row audit so each customer's history tab
-        // shows its creation (action 'create', identical to the single path).
-        const rows = parsed.data.rows.map((r) => ({ id: uuidv7(), accountId, companyId, ...r }));
-        await tx.insert(contacts).values(rows);
-        for (const row of rows) {
-          await c.var.audit({
-            entityType: 'contact',
-            entityId: row.id,
-            action: 'create',
-            after: row,
-            companyId,
-          });
-          await emit(tx, { name: 'client_created' });
-        }
-
-        return c.json({ created: rows.length }, 201);
-      })
+          return c.json({ created: rows.length }, 201);
+        },
+      )
       .get('/api/contacts', async (c) => {
         const tx = c.get('tx');
         const accountId = c.get('accountId');

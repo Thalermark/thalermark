@@ -478,16 +478,17 @@ export function invoicesRoutes(deps: AppDeps) {
         '/api/invoices',
         requireCapability('sales:write'),
         requireEntitlement(deps, 'documents:write'),
-        async (c) => {
-          const body = await c.req.json().catch(() => null);
-          const parsed = invoiceCreateSchema.safeParse(body);
+        validator('json', (value, c) => {
+          const parsed = invoiceCreateSchema.safeParse(value);
           if (!parsed.success) {
             return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
           }
-
+          return parsed.data;
+        }),
+        async (c) => {
           const tx = c.get('tx');
           const accountId = c.get('accountId');
-          const { companyId, contactId, lineItems, ...header } = parsed.data;
+          const { companyId, contactId, lineItems, ...header } = c.req.valid('json');
           // Which hours this invoice bills is DERIVED from the lines, not sent
           // alongside them. One source of truth: a line carries its entry, so a
           // line the client dropped takes its entry with it and the two can
@@ -596,7 +597,7 @@ export function invoicesRoutes(deps: AppDeps) {
             entityType: 'invoice',
             entityId: invoiceId,
             action: 'create',
-            after: { id: invoiceId, ...parsed.data, ...showFlags },
+            after: { id: invoiceId, ...c.req.valid('json'), ...showFlags },
             companyId,
           });
 
@@ -607,7 +608,7 @@ export function invoicesRoutes(deps: AppDeps) {
             await emit(tx, { name: 'onboarding_step_completed', step: 'first_invoice' });
           }
 
-          return c.json({ id: invoiceId, ...parsed.data, ...showFlags }, 201);
+          return c.json({ id: invoiceId, ...c.req.valid('json'), ...showFlags }, 201);
         },
       )
       // Duplicate-as-template: clone any invoice into a fresh draft to reuse as

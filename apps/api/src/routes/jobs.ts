@@ -115,51 +115,56 @@ async function withUnbilled<T extends { id: string; companyId: string }>(
 export function jobsRoutes() {
   return (
     new Hono<{ Variables: RlsVariables }>()
-      .post('/api/jobs', requireCapability('sales:write'), async (c) => {
-        const body = await c.req.json().catch(() => null);
-        const parsed = jobCreateSchema.safeParse(body);
-        if (!parsed.success) {
-          return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
-        }
-
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
-        const { companyId, contactId, ...rest } = parsed.data;
-
-        const [company] = await tx
-          .select({ id: companies.id })
-          .from(companies)
-          .where(and(eq(companies.id, companyId), eq(companies.accountId, accountId)))
-          .limit(1);
-        if (!company) return c.json({ error: 'company_not_found' }, 404);
-
-        // RLS pins the account, never the company, so a contact from a sibling
-        // company in the same account would otherwise attach cleanly here.
-        if (contactId) {
-          const [contact] = await tx
-            .select({ id: contacts.id, companyId: contacts.companyId })
-            .from(contacts)
-            .where(and(eq(contacts.id, contactId), eq(contacts.accountId, accountId)))
-            .limit(1);
-          if (!contact) return c.json({ error: 'contact_not_found' }, 404);
-          if (contact.companyId !== companyId) {
-            return c.json({ error: 'contact_company_mismatch' }, 400);
+      .post(
+        '/api/jobs',
+        requireCapability('sales:write'),
+        validator('json', (value, c) => {
+          const parsed = jobCreateSchema.safeParse(value);
+          if (!parsed.success) {
+            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
           }
-        }
+          return parsed.data;
+        }),
+        async (c) => {
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+          const { companyId, contactId, ...rest } = c.req.valid('json');
 
-        const id = uuidv7();
-        const row = { id, accountId, companyId, contactId: contactId ?? null, ...rest };
-        await tx.insert(jobs).values(row);
-        await c.var.audit({
-          entityType: 'job',
-          entityId: id,
-          action: 'create',
-          after: row,
-          companyId,
-        });
+          const [company] = await tx
+            .select({ id: companies.id })
+            .from(companies)
+            .where(and(eq(companies.id, companyId), eq(companies.accountId, accountId)))
+            .limit(1);
+          if (!company) return c.json({ error: 'company_not_found' }, 404);
 
-        return c.json(row, 201);
-      })
+          // RLS pins the account, never the company, so a contact from a sibling
+          // company in the same account would otherwise attach cleanly here.
+          if (contactId) {
+            const [contact] = await tx
+              .select({ id: contacts.id, companyId: contacts.companyId })
+              .from(contacts)
+              .where(and(eq(contacts.id, contactId), eq(contacts.accountId, accountId)))
+              .limit(1);
+            if (!contact) return c.json({ error: 'contact_not_found' }, 404);
+            if (contact.companyId !== companyId) {
+              return c.json({ error: 'contact_company_mismatch' }, 400);
+            }
+          }
+
+          const id = uuidv7();
+          const row = { id, accountId, companyId, contactId: contactId ?? null, ...rest };
+          await tx.insert(jobs).values(row);
+          await c.var.audit({
+            entityType: 'job',
+            entityId: id,
+            action: 'create',
+            after: row,
+            companyId,
+          });
+
+          return c.json(row, 201);
+        },
+      )
       // Open jobs first, then alphabetical — the picker wants live work at the
       // top and the list page reads the same way. `q` backs the type-ahead.
       .get('/api/jobs', async (c) => {
@@ -654,6 +659,12 @@ export function jobsRoutes() {
           );
         }
 
+        // contract-check-exempt: this body is genuinely optional. Starting a
+        // timer without a note is the common case, and clients send that as a
+        // POST carrying a JSON content-type and no body at all — which Hono's
+        // validator('json') calls malformed and 400s. Moving this route onto
+        // the validator broke exactly that, in two tests. The cost of staying
+        // is that `note` is absent from the typed contract (TMC-292).
         const note = (await c.req.json().catch(() => null))?.note;
         const row = {
           id: uuidv7(),

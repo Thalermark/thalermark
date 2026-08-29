@@ -105,66 +105,71 @@ export function recurringInvoicesRoutes(deps: AppDeps) {
       // generation yet. Mirrors the invoice routes (customer↔company
       // invariant, full-replacement line items, draft-style PATCH) minus the
       // (company_id, number) uniqueness — schedules have no number.
-      .post('/api/recurring-invoices', requireCapability('sales:write'), async (c) => {
-        const body = await c.req.json().catch(() => null);
-        const parsed = recurringInvoiceCreateSchema.safeParse(body);
-        if (!parsed.success) {
-          return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
-        }
+      .post(
+        '/api/recurring-invoices',
+        requireCapability('sales:write'),
+        validator('json', (value, c) => {
+          const parsed = recurringInvoiceCreateSchema.safeParse(value);
+          if (!parsed.success) {
+            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+          }
+          return parsed.data;
+        }),
+        async (c) => {
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+          const { companyId, contactId, lineItems } = c.req.valid('json');
+          const d = c.req.valid('json');
 
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
-        const { companyId, contactId, lineItems } = parsed.data;
-        const d = parsed.data;
+          const [customer] = await tx
+            .select({ id: contacts.id, companyId: contacts.companyId })
+            .from(contacts)
+            .where(and(eq(contacts.id, contactId), eq(contacts.accountId, accountId)))
+            .limit(1);
+          if (!customer) return c.json({ error: 'contact_not_found' }, 404);
+          if (customer.companyId !== companyId) {
+            return c.json({ error: 'customer_company_mismatch' }, 400);
+          }
 
-        const [customer] = await tx
-          .select({ id: contacts.id, companyId: contacts.companyId })
-          .from(contacts)
-          .where(and(eq(contacts.id, contactId), eq(contacts.accountId, accountId)))
-          .limit(1);
-        if (!customer) return c.json({ error: 'contact_not_found' }, 404);
-        if (customer.companyId !== companyId) {
-          return c.json({ error: 'customer_company_mismatch' }, 400);
-        }
+          const recurringId = uuidv7();
+          // next_run_date seeds from start_date; the sweeper advances it.
+          await tx.insert(recurringInvoices).values({
+            id: recurringId,
+            accountId,
+            companyId,
+            contactId,
+            frequency: d.frequency,
+            intervalCount: d.intervalCount,
+            startDate: d.startDate,
+            nextRunDate: d.startDate,
+            endDate: d.endDate ?? null,
+            maxOccurrences: d.maxOccurrences ?? null,
+            netTermsDays: d.netTermsDays ?? 30,
+            currency: d.currency ?? 'USD',
+            subtotal: d.subtotal,
+            tax: d.tax ?? '0',
+            total: d.total,
+            notes: d.notes ?? null,
+          });
+          const lineRows = lineItems.map((li) => ({
+            id: uuidv7(),
+            accountId,
+            recurringInvoiceId: recurringId,
+            ...li,
+          }));
+          await tx.insert(recurringInvoiceLineItems).values(lineRows);
 
-        const recurringId = uuidv7();
-        // next_run_date seeds from start_date; the sweeper advances it.
-        await tx.insert(recurringInvoices).values({
-          id: recurringId,
-          accountId,
-          companyId,
-          contactId,
-          frequency: d.frequency,
-          intervalCount: d.intervalCount,
-          startDate: d.startDate,
-          nextRunDate: d.startDate,
-          endDate: d.endDate ?? null,
-          maxOccurrences: d.maxOccurrences ?? null,
-          netTermsDays: d.netTermsDays ?? 30,
-          currency: d.currency ?? 'USD',
-          subtotal: d.subtotal,
-          tax: d.tax ?? '0',
-          total: d.total,
-          notes: d.notes ?? null,
-        });
-        const lineRows = lineItems.map((li) => ({
-          id: uuidv7(),
-          accountId,
-          recurringInvoiceId: recurringId,
-          ...li,
-        }));
-        await tx.insert(recurringInvoiceLineItems).values(lineRows);
+          await c.var.audit({
+            entityType: 'recurring_invoice',
+            entityId: recurringId,
+            action: 'create',
+            after: { id: recurringId, ...c.req.valid('json') },
+            companyId,
+          });
 
-        await c.var.audit({
-          entityType: 'recurring_invoice',
-          entityId: recurringId,
-          action: 'create',
-          after: { id: recurringId, ...parsed.data },
-          companyId,
-        });
-
-        return c.json({ id: recurringId, ...parsed.data }, 201);
-      })
+          return c.json({ id: recurringId, ...c.req.valid('json') }, 201);
+        },
+      )
       .get('/api/recurring-invoices', async (c) => {
         const tx = c.get('tx');
         const accountId = c.get('accountId');

@@ -81,88 +81,93 @@ async function assertVehicleOwned(
 export function mileageRoutes() {
   return (
     new Hono<{ Variables: RlsVariables }>()
-      .post('/api/mileage-trips', requireCapability('expenses:write'), async (c) => {
-        const body = await c.req.json().catch(() => null);
-        const parsed = mileageTripCreateSchema.safeParse(body);
-        if (!parsed.success) {
-          return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
-        }
-
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
-        const { companyId, jobId, ...rest } = parsed.data;
-
-        const [company] = await tx
-          .select({ id: companies.id })
-          .from(companies)
-          .where(and(eq(companies.id, companyId), eq(companies.accountId, accountId)))
-          .limit(1);
-        if (!company) return c.json({ error: 'company_not_found' }, 404);
-
-        // RLS pins the account, never the company, so a job from a sibling
-        // company in the same account would otherwise attach cleanly here.
-        if (jobId) {
-          const [job] = await tx
-            .select({ id: jobs.id, companyId: jobs.companyId })
-            .from(jobs)
-            .where(and(eq(jobs.id, jobId), eq(jobs.accountId, accountId)))
-            .limit(1);
-          if (!job) return c.json({ error: 'job_not_found' }, 404);
-          if (job.companyId !== companyId) {
-            return c.json({ error: 'job_company_mismatch' }, 400);
+      .post(
+        '/api/mileage-trips',
+        requireCapability('expenses:write'),
+        validator('json', (value, c) => {
+          const parsed = mileageTripCreateSchema.safeParse(value);
+          if (!parsed.success) {
+            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
           }
-        }
+          return parsed.data;
+        }),
+        async (c) => {
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+          const { companyId, jobId, ...rest } = c.req.valid('json');
 
-        if (rest.vehicleId) {
-          const bad = await assertVehicleOwned(tx, {
+          const [company] = await tx
+            .select({ id: companies.id })
+            .from(companies)
+            .where(and(eq(companies.id, companyId), eq(companies.accountId, accountId)))
+            .limit(1);
+          if (!company) return c.json({ error: 'company_not_found' }, 404);
+
+          // RLS pins the account, never the company, so a job from a sibling
+          // company in the same account would otherwise attach cleanly here.
+          if (jobId) {
+            const [job] = await tx
+              .select({ id: jobs.id, companyId: jobs.companyId })
+              .from(jobs)
+              .where(and(eq(jobs.id, jobId), eq(jobs.accountId, accountId)))
+              .limit(1);
+            if (!job) return c.json({ error: 'job_not_found' }, 404);
+            if (job.companyId !== companyId) {
+              return c.json({ error: 'job_company_mismatch' }, 400);
+            }
+          }
+
+          if (rest.vehicleId) {
+            const bad = await assertVehicleOwned(tx, {
+              accountId,
+              companyId,
+              vehicleId: rest.vehicleId,
+            });
+            if (bad)
+              return c.json({ error: bad.error }, bad.error === 'vehicle_not_found' ? 404 : 400);
+          }
+
+          await assertCompanyActive(tx, { accountId, companyId });
+          await assertPeriodOpen(tx, {
             accountId,
             companyId,
-            vehicleId: rest.vehicleId,
+            postedAt: expenseDateToPostedAt(rest.tripDate),
           });
-          if (bad)
-            return c.json({ error: bad.error }, bad.error === 'vehicle_not_found' ? 404 : 400);
-        }
 
-        await assertCompanyActive(tx, { accountId, companyId });
-        await assertPeriodOpen(tx, {
-          accountId,
-          companyId,
-          postedAt: expenseDateToPostedAt(rest.tripDate),
-        });
+          const id = uuidv7();
+          const row = {
+            id,
+            accountId,
+            companyId,
+            jobId: jobId ?? null,
+            tripDate: rest.tripDate,
+            miles: rest.miles,
+            purpose: rest.purpose,
+            vehicleId: rest.vehicleId ?? null,
+          };
+          await tx.insert(mileageTrips).values(row);
+          // Read back rather than echoing what was sent. numeric(15,4) canonicalises
+          // "24.5" to "24.5000", and a create response that disagreed with the list
+          // response would make a client re-render change the number on screen.
+          const [created] = await tx
+            .select()
+            .from(mileageTrips)
+            .where(eq(mileageTrips.id, id))
+            .limit(1);
+          // Audited, unlike expense_allocations, which is a bare tag. This
+          // substantiates a tax deduction — if it is ever challenged, "who entered
+          // this and when" is the entire point of having a record at all.
+          await c.var.audit({
+            entityType: 'mileage_trip',
+            entityId: id,
+            action: 'create',
+            after: created,
+            companyId,
+          });
 
-        const id = uuidv7();
-        const row = {
-          id,
-          accountId,
-          companyId,
-          jobId: jobId ?? null,
-          tripDate: rest.tripDate,
-          miles: rest.miles,
-          purpose: rest.purpose,
-          vehicleId: rest.vehicleId ?? null,
-        };
-        await tx.insert(mileageTrips).values(row);
-        // Read back rather than echoing what was sent. numeric(15,4) canonicalises
-        // "24.5" to "24.5000", and a create response that disagreed with the list
-        // response would make a client re-render change the number on screen.
-        const [created] = await tx
-          .select()
-          .from(mileageTrips)
-          .where(eq(mileageTrips.id, id))
-          .limit(1);
-        // Audited, unlike expense_allocations, which is a bare tag. This
-        // substantiates a tax deduction — if it is ever challenged, "who entered
-        // this and when" is the entire point of having a record at all.
-        await c.var.audit({
-          entityType: 'mileage_trip',
-          entityId: id,
-          action: 'create',
-          after: created,
-          companyId,
-        });
-
-        return c.json(created, 201);
-      })
+          return c.json(created, 201);
+        },
+      )
       // Newest first — a trip log is read as "what have I driven lately", and
       // the entry form prefills from the top row.
       .get('/api/mileage-trips', async (c) => {
@@ -197,92 +202,98 @@ export function mileageRoutes() {
         const page = slicePage(rows, limit, (r) => [r.tripDate, r.id]);
         return c.json({ trips: page.rows, nextCursor: page.nextCursor });
       })
-      .patch('/api/mileage-trips/:id', requireCapability('expenses:write'), async (c) => {
-        const id = c.req.param('id');
-        if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
-        const body = await c.req.json().catch(() => null);
-        const parsed = mileageTripUpdateSchema.safeParse(body);
-        if (!parsed.success) {
-          return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
-        }
-
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
-
-        const [current] = await tx
-          .select()
-          .from(mileageTrips)
-          .where(and(eq(mileageTrips.id, id), eq(mileageTrips.accountId, accountId)))
-          .limit(1);
-        if (!current) return c.json({ error: 'mileage_trip_not_found' }, 404);
-
-        const data = parsed.data;
-        if (data.jobId) {
-          const [job] = await tx
-            .select({ id: jobs.id, companyId: jobs.companyId })
-            .from(jobs)
-            .where(and(eq(jobs.id, data.jobId), eq(jobs.accountId, accountId)))
-            .limit(1);
-          if (!job) return c.json({ error: 'job_not_found' }, 404);
-          if (job.companyId !== current.companyId) {
-            return c.json({ error: 'job_company_mismatch' }, 400);
+      .patch(
+        '/api/mileage-trips/:id',
+        requireCapability('expenses:write'),
+        validator('json', (value, c) => {
+          const parsed = mileageTripUpdateSchema.safeParse(value);
+          if (!parsed.success) {
+            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
           }
-        }
+          return parsed.data;
+        }),
+        async (c) => {
+          const id = c.req.param('id');
+          if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
 
-        if (data.vehicleId) {
-          const bad = await assertVehicleOwned(tx, {
-            accountId,
-            companyId: current.companyId,
-            vehicleId: data.vehicleId,
-          });
-          if (bad)
-            return c.json({ error: bad.error }, bad.error === 'vehicle_not_found' ? 404 : 400);
-        }
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
 
-        await assertCompanyActive(tx, { accountId, companyId: current.companyId });
-        // BOTH dates, when the trip is being moved. Dragging a trip out of a
-        // closed year is as much a restatement as dropping one into it.
-        await assertPeriodOpen(tx, {
-          accountId,
-          companyId: current.companyId,
-          postedAt: expenseDateToPostedAt(current.tripDate),
-        });
-        if (data.tripDate && data.tripDate !== current.tripDate) {
+          const [current] = await tx
+            .select()
+            .from(mileageTrips)
+            .where(and(eq(mileageTrips.id, id), eq(mileageTrips.accountId, accountId)))
+            .limit(1);
+          if (!current) return c.json({ error: 'mileage_trip_not_found' }, 404);
+
+          const data = c.req.valid('json');
+          if (data.jobId) {
+            const [job] = await tx
+              .select({ id: jobs.id, companyId: jobs.companyId })
+              .from(jobs)
+              .where(and(eq(jobs.id, data.jobId), eq(jobs.accountId, accountId)))
+              .limit(1);
+            if (!job) return c.json({ error: 'job_not_found' }, 404);
+            if (job.companyId !== current.companyId) {
+              return c.json({ error: 'job_company_mismatch' }, 400);
+            }
+          }
+
+          if (data.vehicleId) {
+            const bad = await assertVehicleOwned(tx, {
+              accountId,
+              companyId: current.companyId,
+              vehicleId: data.vehicleId,
+            });
+            if (bad)
+              return c.json({ error: bad.error }, bad.error === 'vehicle_not_found' ? 404 : 400);
+          }
+
+          await assertCompanyActive(tx, { accountId, companyId: current.companyId });
+          // BOTH dates, when the trip is being moved. Dragging a trip out of a
+          // closed year is as much a restatement as dropping one into it.
           await assertPeriodOpen(tx, {
             accountId,
             companyId: current.companyId,
-            postedAt: expenseDateToPostedAt(data.tripDate),
+            postedAt: expenseDateToPostedAt(current.tripDate),
           });
-        }
+          if (data.tripDate && data.tripDate !== current.tripDate) {
+            await assertPeriodOpen(tx, {
+              accountId,
+              companyId: current.companyId,
+              postedAt: expenseDateToPostedAt(data.tripDate),
+            });
+          }
 
-        const patch: Record<string, unknown> = { updatedAt: new Date() };
-        if (data.tripDate !== undefined) patch.tripDate = data.tripDate;
-        if (data.miles !== undefined) patch.miles = data.miles;
-        if (data.purpose !== undefined) patch.purpose = data.purpose;
-        if (data.vehicleId !== undefined) patch.vehicleId = data.vehicleId;
-        if (data.jobId !== undefined) patch.jobId = data.jobId;
+          const patch: Record<string, unknown> = { updatedAt: new Date() };
+          if (data.tripDate !== undefined) patch.tripDate = data.tripDate;
+          if (data.miles !== undefined) patch.miles = data.miles;
+          if (data.purpose !== undefined) patch.purpose = data.purpose;
+          if (data.vehicleId !== undefined) patch.vehicleId = data.vehicleId;
+          if (data.jobId !== undefined) patch.jobId = data.jobId;
 
-        await tx
-          .update(mileageTrips)
-          .set(patch)
-          .where(and(eq(mileageTrips.id, id), eq(mileageTrips.accountId, accountId)));
-        const [updated] = await tx
-          .select()
-          .from(mileageTrips)
-          .where(eq(mileageTrips.id, id))
-          .limit(1);
+          await tx
+            .update(mileageTrips)
+            .set(patch)
+            .where(and(eq(mileageTrips.id, id), eq(mileageTrips.accountId, accountId)));
+          const [updated] = await tx
+            .select()
+            .from(mileageTrips)
+            .where(eq(mileageTrips.id, id))
+            .limit(1);
 
-        await c.var.audit({
-          entityType: 'mileage_trip',
-          entityId: id,
-          action: 'update',
-          before: current,
-          after: updated,
-          companyId: current.companyId,
-        });
+          await c.var.audit({
+            entityType: 'mileage_trip',
+            entityId: id,
+            action: 'update',
+            before: current,
+            after: updated,
+            companyId: current.companyId,
+          });
 
-        return c.json(updated);
-      })
+          return c.json(updated);
+        },
+      )
       .delete('/api/mileage-trips/:id', requireCapability('expenses:write'), async (c) => {
         const id = c.req.param('id');
         if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
@@ -371,64 +382,69 @@ export function mileageRoutes() {
       // changes a dollar figure on any form — these fill a disclosure box. A
       // corporation that closes 2026 in January must still be able to answer
       // these in March when the return is actually prepared.
-      .post('/api/vehicles', requireCapability('expenses:write'), async (c) => {
-        const body = await c.req.json().catch(() => null);
-        const parsed = vehicleCreateSchema.safeParse(body);
-        if (!parsed.success) {
-          return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
-        }
+      .post(
+        '/api/vehicles',
+        requireCapability('expenses:write'),
+        validator('json', (value, c) => {
+          const parsed = vehicleCreateSchema.safeParse(value);
+          if (!parsed.success) {
+            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+          }
+          return parsed.data;
+        }),
+        async (c) => {
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+          const { companyId, label, ...rest } = c.req.valid('json');
 
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
-        const { companyId, label, ...rest } = parsed.data;
+          const [company] = await tx
+            .select({ id: companies.id })
+            .from(companies)
+            .where(and(eq(companies.id, companyId), eq(companies.accountId, accountId)))
+            .limit(1);
+          if (!company) return c.json({ error: 'company_not_found' }, 404);
 
-        const [company] = await tx
-          .select({ id: companies.id })
-          .from(companies)
-          .where(and(eq(companies.id, companyId), eq(companies.accountId, accountId)))
-          .limit(1);
-        if (!company) return c.json({ error: 'company_not_found' }, 404);
+          await assertCompanyActive(tx, { accountId, companyId });
 
-        await assertCompanyActive(tx, { accountId, companyId });
+          // Checked before insert so a duplicate reads as "you already have one of
+          // those" rather than a unique-violation 500. The partial index is still
+          // what makes it true.
+          const [clash] = await tx
+            .select({ id: vehicles.id })
+            .from(vehicles)
+            .where(
+              and(
+                eq(vehicles.accountId, accountId),
+                eq(vehicles.companyId, companyId),
+                isNull(vehicles.retiredAt),
+                sql`lower(btrim(${vehicles.label})) = lower(btrim(${label}))`,
+              ),
+            )
+            .limit(1);
+          if (clash) return c.json({ error: 'vehicle_label_taken', vehicleId: clash.id }, 409);
 
-        // Checked before insert so a duplicate reads as "you already have one of
-        // those" rather than a unique-violation 500. The partial index is still
-        // what makes it true.
-        const [clash] = await tx
-          .select({ id: vehicles.id })
-          .from(vehicles)
-          .where(
-            and(
-              eq(vehicles.accountId, accountId),
-              eq(vehicles.companyId, companyId),
-              isNull(vehicles.retiredAt),
-              sql`lower(btrim(${vehicles.label})) = lower(btrim(${label}))`,
-            ),
-          )
-          .limit(1);
-        if (clash) return c.json({ error: 'vehicle_label_taken', vehicleId: clash.id }, 409);
+          const id = uuidv7();
+          await tx.insert(vehicles).values({
+            id,
+            accountId,
+            companyId,
+            label,
+            placedInServiceOn: rest.placedInServiceOn ?? null,
+            personalUse: rest.personalUse ?? null,
+            anotherVehicleAvailable: rest.anotherVehicleAvailable ?? null,
+          });
+          const [created] = await tx.select().from(vehicles).where(eq(vehicles.id, id)).limit(1);
+          await c.var.audit({
+            entityType: 'vehicle',
+            entityId: id,
+            action: 'create',
+            after: created,
+            companyId,
+          });
 
-        const id = uuidv7();
-        await tx.insert(vehicles).values({
-          id,
-          accountId,
-          companyId,
-          label,
-          placedInServiceOn: rest.placedInServiceOn ?? null,
-          personalUse: rest.personalUse ?? null,
-          anotherVehicleAvailable: rest.anotherVehicleAvailable ?? null,
-        });
-        const [created] = await tx.select().from(vehicles).where(eq(vehicles.id, id)).limit(1);
-        await c.var.audit({
-          entityType: 'vehicle',
-          entityId: id,
-          action: 'create',
-          after: created,
-          companyId,
-        });
-
-        return c.json(created, 201);
-      })
+          return c.json(created, 201);
+        },
+      )
       // Unpaginated, unlike the trip list. A workspace has a handful of vehicles
       // — a keyset cursor here would be machinery with no reader. Same call the
       // year-summary endpoint makes.

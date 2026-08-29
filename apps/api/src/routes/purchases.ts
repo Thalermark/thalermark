@@ -64,93 +64,98 @@ function paidNowFor(funding: string, amount: string, downPayment: string | null)
 export function purchasesRoutes() {
   return (
     new Hono<{ Variables: RlsVariables }>()
-      .post('/api/purchases', requireCapability('expenses:write'), async (c) => {
-        const body = await c.req.json().catch(() => null);
-        const parsed = capitalPurchaseCreateSchema.safeParse(body);
-        if (!parsed.success) {
-          return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
-        }
+      .post(
+        '/api/purchases',
+        requireCapability('expenses:write'),
+        validator('json', (value, c) => {
+          const parsed = capitalPurchaseCreateSchema.safeParse(value);
+          if (!parsed.success) {
+            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+          }
+          return parsed.data;
+        }),
+        async (c) => {
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+          const { companyId, vendorContactId, ...rest } = c.req.valid('json');
 
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
-        const { companyId, vendorContactId, ...rest } = parsed.data;
+          const [company] = await tx
+            .select({ id: companies.id })
+            .from(companies)
+            .where(and(eq(companies.id, companyId), eq(companies.accountId, accountId)))
+            .limit(1);
+          if (!company) return c.json({ error: 'company_not_found' }, 404);
 
-        const [company] = await tx
-          .select({ id: companies.id })
-          .from(companies)
-          .where(and(eq(companies.id, companyId), eq(companies.accountId, accountId)))
-          .limit(1);
-        if (!company) return c.json({ error: 'company_not_found' }, 404);
+          // Vendor (who you bought from) is optional. resolveVendorLink validates
+          // same account+company and marks is_vendor when present.
+          const vendor = await resolveVendorLink(tx, accountId, companyId, vendorContactId);
+          if (vendor && 'error' in vendor) return c.json({ error: vendor.error }, vendor.status);
 
-        // Vendor (who you bought from) is optional. resolveVendorLink validates
-        // same account+company and marks is_vendor when present.
-        const vendor = await resolveVendorLink(tx, accountId, companyId, vendorContactId);
-        if (vendor && 'error' in vendor) return c.json({ error: vendor.error }, vendor.status);
+          const downPayment =
+            rest.funding === 'paid_in_full' ? rest.amount : (rest.downPayment ?? '0');
+          const paidNow = paidNowFor(rest.funding, rest.amount, downPayment);
 
-        const downPayment =
-          rest.funding === 'paid_in_full' ? rest.amount : (rest.downPayment ?? '0');
-        const paidNow = paidNowFor(rest.funding, rest.amount, downPayment);
-
-        // Stored, because postCapitalPurchaseReversal re-derives its lines from
-        // this row — a card-funded mower reversed against cash would credit the
-        // card and debit checking, balanced and wrong.
-        const money = await resolveMoneyAccount(tx, {
-          accountId,
-          companyId,
-          moneyAccountId: rest.paymentAccountId,
-        });
-        if ('error' in money) return c.json({ error: money.error }, 400);
-
-        const purchaseId = uuidv7();
-        const [created] = await tx
-          .insert(capitalPurchases)
-          .values({
-            id: purchaseId,
+          // Stored, because postCapitalPurchaseReversal re-derives its lines from
+          // this row — a card-funded mower reversed against cash would credit the
+          // card and debit checking, balanced and wrong.
+          const money = await resolveMoneyAccount(tx, {
             accountId,
             companyId,
-            description: rest.description,
-            amount: rest.amount,
-            purchaseDate: rest.purchaseDate,
-            funding: rest.funding,
-            downPayment,
-            paymentAccountId: money.id,
-            taxTreatment: rest.taxTreatment,
-            usefulLifeYears: rest.usefulLifeYears ?? 5,
-            vendorContactId: vendorContactId ?? null,
-            memo: rest.memo ?? null,
-            // Both omitted for an ordinary purchase, which behaves exactly as
-            // before. Set when the asset was already being depreciated somewhere
-            // else — they only shift the schedule, never the purchase posting,
-            // because a purchase entered here IS one this business paid for.
-            priorAccumulatedDepreciation: rest.priorAccumulatedDepreciation ?? '0',
-            depreciationStartYear: rest.depreciationStartYear ?? null,
-          })
-          .returning();
+            moneyAccountId: rest.paymentAccountId,
+          });
+          if ('error' in money) return c.json({ error: money.error }, 400);
 
-        await c.var.audit({
-          entityType: 'capital_purchase',
-          entityId: purchaseId,
-          action: 'create',
-          after: created,
-          companyId,
-        });
+          const purchaseId = uuidv7();
+          const [created] = await tx
+            .insert(capitalPurchases)
+            .values({
+              id: purchaseId,
+              accountId,
+              companyId,
+              description: rest.description,
+              amount: rest.amount,
+              purchaseDate: rest.purchaseDate,
+              funding: rest.funding,
+              downPayment,
+              paymentAccountId: money.id,
+              taxTreatment: rest.taxTreatment,
+              usefulLifeYears: rest.usefulLifeYears ?? 5,
+              vendorContactId: vendorContactId ?? null,
+              memo: rest.memo ?? null,
+              // Both omitted for an ordinary purchase, which behaves exactly as
+              // before. Set when the asset was already being depreciated somewhere
+              // else — they only shift the schedule, never the purchase posting,
+              // because a purchase entered here IS one this business paid for.
+              priorAccumulatedDepreciation: rest.priorAccumulatedDepreciation ?? '0',
+              depreciationStartYear: rest.depreciationStartYear ?? null,
+            })
+            .returning();
 
-        await postCapitalPurchase(tx, {
-          purchase: {
-            id: purchaseId,
-            amount: rest.amount,
-            paidNow,
-            taxTreatment: rest.taxTreatment,
-            description: rest.description,
-            moneyCode: money.code,
-          },
-          accountId,
-          companyId,
-          postedAt: expenseDateToPostedAt(rest.purchaseDate),
-        });
+          await c.var.audit({
+            entityType: 'capital_purchase',
+            entityId: purchaseId,
+            action: 'create',
+            after: created,
+            companyId,
+          });
 
-        return c.json(created, 201);
-      })
+          await postCapitalPurchase(tx, {
+            purchase: {
+              id: purchaseId,
+              amount: rest.amount,
+              paidNow,
+              taxTreatment: rest.taxTreatment,
+              description: rest.description,
+              moneyCode: money.code,
+            },
+            accountId,
+            companyId,
+            postedAt: expenseDateToPostedAt(rest.purchaseDate),
+          });
+
+          return c.json(created, 201);
+        },
+      )
       .get('/api/purchases', async (c) => {
         const tx = c.get('tx');
         const accountId = c.get('accountId');
