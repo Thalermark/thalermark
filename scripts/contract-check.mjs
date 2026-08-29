@@ -320,6 +320,11 @@ function rawBodyReads() {
   return { blocking, exempt };
 }
 
+// Exported for scripts/release.mjs, which compares the snapshot committed at the
+// last release against the current one. That catches a break accepted with
+// --update but never declared in a commit, which the per-commit check cannot.
+export { compare };
+
 function main() {
   const args = process.argv.slice(2);
   const update = args.includes('--update');
