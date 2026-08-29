@@ -91,13 +91,14 @@ export function expensesRoutes(deps: AppDeps) {
         '/api/expenses',
         requireCapability('expenses:write'),
         requireEntitlement(deps, 'documents:write'),
-        async (c) => {
-          const body = await c.req.json().catch(() => null);
-          const parsed = expenseCreateSchema.safeParse(body);
+        validator('json', (value, c) => {
+          const parsed = expenseCreateSchema.safeParse(value);
           if (!parsed.success) {
             return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
           }
-
+          return parsed.data;
+        }),
+        async (c) => {
           const tx = c.get('tx');
           const accountId = c.get('accountId');
           const {
@@ -107,7 +108,7 @@ export function expensesRoutes(deps: AppDeps) {
             categoryAccountId,
             paymentAccountId,
             ...rest
-          } = parsed.data;
+          } = c.req.valid('json');
 
           const [company] = await tx
             .select({ id: companies.id })
@@ -234,18 +235,19 @@ export function expensesRoutes(deps: AppDeps) {
         requireCapability('expenses:write'),
         requireEntitlement(deps, 'ai'),
         rateLimit(deps, RATE_LIMITS.ai, (c) => c.get('accountId') as string | undefined),
-        async (c) => {
-          const body = await c.req.json().catch(() => null);
-          const parsed = expenseCategorizeSchema.safeParse(body);
+        validator('json', (value, c) => {
+          const parsed = expenseCategorizeSchema.safeParse(value);
           if (!parsed.success) {
             return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
           }
-
+          return parsed.data;
+        }),
+        async (c) => {
           const accountId = c.get('accountId');
           const credential = await resolveAccountCredential(deps, accountId);
           if (!credential) return c.json({ error: 'ai_not_configured' }, 503);
           const categorizer = deps.categorizer ?? defaultCategorizer;
-          const { companyId, merchant, memo, amount } = parsed.data;
+          const { companyId, merchant, memo, amount } = c.req.valid('json');
 
           // tx1: validate the company + load the COA the model must choose from,
           // then release the connection — this is a deferred-tx route (see

@@ -232,95 +232,102 @@ export function companiesRoutes(deps: AppDeps) {
       // The whole thing is one transaction: a failure part way through leaves no
       // half-copied company. The target must be empty of reference data, so
       // there is never a question of which setup a row came from.
-      .post('/api/companies/:id/copy-from', requireCapability('settings:manage'), async (c) => {
-        const targetCompanyId = c.req.param('id');
-        if (!UUID_RE.test(targetCompanyId)) return c.json({ error: 'invalid_id' }, 400);
-        const body = await c.req.json().catch(() => null);
-        const parsed = companyCopyRequestSchema.safeParse(body);
-        if (!parsed.success) {
-          return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
-        }
-        const { sourceCompanyId } = parsed.data;
-        const include = resolveCopyInclude(parsed.data.include);
-        if (sourceCompanyId === targetCompanyId) {
-          return c.json({ error: 'same_company' }, 400);
-        }
-
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
-
-        // Both companies must be this account's. RLS pins account_id, so a
-        // cross-ACCOUNT copy is impossible by construction; this is what stops a
-        // cross-workspace id being smuggled in as the source.
-        const found = await tx
-          .select()
-          .from(companies)
-          .where(
-            and(
-              eq(companies.accountId, accountId),
-              inArray(companies.id, [sourceCompanyId, targetCompanyId]),
-            ),
-          );
-        const source = found.find((r) => r.id === sourceCompanyId);
-        const target = found.find((r) => r.id === targetCompanyId);
-        if (!source || !target) return c.json({ error: 'company_not_found' }, 404);
-
-        const scope = { accountId, sourceCompanyId, targetCompanyId };
-        if (!(await targetIsEmpty(tx, scope))) {
-          return c.json({ error: 'target_not_empty' }, 409);
-        }
-
-        let result: CompanyCopyResult;
-        try {
-          result = await copyCompanyReferenceData(tx, scope, include);
-        } catch (err) {
-          if (err instanceof CopyTooLargeError) {
-            return c.json({ error: 'too_many_rows', entity: err.entity, count: err.count }, 413);
+      .post(
+        '/api/companies/:id/copy-from',
+        requireCapability('settings:manage'),
+        validator('json', (value, c) => {
+          const parsed = companyCopyRequestSchema.safeParse(value);
+          if (!parsed.success) {
+            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
           }
-          throw err;
-        }
+          return parsed.data;
+        }),
+        async (c) => {
+          const targetCompanyId = c.req.param('id');
+          if (!UUID_RE.test(targetCompanyId)) return c.json({ error: 'invalid_id' }, 400);
+          const data = c.req.valid('json');
+          const { sourceCompanyId } = data;
+          const include = resolveCopyInclude(data.include);
+          if (sourceCompanyId === targetCompanyId) {
+            return c.json({ error: 'same_company' }, 400);
+          }
 
-        if (include.profile) {
-          await tx
-            .update(companies)
-            .set({ ...copyableProfile(source), updatedAt: new Date() })
-            .where(and(eq(companies.id, targetCompanyId), eq(companies.accountId, accountId)));
-          result.profile = true;
-        }
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
 
-        // The logo is bytes, not a row. Its key embeds the company id, so the
-        // string can't be shared — deleting either company's logo would break
-        // the other's. Copied LAST and best-effort: storage is the one step that
-        // can't participate in the transaction, so a failure here must not roll
-        // back an otherwise-good copy. Same ordering discipline as the upload
-        // route, where the storage write is the final await.
-        if (include.branding && source.logoStorageKey && deps.storage) {
-          const destKey = logoKeyFor(accountId, targetCompanyId, source.logoStorageKey);
+          // Both companies must be this account's. RLS pins account_id, so a
+          // cross-ACCOUNT copy is impossible by construction; this is what stops a
+          // cross-workspace id being smuggled in as the source.
+          const found = await tx
+            .select()
+            .from(companies)
+            .where(
+              and(
+                eq(companies.accountId, accountId),
+                inArray(companies.id, [sourceCompanyId, targetCompanyId]),
+              ),
+            );
+          const source = found.find((r) => r.id === sourceCompanyId);
+          const target = found.find((r) => r.id === targetCompanyId);
+          if (!source || !target) return c.json({ error: 'company_not_found' }, 404);
+
+          const scope = { accountId, sourceCompanyId, targetCompanyId };
+          if (!(await targetIsEmpty(tx, scope))) {
+            return c.json({ error: 'target_not_empty' }, 409);
+          }
+
+          let result: CompanyCopyResult;
           try {
-            await deps.storage.copyObject(source.logoStorageKey, destKey);
+            result = await copyCompanyReferenceData(tx, scope, include);
+          } catch (err) {
+            if (err instanceof CopyTooLargeError) {
+              return c.json({ error: 'too_many_rows', entity: err.entity, count: err.count }, 413);
+            }
+            throw err;
+          }
+
+          if (include.profile) {
             await tx
               .update(companies)
-              .set({ logoStorageKey: destKey, updatedAt: new Date() })
+              .set({ ...copyableProfile(source), updatedAt: new Date() })
               .where(and(eq(companies.id, targetCompanyId), eq(companies.accountId, accountId)));
-            result.logo = true;
-          } catch (err) {
-            log.error('company copy: logo copy failed for {companyId}: {msg}', {
-              companyId: targetCompanyId,
-              msg: err instanceof Error ? err.message : String(err),
-            });
+            result.profile = true;
           }
-        }
 
-        await c.var.audit({
-          entityType: 'company',
-          entityId: targetCompanyId,
-          action: 'copy-from',
-          after: { sourceCompanyId, ...result },
-          companyId: targetCompanyId,
-        });
+          // The logo is bytes, not a row. Its key embeds the company id, so the
+          // string can't be shared — deleting either company's logo would break
+          // the other's. Copied LAST and best-effort: storage is the one step that
+          // can't participate in the transaction, so a failure here must not roll
+          // back an otherwise-good copy. Same ordering discipline as the upload
+          // route, where the storage write is the final await.
+          if (include.branding && source.logoStorageKey && deps.storage) {
+            const destKey = logoKeyFor(accountId, targetCompanyId, source.logoStorageKey);
+            try {
+              await deps.storage.copyObject(source.logoStorageKey, destKey);
+              await tx
+                .update(companies)
+                .set({ logoStorageKey: destKey, updatedAt: new Date() })
+                .where(and(eq(companies.id, targetCompanyId), eq(companies.accountId, accountId)));
+              result.logo = true;
+            } catch (err) {
+              log.error('company copy: logo copy failed for {companyId}: {msg}', {
+                companyId: targetCompanyId,
+                msg: err instanceof Error ? err.message : String(err),
+              });
+            }
+          }
 
-        return c.json(result, 201);
-      })
+          await c.var.audit({
+            entityType: 'company',
+            entityId: targetCompanyId,
+            action: 'copy-from',
+            after: { sourceCompanyId, ...result },
+            companyId: targetCompanyId,
+          });
+
+          return c.json(result, 201);
+        },
+      )
       // Retire / un-retire a company — a business that has stopped trading.
       //
       // NOT a delete: the books stay readable and reportable forever, because a

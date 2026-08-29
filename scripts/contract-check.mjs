@@ -23,7 +23,7 @@
 //   pnpm contract:check --json     machine-readable, used by scripts/release.mjs
 
 import { execFileSync } from 'node:child_process';
-import { readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
@@ -276,21 +276,49 @@ function compare(before, after) {
   return { breaking, additive };
 }
 
-// A route whose body is read with a bare `await c.req.json()` never enters
-// Hono's type system, so its request shape is invisible here and a new required
-// field on it will not be caught. Reported on every run rather than left silent:
-// a check with a blind spot you cannot see is worse than one you can.
+// How much of the mutating surface declares a JSON body. Counts a typed `json`
+// specifically: a route with a path param has a request object either way, so
+// "is the request an object" would call `/api/x/:id` covered while its body was
+// still invisible. That mistake is why this was first reported as 89/118.
 function coverage(contract) {
-  const routes = Object.entries(contract.routes);
-  const mutating = routes.filter(([key]) => /^\$(post|patch|put|delete)/.test(key));
-  const blind = mutating.filter(([, value]) => typeof value.request === 'string');
-  return { total: routes.length, mutating: mutating.length, blind: blind.map(([key]) => key) };
+  const mutating = Object.entries(contract.routes).filter(([key]) =>
+    /^\$(post|patch|put|delete)/.test(key),
+  );
+  const typed = mutating.filter(
+    ([, value]) => value.request && typeof value.request === 'object' && 'json' in value.request,
+  );
+  return { mutating: mutating.length, typed: typed.length };
 }
 
-// Exported for scripts/release.mjs, which compares the snapshot committed at the
-// last release against the current one. That catches a break accepted with
-// --update but never declared in a commit, which the per-commit check cannot.
-export { compare };
+// A body read with a bare `await c.req.json()` never enters Hono's type system,
+// so its shape is invisible here and a new required field on it is not caught.
+// TMC-292 moved every such route onto validator(); this stops one coming back.
+//
+// An exemption exists because validator('json') cannot express an OPTIONAL body:
+// a POST carrying a JSON content-type and no body at all is "malformed" to it,
+// which is precisely how a client starts a timer with no note. Such a route may
+// keep the raw read by carrying a `contract-check-exempt:` comment saying why.
+// Exemptions are counted and printed rather than hidden, because a blind spot
+// you cannot see is worse than one you can.
+//
+// Webhook routes that must hash the unparsed body use c.req.text() and are
+// deliberately unaffected by any of this.
+function rawBodyReads() {
+  const dir = join(ROOT, 'apps/api/src/routes');
+  const blocking = [];
+  const exempt = [];
+  for (const file of readdirSync(dir)) {
+    if (!file.endsWith('.ts') || file.endsWith('.test.ts')) continue;
+    const lines = readFileSync(join(dir, file), 'utf8').split('\n');
+    lines.forEach((line, i) => {
+      if (!line.includes('c.req.json()')) return;
+      const nearby = lines.slice(Math.max(0, i - 10), i).join('\n');
+      const where = `apps/api/src/routes/${file}:${i + 1}`;
+      (nearby.includes('contract-check-exempt') ? exempt : blocking).push(where);
+    });
+  }
+  return { blocking, exempt };
+}
 
 function main() {
   const args = process.argv.slice(2);
@@ -299,6 +327,22 @@ function main() {
   // CI must not fix things up silently: it verifies the committed snapshot is
   // the one this code produces, the same way a lockfile check works.
   const frozen = args.includes('--frozen');
+
+  const raw = rawBodyReads();
+  if (raw.blocking.length && !asJson) {
+    console.error(`
+  ${raw.blocking.length} route(s) read the request body with a bare c.req.json(), so
+  their shape never reaches the contract and a new required field there is not
+  caught:
+
+${raw.blocking.map((hit) => `    ${hit}`).join('\n')}
+
+  Put the body through validator('json', ...) instead. If the route needs the
+  unparsed body (webhook signatures) use c.req.text(); if its body is genuinely
+  optional, add a 'contract-check-exempt:' comment saying so.
+`);
+    process.exit(1);
+  }
 
   const current = buildContract();
   const routeCount = Object.keys(current.routes).length;
@@ -318,13 +362,11 @@ function main() {
       process.exit(1);
     }
     writeFileSync(SNAPSHOT, `${JSON.stringify(current, null, 2)}\n`);
-    const { mutating, blind } = coverage(current);
+    const { mutating, typed } = coverage(current);
     if (asJson) console.log(JSON.stringify({ seeded: true, breaking: [], routeCount }));
     else {
       console.log(`\n  Contract baseline written: ${routeCount} routes.`);
-      console.log(
-        `  Request bodies checked on ${mutating - blind.length}/${mutating} mutating routes.\n`,
-      );
+      console.log(`  ${typed}/${mutating} mutating routes declare a JSON body.\n`);
     }
     return;
   }
@@ -349,9 +391,7 @@ function main() {
   }
 
   if (asJson) {
-    console.log(
-      JSON.stringify({ breaking, additive, routeCount, blindSpots: coverage(current).blind }),
-    );
+    console.log(JSON.stringify({ breaking, additive, routeCount, rawBodyReads: rawBodyReads() }));
     process.exit(breaking.length && !update ? 1 : 0);
   }
 
@@ -359,14 +399,14 @@ function main() {
     // Additive changes are safe by definition, so the snapshot just moves with
     // them; no reason to make anyone run --update for a change that cannot hurt.
     writeFileSync(SNAPSHOT, `${JSON.stringify(current, null, 2)}\n`);
-    const { mutating, blind } = coverage(current);
+    const { mutating, typed } = coverage(current);
     console.log(
       `\n  Contract OK: ${routeCount} routes, ${additive.length} added, nothing breaking.`,
     );
-    if (blind.length) {
+    console.log(`  ${typed}/${mutating} mutating routes declare a JSON body; the rest take none.`);
+    if (raw.exempt.length) {
       console.log(
-        `  Request bodies checked on ${mutating - blind.length}/${mutating} mutating routes ` +
-          `(${blind.length} parse manually, so new required fields there are not caught).`,
+        `  ${raw.exempt.length} exempt (optional body, still unchecked): ${raw.exempt.join(', ')}`,
       );
     }
     console.log('');

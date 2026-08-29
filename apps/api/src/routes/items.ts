@@ -65,80 +65,95 @@ export function itemsRoutes() {
       // Mirrors contacts: full CRUD within the tenant, but items archive
       // rather than hard-delete (archive/restore transitions below) so the
       // top-products report never loses history.
-      .post('/api/items', requireCapability('sales:write'), async (c) => {
-        const body = await c.req.json().catch(() => null);
-        const parsed = itemCreateSchema.safeParse(body);
-        if (!parsed.success) {
-          return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
-        }
+      .post(
+        '/api/items',
+        requireCapability('sales:write'),
+        validator('json', (value, c) => {
+          const parsed = itemCreateSchema.safeParse(value);
+          if (!parsed.success) {
+            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+          }
+          return parsed.data;
+        }),
+        async (c) => {
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
 
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
+          const [company] = await tx
+            .select({ id: companies.id })
+            .from(companies)
+            .where(
+              and(
+                eq(companies.id, c.req.valid('json').companyId),
+                eq(companies.accountId, accountId),
+              ),
+            )
+            .limit(1);
+          if (!company) return c.json({ error: 'company_not_found' }, 404);
 
-        const [company] = await tx
-          .select({ id: companies.id })
-          .from(companies)
-          .where(and(eq(companies.id, parsed.data.companyId), eq(companies.accountId, accountId)))
-          .limit(1);
-        if (!company) return c.json({ error: 'company_not_found' }, 404);
+          const id = uuidv7();
+          const row = { id, accountId, ...c.req.valid('json') };
+          await tx.insert(items).values(row);
+          await c.var.audit({
+            entityType: 'item',
+            entityId: id,
+            action: 'create',
+            after: row,
+            companyId: c.req.valid('json').companyId,
+          });
 
-        const id = uuidv7();
-        const row = { id, accountId, ...parsed.data };
-        await tx.insert(items).values(row);
-        await c.var.audit({
-          entityType: 'item',
-          entityId: id,
-          action: 'create',
-          after: row,
-          companyId: parsed.data.companyId,
-        });
-
-        return c.json(row, 201);
-      })
+          return c.json(row, 201);
+        },
+      )
       // Bulk CSV import (web) — mirrors /api/contacts/import. Registered before
       // /api/items/:id so first-match doesn't capture "import" as an :id. Atomic:
       // the whole batch validates (itemImportSchema) before any row inserts.
-      .post('/api/items/import', requireCapability('sales:write'), async (c) => {
-        const body = await c.req.json().catch(() => null);
-        const parsed = itemImportSchema.safeParse(body);
-        if (!parsed.success) {
-          return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
-        }
+      .post(
+        '/api/items/import',
+        requireCapability('sales:write'),
+        validator('json', (value, c) => {
+          const parsed = itemImportSchema.safeParse(value);
+          if (!parsed.success) {
+            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+          }
+          return parsed.data;
+        }),
+        async (c) => {
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+          const { companyId } = c.req.valid('json');
 
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
-        const { companyId } = parsed.data;
+          const [company] = await tx
+            .select({ id: companies.id })
+            .from(companies)
+            .where(and(eq(companies.id, companyId), eq(companies.accountId, accountId)))
+            .limit(1);
+          if (!company) return c.json({ error: 'company_not_found' }, 404);
 
-        const [company] = await tx
-          .select({ id: companies.id })
-          .from(companies)
-          .where(and(eq(companies.id, companyId), eq(companies.accountId, accountId)))
-          .limit(1);
-        if (!company) return c.json({ error: 'company_not_found' }, 404);
-
-        // `archived` is an import-only boolean (the catalog round-trips its
-        // archived state); translate it to the archived_at timestamp the table
-        // actually stores. Omitted/false → null (active).
-        const rows = parsed.data.rows.map(({ archived, ...r }) => ({
-          id: uuidv7(),
-          accountId,
-          companyId,
-          ...r,
-          archivedAt: archived ? new Date() : null,
-        }));
-        await tx.insert(items).values(rows);
-        for (const row of rows) {
-          await c.var.audit({
-            entityType: 'item',
-            entityId: row.id,
-            action: 'create',
-            after: row,
+          // `archived` is an import-only boolean (the catalog round-trips its
+          // archived state); translate it to the archived_at timestamp the table
+          // actually stores. Omitted/false → null (active).
+          const rows = c.req.valid('json').rows.map(({ archived, ...r }) => ({
+            id: uuidv7(),
+            accountId,
             companyId,
-          });
-        }
+            ...r,
+            archivedAt: archived ? new Date() : null,
+          }));
+          await tx.insert(items).values(rows);
+          for (const row of rows) {
+            await c.var.audit({
+              entityType: 'item',
+              entityId: row.id,
+              action: 'create',
+              after: row,
+              companyId,
+            });
+          }
 
-        return c.json({ created: rows.length }, 201);
-      })
+          return c.json({ created: rows.length }, 201);
+        },
+      )
       // List for both the management surface and the line-item autocomplete.
       // Archived items are hidden by default (the picker must never offer them);
       // the management page passes includeArchived=true for its show-archived

@@ -147,16 +147,17 @@ export function estimatesRoutes(deps: AppDeps) {
         '/api/estimates',
         requireCapability('sales:write'),
         requireEntitlement(deps, 'documents:write'),
-        async (c) => {
-          const body = await c.req.json().catch(() => null);
-          const parsed = estimateCreateSchema.safeParse(body);
+        validator('json', (value, c) => {
+          const parsed = estimateCreateSchema.safeParse(value);
           if (!parsed.success) {
             return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
           }
-
+          return parsed.data;
+        }),
+        async (c) => {
           const tx = c.get('tx');
           const accountId = c.get('accountId');
-          const { companyId, contactId, lineItems, ...header } = parsed.data;
+          const { companyId, contactId, lineItems, ...header } = c.req.valid('json');
 
           const [customer] = await tx
             .select({ id: contacts.id, companyId: contacts.companyId })
@@ -224,14 +225,14 @@ export function estimatesRoutes(deps: AppDeps) {
             entityType: 'estimate',
             entityId: estimateId,
             action: 'create',
-            after: { id: estimateId, ...parsed.data, ...showFlags },
+            after: { id: estimateId, ...c.req.valid('json'), ...showFlags },
             companyId,
           });
 
           // Telemetry (opt-in; no-op unless the account enabled it).
           await emit(tx, { name: 'estimate_created' });
 
-          return c.json({ id: estimateId, ...parsed.data, ...showFlags }, 201);
+          return c.json({ id: estimateId, ...c.req.valid('json'), ...showFlags }, 201);
         },
       )
       // Duplicate-as-template (mirrors the invoice route): clone any estimate

@@ -71,50 +71,60 @@ export function taxPoliciesRoutes() {
       // A settings-management surface (not sales:write) since it's company
       // configuration, not day-to-day selling. Archive rather than hard-delete
       // so the tax_policy_id breadcrumbs on historical lines survive.
-      .post('/api/tax-policies', requireCapability('settings:manage'), async (c) => {
-        const body = await c.req.json().catch(() => null);
-        const parsed = taxPolicyCreateSchema.safeParse(body);
-        if (!parsed.success) {
-          return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
-        }
+      .post(
+        '/api/tax-policies',
+        requireCapability('settings:manage'),
+        validator('json', (value, c) => {
+          const parsed = taxPolicyCreateSchema.safeParse(value);
+          if (!parsed.success) {
+            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+          }
+          return parsed.data;
+        }),
+        async (c) => {
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
 
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
-
-        const [company] = await tx
-          .select({ id: companies.id })
-          .from(companies)
-          .where(and(eq(companies.id, parsed.data.companyId), eq(companies.accountId, accountId)))
-          .limit(1);
-        if (!company) return c.json({ error: 'company_not_found' }, 404);
-
-        // Single default per company: marking this one default clears the flag
-        // on every other policy in the company first.
-        if (parsed.data.isDefault) {
-          await tx
-            .update(taxPolicies)
-            .set({ isDefault: false, updatedAt: new Date() })
+          const [company] = await tx
+            .select({ id: companies.id })
+            .from(companies)
             .where(
               and(
-                eq(taxPolicies.accountId, accountId),
-                eq(taxPolicies.companyId, parsed.data.companyId),
+                eq(companies.id, c.req.valid('json').companyId),
+                eq(companies.accountId, accountId),
               ),
-            );
-        }
+            )
+            .limit(1);
+          if (!company) return c.json({ error: 'company_not_found' }, 404);
 
-        const id = uuidv7();
-        const row = { id, accountId, ...parsed.data };
-        await tx.insert(taxPolicies).values(row);
-        await c.var.audit({
-          entityType: 'tax_policy',
-          entityId: id,
-          action: 'create',
-          after: row,
-          companyId: parsed.data.companyId,
-        });
+          // Single default per company: marking this one default clears the flag
+          // on every other policy in the company first.
+          if (c.req.valid('json').isDefault) {
+            await tx
+              .update(taxPolicies)
+              .set({ isDefault: false, updatedAt: new Date() })
+              .where(
+                and(
+                  eq(taxPolicies.accountId, accountId),
+                  eq(taxPolicies.companyId, c.req.valid('json').companyId),
+                ),
+              );
+          }
 
-        return c.json(row, 201);
-      })
+          const id = uuidv7();
+          const row = { id, accountId, ...c.req.valid('json') };
+          await tx.insert(taxPolicies).values(row);
+          await c.var.audit({
+            entityType: 'tax_policy',
+            entityId: id,
+            action: 'create',
+            after: row,
+            companyId: c.req.valid('json').companyId,
+          });
+
+          return c.json(row, 201);
+        },
+      )
       // List for the settings surface and the item / line tax-policy pickers.
       // Archived policies are hidden by default (the picker must never offer
       // them); the management page passes includeArchived=true. Alphabetical

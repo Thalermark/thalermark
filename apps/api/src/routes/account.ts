@@ -171,22 +171,29 @@ export function accountRoutes(deps: AppDeps) {
           disabled: isTelemetryDisabled(),
         });
       })
-      .patch('/api/account/telemetry', requireCapability('settings:manage'), async (c) => {
-        const parsed = telemetryUpdateSchema.safeParse(await c.req.json().catch(() => null));
-        if (!parsed.success) {
-          return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
-        }
-        const tx = c.get('tx');
-        // A deployment that forbids telemetry can't be opted into — collapse any
-        // enable request to a decided opt-out so the prompt still stops, but no
-        // collection is ever armed.
-        if (isTelemetryDisabled() || !parsed.data.enabled) {
-          await disableTelemetry(tx);
-          return c.json({ enabled: false, decided: true, disabled: isTelemetryDisabled() });
-        }
-        await enableTelemetry(tx);
-        return c.json({ enabled: true, decided: true, disabled: false });
-      })
+      .patch(
+        '/api/account/telemetry',
+        requireCapability('settings:manage'),
+        validator('json', (value, c) => {
+          const parsed = telemetryUpdateSchema.safeParse(value);
+          if (!parsed.success) {
+            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+          }
+          return parsed.data;
+        }),
+        async (c) => {
+          const tx = c.get('tx');
+          // A deployment that forbids telemetry can't be opted into — collapse any
+          // enable request to a decided opt-out so the prompt still stops, but no
+          // collection is ever armed.
+          if (isTelemetryDisabled() || !c.req.valid('json').enabled) {
+            await disableTelemetry(tx);
+            return c.json({ enabled: false, decided: true, disabled: isTelemetryDisabled() });
+          }
+          await enableTelemetry(tx);
+          return c.json({ enabled: true, decided: true, disabled: false });
+        },
+      )
       // Delete my profile (TMC-268). Removes the person from every workspace they
       // were invited to and ends their ability to sign in. This is the door an
       // invited helper needs when the work stops: it is about THEM, not about
@@ -282,85 +289,93 @@ export function accountRoutes(deps: AppDeps) {
         const accountId = c.get('accountId');
         return c.json(await buildAccountExport(tx, accountId));
       })
-      .post('/api/invitations', requireCapability('team:manage'), async (c) => {
-        const body = (await c.req.json().catch(() => null)) as {
-          email?: unknown;
-          role?: unknown;
-        } | null;
-        const email = typeof body?.email === 'string' ? body.email.trim().toLowerCase() : '';
-        if (!EMAIL_RE.test(email)) return c.json({ error: 'invalid_email' }, 400);
-        // Default to member when the client omits a role (the prior behaviour);
-        // an explicit role must be one of the four invitable ones (owner is
-        // transfer-only, so inviteRoleSchema rejects it).
-        const roleResult = inviteRoleSchema.safeParse(body?.role ?? 'member');
-        if (!roleResult.success) return c.json({ error: 'invalid_role' }, 400);
-        const role = roleResult.data;
+      .post(
+        '/api/invitations',
+        requireCapability('team:manage'),
+        // Hand-rolled rather than one schema because the two failures carry
+        // different codes the UI keys off (invalid_email vs invalid_role). Same
+        // checks as before, just moved into the validator so the request shape
+        // reaches the typed client.
+        validator('json', (value, c) => {
+          const body = value as { email?: unknown; role?: unknown } | null;
+          const email = typeof body?.email === 'string' ? body.email.trim().toLowerCase() : '';
+          if (!EMAIL_RE.test(email)) return c.json({ error: 'invalid_email' }, 400);
+          // Default to member when the client omits a role (the prior behaviour);
+          // an explicit role must be one of the four invitable ones (owner is
+          // transfer-only, so inviteRoleSchema rejects it).
+          const roleResult = inviteRoleSchema.safeParse(body?.role ?? 'member');
+          if (!roleResult.success) return c.json({ error: 'invalid_role' }, 400);
+          return { email, role: roleResult.data };
+        }),
+        async (c) => {
+          const { email, role } = c.req.valid('json');
 
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
-        const inviterId = c.get('userId');
-        const id = uuidv7();
-        const token = randomBytes(32).toString('hex');
-        const expiresAt = new Date(Date.now() + INVITE_TTL_MS);
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+          const inviterId = c.get('userId');
+          const id = uuidv7();
+          const token = randomBytes(32).toString('hex');
+          const expiresAt = new Date(Date.now() + INVITE_TTL_MS);
 
-        await tx.insert(invitations).values({
-          id,
-          accountId,
-          email,
-          role,
-          token,
-          invitedByUserId: inviterId,
-          expiresAt,
-        });
-
-        const path = `/accept-invite?token=${token}`;
-        const url = deps.publicAppUrl ? `${deps.publicAppUrl}${path}` : path;
-
-        if (!deps.mailer) {
-          // server.ts always wires a mailer (console driver is the fallback
-          // when RESEND_API_KEY is unset), so reaching this branch means the
-          // caller built createApp without wiring one — misconfig, fail fast.
-          return c.json({ error: 'mailer_not_configured' }, 500);
-        }
-        try {
-          // Email I/O sits outside the tenant tx: the invitation row already
-          // committed when this returns, and a mailer 5xx surfaces as 502
-          // without rolling back the insert. The token is recoverable from
-          // the row if the user retries; the alternative (rollback) silently
-          // discards an invitation the caller saw acknowledged.
-          await deps.mailer.send({
-            to: email,
-            subject: "You're invited to a workspace on Thalermark",
-            text: `You've been invited to join a workspace on Thalermark — AI-first accounting for freelancers and tradespeople.\n\nAccept the invitation: ${url}\n\nThis invitation expires in 7 days. If you weren't expecting it, you can ignore this email.\n\n${emailFooterText(false)}\n`,
-            html: renderEmailHtml({
-              brandName: 'Thalermark',
-              preheader: "You've been invited to join a workspace on Thalermark.",
-              heading: "You're invited",
-              bodyHtml:
-                '<p style="margin:0;">You\'ve been invited to join a workspace on <strong>Thalermark</strong> — AI-first accounting for freelancers and tradespeople.</p>',
-              cta: { label: 'Accept invitation', url },
-              footnote:
-                "This invitation expires in 7 days. If you weren't expecting it, you can ignore this email.",
-            }),
-          });
-        } catch {
-          return c.json({ error: 'mailer_send_failed' }, 502);
-        }
-
-        // The invite row is real and the token works whether or not mail moved;
-        // `delivered` says only whether the invitee will hear about it, so the
-        // UI can offer the link instead of claiming an email arrived (TMC-212).
-        return c.json(
-          {
+          await tx.insert(invitations).values({
             id,
+            accountId,
             email,
+            role,
             token,
-            expiresAt: expiresAt.toISOString(),
-            delivered: mailerDelivers(deps.mailer),
-          },
-          201,
-        );
-      })
+            invitedByUserId: inviterId,
+            expiresAt,
+          });
+
+          const path = `/accept-invite?token=${token}`;
+          const url = deps.publicAppUrl ? `${deps.publicAppUrl}${path}` : path;
+
+          if (!deps.mailer) {
+            // server.ts always wires a mailer (console driver is the fallback
+            // when RESEND_API_KEY is unset), so reaching this branch means the
+            // caller built createApp without wiring one — misconfig, fail fast.
+            return c.json({ error: 'mailer_not_configured' }, 500);
+          }
+          try {
+            // Email I/O sits outside the tenant tx: the invitation row already
+            // committed when this returns, and a mailer 5xx surfaces as 502
+            // without rolling back the insert. The token is recoverable from
+            // the row if the user retries; the alternative (rollback) silently
+            // discards an invitation the caller saw acknowledged.
+            await deps.mailer.send({
+              to: email,
+              subject: "You're invited to a workspace on Thalermark",
+              text: `You've been invited to join a workspace on Thalermark — AI-first accounting for freelancers and tradespeople.\n\nAccept the invitation: ${url}\n\nThis invitation expires in 7 days. If you weren't expecting it, you can ignore this email.\n\n${emailFooterText(false)}\n`,
+              html: renderEmailHtml({
+                brandName: 'Thalermark',
+                preheader: "You've been invited to join a workspace on Thalermark.",
+                heading: "You're invited",
+                bodyHtml:
+                  '<p style="margin:0;">You\'ve been invited to join a workspace on <strong>Thalermark</strong> — AI-first accounting for freelancers and tradespeople.</p>',
+                cta: { label: 'Accept invitation', url },
+                footnote:
+                  "This invitation expires in 7 days. If you weren't expecting it, you can ignore this email.",
+              }),
+            });
+          } catch {
+            return c.json({ error: 'mailer_send_failed' }, 502);
+          }
+
+          // The invite row is real and the token works whether or not mail moved;
+          // `delivered` says only whether the invitee will hear about it, so the
+          // UI can offer the link instead of claiming an email arrived (TMC-212).
+          return c.json(
+            {
+              id,
+              email,
+              token,
+              expiresAt: expiresAt.toISOString(),
+              delivered: mailerDelivers(deps.mailer),
+            },
+            201,
+          );
+        },
+      )
       .post('/api/invitations/:token/accept', async (c) => {
         // Bootstrap path: rls-context set userId from the session but did not
         // open a tenant tx (the accepting user is not yet a member, so no

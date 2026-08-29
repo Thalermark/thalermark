@@ -144,97 +144,102 @@ export function billsRoutes() {
       // only while 'open' (reverse + repost). Gated by expenses:write — managing
       // payables is the same capability cluster as expenses (the accountant role
       // has it). entityType 'bill' is registered in the activity feed above.
-      .post('/api/bills', requireCapability('expenses:write'), async (c) => {
-        const body = await c.req.json().catch(() => null);
-        const parsed = billCreateSchema.safeParse(body);
-        if (!parsed.success) {
-          return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
-        }
+      .post(
+        '/api/bills',
+        requireCapability('expenses:write'),
+        validator('json', (value, c) => {
+          const parsed = billCreateSchema.safeParse(value);
+          if (!parsed.success) {
+            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+          }
+          return parsed.data;
+        }),
+        async (c) => {
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+          const { companyId, contactId, categoryAccountId, ...rest } = c.req.valid('json');
 
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
-        const { companyId, contactId, categoryAccountId, ...rest } = parsed.data;
+          const [company] = await tx
+            .select({ id: companies.id })
+            .from(companies)
+            .where(and(eq(companies.id, companyId), eq(companies.accountId, accountId)))
+            .limit(1);
+          if (!company) return c.json({ error: 'company_not_found' }, 404);
 
-        const [company] = await tx
-          .select({ id: companies.id })
-          .from(companies)
-          .where(and(eq(companies.id, companyId), eq(companies.accountId, accountId)))
-          .limit(1);
-        if (!company) return c.json({ error: 'company_not_found' }, 404);
+          // The bill's contact is the vendor: validate same account+company and
+          // mark is_vendor (resolveVendorLink does both — recording a bill against
+          // a contact makes them a vendor, the buy-from half of the relationship).
+          const vendor = await resolveVendorLink(tx, accountId, companyId, contactId);
+          if (!vendor) return c.json({ error: 'contact_not_found' }, 404);
+          if ('error' in vendor) return c.json({ error: vendor.error }, vendor.status);
 
-        // The bill's contact is the vendor: validate same account+company and
-        // mark is_vendor (resolveVendorLink does both — recording a bill against
-        // a contact makes them a vendor, the buy-from half of the relationship).
-        const vendor = await resolveVendorLink(tx, accountId, companyId, contactId);
-        if (!vendor) return c.json({ error: 'contact_not_found' }, 404);
-        if ('error' in vendor) return c.json({ error: vendor.error }, vendor.status);
+          // The Dr side of the open entry. Normally an expense account — but a
+          // CREDIT CARD account is allowed here too, and that is the whole
+          // statement-as-a-bill flow (TMC-207).
+          //
+          // When Chase sends a $150 statement, the landscaper goes to Bills and
+          // records $150 owed to Chase. Categorising that as an expense would
+          // count it TWICE: the fuel was already expensed the moment it was
+          // bought on the card. Pointing it at the card account instead posts
+          // Dr Card / Cr AP, which pays down what the card owes and leaves the
+          // fuel expensed exactly once. Double-counting card payments is the most
+          // common small-business bookkeeping error, and this is the guard.
+          //
+          // Only cards, not every money account: "this bill is categorised as my
+          // checking account" is meaningless, and would post Dr Checking / Cr AP —
+          // inventing money out of a payable.
+          const coa = await resolveCoaAccounts(tx, accountId, companyId, [categoryAccountId]);
+          const category = coa.get(categoryAccountId);
+          const categoryUsable =
+            category &&
+            (category.accountType === 'expense' || category.moneyAccountKind === 'credit_card') &&
+            category.isActive;
+          if (!categoryUsable) {
+            return c.json({ error: 'invalid_category_account' }, 400);
+          }
 
-        // The Dr side of the open entry. Normally an expense account — but a
-        // CREDIT CARD account is allowed here too, and that is the whole
-        // statement-as-a-bill flow (TMC-207).
-        //
-        // When Chase sends a $150 statement, the landscaper goes to Bills and
-        // records $150 owed to Chase. Categorising that as an expense would
-        // count it TWICE: the fuel was already expensed the moment it was
-        // bought on the card. Pointing it at the card account instead posts
-        // Dr Card / Cr AP, which pays down what the card owes and leaves the
-        // fuel expensed exactly once. Double-counting card payments is the most
-        // common small-business bookkeeping error, and this is the guard.
-        //
-        // Only cards, not every money account: "this bill is categorised as my
-        // checking account" is meaningless, and would post Dr Checking / Cr AP —
-        // inventing money out of a payable.
-        const coa = await resolveCoaAccounts(tx, accountId, companyId, [categoryAccountId]);
-        const category = coa.get(categoryAccountId);
-        const categoryUsable =
-          category &&
-          (category.accountType === 'expense' || category.moneyAccountKind === 'credit_card') &&
-          category.isActive;
-        if (!categoryUsable) {
-          return c.json({ error: 'invalid_category_account' }, 400);
-        }
+          const billId = uuidv7();
+          const [created] = await tx
+            .insert(bills)
+            .values({
+              id: billId,
+              accountId,
+              companyId,
+              contactId,
+              categoryAccountId,
+              amount: rest.amount,
+              billDate: rest.billDate,
+              dueDate: rest.dueDate,
+              currency: rest.currency ?? 'USD',
+              reference: rest.reference ?? null,
+              memo: rest.memo ?? null,
+              status: 'open',
+            })
+            .returning();
 
-        const billId = uuidv7();
-        const [created] = await tx
-          .insert(bills)
-          .values({
-            id: billId,
+          await c.var.audit({
+            entityType: 'bill',
+            entityId: billId,
+            action: 'create',
+            after: created,
+            companyId,
+          });
+
+          await postBillOpen(tx, {
+            bill: {
+              id: billId,
+              amount: rest.amount,
+              label: billMemoLabel(vendor.name, rest.reference),
+            },
+            categoryCode: category.code,
             accountId,
             companyId,
-            contactId,
-            categoryAccountId,
-            amount: rest.amount,
-            billDate: rest.billDate,
-            dueDate: rest.dueDate,
-            currency: rest.currency ?? 'USD',
-            reference: rest.reference ?? null,
-            memo: rest.memo ?? null,
-            status: 'open',
-          })
-          .returning();
+            postedAt: billDateToPostedAt(rest.billDate),
+          });
 
-        await c.var.audit({
-          entityType: 'bill',
-          entityId: billId,
-          action: 'create',
-          after: created,
-          companyId,
-        });
-
-        await postBillOpen(tx, {
-          bill: {
-            id: billId,
-            amount: rest.amount,
-            label: billMemoLabel(vendor.name, rest.reference),
-          },
-          categoryCode: category.code,
-          accountId,
-          companyId,
-          postedAt: billDateToPostedAt(rest.billDate),
-        });
-
-        return c.json(created, 201);
-      })
+          return c.json(created, 201);
+        },
+      )
       .get('/api/bills', async (c) => {
         const tx = c.get('tx');
         const accountId = c.get('accountId');

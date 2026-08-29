@@ -8,6 +8,7 @@ import {
 import { entityHandoffSchema, resolveCopyInclude } from '@thalermark/validation';
 import { and, eq, isNull, lt } from 'drizzle-orm';
 import { Hono } from 'hono';
+import { validator } from 'hono/validator';
 import { v7 as uuidv7 } from 'uuid';
 import { copyCompanyReferenceData, copyableProfile, targetIsEmpty } from '../lib/company-copy.js';
 import {
@@ -124,203 +125,209 @@ export function entityTransferRoutes() {
             .toString(),
         });
       })
-      .post('/api/entity-transfers', requireCapability('settings:manage'), async (c) => {
-        const body = await c.req.json().catch(() => null);
-        const parsed = entityHandoffSchema.safeParse(body);
-        if (!parsed.success) {
-          return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
-        }
-        const {
-          predecessorCompanyId,
-          name,
-          businessType,
-          effectiveDate,
-          openInvoicesDisposition,
-          transferAssetIds,
-        } = parsed.data;
-        const include = resolveCopyInclude(parsed.data.include);
+      .post(
+        '/api/entity-transfers',
+        requireCapability('settings:manage'),
+        validator('json', (value, c) => {
+          const parsed = entityHandoffSchema.safeParse(value);
+          if (!parsed.success) {
+            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+          }
+          return parsed.data;
+        }),
+        async (c) => {
+          const {
+            predecessorCompanyId,
+            name,
+            businessType,
+            effectiveDate,
+            openInvoicesDisposition,
+            transferAssetIds,
+          } = c.req.valid('json');
+          const include = resolveCopyInclude(c.req.valid('json').include);
 
-        const tx = c.get('tx');
-        const accountId = c.get('accountId');
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
 
-        const [predecessor] = await tx
-          .select()
-          .from(companies)
-          .where(and(eq(companies.id, predecessorCompanyId), eq(companies.accountId, accountId)))
-          .limit(1);
-        if (!predecessor) return c.json({ error: 'company_not_found' }, 404);
-        if (predecessor.retiredAt) return c.json({ error: 'already_retired' }, 409);
+          const [predecessor] = await tx
+            .select()
+            .from(companies)
+            .where(and(eq(companies.id, predecessorCompanyId), eq(companies.accountId, accountId)))
+            .limit(1);
+          if (!predecessor) return c.json({ error: 'company_not_found' }, 404);
+          if (predecessor.retiredAt) return c.json({ error: 'already_retired' }, 409);
 
-        const postedAt = handoffInstant(effectiveDate);
-        // Both sides, once, explicitly: the transfer entries write through the
-        // lock-free primitive, so a handoff dated into a closed year would
-        // otherwise slip behind the close.
-        await assertPeriodOpen(tx, { accountId, companyId: predecessorCompanyId, postedAt });
+          const postedAt = handoffInstant(effectiveDate);
+          // Both sides, once, explicitly: the transfer entries write through the
+          // lock-free primitive, so a handoff dated into a closed year would
+          // otherwise slip behind the close.
+          await assertPeriodOpen(tx, { accountId, companyId: predecessorCompanyId, postedAt });
 
-        // --- The successor ------------------------------------------------------
-        const successorCompanyId = uuidv7();
-        await tx
-          .insert(companies)
-          .values({ id: successorCompanyId, accountId, name, businessType });
-        await seedChartOfAccounts(tx, {
-          accountId,
-          companyId: successorCompanyId,
-          businessType,
-        });
-        if (include.profile) {
+          // --- The successor ------------------------------------------------------
+          const successorCompanyId = uuidv7();
           await tx
-            .update(companies)
-            .set(copyableProfile(predecessor))
-            .where(eq(companies.id, successorCompanyId));
-        }
+            .insert(companies)
+            .values({ id: successorCompanyId, accountId, name, businessType });
+          await seedChartOfAccounts(tx, {
+            accountId,
+            companyId: successorCompanyId,
+            businessType,
+          });
+          if (include.profile) {
+            await tx
+              .update(companies)
+              .set(copyableProfile(predecessor))
+              .where(eq(companies.id, successorCompanyId));
+          }
 
-        const scope = {
-          accountId,
-          sourceCompanyId: predecessorCompanyId,
-          targetCompanyId: successorCompanyId,
-        };
-        if (!(await targetIsEmpty(tx, scope))) return c.json({ error: 'target_not_empty' }, 409);
-        const copied = await copyCompanyReferenceData(tx, scope, include);
+          const scope = {
+            accountId,
+            sourceCompanyId: predecessorCompanyId,
+            targetCompanyId: successorCompanyId,
+          };
+          if (!(await targetIsEmpty(tx, scope))) return c.json({ error: 'target_not_empty' }, 409);
+          const copied = await copyCompanyReferenceData(tx, scope, include);
 
-        // --- What moves ---------------------------------------------------------
-        // A/R stays with the predecessor unless asked otherwise: the old business
-        // billed the work, so the old business banks the cheque. Retirement
-        // permits settlement precisely so it can (lib/company-lock.ts).
-        const excludeCodes = openInvoicesDisposition === 'stay' ? [COA_AR] : [];
-        const balances = await transferableBalances(tx, {
-          accountId,
-          companyId: predecessorCompanyId,
-          asOf: postedAt,
-          excludeCodes,
-        });
-        const plan = buildTransferPlan(balances);
-        if (!plan) return c.json({ error: 'nothing_to_transfer' }, 409);
+          // --- What moves ---------------------------------------------------------
+          // A/R stays with the predecessor unless asked otherwise: the old business
+          // billed the work, so the old business banks the cheque. Retirement
+          // permits settlement precisely so it can (lib/company-lock.ts).
+          const excludeCodes = openInvoicesDisposition === 'stay' ? [COA_AR] : [];
+          const balances = await transferableBalances(tx, {
+            accountId,
+            companyId: predecessorCompanyId,
+            asOf: postedAt,
+            excludeCodes,
+          });
+          const plan = buildTransferPlan(balances);
+          if (!plan) return c.json({ error: 'nothing_to_transfer' }, 409);
 
-        const outLegs = await resolveLegs(tx, {
-          accountId,
-          companyId: predecessorCompanyId,
-          legs: plan.legs,
-          plugCode: '3900',
-        });
-        if ('unmapped' in outLegs) {
-          return c.json({ error: 'transfer_account_unmapped', codes: outLegs.unmapped }, 409);
-        }
-        const inLegs = await resolveLegs(tx, {
-          accountId,
-          companyId: successorCompanyId,
-          // Mirror: every leg flips side on the way in.
-          legs: plan.legs.map((l) => ({
-            ...l,
-            side: l.side === 'debit' ? ('credit' as const) : ('debit' as const),
-          })),
-          plugCode: COA_OWNER_EQUITY,
-        });
-        if ('unmapped' in inLegs) {
-          return c.json({ error: 'transfer_account_unmapped', codes: inLegs.unmapped }, 409);
-        }
-
-        const transferId = uuidv7();
-        const outJournalEntryId = await postTransferEntry(tx, {
-          accountId,
-          companyId: predecessorCompanyId,
-          transferId,
-          lines: outLegs.lines,
-          postedAt,
-          sourceEntityType: TRANSFER_OUT_SOURCE,
-          memo: `Business transferred to ${name}`,
-        });
-        const inJournalEntryId = await postTransferEntry(tx, {
-          accountId,
-          companyId: successorCompanyId,
-          transferId,
-          lines: inLegs.lines,
-          postedAt,
-          sourceEntityType: TRANSFER_IN_SOURCE,
-          memo: `Business taken over from ${predecessor.name}`,
-        });
-
-        // --- Assets and their loans --------------------------------------------
-        const allAssets = await transferableAssets(tx, {
-          accountId,
-          companyId: predecessorCompanyId,
-        });
-        const moving = transferAssetIds
-          ? allAssets.filter((a) => transferAssetIds.includes(a.purchase.id))
-          : allAssets;
-        const assetIdMap = await createCarriedAssets(tx, {
-          accountId,
-          successorCompanyId,
-          assets: moving,
-          effectiveDate,
-        });
-        await transferLoanLegs(tx, {
-          accountId,
-          predecessorCompanyId,
-          successorCompanyId,
-          transferId,
-          postedAt,
-          loans: moving
-            .filter((a) => Number(a.outstandingLoan) > 0)
-            .map((a) => ({
-              purchaseId: a.purchase.id,
-              successorPurchaseId: assetIdMap.get(a.purchase.id) as string,
-              outstanding: a.outstandingLoan,
+          const outLegs = await resolveLegs(tx, {
+            accountId,
+            companyId: predecessorCompanyId,
+            legs: plan.legs,
+            plugCode: '3900',
+          });
+          if ('unmapped' in outLegs) {
+            return c.json({ error: 'transfer_account_unmapped', codes: outLegs.unmapped }, 409);
+          }
+          const inLegs = await resolveLegs(tx, {
+            accountId,
+            companyId: successorCompanyId,
+            // Mirror: every leg flips side on the way in.
+            legs: plan.legs.map((l) => ({
+              ...l,
+              side: l.side === 'debit' ? ('credit' as const) : ('debit' as const),
             })),
-        });
+            plugCode: COA_OWNER_EQUITY,
+          });
+          if ('unmapped' in inLegs) {
+            return c.json({ error: 'transfer_account_unmapped', codes: inLegs.unmapped }, 409);
+          }
 
-        // --- Wind the predecessor down -----------------------------------------
-        // Schedules are ended explicitly rather than left to the sweep's retired
-        // filter: this is customer-visible, and belt-and-braces is cheap.
-        await tx
-          .update(companies)
-          .set({ retiredAt: new Date(), updatedAt: new Date() })
-          .where(eq(companies.id, predecessorCompanyId));
+          const transferId = uuidv7();
+          const outJournalEntryId = await postTransferEntry(tx, {
+            accountId,
+            companyId: predecessorCompanyId,
+            transferId,
+            lines: outLegs.lines,
+            postedAt,
+            sourceEntityType: TRANSFER_OUT_SOURCE,
+            memo: `Business transferred to ${name}`,
+          });
+          const inJournalEntryId = await postTransferEntry(tx, {
+            accountId,
+            companyId: successorCompanyId,
+            transferId,
+            lines: inLegs.lines,
+            postedAt,
+            sourceEntityType: TRANSFER_IN_SOURCE,
+            memo: `Business taken over from ${predecessor.name}`,
+          });
 
-        const [transfer] = await tx
-          .insert(entityTransfers)
-          .values({
-            id: transferId,
+          // --- Assets and their loans --------------------------------------------
+          const allAssets = await transferableAssets(tx, {
+            accountId,
+            companyId: predecessorCompanyId,
+          });
+          const moving = transferAssetIds
+            ? allAssets.filter((a) => transferAssetIds.includes(a.purchase.id))
+            : allAssets;
+          const assetIdMap = await createCarriedAssets(tx, {
+            accountId,
+            successorCompanyId,
+            assets: moving,
+            effectiveDate,
+          });
+          await transferLoanLegs(tx, {
             accountId,
             predecessorCompanyId,
             successorCompanyId,
-            effectiveDate,
-            openInvoicesDisposition,
-            outJournalEntryId,
-            inJournalEntryId,
-            options: { include, transferAssetIds: moving.map((a) => a.purchase.id), copied },
-          })
-          .returning();
+            transferId,
+            postedAt,
+            loans: moving
+              .filter((a) => Number(a.outstandingLoan) > 0)
+              .map((a) => ({
+                purchaseId: a.purchase.id,
+                successorPurchaseId: assetIdMap.get(a.purchase.id) as string,
+                outstanding: a.outstandingLoan,
+              })),
+          });
 
-        // Audited on BOTH companies, so each activity feed tells its own half of
-        // the story rather than the predecessor's simply going quiet.
-        await c.var.audit({
-          entityType: 'company',
-          entityId: predecessorCompanyId,
-          action: 'handoff-out',
-          after: { transferId, successorCompanyId, effectiveDate },
-          companyId: predecessorCompanyId,
-        });
-        await c.var.audit({
-          entityType: 'company',
-          entityId: successorCompanyId,
-          action: 'handoff-in',
-          after: { transferId, predecessorCompanyId, effectiveDate, copied },
-          companyId: successorCompanyId,
-        });
+          // --- Wind the predecessor down -----------------------------------------
+          // Schedules are ended explicitly rather than left to the sweep's retired
+          // filter: this is customer-visible, and belt-and-braces is cheap.
+          await tx
+            .update(companies)
+            .set({ retiredAt: new Date(), updatedAt: new Date() })
+            .where(eq(companies.id, predecessorCompanyId));
 
-        return c.json(
-          {
-            transferId: transfer?.id ?? transferId,
-            successorCompanyId,
-            predecessorCompanyId,
-            effectiveDate,
-            netAssets: plan.netAssets,
-            assetsTransferred: moving.length,
-            copied,
-          },
-          201,
-        );
-      })
+          const [transfer] = await tx
+            .insert(entityTransfers)
+            .values({
+              id: transferId,
+              accountId,
+              predecessorCompanyId,
+              successorCompanyId,
+              effectiveDate,
+              openInvoicesDisposition,
+              outJournalEntryId,
+              inJournalEntryId,
+              options: { include, transferAssetIds: moving.map((a) => a.purchase.id), copied },
+            })
+            .returning();
+
+          // Audited on BOTH companies, so each activity feed tells its own half of
+          // the story rather than the predecessor's simply going quiet.
+          await c.var.audit({
+            entityType: 'company',
+            entityId: predecessorCompanyId,
+            action: 'handoff-out',
+            after: { transferId, successorCompanyId, effectiveDate },
+            companyId: predecessorCompanyId,
+          });
+          await c.var.audit({
+            entityType: 'company',
+            entityId: successorCompanyId,
+            action: 'handoff-in',
+            after: { transferId, predecessorCompanyId, effectiveDate, copied },
+            companyId: successorCompanyId,
+          });
+
+          return c.json(
+            {
+              transferId: transfer?.id ?? transferId,
+              successorCompanyId,
+              predecessorCompanyId,
+              effectiveDate,
+              netAssets: plan.netAssets,
+              assetsTransferred: moving.length,
+              copied,
+            },
+            201,
+          );
+        },
+      )
       // Did this company take over from another, and can that still be undone?
       // Powers the undo panel on the successor's settings page — which is where a
       // user who has just realised the handoff was wrong will go looking.
