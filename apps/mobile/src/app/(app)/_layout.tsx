@@ -19,7 +19,53 @@ import { flushTelemetry, setTelemetryEnabled } from '../../lib/telemetry';
 //   'onboard' → active company has no business type yet → run the welcome wizard
 //   'consent' → deployment requires Terms/Privacy and this user hasn't accepted
 //   'ready'   → authed with an active account resolved → render the app
-type Gate = 'loading' | 'anon' | 'select' | 'ready' | 'error' | 'onboard' | 'consent';
+type Gate =
+  | 'loading'
+  | 'anon'
+  | 'select'
+  | 'ready'
+  | 'error'
+  // The device cannot reach the server at all. Distinct from 'error' (the server
+  // answered badly) and from 'anon' (the server said you are not signed in),
+  // because those three want different words and different next steps, and
+  // conflating them is what this ticket's parent epic exists to stop (TMC-228).
+  | 'offline'
+  | 'onboard'
+  | 'consent';
+
+// A cold start on a network that is joined but has no route out does not fail
+// fast — it waits. Without this the session probe never settles, `gate` stays
+// 'loading', and the app sits on a bare spinner indefinitely. Observed on a
+// physical Android in airplane mode: two minutes, no message, no retry, and it
+// only recovered when the network came back.
+//
+// Eight seconds is longer than any working request and short enough that nobody
+// mistakes it for a hang. The failure it produces is a screen with a Retry
+// button that ALREADY EXISTED and was simply unreachable.
+const SESSION_PROBE_TIMEOUT_MS = 8_000;
+
+class SessionProbeTimeout extends Error {
+  constructor() {
+    super('session probe timed out');
+    this.name = 'SessionProbeTimeout';
+  }
+}
+
+function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new SessionProbeTimeout()), ms);
+    work.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
 
 // The (app) group is the authed half of the mobile app. (auth) screens live
 // outside it. Gating happens here rather than in the root layout so the
@@ -49,8 +95,7 @@ export default function AppLayout() {
   // distinct from "no session" (anon) and "no memberships" (select).
   const runGate = useCallback(() => {
     let active = true;
-    authClient
-      .getSession()
+    withTimeout(authClient.getSession(), SESSION_PROBE_TIMEOUT_MS)
       .then(async (res) => {
         if (!active) return;
         if (!res.data?.user) {
@@ -113,7 +158,12 @@ export default function AppLayout() {
         setGate('ready');
       })
       .catch(() => {
-        if (active) setGate('anon');
+        // NOT 'anon'. A failure here means the request never got an answer, and
+        // treating that as "you are not signed in" bounces the user to
+        // /sign-in — which reads as being logged out by a basement, and is
+        // worse than the spinner it replaces. Only an ANSWER with no user
+        // means anon, and that path is above.
+        if (active) setGate('offline');
       });
     return () => {
       active = false;
@@ -138,10 +188,16 @@ export default function AppLayout() {
     return () => sub.remove();
   }, []);
 
+  // The banner is rendered alongside EVERY gate state below, not only the ready
+  // one. It used to live under the tab navigator, i.e. after all of these early
+  // returns, so the single message that explains a stalled cold start could not
+  // render during the stall it explains (TMC-228). expo-network answers in well
+  // under a second, so this appears long before the probe's own timeout.
   if (gate === 'loading') {
     return (
       <View className="flex-1 items-center justify-center bg-cream">
         <ActivityIndicator className="text-ink" />
+        <OfflineBanner />
       </View>
     );
   }
@@ -151,6 +207,29 @@ export default function AppLayout() {
       <View className="flex-1 items-center justify-center bg-cream px-6">
         <Text className="text-center text-sm text-oxblood">
           Something went wrong reaching the server.
+        </Text>
+        <OfflineBanner />
+        <Pressable
+          onPress={() => {
+            setGate('loading');
+            runGate();
+          }}
+          className="mt-5 rounded-sm bg-ink px-4 py-2.5 active:bg-gold-deep"
+        >
+          <Text className="text-sm font-medium text-cream">Try again</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  if (gate === 'offline') {
+    return (
+      <View className="flex-1 items-center justify-center bg-cream px-6">
+        <Ionicons name="cloud-offline-outline" size={28} className="text-ink-subtle" />
+        <Text className="mt-4 text-center font-serif text-xl text-ink">You're offline</Text>
+        <Text className="mt-2 max-w-xs text-center text-sm leading-relaxed text-ink-subtle">
+          Thalermark needs a connection to load your books. Nothing has been lost. Try again once
+          you have signal.
         </Text>
         <Pressable
           onPress={() => {

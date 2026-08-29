@@ -25,6 +25,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 //     so it shifts nothing and swallows no taps. ~70 screens each own their
 //     scroll container; none of them had to change for this.
 //
+//     THE COST OF THAT CHOICE, and it is real: a screen whose content runs to
+//     the bottom edge gets its last row covered while the banner is up. The
+//     dashboard hit exactly this — the banner sat on top of the cash-flow nudge
+//     — and was given `pb-32` instead of `pb-16` (TMC-228). Any screen that
+//     grows content to the bottom needs the same clearance; there is no shared
+//     scroll wrapper to fix it in one place.
+//
 //   - **Silent until certain.** `isInternetReachable` is null/undefined while
 //     the first probe is in flight, and treating that as offline would flash a
 //     false banner on every cold start. Only an explicit `false` counts.
