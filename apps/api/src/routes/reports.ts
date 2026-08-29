@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import * as Sentry from '@sentry/node';
 import {
   CASH_FLOW_NUDGE_VERSION,
   type CashFlowAdvisor,
@@ -27,6 +28,7 @@ import {
   vehicleYears,
   vehicles,
 } from '@thalermark/db';
+import { getLogger } from '@thalermark/logger';
 import {
   type PartIVGap,
   centsToMoney,
@@ -887,6 +889,8 @@ function toLegacyScheduleC(w: TaxWorksheet) {
 // otherwise the real caller is used and availability rides on the credential.
 const defaultAdvisor = createCashFlowAdvisor();
 
+const log = getLogger(['api', 'reports']);
+
 export function reportsRoutes(deps: AppDeps) {
   return (
     new Hono<{ Variables: RlsVariables }>()
@@ -1555,6 +1559,43 @@ export function reportsRoutes(deps: AppDeps) {
           const netIncomeCents = revenueSumCents - expenseSumCents;
           const totalEquityCents = equitySumCents + netIncomeCents;
           const totalLiabilitiesAndEquityCents = totalLiabilitiesCents + totalEquityCents;
+          const balanced = totalAssetsCents === totalLiabilitiesAndEquityCents;
+          if (!balanced) {
+            // TMC-287. This cannot happen by normal use: every journal entry
+            // balances (Postgres trigger), so summing balanced entries by
+            // account type must satisfy the identity. A false here means an
+            // account's type and normal_balance disagree, a bug in the query
+            // above, or rows written outside the app — all developer or operator
+            // problems, none of them fixable by the person looking at the screen.
+            //
+            // So it is reported to someone who can act. Until now the ONLY
+            // consequence was a red paragraph shown to the owner, who could do
+            // nothing about it, and only if they happened to open this report.
+            //
+            // Both totals go in the payload so the difference is diagnosable
+            // without a database session.
+            log.error(
+              'balance sheet does not balance for company {companyId}: assets {assets} vs liabilities+equity {liabilitiesAndEquity} (cents)',
+              {
+                companyId: id,
+                accountId,
+                assets: totalAssetsCents,
+                liabilitiesAndEquity: totalLiabilitiesAndEquityCents,
+                differenceCents: totalAssetsCents - totalLiabilitiesAndEquityCents,
+                asOf,
+              },
+            );
+            Sentry.captureException(new Error(`balance sheet does not balance for company ${id}`), {
+              tags: { report: 'balance-sheet' },
+              extra: {
+                companyId: id,
+                assetsCents: totalAssetsCents,
+                liabilitiesAndEquityCents: totalLiabilitiesAndEquityCents,
+                differenceCents: totalAssetsCents - totalLiabilitiesAndEquityCents,
+                asOf,
+              },
+            });
+          }
           return c.json({
             asOf,
             assets,
@@ -1568,7 +1609,7 @@ export function reportsRoutes(deps: AppDeps) {
             // True by construction (every entry balances); surfaced as an
             // integrity check — a false here means the ledger has drifted. Exact
             // in the cents domain, so this is a strict equality, not an epsilon.
-            balanced: totalAssetsCents === totalLiabilitiesAndEquityCents,
+            balanced,
           });
         },
       )

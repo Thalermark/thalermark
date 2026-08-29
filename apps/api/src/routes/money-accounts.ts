@@ -48,9 +48,28 @@ function shapeFor(kind: MoneyAccountKind): {
   accountType: 'asset' | 'liability';
   normalBalance: 'debit' | 'credit';
 } {
-  return kind === 'credit_card'
-    ? { accountType: 'liability', normalBalance: 'credit' }
-    : { accountType: 'asset', normalBalance: 'debit' };
+  // Exhaustive on purpose, where this used to be `credit_card ? … : asset`.
+  // That ternary meant every kind EXCEPT a card fell through to asset/debit, so
+  // adding a liability-shaped kind — a line of credit, say — would have filed it
+  // as an asset without anyone editing this function. Money owed would have
+  // counted as money held, and the balance sheet would have stopped adding up
+  // from the first charge, silently.
+  //
+  // A switch with no default makes the compiler refuse a new kind until someone
+  // says which shape it is. The `never` below is what enforces that: add a kind
+  // to the enum and this stops building.
+  switch (kind) {
+    case 'checking':
+    case 'savings':
+    case 'cash':
+      return { accountType: 'asset', normalBalance: 'debit' };
+    case 'credit_card':
+      return { accountType: 'liability', normalBalance: 'credit' };
+    default: {
+      const unhandled: never = kind;
+      throw new Error(`money account kind has no chart-of-accounts shape: ${String(unhandled)}`);
+    }
+  }
 }
 
 // Lowest free code in the kind's band. Scans the company's existing codes rather
