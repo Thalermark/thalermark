@@ -22,7 +22,7 @@
     "clean": "rm -rf .turbo dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@hono/node-server": "2.0.4",
+    "@hono/node-server": "2.0.10",
     "@sentry/node": "10.55.0",
     "@thalermark/ai": "workspace:*",
     "@thalermark/auth": "workspace:*",
