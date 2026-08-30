@@ -1,6 +1,6 @@
 import { generateObject } from 'ai';
 import { z } from 'zod';
-import { AI_MAX_RETRIES, CATEGORIZE_TIMEOUT_MS } from './limits.js';
+import { AI_MAX_RETRIES, CATEGORIZE_TIMEOUT_MS, resolveTimeoutMs } from './limits.js';
 import { constrainCode } from './normalize.js';
 import { businessPersona } from './persona.js';
 import { type LlmCredential, resolveModel } from './provider.js';
@@ -54,7 +54,7 @@ export function createExpenseCategorizer(): ExpenseCategorizer {
         schema,
         messages: [{ role: 'user', content: buildPrompt(input) }],
         maxRetries: AI_MAX_RETRIES,
-        abortSignal: AbortSignal.timeout(CATEGORIZE_TIMEOUT_MS),
+        abortSignal: AbortSignal.timeout(resolveTimeoutMs(credential, CATEGORIZE_TIMEOUT_MS)),
       });
       return {
         suggestedCategoryCode: constrainCode(

@@ -26,6 +26,12 @@ export const llmConnectionUpsertSchema = z.object({
   modelVision: z.string().max(256).nullish(),
   modelReasoning: z.string().max(256).nullish(),
   modelFast: z.string().max(256).nullish(),
+  // Per-connection AI timeout, in seconds (Advanced). null/omitted = the
+  // built-in per-purpose defaults. Floor 30 because anything lower fails the
+  // cold model load the self-host path always pays; ceiling 300 because Node's
+  // fetch layer times out around there, and a bigger number would promise a
+  // wait the stack cannot deliver.
+  timeoutSeconds: z.number().int().min(30).max(300).nullish(),
 });
 
 export type LlmConnectionUpsertInput = z.infer<typeof llmConnectionUpsertSchema>;

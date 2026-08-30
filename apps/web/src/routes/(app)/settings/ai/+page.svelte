@@ -1,8 +1,24 @@
 <script lang="ts">
+  import { enhance } from '$app/forms';
   import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
   import type { PageProps } from './$types';
 
   let { data, form }: PageProps = $props();
+
+  // Verify runs one and now two live model probes (TMC-296), which on a local
+  // CPU model is a minute or more — and before this the only feedback was the
+  // browser tab spinner. enhance keeps the page in place and drives an
+  // in-page "verifying" state; reset:false so the typed key/endpoint survive
+  // a re-render.
+  let verifying = $state(false);
+  const onsubmit = ({ action }: { action: URL }) => {
+    const isVerify = action.search.includes('verify');
+    if (isVerify) verifying = true;
+    return async ({ update }: { update: (o?: { reset?: boolean }) => Promise<void> }) => {
+      await update({ reset: false });
+      verifying = false;
+    };
+  };
 
   // Removing the stored credential asks first (TMC-217). The trigger is a
   // formaction button on the save form, so the dialog drives it by submitter
@@ -50,6 +66,9 @@
   const saved = $derived(form && 'saved' in form ? form.saved : false);
   const errorMsg = $derived(form && 'error' in form ? form.error : null);
   const verify = $derived(form && 'verify' in form ? form.verify : null);
+  // The second verify stage (TMC-296): the vision-role probe. Null when the
+  // fast probe already failed (nothing more to learn) or on the fail() branch.
+  const vision = $derived(form && 'vision' in form ? form.vision : null);
 
   function ago(iso: string | null): string {
     if (!iso) return '';
@@ -92,19 +111,30 @@
     <p class="mt-3 max-w-prose text-sm text-danger">{connection.lastError}</p>
   {/if}
 
-  {#if verify}
+  {#if verifying}
+    <div class="callout mt-4 flex items-center gap-2">
+      <span class="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-accent border-t-transparent"></span>
+      Verifying — testing the text model, then the vision model. A local model can take a minute or
+      two.
+    </div>
+  {:else if verify}
     <div class="callout mt-4">
-      {#if verify.ok}
+      {#if verify.ok && vision && !vision.ok}
+        <!-- The split verdict (TMC-296): text works, receipt reading doesn't.
+             Before this, a dead vision model verified green and the only
+             symptom was receipts silently never prefilling. -->
+        Text model verified — but <strong>receipt reading failed</strong>: {vision.error}
+      {:else if verify.ok}
         Verified — AI is live{'latencyMs' in verify && verify.latencyMs
           ? ` (responded in ${verify.latencyMs} ms)`
-          : ''}.
+          : ''}.{vision?.ok ? ' Receipt reading works too.' : ''}
       {:else}
         Verification failed: {verify.error}
       {/if}
     </div>
   {/if}
 
-  <form method="POST" action="?/save" class="mt-8 max-w-xl space-y-6">
+  <form method="POST" action="?/save" class="mt-8 max-w-xl space-y-6" use:enhance={onsubmit}>
     <div>
       <label class="label" for="provider">Provider</label>
       <select id="provider" name="provider" bind:value={selectedProvider} class="field mt-2">
@@ -190,6 +220,26 @@
               />
             </div>
           {/each}
+          <div>
+            <label class="label" for="timeoutSeconds">Timeout (seconds)</label>
+            <input
+              id="timeoutSeconds"
+              name="timeoutSeconds"
+              type="number"
+              min="30"
+              max="300"
+              step="1"
+              inputmode="numeric"
+              class="field mt-2"
+              placeholder="auto"
+              value={connection?.timeoutSeconds ?? ''}
+            />
+            <p class="mt-1 text-xs text-fg/50">
+              How long to wait for the model before giving up, 30–300. Leave blank for the
+              defaults. Raise this if a local model is slow — reading a receipt can then take a few
+              minutes.
+            </p>
+          </div>
         </div>
       {/if}
     </div>
@@ -204,7 +254,14 @@
     <div class="flex items-center gap-3">
       <button type="submit" class="btn">Save</button>
       {#if connection}
-        <button type="submit" formaction="?/verify" class="btn-ghost">Verify</button>
+        <button type="submit" formaction="?/verify" class="btn-ghost" disabled={verifying}>
+          {#if verifying}
+            <span class="mr-1.5 inline-block h-3 w-3 animate-spin rounded-full border border-accent border-t-transparent"></span>
+            Verifying…
+          {:else}
+            Verify
+          {/if}
+        </button>
         <!-- formaction inside the ?/save form, so this cannot be wrapped in a
              ConfirmSubmit without changing what gets posted. Intercept on the
              button and re-submit with requestSubmit(submitter), which honours

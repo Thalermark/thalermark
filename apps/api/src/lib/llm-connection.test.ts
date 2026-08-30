@@ -22,6 +22,7 @@ const row = (over: Partial<ConnectionRow> = {}): ConnectionRow => ({
   modelReasoning: null,
   modelFast: null,
   structured: null,
+  timeoutSeconds: null,
   lastOkAt: HEALTHY,
   lastErrorAt: null,
   lastError: null,

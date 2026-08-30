@@ -1,6 +1,6 @@
 import { generateObject } from 'ai';
 import { z } from 'zod';
-import { ADVISE_TIMEOUT_MS, AI_MAX_RETRIES } from './limits.js';
+import { ADVISE_TIMEOUT_MS, AI_MAX_RETRIES, resolveTimeoutMs } from './limits.js';
 import { businessPersona } from './persona.js';
 import { type LlmCredential, resolveModel } from './provider.js';
 import type { CashFlowAdvisor, CashFlowNudge, CashFlowSignals } from './types.js';
@@ -129,7 +129,7 @@ export function createCashFlowAdvisor(): CashFlowAdvisor {
         schema,
         messages: [{ role: 'user', content: buildPrompt(signals) }],
         maxRetries: AI_MAX_RETRIES,
-        abortSignal: AbortSignal.timeout(ADVISE_TIMEOUT_MS),
+        abortSignal: AbortSignal.timeout(resolveTimeoutMs(credential, ADVISE_TIMEOUT_MS)),
       });
       return object.nudges;
     },

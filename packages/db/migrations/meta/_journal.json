@@ -330,6 +330,13 @@
       "when": 1787538166703,
       "tag": "0046_coa_type_balance_invariant",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1788109826810,
+      "tag": "0047_llm_connection_timeout",
+      "breakpoints": true
     }
   ]
 }

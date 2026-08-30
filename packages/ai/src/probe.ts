@@ -1,6 +1,7 @@
 import { generateObject } from 'ai';
 import { z } from 'zod';
 import { describeLlmError } from './health.js';
+import { resolveTimeoutMs } from './limits.js';
 import { type LlmCredential, PRESETS, isCredentialUsable, resolveModel } from './provider.js';
 
 // The save-time credential probe. A connection is not trusted until it has been
@@ -47,7 +48,7 @@ export type ProbeRunner = (cred: LlmCredential) => Promise<ProbeAttempt>;
 const liveRunner: ProbeRunner = async (cred) => {
   const model = resolveModel(cred, 'fast');
   if (!model) return { ok: false, error: new Error('no usable model for this credential') };
-  const signal = AbortSignal.timeout(PROBE_TIMEOUT_MS);
+  const signal = AbortSignal.timeout(resolveTimeoutMs(cred, PROBE_TIMEOUT_MS));
   try {
     await generateObject({
       model,
@@ -73,9 +74,9 @@ const liveRunner: ProbeRunner = async (cred) => {
 // constraining. That endpoint would have behaved that way regardless; nothing is
 // lost, only certainty is not gained.
 //
-// Scope: `fast` only. A custom endpoint can do structured text and have no vision
-// model at all, which breaks receipt extraction alone. Probing vision costs an
-// image and real tokens; the first real extraction call writes last_error instead.
+// Scope: `fast` only. The vision role gets its own probe below
+// (probeVisionCredential), which the verify route runs as a second stage —
+// this one stays the headline check and the structured detector.
 export async function probeCredential(
   cred: LlmCredential,
   deps: { run?: ProbeRunner } = {},
@@ -117,4 +118,85 @@ export async function probeCredential(
   }
 
   return { ok: false, latencyMs: elapsed(), error: describeLlmError(first.error, cred.apiKey) };
+}
+
+// ---- Vision probe (TMC-296) ------------------------------------------------
+// The vision role can be dead while the fast probe is green — a model that
+// cannot load, or a custom endpoint with no vision model at all — and before
+// this probe existed that state verified green and broke receipt extraction
+// alone, with nowhere the reason was visible. Verify runs this as a second
+// stage after a fast-probe success; a failure is recorded on the connection's
+// health so the chip finally says why.
+//
+// No structured detection here (the fast probe owns that; the caller threads
+// its answer into the credential). One attempt, same generous timeout: a cold
+// vision model load is exactly the case being tested.
+
+// A 1x1 PNG, bundled so the probe needs no filesystem. Trivial on purpose —
+// the question is "does the vision model load and answer about an image at
+// all", not whether it reads well.
+const PROBE_IMAGE = Uint8Array.from(
+  atob(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+  ),
+  (c) => c.charCodeAt(0),
+);
+
+export type VisionProbeResult =
+  | { ok: true; latencyMs: number }
+  | { ok: false; latencyMs: number; error: string };
+
+export type VisionProbeRunner = (cred: LlmCredential) => Promise<ProbeAttempt>;
+
+const visionLiveRunner: VisionProbeRunner = async (cred) => {
+  const model = resolveModel(cred, 'vision');
+  if (!model) return { ok: false, error: new Error('no vision model for this connection') };
+  const signal = AbortSignal.timeout(resolveTimeoutMs(cred, PROBE_TIMEOUT_MS));
+  try {
+    // generateObject with an image — the exact shape receipt extraction uses,
+    // so a green answer means the real path works.
+    await generateObject({
+      model,
+      schema: PROBE_SCHEMA,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: PROBE_PROMPT },
+            { type: 'image', image: PROBE_IMAGE },
+          ],
+        },
+      ],
+      maxRetries: 0,
+      abortSignal: signal,
+    });
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error, aborted: signal.aborted };
+  }
+};
+
+export async function probeVisionCredential(
+  cred: LlmCredential,
+  deps: { run?: VisionProbeRunner } = {},
+): Promise<VisionProbeResult> {
+  const run = deps.run ?? visionLiveRunner;
+  const started = Date.now();
+  if (!isCredentialUsable(cred)) {
+    return { ok: false, latencyMs: 0, error: 'credential is incomplete' };
+  }
+  const attempt = await run(cred);
+  const latencyMs = Date.now() - started;
+  if (attempt.ok) return { ok: true, latencyMs };
+  // A timeout here almost always means the hardware, not the config: the model
+  // exists and is loading/answering, just slower than any receipt read could
+  // tolerate (seen live: CPU-only Ollama in Docker spent 113s of extraction's
+  // 120s budget encoding one image). Say that, instead of the SDK's bare
+  // "operation was aborted" — and name the connection's own budget when a
+  // timeout override is set.
+  const budgetS = Math.round(resolveTimeoutMs(cred, PROBE_TIMEOUT_MS) / 1000);
+  const error = attempt.aborted
+    ? `the vision model did not answer within ${budgetS}s — it may be too slow on this hardware to read receipts`
+    : describeLlmError(attempt.error, cred.apiKey);
+  return { ok: false, latencyMs, error };
 }

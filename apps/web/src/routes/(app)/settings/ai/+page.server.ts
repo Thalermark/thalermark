@@ -46,6 +46,18 @@ export const actions: Actions = {
     const modelFast = String(fd.get('modelFast') ?? '').trim();
     if (!provider) return fail(400, { error: 'Choose a provider.' });
 
+    // Timeout override (Advanced). Blank = the built-in defaults; a value is
+    // whole seconds, bounds mirroring the schema so a typo fails here with a
+    // sentence instead of a Zod issue list.
+    const timeoutRaw = String(fd.get('timeoutSeconds') ?? '').trim();
+    const timeoutSeconds = timeoutRaw === '' ? null : Number(timeoutRaw);
+    if (
+      timeoutSeconds !== null &&
+      (!Number.isInteger(timeoutSeconds) || timeoutSeconds < 30 || timeoutSeconds > 300)
+    ) {
+      return fail(400, { error: 'Timeout must be a whole number between 30 and 300 seconds.' });
+    }
+
     const res = await client.api.settings.ai.$put({
       json: {
         provider,
@@ -56,6 +68,7 @@ export const actions: Actions = {
         modelVision: modelVision || null,
         modelReasoning: modelReasoning || null,
         modelFast: modelFast || null,
+        timeoutSeconds,
       },
     });
     if (!res.ok) {
@@ -94,8 +107,11 @@ export const actions: Actions = {
         },
       });
     }
-    const { result } = await res.json();
-    return { verify: result };
+    // `vision` is the second verify stage (TMC-296): null when the fast probe
+    // already failed, otherwise the vision-role result so the page can say
+    // "text works, receipt reading doesn't" instead of a blanket green.
+    const { result, vision } = await res.json();
+    return { verify: result, vision };
   },
 
   remove: async (event) => {

@@ -6784,6 +6784,12 @@
                   "true"
                 ]
               },
+              "timeoutSeconds": {
+                "union": [
+                  "null",
+                  "number"
+                ]
+              },
               "updatedAt": "string"
             }
           ]
@@ -15422,6 +15428,12 @@
                   "true"
                 ]
               },
+              "timeoutSeconds": {
+                "union": [
+                  "null",
+                  "number"
+                ]
+              },
               "updatedAt": "string"
             }
           ]
@@ -15443,6 +15455,20 @@
                   "undefined"
                 ]
               }
+            }
+          ]
+        },
+        "vision": {
+          "union": [
+            "null",
+            {
+              "error": "string",
+              "latencyMs": "number",
+              "ok": "false"
+            },
+            {
+              "latencyMs": "number",
+              "ok": "true"
             }
           ]
         }
@@ -16067,7 +16093,14 @@
               "undefined"
             ]
           },
-          "provider": "string"
+          "provider": "string",
+          "timeoutSeconds?": {
+            "union": [
+              "null",
+              "number",
+              "undefined"
+            ]
+          }
         }
       },
       "response": {
@@ -16142,6 +16175,12 @@
                   "false",
                   "null",
                   "true"
+                ]
+              },
+              "timeoutSeconds": {
+                "union": [
+                  "null",
+                  "number"
                 ]
               },
               "updatedAt": "string"

@@ -5,6 +5,7 @@ import type {
   LlmCredential,
   ProbeResult,
   ReceiptExtractor,
+  VisionProbeResult,
 } from '@thalermark/ai';
 import { oAuthDiscoveryMetadata } from '@thalermark/auth';
 import type { Database } from '@thalermark/db';
@@ -175,6 +176,9 @@ export type AppDeps = {
   // route is exercised end-to-end without a model, exactly as extractor/
   // categorizer/advisor are stubbed.
   llmProbe?: (credential: LlmCredential) => Promise<ProbeResult>;
+  // The second verify stage (TMC-296): the vision-role probe, run only after a
+  // fast-probe success. Same stub-in-tests shape as llmProbe.
+  llmVisionProbe?: (credential: LlmCredential) => Promise<VisionProbeResult>;
   // Operator SSRF policy for a user-supplied AI base URL (AI_ALLOW_PRIVATE_ENDPOINTS).
   // Default (undefined/false): private + link-local addresses are rejected by the
   // settings route's checkBaseUrl. A self-hoster pointing at Ollama or a LAN model

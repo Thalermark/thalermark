@@ -1,6 +1,6 @@
 import { pickActiveCompany } from '$lib/active-company';
 import { apiErrorMessage } from '$lib/api-errors';
-import { serverApiClient } from '$lib/api.server';
+import { apiBaseUrl, apiFetch, serverApiClient, serverApiHeaders } from '$lib/api.server';
 import { resolveVendorField } from '$lib/expense-vendor';
 import { error, fail, redirect } from '@sveltejs/kit';
 import { expenseCreateSchema } from '@thalermark/validation';
@@ -93,6 +93,17 @@ export const load: PageServerLoad = async (event) => {
     }
   }
 
+  // Best-effort AI probe for the chooser's "receipts won't be read" line
+  // (TMC-295): true only when the server DEFINITELY has no AI connection. The
+  // settings read is admin-gated (settings:manage), so a member's 403 leaves
+  // this false and nothing is claimed either way — the extract attempt is the
+  // authority, and its silent fallback covers everyone.
+  let aiHint = false;
+  try {
+    const aiRes = await client.api.settings.ai.$get();
+    if (aiRes.ok) aiHint = (await aiRes.json()).connection === null;
+  } catch {}
+
   return {
     categories: accountOptions(expenseAccounts),
     paymentAccounts: moneyOptions(moneyAccounts),
@@ -102,6 +113,10 @@ export const load: PageServerLoad = async (event) => {
     defaultPaymentId: cash?.id ?? '',
     today: new Date().toISOString().slice(0, 10),
     prefill,
+    aiHint,
+    // A duplicate already answered "how do you want to log it?" — it seeds the
+    // form from an existing expense, so the photo-first chooser is skipped.
+    skipChooser: !!duplicateId,
   };
 };
 
@@ -172,7 +187,91 @@ function suggestErrorFor(code: string | undefined): string | undefined {
   }
 }
 
+// Photo-first fallback copy (TMC-295). Automatic and silent about blame: no
+// dead end, no "try a clearer photo" as a wall. Whatever went wrong, the
+// person still gets the form and the photo still saves with the expense.
+const READ_FALLBACK_NOTICE =
+  "Couldn't read the receipt this time. Fill it in below — the photo will still be saved.";
+const AI_OFF_NOTICE =
+  "Receipts aren't read automatically on this server — the photo will still be saved. Turn reading on in Settings → AI.";
+
 export const actions: Actions = {
+  // Photo-first receipt read (TMC-295 / TMC-235). Forwards the chosen file to
+  // the stateless extract-receipt endpoint (nothing persists server-side — the
+  // expense exists only when ?/save creates it) and re-renders the form
+  // prefilled with whatever was read. A partial read is kept, not discarded;
+  // every read failure lands on the same form with the photo still attached
+  // (the file input keeps its FileList across the enhance update). Raw fetch
+  // rather than the typed client because the hc client has no typed `form`
+  // surface for multipart, same as the detail page's uploadReceipt.
+  extract: async (event) => {
+    const data = await event.request.formData();
+    const values = readForm(data);
+    const file = data.get('file');
+    if (!(file instanceof File) || file.size === 0) {
+      return fail(400, { values, receiptError: 'Choose a photo or PDF of the receipt.' });
+    }
+
+    const client = serverApiClient(event);
+    const companiesRes = await client.api.companies.$get();
+    if (!companiesRes.ok) {
+      return { values, receiptNotice: READ_FALLBACK_NOTICE };
+    }
+    const { companies } = await companiesRes.json();
+    const companyId = pickActiveCompany(event.cookies, companies)?.id;
+    if (!companyId) return fail(400, { values, formError: 'No company in this workspace.' });
+
+    const fd = new FormData();
+    fd.set('companyId', companyId);
+    fd.set('file', file);
+    let res: Response;
+    try {
+      res = await apiFetch(
+        `${apiBaseUrl()}/api/expenses/extract-receipt`,
+        { method: 'POST', headers: serverApiHeaders(event), body: fd },
+        event.fetch,
+      );
+    } catch {
+      return { values, receiptNotice: READ_FALLBACK_NOTICE };
+    }
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      // A rejected FILE is a real error — a photo the server refuses to read
+      // is one it will refuse to save too, so the flow cannot continue with it.
+      if (body?.error === 'unsupported_media_type') {
+        return fail(415, { values, receiptError: 'Receipts must be a JPEG, PNG, or PDF.' });
+      }
+      if (body?.error === 'file_too_large') {
+        return fail(413, { values, receiptError: 'Receipt must be under 10 MB.' });
+      }
+      // Everything else falls back without blame: manual form, photo kept.
+      return {
+        values,
+        receiptNotice: body?.error === 'ai_not_configured' ? AI_OFF_NOTICE : READ_FALLBACK_NOTICE,
+      };
+    }
+
+    const out = (await res.json()) as {
+      extraction: { merchant: string | null; total: string | null; expenseDate: string | null };
+      suggestedCategoryAccountId: string | null;
+    };
+    const prefilled = { ...values };
+    if (out.extraction.merchant) prefilled.merchant = out.extraction.merchant;
+    if (out.extraction.total) prefilled.amount = out.extraction.total;
+    if (out.extraction.expenseDate) prefilled.expenseDate = out.extraction.expenseDate;
+    if (out.suggestedCategoryAccountId) {
+      prefilled.categoryAccountId = out.suggestedCategoryAccountId;
+    }
+    const readAnything =
+      out.extraction.merchant ||
+      out.extraction.total ||
+      out.extraction.expenseDate ||
+      out.suggestedCategoryAccountId;
+    if (!readAnything) return { values, receiptNotice: READ_FALLBACK_NOTICE };
+    const full = out.extraction.merchant && out.extraction.total && out.extraction.expenseDate;
+    return { values: prefilled, extracted: full ? ('full' as const) : ('partial' as const) };
+  },
+
   // AI category suggestion from the typed merchant (+ memo/amount). Re-renders
   // the form with the suggested category pre-selected and the user's typed
   // values preserved — the user reviews + saves; the AI never writes the
@@ -286,6 +385,39 @@ export const actions: Actions = {
         if (!fieldErrors[key]) fieldErrors[key] = issue.message;
       }
       return fail(400, { values, fieldErrors });
+    }
+
+    // Photo-first (TMC-295): with a receipt riding the form, the ONE save goes
+    // to the multipart create-with-receipt endpoint — both-or-neither on the
+    // server, so a failed upload never yields an expense that claims a receipt
+    // it does not have. Without one, the plain JSON create as before.
+    const file = data.get('file');
+    if (file instanceof File && file.size > 0) {
+      const fd = new FormData();
+      for (const [key, value] of Object.entries(parsed.data)) {
+        if (value != null) fd.set(key, value);
+      }
+      fd.set('file', file);
+      const res = await apiFetch(
+        `${apiBaseUrl()}/api/expenses/with-receipt`,
+        { method: 'POST', headers: serverApiHeaders(event), body: fd },
+        event.fetch,
+      );
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        const msg =
+          body?.error === 'unsupported_media_type'
+            ? 'Receipts must be a JPEG, PNG, or PDF.'
+            : body?.error === 'file_too_large'
+              ? 'Receipt must be under 10 MB.'
+              : body?.error === 'storage_not_configured'
+                ? 'Receipt storage is not configured on this server.'
+                : (formErrorFor(body?.error) ??
+                  apiErrorMessage(body?.error, 'That could not be created. Try again.', body));
+        return fail(res.status, { values, formError: msg });
+      }
+      const created = (await res.json()) as { id: string };
+      redirect(303, `/expenses/${created.id}`);
     }
 
     const res = await client.api.expenses.$post({ json: parsed.data });

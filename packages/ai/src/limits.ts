@@ -42,3 +42,17 @@ export const EXTRACT_TIMEOUT_MS = 120_000;
 // spent to learn the same thing. The probe uses 0 for a stricter reason — it
 // exists to report the first error truthfully, and retries would hide it.
 export const AI_MAX_RETRIES = 1;
+
+// The per-connection override (TMC-296 follow-up): a connection may carry its
+// own timeout (Settings → AI → Advanced), and when it does, that ONE number
+// replaces every per-purpose default above. One knob, plain meaning — "how
+// long to wait for this model before giving up" — because the audience is a
+// self-hoster on slow hardware, not someone tuning three budgets. The
+// validation schema caps it at 300s: Node's own fetch layer starts timing out
+// past that, so allowing more would promise waits the stack cannot deliver.
+export function resolveTimeoutMs(
+  credential: { timeoutSeconds?: number },
+  defaultMs: number,
+): number {
+  return credential.timeoutSeconds ? credential.timeoutSeconds * 1000 : defaultMs;
+}
