@@ -11903,6 +11903,199 @@
         }
       }
     },
+    "$post /api/expenses/extract-receipt": {
+      "request": "{}",
+      "response": {
+        "extraction": {
+          "expenseDate": {
+            "union": [
+              "null",
+              "string"
+            ]
+          },
+          "merchant": {
+            "union": [
+              "null",
+              "string"
+            ]
+          },
+          "suggestedCategoryCode": {
+            "union": [
+              "null",
+              "string"
+            ]
+          },
+          "total": {
+            "union": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "extractionStatus": "\"succeeded\"",
+        "suggestedCategoryAccountId": {
+          "union": [
+            "null",
+            "string"
+          ]
+        }
+      }
+    },
+    "$post /api/expenses/with-receipt": {
+      "request": "{}",
+      "response": {
+        "accountId": "string",
+        "amount": "string",
+        "categoryAccountId": "string",
+        "companyId": "string",
+        "createdAt": "string",
+        "customerContactId": {
+          "union": [
+            "null",
+            "string"
+          ]
+        },
+        "deletedAt": {
+          "union": [
+            "null",
+            "string"
+          ]
+        },
+        "expenseDate": "string",
+        "extractionPayload": {
+          "union": [
+            "JSONObject",
+            "false",
+            "null",
+            "number",
+            "string",
+            "true",
+            [
+              {
+                "union": [
+                  "JSONObject",
+                  "false",
+                  "null",
+                  "number",
+                  "string",
+                  "true",
+                  [
+                    {
+                      "union": [
+                        "JSONObject",
+                        "false",
+                        "null",
+                        "number",
+                        "string",
+                        "true",
+                        [
+                          {
+                            "union": [
+                              "JSONObject",
+                              "false",
+                              "null",
+                              "number",
+                              "string",
+                              "true",
+                              [
+                                {
+                                  "union": [
+                                    "JSONObject",
+                                    "false",
+                                    "null",
+                                    "number",
+                                    "string",
+                                    "true",
+                                    [
+                                      {
+                                        "union": [
+                                          "JSONObject",
+                                          "false",
+                                          "null",
+                                          "number",
+                                          "string",
+                                          "true",
+                                          [
+                                            {
+                                              "union": [
+                                                "JSONObject",
+                                                "false",
+                                                "null",
+                                                "number",
+                                                "string",
+                                                "true",
+                                                [
+                                                  {
+                                                    "union": [
+                                                      "JSONObject",
+                                                      "false",
+                                                      "null",
+                                                      "number",
+                                                      "string",
+                                                      "true",
+                                                      [
+                                                        "(depth limit)"
+                                                      ]
+                                                    ]
+                                                  }
+                                                ]
+                                              ]
+                                            }
+                                          ]
+                                        ]
+                                      }
+                                    ]
+                                  ]
+                                }
+                              ]
+                            ]
+                          }
+                        ]
+                      ]
+                    }
+                  ]
+                ]
+              }
+            ]
+          ]
+        },
+        "extractionStatus": "string",
+        "id": "string",
+        "memo": {
+          "union": [
+            "null",
+            "string"
+          ]
+        },
+        "merchant": "string",
+        "paymentAccountId": "string",
+        "receiptStorageKey": {
+          "union": [
+            "null",
+            "string"
+          ]
+        },
+        "receiptUploadedAt": {
+          "union": [
+            "null",
+            "string"
+          ]
+        },
+        "updatedAt": "string",
+        "vendorContactId": {
+          "union": [
+            "null",
+            "string"
+          ]
+        },
+        "vendorReview": {
+          "union": [
+            "null",
+            "string"
+          ]
+        }
+      }
+    },
     "$post /api/invitations": {
       "request": {
         "json": {

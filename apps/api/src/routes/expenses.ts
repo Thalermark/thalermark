@@ -4,6 +4,7 @@ import {
   createReceiptExtractor,
 } from '@thalermark/ai';
 import {
+  type Transaction,
   chartOfAccounts,
   companies,
   contacts,
@@ -14,6 +15,7 @@ import {
 } from '@thalermark/db';
 import { emit } from '@thalermark/telemetry';
 import {
+  type ExpenseCreateInput,
   expenseAllocationsSchema,
   expenseCategorizeSchema,
   expenseCreateSchema,
@@ -37,6 +39,7 @@ import {
   resolveCoaAccounts,
   resolveVendorLink,
 } from '../lib/route-helpers.js';
+import type { AuditWriter } from '../middleware/audit.js';
 import { requireCapability } from '../middleware/authz.js';
 import { requireEntitlement } from '../middleware/entitlement.js';
 import { RATE_LIMITS, rateLimit } from '../middleware/rate-limit.js';
@@ -84,6 +87,149 @@ const RECEIPT_MIME_EXT: Record<string, string> = {
 const defaultExtractor = createReceiptExtractor();
 const defaultCategorizer = createExpenseCategorizer();
 
+// The single create path (TMC-295). Both creates, the JSON POST /api/expenses
+// and the multipart /with-receipt, funnel through here: validate the company,
+// the optional contact links and the COA pair, insert the row, write the audit
+// entry, post the journal entry, emit telemetry. Shared rather than duplicated
+// because this is ledger-posting code, and two drifting copies of it would be
+// a books bug waiting to happen. `receipt` is the photo-first case: the row is
+// born carrying its storage key (and the scan-and-forget review flag) instead
+// of gaining them via a follow-up /:id/receipt upload.
+async function createExpenseRecord(
+  tx: Transaction,
+  audit: AuditWriter,
+  accountId: string,
+  input: ExpenseCreateInput,
+  receipt: { expenseId: string; storageKey: string; uploadedAt: Date } | null,
+) {
+  const {
+    companyId,
+    customerContactId,
+    vendorContactId,
+    categoryAccountId,
+    paymentAccountId,
+    ...rest
+  } = input;
+
+  const fail = (error: string, status: 400 | 404) => ({ ok: false as const, error, status });
+
+  const [company] = await tx
+    .select({ id: companies.id })
+    .from(companies)
+    .where(and(eq(companies.id, companyId), eq(companies.accountId, accountId)))
+    .limit(1);
+  if (!company) return fail('company_not_found', 404);
+
+  // customerContactId is optional (carried for v1.x job-costing, not surfaced
+  // in MVP). When present it must belong to this account AND match the
+  // expense's company — the same invariant the invoice create enforces.
+  if (customerContactId) {
+    const [customer] = await tx
+      .select({ id: contacts.id, companyId: contacts.companyId })
+      .from(contacts)
+      .where(and(eq(contacts.id, customerContactId), eq(contacts.accountId, accountId)))
+      .limit(1);
+    if (!customer) return fail('contact_not_found', 404);
+    if (customer.companyId !== companyId) return fail('customer_company_mismatch', 400);
+  }
+
+  // vendorContactId is the optional buy-from link (same account+company
+  // invariant). Linking resolves the single on-screen "Vendor" field:
+  // merchant is mirrored from the contact's name (the always-present
+  // display string) and the contact is marked is_vendor so it shows on
+  // the buy-from side of the relationship.
+  let merchant = rest.merchant;
+  const vendor = await resolveVendorLink(tx, accountId, companyId, vendorContactId);
+  if (vendor && 'error' in vendor) return fail(vendor.error, vendor.status);
+  if (vendor) merchant = vendor.name;
+
+  const coa = await resolveCoaAccounts(tx, accountId, companyId, [
+    categoryAccountId,
+    paymentAccountId,
+  ]);
+  const category = coa.get(categoryAccountId);
+  const payment = coa.get(paymentAccountId);
+  if (!category || category.accountType !== 'expense') {
+    return fail('invalid_category_account', 400);
+  }
+  // Money-account kind, not account_type (TMC-207). A credit card is a
+  // LIABILITY that money legitimately moves through — "I filled the
+  // truck on the fuel card" — so an asset test would refuse the single
+  // most common case this feature exists for. The old test also let
+  // through Accounts Receivable and Accumulated Depreciation, which are
+  // assets nobody pays for fuel with.
+  //
+  // isActive is checked because this is NEW work: an archived account
+  // still resolves for reversals of expenses that already used it, but
+  // must not be offered for a fresh one.
+  if (!payment || !payment.moneyAccountKind || !payment.isActive) {
+    return fail('invalid_payment_account', 400);
+  }
+
+  // First-expense onboarding milestone (server-authoritative). Checked
+  // BEFORE the insert so "the account's first expense" is honest.
+  const [priorExpense] = await tx
+    .select({ id: expenses.id })
+    .from(expenses)
+    .where(eq(expenses.accountId, accountId))
+    .limit(1);
+
+  const expenseId = receipt?.expenseId ?? uuidv7();
+  // Scan-and-forget review flag, same rule as the /:id/receipt attach: a
+  // receipt landing on a vendor-less expense queues it for review; a linked
+  // vendor needs none.
+  const vendorReview = receipt && !vendor ? 'needs_review' : null;
+  const [created] = await tx
+    .insert(expenses)
+    .values({
+      id: expenseId,
+      accountId,
+      companyId,
+      customerContactId: customerContactId ?? null,
+      vendorContactId: vendorContactId ?? null,
+      categoryAccountId,
+      paymentAccountId,
+      amount: rest.amount,
+      expenseDate: rest.expenseDate,
+      merchant,
+      memo: rest.memo ?? null,
+      receiptStorageKey: receipt?.storageKey ?? null,
+      receiptUploadedAt: receipt?.uploadedAt ?? null,
+      vendorReview,
+    })
+    .returning();
+
+  await audit({
+    entityType: 'expense',
+    entityId: expenseId,
+    action: 'create',
+    after: created,
+    companyId,
+  });
+
+  await postExpenseCreate(tx, {
+    expense: { id: expenseId, merchant, amount: rest.amount },
+    categoryCode: category.code,
+    paymentCode: payment.code,
+    accountId,
+    companyId,
+    postedAt: expenseDateToPostedAt(rest.expenseDate),
+  });
+
+  // Telemetry (opt-in; no-op unless the account enabled it). Read off the
+  // created row, not a literal, so both entry points report honestly. No
+  // amounts (TELEMETRY.md).
+  await emit(tx, {
+    name: 'expense_logged',
+    has_receipt_attached: !!created?.receiptStorageKey,
+  });
+  if (!priorExpense) {
+    await emit(tx, { name: 'onboarding_step_completed', step: 'first_expense' });
+  }
+
+  return { ok: true as const, created };
+}
+
 export function expensesRoutes(deps: AppDeps) {
   return (
     new Hono<{ Variables: RlsVariables }>()
@@ -99,129 +245,89 @@ export function expensesRoutes(deps: AppDeps) {
           return parsed.data;
         }),
         async (c) => {
+          const outcome = await createExpenseRecord(
+            c.get('tx'),
+            c.var.audit,
+            c.get('accountId'),
+            c.req.valid('json'),
+            null,
+          );
+          if (!outcome.ok) return c.json({ error: outcome.error }, outcome.status);
+          return c.json(outcome.created, 201);
+        },
+      )
+      // ---- Photo-first create (TMC-295) ---------------------------------
+      // Create the expense AND attach the photo in one call (owner decision,
+      // 2026-08-29). Not "create, then upload" from the client: that has a
+      // failure mode where the create succeeds and the upload does not, leaving
+      // an expense whose owner believes a receipt is attached and no error
+      // anywhere near the thing that is wrong. Here the row is inserted
+      // carrying its storage key and the object write is the LAST await inside
+      // the same tenant tx, so the commit (the moment the expense becomes real)
+      // happens strictly after the object is in storage: both or neither from
+      // the caller's side. The one non-atomic edge left is a commit failure
+      // AFTER a successful putObject, which strands an unreferenced object in
+      // storage. That is the lesser evil the ticket picked: garbage is
+      // invisible and sweepable, an expense claiming a receipt it does not
+      // have is a lie in an audit-trailed product.
+      //
+      // A separate endpoint rather than multipart bolted onto POST
+      // /api/expenses: that route has a typed JSON body the contract check
+      // covers, and teaching it a second content type would cost that for no
+      // gain. The multipart fields go through the SAME Zod schema, so the two
+      // creates cannot drift apart in what they accept.
+      .post(
+        '/api/expenses/with-receipt',
+        requireCapability('expenses:write'),
+        requireEntitlement(deps, 'documents:write'),
+        async (c) => {
+          if (!deps.storage) return c.json({ error: 'storage_not_configured' }, 503);
           const tx = c.get('tx');
           const accountId = c.get('accountId');
-          const {
-            companyId,
-            customerContactId,
-            vendorContactId,
-            categoryAccountId,
-            paymentAccountId,
-            ...rest
-          } = c.req.valid('json');
 
-          const [company] = await tx
-            .select({ id: companies.id })
-            .from(companies)
-            .where(and(eq(companies.id, companyId), eq(companies.accountId, accountId)))
-            .limit(1);
-          if (!company) return c.json({ error: 'company_not_found' }, 404);
-
-          // customerContactId is optional (carried for v1.x job-costing, not surfaced
-          // in MVP). When present it must belong to this account AND match the
-          // expense's company — the same invariant the invoice create enforces.
-          if (customerContactId) {
-            const [customer] = await tx
-              .select({ id: contacts.id, companyId: contacts.companyId })
-              .from(contacts)
-              .where(and(eq(contacts.id, customerContactId), eq(contacts.accountId, accountId)))
-              .limit(1);
-            if (!customer) return c.json({ error: 'contact_not_found' }, 404);
-            if (customer.companyId !== companyId) {
-              return c.json({ error: 'customer_company_mismatch' }, 400);
-            }
+          const body = await c.req.parseBody();
+          const file = body.file;
+          if (!(file instanceof File)) return c.json({ error: 'file_required' }, 400);
+          const ext = RECEIPT_MIME_EXT[file.type];
+          if (!ext) {
+            return c.json(
+              { error: 'unsupported_media_type', allowed: Object.keys(RECEIPT_MIME_EXT) },
+              415,
+            );
+          }
+          if (file.size > RECEIPT_MAX_BYTES) {
+            return c.json({ error: 'file_too_large', maxBytes: RECEIPT_MAX_BYTES }, 413);
           }
 
-          // vendorContactId is the optional buy-from link (same account+company
-          // invariant). Linking resolves the single on-screen "Vendor" field:
-          // merchant is mirrored from the contact's name (the always-present
-          // display string) and the contact is marked is_vendor so it shows on
-          // the buy-from side of the relationship. The needs-review flag is left
-          // null (a linked expense needs no review).
-          let merchant = rest.merchant;
-          const vendor = await resolveVendorLink(tx, accountId, companyId, vendorContactId);
-          if (vendor && 'error' in vendor) return c.json({ error: vendor.error }, vendor.status);
-          if (vendor) merchant = vendor.name;
-
-          const coa = await resolveCoaAccounts(tx, accountId, companyId, [
-            categoryAccountId,
-            paymentAccountId,
-          ]);
-          const category = coa.get(categoryAccountId);
-          const payment = coa.get(paymentAccountId);
-          if (!category || category.accountType !== 'expense') {
-            return c.json({ error: 'invalid_category_account' }, 400);
+          // Everything except the file is an expense-create field. Multipart
+          // delivers them as strings, which is exactly what the JSON schema
+          // expects (money is a decimal string on the wire), so the same
+          // schema validates both entry points.
+          const { file: _file, ...fields } = body;
+          const parsed = expenseCreateSchema.safeParse(fields);
+          if (!parsed.success) {
+            return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
           }
-          // Money-account kind, not account_type (TMC-207). A credit card is a
-          // LIABILITY that money legitimately moves through — "I filled the
-          // truck on the fuel card" — so an asset test would refuse the single
-          // most common case this feature exists for. The old test also let
-          // through Accounts Receivable and Accumulated Depreciation, which are
-          // assets nobody pays for fuel with.
-          //
-          // isActive is checked because this is NEW work: an archived account
-          // still resolves for reversals of expenses that already used it, but
-          // must not be offered for a fresh one.
-          if (!payment || !payment.moneyAccountKind || !payment.isActive) {
-            return c.json({ error: 'invalid_payment_account' }, 400);
-          }
-
-          // First-expense onboarding milestone (server-authoritative). Checked
-          // BEFORE the insert so "the account's first expense" is honest.
-          const [priorExpense] = await tx
-            .select({ id: expenses.id })
-            .from(expenses)
-            .where(eq(expenses.accountId, accountId))
-            .limit(1);
+          const input = parsed.data;
+          const bytes = new Uint8Array(await file.arrayBuffer());
 
           const expenseId = uuidv7();
-          const [created] = await tx
-            .insert(expenses)
-            .values({
-              id: expenseId,
-              accountId,
-              companyId,
-              customerContactId: customerContactId ?? null,
-              vendorContactId: vendorContactId ?? null,
-              categoryAccountId,
-              paymentAccountId,
-              amount: rest.amount,
-              expenseDate: rest.expenseDate,
-              merchant,
-              memo: rest.memo ?? null,
-            })
-            .returning();
+          const key = `accounts/${accountId}/companies/${input.companyId}/expenses/${expenseId}/${uuidv7()}.${ext}`;
+          const now = new Date();
 
-          await c.var.audit({
-            entityType: 'expense',
-            entityId: expenseId,
-            action: 'create',
-            after: created,
-            companyId,
+          const outcome = await createExpenseRecord(tx, c.var.audit, accountId, input, {
+            expenseId,
+            storageKey: key,
+            uploadedAt: now,
           });
+          if (!outcome.ok) return c.json({ error: outcome.error }, outcome.status);
 
-          await postExpenseCreate(tx, {
-            expense: { id: expenseId, merchant, amount: rest.amount },
-            categoryCode: category.code,
-            paymentCode: payment.code,
-            accountId,
-            companyId,
-            postedAt: expenseDateToPostedAt(rest.expenseDate),
-          });
+          // Last await on purpose (see the route comment): a storage failure
+          // throws, rls-context rethrows c.error, and the whole insert + audit
+          // + posting rolls back. No expense, no lie.
+          await deps.storage.putObject({ key, body: bytes, contentType: file.type });
 
-          // Telemetry (opt-in; no-op unless the account enabled it). Read off the
-          // created row, not a literal — today receipts attach via a follow-up
-          // /:id/receipt upload so this is ~always false, but it stays correct if
-          // the create flow ever carries a receipt inline. No amounts (TELEMETRY.md).
-          await emit(tx, {
-            name: 'expense_logged',
-            has_receipt_attached: !!created?.receiptStorageKey,
-          });
-          if (!priorExpense) {
-            await emit(tx, { name: 'onboarding_step_completed', step: 'first_expense' });
-          }
-
-          return c.json(created, 201);
+          return c.json(outcome.created, 201);
         },
       )
       // ---- Text expense categorization (AI) -----------------------------
@@ -323,6 +429,124 @@ export function expensesRoutes(deps: AppDeps) {
           }
 
           return c.json({ suggestedCategoryCode, suggestedCategoryAccountId });
+        },
+      )
+      // ---- Photo-first receipt read (TMC-295) ---------------------------
+      // Read a receipt that belongs to NOTHING yet. The photo-first flow shows
+      // the prefilled form before any expense exists, so this takes the image
+      // itself (multipart file + companyId) instead of an expense id, returns
+      // the suggestion, and persists nothing: the expense is created only on
+      // save (creating one posts journal entries, so a row for a photo somebody
+      // abandons would leave real ledger lines behind). Same 'ai' entitlement,
+      // rate limit, credential resolution and post-hoc category validation as
+      // /:id/extract below; deliberately no storage dependency, because the
+      // bytes ride the request and saving them is /with-receipt's job. A
+      // literal path declared before the /:id routes (Hono is first-match).
+      // Deferred-tx like /categorize (see rls-context) so the vision call
+      // never pins a pooled connection.
+      .post(
+        '/api/expenses/extract-receipt',
+        requireCapability('expenses:write'),
+        requireEntitlement(deps, 'ai'),
+        rateLimit(deps, RATE_LIMITS.ai, (c) => c.get('accountId') as string | undefined),
+        async (c) => {
+          const accountId = c.get('accountId');
+          const credential = await resolveAccountCredential(deps, accountId);
+          if (!credential) return c.json({ error: 'ai_not_configured' }, 503);
+          const extractor = deps.extractor ?? defaultExtractor;
+
+          const body = await c.req.parseBody();
+          const file = body.file;
+          if (!(file instanceof File)) return c.json({ error: 'file_required' }, 400);
+          if (!RECEIPT_MIME_EXT[file.type]) {
+            return c.json(
+              { error: 'unsupported_media_type', allowed: Object.keys(RECEIPT_MIME_EXT) },
+              415,
+            );
+          }
+          if (file.size > RECEIPT_MAX_BYTES) {
+            return c.json({ error: 'file_too_large', maxBytes: RECEIPT_MAX_BYTES }, 413);
+          }
+          const companyId = body.companyId;
+          if (typeof companyId !== 'string' || !UUID_RE.test(companyId)) {
+            return c.json({ error: 'company_required' }, 400);
+          }
+          const bytes = new Uint8Array(await file.arrayBuffer());
+
+          // tx1: validate the company + load the COA the model must choose
+          // from, then release the connection (same bracket as /categorize).
+          const loaded = await c.var.runInTx(async (tx) => {
+            const [company] = await tx
+              .select({ id: companies.id, businessType: companies.businessType })
+              .from(companies)
+              .where(and(eq(companies.id, companyId), eq(companies.accountId, accountId)))
+              .limit(1);
+            if (!company) return null;
+            const categories = await tx
+              .select({
+                id: chartOfAccounts.id,
+                code: chartOfAccounts.code,
+                name: chartOfAccounts.name,
+              })
+              .from(chartOfAccounts)
+              .where(
+                and(
+                  eq(chartOfAccounts.accountId, accountId),
+                  eq(chartOfAccounts.companyId, companyId),
+                  eq(chartOfAccounts.accountType, 'expense'),
+                  eq(chartOfAccounts.isActive, true),
+                ),
+              )
+              .orderBy(asc(chartOfAccounts.code));
+            return { businessType: company.businessType, categories };
+          });
+          if (!loaded) return c.json({ error: 'company_not_found' }, 404);
+          const { businessType, categories } = loaded;
+
+          // Vision call — no DB connection held. On failure there is no status
+          // to persist (nothing exists yet); the client's fallback is the
+          // manual form with the photo still attached, so the 502 carries no
+          // blame beyond the error code.
+          let result: ExtractionResult;
+          try {
+            result = await extractor.extractReceipt(
+              {
+                bytes,
+                mimeType: file.type,
+                allowedCategories: categories.map((row) => ({ code: row.code, name: row.name })),
+                businessType,
+              },
+              credential,
+            );
+          } catch (err) {
+            await recordLlmCallHealth(deps.llmConnections, accountId, credential, err);
+            return c.json({ error: 'extraction_failed' }, 502);
+          }
+          await recordLlmCallHealth(deps.llmConnections, accountId, credential);
+
+          // Resolve the suggested code → account id for the form prefill,
+          // exactly as /:id/extract does. Null when nothing fit.
+          const suggestedCategoryAccountId = result.suggestedCategoryCode
+            ? (categories.find((row) => row.code === result.suggestedCategoryCode)?.id ?? null)
+            : null;
+
+          // tx2: telemetry only (opt-in; no-op unless enabled). Same event the
+          // sibling AI-suggestion paths emit; the user still confirms on save.
+          if (result.suggestedCategoryCode) {
+            await c.var.runInTx(async (tx) => {
+              await emit(tx, { name: 'expense_categorised', method: 'ai_suggested' });
+            });
+          }
+
+          // Same success shape as /:id/extract, sibling account id included —
+          // the shape both clients already parse (and once dropped a field of;
+          // keeping the two responses identical is the guard against a second
+          // round of that).
+          return c.json({
+            extractionStatus: 'succeeded' as const,
+            extraction: result,
+            suggestedCategoryAccountId,
+          });
         },
       )
       .get('/api/expenses', async (c) => {
