@@ -3,6 +3,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { WebOnlyNote } from '../../../../components/WebOnlyNote';
 import { pickActiveCompany } from '../../../../lib/active-company';
 import { api } from '../../../../lib/api';
 
@@ -25,7 +26,8 @@ type ReportHref =
   | '/more/reports/sales-by-customer'
   | '/more/reports/revenue-over-time'
   | '/more/reports/estimate-win-rate'
-  | '/more/reports/top-products';
+  | '/more/reports/top-products'
+  | '/more/reports/job-margin';
 
 const REPORTS: { href: ReportHref; title: string; blurb: string }[] = [
   {
@@ -77,6 +79,11 @@ const REPORTS: { href: ReportHref; title: string; blurb: string }[] = [
     href: '/more/reports/top-products',
     title: 'Top products',
     blurb: 'Best-selling items and services by revenue.',
+  },
+  {
+    href: '/more/reports/job-margin',
+    title: 'What each job made',
+    blurb: 'Billed against costs, job by job, and what the hours actually paid.',
   },
 ];
 
@@ -133,6 +140,10 @@ export default function ReportsHub() {
               <Text className="mt-1 text-sm text-ink-subtle">{r.blurb}</Text>
             </Pressable>
           ))}
+          <WebOnlyNote
+            title="General ledger"
+            reason="A trial balance and the full journal, in columns an accountant reads across, with a CSV export. That is desk work, so it stays on the web app."
+          />
         </View>
       </ScrollView>
     </SafeAreaView>

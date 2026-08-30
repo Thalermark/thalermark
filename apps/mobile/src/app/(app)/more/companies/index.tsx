@@ -2,6 +2,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { WebOnlyNote } from '../../../../components/WebOnlyNote';
 import { api } from '../../../../lib/api';
 import { useMay } from '../../../../lib/role';
 import { getActiveCompanyId, setActiveCompanyId } from '../../../../lib/secure-store';
@@ -150,15 +151,23 @@ export default function CompaniesScreen() {
             ) : null}
 
             {canManage ? (
-              <Pressable
-                onPress={() => router.push('/more/companies/new')}
-                className="mt-6 rounded-sm border border-gold-deep/40 px-5 py-4 active:bg-gold-deep/5"
-              >
-                <Text className="text-sm font-medium text-gold-deep">+ Add a company</Text>
-                <Text className="mt-1 text-xs text-ink-subtle">
-                  Run a second business out of this workspace — its books stay separate.
-                </Text>
-              </Pressable>
+              <>
+                <Pressable
+                  onPress={() => router.push('/more/companies/new')}
+                  className="mt-6 rounded-sm border border-gold-deep/40 px-5 py-4 active:bg-gold-deep/5"
+                >
+                  <Text className="text-sm font-medium text-gold-deep">+ Add a company</Text>
+                  <Text className="mt-1 text-xs text-ink-subtle">
+                    Run a second business out of this workspace — its books stay separate.
+                  </Text>
+                </Pressable>
+                <View className="mt-4">
+                  <WebOnlyNote
+                    title="Becoming an LLC or a corporation"
+                    reason="Moving a business to a new entity happens once, decides what the old books keep and what the new ones inherit, and is worth doing sitting down. It stays on the web app."
+                  />
+                </View>
+              </>
             ) : null}
           </>
         )}
