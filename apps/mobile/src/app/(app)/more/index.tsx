@@ -3,6 +3,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { WebOnlyNote } from '../../../components/WebOnlyNote';
 import { api } from '../../../lib/api';
 import { useMay } from '../../../lib/role';
 import { getActiveAccountId } from '../../../lib/secure-store';
@@ -305,11 +306,19 @@ export default function MoreHub() {
           />
         ) : null}
         {canManageSettings ? (
-          <Section
-            label="Settings"
-            entries={SETTINGS_ENTRIES}
-            onOpen={(href) => router.push(href)}
-          />
+          <>
+            <Section
+              label="Settings"
+              entries={SETTINGS_ENTRIES}
+              onOpen={(href) => router.push(href)}
+            />
+            <View className="mt-4">
+              <WebOnlyNote
+                title="Import from a CSV"
+                reason="Picking a file and checking a wide preview before it commits is desk work, so importing contacts and items stays on the web app."
+              />
+            </View>
+          </>
         ) : null}
         <Appearance />
         <Section label="About" entries={[ABOUT_ENTRY]} onOpen={(href) => router.push(href)} />
