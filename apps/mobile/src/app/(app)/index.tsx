@@ -7,6 +7,7 @@ import { MetricStrip } from '../../components/MetricStrip';
 import { pickActiveCompany } from '../../lib/active-company';
 import { api } from '../../lib/api';
 import { signOut } from '../../lib/auth-client';
+import { type LatePayer, chaseLine } from '../../lib/late-payers';
 import { useMay } from '../../lib/role';
 import { trackEvent } from '../../lib/telemetry';
 
@@ -60,6 +61,7 @@ export default function Home() {
   const [counts, setCounts] = useState<Counts | null>(null);
   const [loading, setLoading] = useState(true);
   const [anomalies, setAnomalies] = useState<Anomalies>({ overall: null, categories: [] });
+  const [latePayers, setLatePayers] = useState<LatePayer[]>([]);
   const [nudges, setNudges] = useState<Nudge[]>([]);
   const [nudgesLoading, setNudgesLoading] = useState(false);
   const [pendingInvites, setPendingInvites] = useState(0);
@@ -144,6 +146,18 @@ export default function Home() {
       })
       .catch(() => {});
 
+    // Who to chase: deterministic like the anomalies above, so no entitlement
+    // and no model. Best-effort in the same way too: a non-OK degrades to an
+    // empty list and the section simply does not render, rather than putting an
+    // error where an answer should be.
+    api.api.companies[':id']['late-payers']
+      .$get({ param: { id: companyId } })
+      .then(async (res) => {
+        if (!active || !res.ok) return;
+        setLatePayers((await res.json()).latePayers ?? []);
+      })
+      .catch(() => {});
+
     // AI nudges: separate, best-effort. 503 (AI off) / 502 (model error) →
     // no nudges rather than a broken dashboard.
     setNudgesLoading(true);
@@ -215,6 +229,11 @@ export default function Home() {
   useEffect(() => {
     if (nudges.length > 0) trackEvent({ name: 'ai_insight_viewed', insight_type: 'cashflow' });
   }, [nudges]);
+
+  useEffect(() => {
+    if (latePayers.length > 0)
+      trackEvent({ name: 'ai_insight_viewed', insight_type: 'late_payer' });
+  }, [latePayers]);
 
   async function onSignOut() {
     await signOut();
@@ -408,6 +427,32 @@ export default function Home() {
                     : []),
                 ]}
               />
+            </View>
+          </View>
+        ) : null}
+
+        {/* Who to chase (deterministic). Above "Unusual spending" on purpose,
+            matching web: chasing money already earned is a higher-value action
+            than noticing money spent, and this is the only surface that answers
+            "who do I call" without first suspecting someone and opening their
+            page. Absent entirely when nobody is late, so a healthy business sees
+            nothing here, not an empty state. */}
+        {latePayers.length > 0 ? (
+          <View className="mt-8">
+            <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">
+              Who to chase
+            </Text>
+            <View className="mt-3 gap-3">
+              {latePayers.map((p) => (
+                <Pressable
+                  key={p.contactId}
+                  onPress={() => router.push(`/contacts/${p.contactId}`)}
+                  className="rounded-sm border border-oxblood/30 bg-oxblood/5 px-4 py-3"
+                >
+                  <Text className="text-sm font-medium text-ink">{p.name}</Text>
+                  <Text className="mt-0.5 text-sm text-ink/70">{chaseLine(p, fmt)}</Text>
+                </Pressable>
+              ))}
             </View>
           </View>
         ) : null}
