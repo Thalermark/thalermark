@@ -44,6 +44,12 @@ pnpm test         # turbo run test (vitest)
 pnpm build        # production build
 ```
 
+**Working on the mobile app?** Running it in Expo Go needs nothing extra, but
+building a native Android or iOS binary has environment prerequisites that fail
+with errors pointing nowhere near the real cause. They are written down in
+[`apps/mobile/README.md`](apps/mobile/README.md). Read it before your first
+native build rather than after.
+
 ## Code style
 
 - **Biome** does linting and formatting. There is no ESLint and no Prettier — Biome replaces both.
