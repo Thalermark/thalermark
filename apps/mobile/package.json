@@ -10,7 +10,7 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
-    "test": "echo 'no tests yet'",
+    "test": "vitest run",
     "clean": "rm -rf .turbo .expo dist *.tsbuildinfo"
   },
   "dependencies": {
@@ -50,6 +50,7 @@
     "@babel/plugin-transform-react-jsx": "^7.29.7",
     "@types/react": "~19.2.16",
     "tailwindcss": "3.4.19",
-    "typescript": "6.0.3"
+    "typescript": "6.0.3",
+    "vitest": "4.1.8"
   }
 }
