@@ -119,6 +119,8 @@ const PUBLIC_PATH_PATTERNS: RegExp[] = [
 // c.var.runInTx to open short txs around just the DB work.
 const DEFERRED_TX_PATH_PATTERNS: RegExp[] = [
   /^\/api\/expenses\/categorize$/,
+  // Photo-first stateless receipt read (TMC-295): vision call, no expense yet.
+  /^\/api\/expenses\/extract-receipt$/,
   /^\/api\/expenses\/[^/]+\/extract$/,
   /^\/api\/invoices\/[^/]+\/send$/,
   /^\/api\/estimates\/[^/]+\/send$/,
