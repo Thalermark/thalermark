@@ -1,8 +1,10 @@
 import { expenseCreateSchema } from '@thalermark/validation';
+import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { type ReactNode, useCallback, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -23,13 +25,34 @@ import { apiErrorMessage } from '../../../lib/api-errors';
 import { type SuggestResult, suggestCategory } from '../../../lib/categorize';
 import { resolveVendor } from '../../../lib/expense-vendor';
 import { useFlowAbandonment } from '../../../lib/flow-abandonment';
+import {
+  READ_OK_NOTICE,
+  READ_PARTIAL_NOTICE,
+  extractionPrefill,
+  hasPrefill,
+  readFailureNotice,
+} from '../../../lib/receipt-first';
+import { createExpenseWithReceipt, extractLooseReceipt } from '../../../lib/upload';
 
 // Mirror of apps/web's /expenses/new. An expense posts against two chart-of-
 // accounts rows (category = an 'expense' account, payment = an 'asset'
 // account), so the form fetches the company's COA and offers two pickers. A
 // "✨ Suggest" affordance asks the AI categorizer to pre-fill the category from
 // the typed merchant (opt-in; soft-fails when no LLM is configured).
+//
+// Photo-first (TMC-295 / TMC-283): opening this screen asks ONE question —
+// type it in, or start from the receipt. The prompt appears every time (a
+// remembered choice is state nobody can see, and someone logging a bank fee
+// with no receipt must not be trapped in a camera-first path). A captured
+// photo is read by the vision model and the form comes back prefilled and
+// editable; the photo rides in state and the ONE save creates the expense
+// with the receipt already attached (/api/expenses/with-receipt). Nothing is
+// created at capture — an expense posts journal entries, so an abandoned
+// photo must leave no ledger rows. Every read failure falls back to this same
+// form with the photo kept.
 type Account = { id: string; code: string; name: string; kind?: string | null };
+
+type ReceiptAsset = { uri: string; mimeType?: string | null; fileName?: string | null };
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
@@ -61,6 +84,98 @@ export default function NewExpense() {
   const [submitting, setSubmitting] = useState(false);
   const [suggesting, setSuggesting] = useState(false);
   const [suggestNotice, setSuggestNotice] = useState<SuggestResult | null>(null);
+
+  // Photo-first state. The chooser shows on every fresh open of this screen;
+  // ?duplicate skips it because that entry point already answered the question
+  // (it seeds the form from an existing expense). aiReady is a best-effort
+  // probe: false only when the server DEFINITELY has no AI connection (the
+  // settings read is admin-gated, so members stay at null = unknown and the
+  // extract attempt itself is the authority).
+  const [chooser, setChooser] = useState(!duplicate);
+  const [aiReady, setAiReady] = useState<boolean | null>(null);
+  const [receiptAsset, setReceiptAsset] = useState<ReceiptAsset | null>(null);
+  const [reading, setReading] = useState(false);
+  const [receiptNotice, setReceiptNotice] = useState<{ kind: 'ok' | 'info'; text: string } | null>(
+    null,
+  );
+  // The capture can land before the bootstrap resolves companyId/categories,
+  // so extraction runs from the effect below (fresh values) exactly once.
+  const extractStarted = useRef(false);
+
+  async function capture(source: 'camera' | 'library') {
+    const perm =
+      source === 'camera'
+        ? await ImagePicker.requestCameraPermissionsAsync()
+        : await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      // Not a dead end: drop to the manual form with a plain sentence.
+      setChooser(false);
+      setReceiptNotice({
+        kind: 'info',
+        text: source === 'camera' ? 'Camera permission denied.' : 'Photo access denied.',
+      });
+      return;
+    }
+    const result =
+      source === 'camera'
+        ? await ImagePicker.launchCameraAsync({ quality: 0.7 })
+        : await ImagePicker.launchImageLibraryAsync({ quality: 0.7, mediaTypes: ['images'] });
+    // Cancelling the picker returns to the chooser — the question is still open.
+    if (result.canceled || !result.assets[0]) return;
+    extractStarted.current = false;
+    setReceiptNotice(null);
+    setReceiptAsset(result.assets[0]);
+    setChooser(false);
+  }
+
+  function removeReceipt() {
+    setReceiptAsset(null);
+    setReceiptNotice(null);
+    extractStarted.current = false;
+  }
+
+  // Read the captured receipt once the company + categories are loaded. On any
+  // failure the photo is KEPT and the form stays usable — the person loses the
+  // typing they were saved, not the work they did (TMC-295).
+  useEffect(() => {
+    if (!receiptAsset || extractStarted.current) return;
+    // Wait for the whole bootstrap, not just companyId: the category list has
+    // to be final before the suggested-category filter runs against it.
+    if (!bootstrapped || !companyId) return;
+    extractStarted.current = true;
+    if (aiReady === false) {
+      setReceiptNotice({ kind: 'info', text: readFailureNotice('ai_not_configured') });
+      return;
+    }
+    let active = true;
+    (async () => {
+      setReading(true);
+      try {
+        const res = await extractLooseReceipt(companyId, receiptAsset);
+        if (!active) return;
+        if (!res.ok) {
+          setReceiptNotice({ kind: 'info', text: readFailureNotice(res.error) });
+          return;
+        }
+        const prefill = extractionPrefill(res.body, new Set(categories.map((c) => c.id)));
+        if (prefill.merchant) setMerchant(prefill.merchant);
+        if (prefill.amount) setAmount(prefill.amount);
+        if (prefill.expenseDate) setExpenseDate(prefill.expenseDate);
+        if (prefill.categoryAccountId) setCategoryId(prefill.categoryAccountId);
+        if (!hasPrefill(prefill)) {
+          setReceiptNotice({ kind: 'info', text: readFailureNotice('nothing_read') });
+        } else {
+          const full = prefill.merchant && prefill.amount && prefill.expenseDate;
+          setReceiptNotice({ kind: 'ok', text: full ? READ_OK_NOTICE : READ_PARTIAL_NOTICE });
+        }
+      } finally {
+        if (active) setReading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [receiptAsset, bootstrapped, companyId, categories, aiReady]);
 
   // expense_flow_abandoned: on leaving without saving, emit the furthest section
   // engaged — 'category' if a category is picked, else 'amount' if vendor/amount
@@ -114,6 +229,15 @@ export default function NewExpense() {
           );
           setPaymentId((p) => p ?? moneyAccounts[0]?.id ?? null);
         }
+
+        // Best-effort AI probe for the chooser's "receipts won't be read" line.
+        // The settings read is admin-gated (settings:manage), so a 403 leaves
+        // aiReady at null = unknown and nothing is claimed either way — the
+        // extract attempt is the authority, and its fallback covers everyone.
+        try {
+          const aiRes = await api.api.settings.ai.$get();
+          if (active && aiRes.ok) setAiReady((await aiRes.json()).connection !== null);
+        } catch {}
 
         // Duplicate prefill — seed from the source expense (date + receipt
         // intentionally excluded; see the param note above).
@@ -186,6 +310,30 @@ export default function NewExpense() {
         setFormError('That vendor could not be created. Try again.');
         return;
       }
+      // Photo-first: with a receipt in hand, the ONE save goes to the
+      // multipart create-with-receipt endpoint — both-or-neither on the
+      // server, so a failed upload never yields an expense that claims a
+      // receipt it does not have. Without one, the plain JSON create.
+      if (receiptAsset) {
+        const fields: Record<string, string> = {
+          companyId: parsed.data.companyId,
+          categoryAccountId: parsed.data.categoryAccountId,
+          paymentAccountId: parsed.data.paymentAccountId,
+          amount: parsed.data.amount,
+          expenseDate: parsed.data.expenseDate,
+          merchant: parsed.data.merchant,
+        };
+        if (parsed.data.memo) fields.memo = parsed.data.memo;
+        if (vendor.value) fields.vendorContactId = vendor.value;
+        const res = await createExpenseWithReceipt(fields, receiptAsset);
+        if (!res.ok) {
+          setFormError(apiErrorMessage(res.error, 'That could not be created. Try again.'));
+          return;
+        }
+        flow.markSubmitted();
+        router.replace(`/expenses/${res.body.id}`);
+        return;
+      }
       const res = await api.api.expenses.$post({
         json: { ...parsed.data, vendorContactId: vendor.value ?? undefined },
       });
@@ -244,6 +392,50 @@ export default function NewExpense() {
               <Text className="text-sm text-oxblood">{formError}</Text>
             </View>
           ) : null}
+
+          {/* Photo-first strip (TMC-283). The captured receipt rides here until
+              save — visible so nobody wonders whether the photo made it, and
+              removable so the flow can still end as a plain manual expense. */}
+          {reading ? (
+            <View className="mt-6 flex-row items-center gap-3 rounded-sm border border-gold-deep/30 bg-gold-deep/5 px-4 py-3">
+              <ActivityIndicator className="text-ink" />
+              <Text className="text-sm text-ink/80">Reading your receipt…</Text>
+            </View>
+          ) : null}
+          {receiptNotice ? (
+            <View
+              className={
+                receiptNotice.kind === 'ok'
+                  ? 'mt-6 rounded-sm border border-gold-deep/30 bg-gold-deep/5 px-4 py-3'
+                  : 'mt-6 rounded-sm border border-ink/15 bg-cream-warm px-4 py-3'
+              }
+            >
+              <Text className="text-sm text-ink/80">{receiptNotice.text}</Text>
+            </View>
+          ) : null}
+          {receiptAsset ? (
+            <View className="mt-6 flex-row items-center gap-3 rounded-sm border border-ink/15 bg-cream-warm px-4 py-3">
+              <Image
+                source={{ uri: receiptAsset.uri }}
+                className="h-16 w-12 rounded-sm border border-ink/10 bg-cream"
+                resizeMode="cover"
+              />
+              <Text className="flex-1 text-sm text-ink/80">
+                Receipt attached — it saves with the expense.
+              </Text>
+              <Pressable onPress={removeReceipt} hitSlop={8}>
+                <Text className="font-mono text-xs uppercase tracking-widest text-oxblood">
+                  Remove
+                </Text>
+              </Pressable>
+            </View>
+          ) : (
+            <Pressable onPress={() => setChooser(true)} className="mt-6 self-start">
+              <Text className="font-mono text-xs uppercase tracking-widest text-gold-deep">
+                📷 Start with a receipt photo
+              </Text>
+            </Pressable>
+          )}
 
           <View className="mt-8 gap-5">
             <VendorField
@@ -308,6 +500,49 @@ export default function NewExpense() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* The one prompt (TMC-295): manual or camera, asked EVERY time. Backdrop
+          tap and "Type it in" both land on the manual form — a no-receipt
+          expense (a bank fee) must never be forced through a camera path.
+          Cancelling the system camera returns here with the question open. */}
+      <Modal
+        visible={chooser}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setChooser(false)}
+      >
+        <Pressable className="flex-1 justify-end bg-ink/40" onPress={() => setChooser(false)}>
+          <Pressable className="rounded-t-lg bg-cream px-6 pb-10 pt-5" onPress={() => {}}>
+            <Text className="font-serif text-xl text-ink">How do you want to log it?</Text>
+            <View className="mt-4 gap-2">
+              <Pressable
+                onPress={() => capture('camera')}
+                className="rounded-sm bg-ink px-4 py-3 active:bg-gold-deep"
+              >
+                <Text className="text-center text-sm font-medium text-cream">Snap the receipt</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => capture('library')}
+                className="rounded-sm border border-ink/20 px-4 py-3 active:bg-ink/5"
+              >
+                <Text className="text-center text-sm text-ink">Choose a photo</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setChooser(false)}
+                className="rounded-sm border border-ink/20 px-4 py-3 active:bg-ink/5"
+              >
+                <Text className="text-center text-sm text-ink">Type it in</Text>
+              </Pressable>
+            </View>
+            {aiReady === false ? (
+              <Text className="mt-3 text-xs text-ink-subtle">
+                Receipts aren't read automatically on this server — the photo still saves with the
+                expense. Turn reading on in Settings → AI.
+              </Text>
+            ) : null}
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       <Modal
         visible={picker !== null}

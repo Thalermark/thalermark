@@ -12,18 +12,51 @@
   // hide the previous result banner until the new response lands.
   let suggesting = $state(false);
 
-  // expense_flow_abandoned: emit the furthest section reached if the user leaves
-  // without saving. Reachable steps: 'amount' (vendor/amount/date) → 'category'.
-  const flow = trackFlowAbandonment('expense_flow_abandoned', ['amount', 'category']);
+  // Photo-first (TMC-295 / TMC-235). Opening this page asks ONE question —
+  // type it in, or start from a receipt — every time (a remembered choice is
+  // state nobody can see, and a no-receipt expense must not be trapped behind
+  // it). The chosen file lives in the always-mounted file input, so it
+  // survives the ?/extract round-trip and rides the ?/save submit, where the
+  // server creates the expense with the receipt attached in one call.
+  // ?duplicate skips the chooser (that entry point already answered it).
+  let manualChosen = $state(false);
+  let extracting = $state(false);
+  let attachedName = $state<string | null>(null);
+  let fileInput: HTMLInputElement | null = $state(null);
+  let extractBtn: HTMLButtonElement | null = $state(null);
+  const showChooser = $derived(
+    !form && !data.skipChooser && !manualChosen && !attachedName && !extracting,
+  );
+
+  function onFileChosen() {
+    const chosen = fileInput?.files?.[0];
+    if (!chosen) return;
+    attachedName = chosen.name;
+    // Reading starts immediately — the form comes back prefilled (or plainly
+    // empty with the photo kept, when the read fails). requestSubmit with the
+    // hidden button honours its formaction + formnovalidate.
+    if (extractBtn) {
+      extracting = true;
+      extractBtn.form?.requestSubmit(extractBtn);
+    }
+  }
+
+  function removeReceipt() {
+    if (fileInput) fileInput.value = '';
+    attachedName = null;
+  }
 
   // enhance resets the form on a successful action by default. The Suggest
   // action succeeds even when no category fits, so a reset would wipe the
   // user's typed merchant/amount — keep values (apply the result, don't reset).
   // It also drives the `suggesting` flag for the Suggest button (detected via
-  // the resolved action, which reflects the submitter's formaction).
+  // the resolved action, which reflects the submitter's formaction), and the
+  // `extracting` flag for the receipt read the same way.
   const onsubmit = ({ action }: { action: URL }) => {
     const isSuggest = action.search.includes('suggest');
+    const isExtract = action.search.includes('extract');
     if (isSuggest) suggesting = true;
+    if (isExtract) extracting = true;
     return async ({
       result,
       update,
@@ -33,12 +66,17 @@
     }) => {
       // A successful save redirects away — mark submitted so that redirect nav
       // isn't logged as abandonment. A failed save re-renders in place (no nav),
-      // so leave the tracker armed. Suggest is neither, and never marks it.
-      if (!isSuggest && result.type === 'redirect') flow.markSubmitted();
+      // so leave the tracker armed. Suggest/extract are neither, and never mark it.
+      if (!isSuggest && !isExtract && result.type === 'redirect') flow.markSubmitted();
       await update({ reset: false });
       suggesting = false;
+      extracting = false;
     };
   };
+
+  // expense_flow_abandoned: emit the furthest section reached if the user leaves
+  // without saving. Reachable steps: 'amount' (vendor/amount/date) → 'category'.
+  const flow = trackFlowAbandonment('expense_flow_abandoned', ['amount', 'category']);
 
   type FieldKey = 'merchant' | 'vendorContactId' | 'amount' | 'expenseDate' | 'categoryAccountId' | 'paymentAccountId' | 'memo';
 
@@ -90,6 +128,27 @@
   </div>
 {/if}
 
+{#if extracting}
+  <div class="mt-6 flex items-center gap-2 rounded-sm border border-accent/30 bg-accent/5 px-4 py-3 text-sm text-fg/80">
+    <span class="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-accent border-t-transparent"></span>
+    Reading your receipt…
+  </div>
+{:else if form?.extracted}
+  <div class="mt-6 rounded-sm border border-accent/30 bg-accent/5 px-4 py-3 text-sm text-fg/80">
+    {form.extracted === 'full'
+      ? 'Read from your receipt — check the details and save.'
+      : 'Read part of your receipt — fill in the rest and save. The photo saves with the expense.'}
+  </div>
+{:else if form?.receiptNotice}
+  <div class="mt-6 rounded-sm border border-fg/15 bg-surface-2 px-4 py-3 text-sm text-fg/70">
+    {form.receiptNotice}
+  </div>
+{:else if form?.receiptError}
+  <div class="mt-6 rounded-sm border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
+    {form.receiptError}
+  </div>
+{/if}
+
 {#if suggesting}
   <div class="mt-6 flex items-center gap-2 rounded-sm border border-accent/30 bg-accent/5 px-4 py-3 text-sm text-fg/80">
     <span class="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-accent border-t-transparent"></span>
@@ -109,7 +168,88 @@
   </div>
 {/if}
 
-<form method="post" action="?/save" class="mt-8 space-y-6" use:enhance={onsubmit}>
+<!-- The one prompt (TMC-295): manual or receipt-first, asked on every fresh
+     open. "Type it in" and nothing else stands between a bank fee and the
+     form; the receipt path opens the file picker and reads the photo. -->
+{#if showChooser}
+  <div class="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2">
+    <button
+      type="button"
+      onclick={() => fileInput?.click()}
+      class="rounded-sm border border-fg/15 bg-surface-2 px-5 py-6 text-left hover:border-accent"
+    >
+      <span class="font-serif text-lg text-fg">Start with the receipt</span>
+      <p class="mt-1 text-sm text-fg/60">
+        Upload a photo or PDF — the details fill themselves in, you check and save.
+      </p>
+    </button>
+    <button
+      type="button"
+      onclick={() => (manualChosen = true)}
+      class="rounded-sm border border-fg/15 bg-surface-2 px-5 py-6 text-left hover:border-accent"
+    >
+      <span class="font-serif text-lg text-fg">Type it in</span>
+      <p class="mt-1 text-sm text-fg/60">No receipt, or you'd rather enter it by hand.</p>
+    </button>
+  </div>
+  {#if data.aiHint}
+    <p class="mt-3 text-xs text-fg/55">
+      Receipts aren't read automatically on this server — the photo still saves with the expense.
+      Turn reading on in <a href="/settings/ai" class="text-accent hover:text-fg">Settings → AI</a>.
+    </p>
+  {/if}
+{/if}
+
+<form
+  method="post"
+  action="?/save"
+  enctype="multipart/form-data"
+  class="mt-8 space-y-6"
+  class:hidden={showChooser}
+  use:enhance={onsubmit}
+>
+  <!-- Always mounted so the chosen file survives the ?/extract re-render and
+       rides the ?/save submit (the server then creates expense + receipt in
+       one call). The hidden button carries ?/extract for requestSubmit. -->
+  <input
+    bind:this={fileInput}
+    type="file"
+    name="file"
+    accept="image/jpeg,image/png,application/pdf"
+    class="hidden"
+    onchange={onFileChosen}
+  />
+  <button
+    bind:this={extractBtn}
+    type="submit"
+    formaction="?/extract"
+    formnovalidate
+    class="hidden"
+    aria-label="Read the receipt"
+    tabindex="-1"
+  ></button>
+
+  {#if attachedName}
+    <div class="flex items-center justify-between gap-3 rounded-sm border border-fg/15 bg-surface-2 px-4 py-3">
+      <span class="truncate text-sm text-fg/80">📎 {attachedName} — saves with the expense</span>
+      <button
+        type="button"
+        onclick={removeReceipt}
+        class="font-mono text-xs uppercase tracking-widest text-danger hover:opacity-80"
+      >
+        Remove
+      </button>
+    </div>
+  {:else}
+    <button
+      type="button"
+      onclick={() => fileInput?.click()}
+      class="font-mono text-xs uppercase tracking-widest text-accent hover:text-fg"
+    >
+      📎 Start with a receipt photo
+    </button>
+  {/if}
+
   <div class="grid grid-cols-1 gap-6 sm:grid-cols-2" onfocusin={() => flow.reach('amount')}>
     <div>
       <label for="merchant" class="label">
