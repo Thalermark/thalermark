@@ -54,6 +54,27 @@ describe('contract compare', () => {
     expect(compare(before, after).breaking).toHaveLength(1);
   });
 
+  // Nullable objects serialize as unions, and the union branch must see
+  // through them: a new field on the object member is as additive as it would
+  // be un-wrapped (the settings-ai `connection: Display | null` case).
+  it('accepts a new response field inside a nullable-object union', () => {
+    const before = route('{}', { connection: { union: ['null', { provider: 'string' }] } });
+    const after = route('{}', {
+      connection: { union: ['null', { provider: 'string', timeout: 'number' }] },
+    });
+    expect(compare(before, after).breaking).toEqual([]);
+  });
+
+  it('rejects a removed field inside a nullable-object union', () => {
+    const before = route('{}', {
+      connection: { union: ['null', { provider: 'string', timeout: 'number' }] },
+    });
+    const after = route('{}', { connection: { union: ['null', { provider: 'string' }] } });
+    expect(compare(before, after).breaking).toMatchObject([
+      { detail: expect.stringContaining('union member changed') },
+    ]);
+  });
+
   it('rejects a new REQUIRED request field', () => {
     const before = route({ json: { amount: 'string' } }, { id: 'string' });
     const after = route({ json: { amount: 'string', poNumber: 'string' } }, { id: 'string' });

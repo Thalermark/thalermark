@@ -1,4 +1,9 @@
-import { PRESETS, probeCredential } from '@thalermark/ai';
+import {
+  PRESETS,
+  type VisionProbeResult,
+  probeCredential,
+  probeVisionCredential,
+} from '@thalermark/ai';
 import { llmConnectionUpsertSchema } from '@thalermark/validation';
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
@@ -88,6 +93,7 @@ export function settingsAiRoutes(deps: AppDeps) {
             modelVision: input.modelVision ?? null,
             modelReasoning: input.modelReasoning ?? null,
             modelFast: input.modelFast ?? null,
+            timeoutSeconds: input.timeoutSeconds ?? null,
           },
           c.get('userId'),
         );
@@ -137,9 +143,36 @@ export function settingsAiRoutes(deps: AppDeps) {
       const probe = deps.llmProbe ?? probeCredential;
       const result = await probe(credential);
       await store.recordProbeResult(accountId, result);
+
+      // Second stage (TMC-296): the vision role, probed only after a fast-probe
+      // success — a dead endpoint or bad key has already told the whole story.
+      // A vision failure is recorded AFTER the success write, so the chip goes
+      // red carrying the vision error while last_ok_at stays fresh and the
+      // text-role features (categorize, nudges) keep working. Before this, a
+      // vision model that could not load verified green and broke receipt
+      // extraction alone, with the reason visible nowhere.
+      let vision: VisionProbeResult | null = null;
+      if (result.ok) {
+        const visionProbe = deps.llmVisionProbe ?? probeVisionCredential;
+        // Thread the structured answer the fast probe just measured (custom
+        // endpoints only) so the vision call runs in the mode that worked.
+        vision = await visionProbe(
+          result.structured !== undefined
+            ? { ...credential, structured: result.structured }
+            : credential,
+        );
+        if (!vision.ok) {
+          await store.recordProbeResult(accountId, {
+            ok: false,
+            latencyMs: vision.latencyMs,
+            error: `Receipt reading (vision model): ${vision.error}`,
+          });
+        }
+      }
+
       const connection = await store.getDisplay(accountId);
-      // result carries the provider's own error on failure — surfaced to the
-      // admin at config time, key already redacted by the probe.
-      return c.json({ result, connection });
+      // result/vision carry the provider's own error on failure — surfaced to
+      // the admin at config time, key already redacted by the probes.
+      return c.json({ result, vision, connection });
     });
 }

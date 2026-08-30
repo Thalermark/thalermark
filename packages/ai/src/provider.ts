@@ -22,6 +22,10 @@ export interface LlmCredential {
   modelFast?: string;
   baseUrl?: string;
   structured?: boolean;
+  // Per-connection ceiling for every AI call, in seconds (Settings → AI →
+  // Advanced). Absent = the per-purpose defaults in limits.ts. Exists for slow
+  // self-host hardware; resolveTimeoutMs applies it.
+  timeoutSeconds?: number;
   // Optional fetch for the SDK client. apps/api attaches an SSRF-guarded fetch
   // here for a user-supplied endpoint (see createGuardedFetch): it validates the
   // resolved IP at connect time, closing the DNS-rebinding gap that the

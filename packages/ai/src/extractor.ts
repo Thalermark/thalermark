@@ -1,6 +1,6 @@
 import { generateObject } from 'ai';
 import { z } from 'zod';
-import { AI_MAX_RETRIES, EXTRACT_TIMEOUT_MS } from './limits.js';
+import { AI_MAX_RETRIES, EXTRACT_TIMEOUT_MS, resolveTimeoutMs } from './limits.js';
 import { type RawExtraction, normalizeExtraction } from './normalize.js';
 import { renderPdfFirstPageToPng } from './pdf.js';
 import { businessPersona } from './persona.js';
@@ -75,7 +75,7 @@ export function createReceiptExtractor(): ReceiptExtractor {
           },
         ],
         maxRetries: AI_MAX_RETRIES,
-        abortSignal: AbortSignal.timeout(EXTRACT_TIMEOUT_MS),
+        abortSignal: AbortSignal.timeout(resolveTimeoutMs(credential, EXTRACT_TIMEOUT_MS)),
       });
 
       return normalizeExtraction(

@@ -1,4 +1,4 @@
-import { boolean, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { bigint, boolean, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { accounts } from './accounts.js';
 import { authUser } from './auth.js';
 
@@ -43,6 +43,14 @@ export const llmConnections = pgTable(
     modelReasoning: text('model_reasoning'),
     modelFast: text('model_fast'),
     structured: boolean('structured'),
+    // Per-connection ceiling for every AI call, in seconds (TMC-296 follow-up).
+    // NULL means the per-purpose defaults in @thalermark/ai/limits apply; set,
+    // it replaces them all — the knob exists for slow self-host hardware (a
+    // CPU-only Ollama can need minutes where a hosted API needs seconds).
+    // Bounds (30–300) are enforced by the validation schema, not a CHECK: the
+    // ceiling tracks what the HTTP stack tolerates, which is a code fact.
+    // bigint like every other counter here (the squawk rule, not the range).
+    timeoutSeconds: bigint('timeout_seconds', { mode: 'number' }),
     lastOkAt: timestamp('last_ok_at', { withTimezone: true }),
     lastErrorAt: timestamp('last_error_at', { withTimezone: true }),
     lastError: text('last_error'),

@@ -255,11 +255,22 @@
       <label for="merchant" class="label">
         Vendor<span class="text-accent">*</span>
       </label>
-      <VendorPicker
-        initialMerchant={v('merchant')}
-        initialVendorContactId={v('vendorContactId')}
-        required
-      />
+      <!-- Keyed remount: VendorPicker seeds from its initial props ONCE at
+           mount, which is right on a fresh page load (edit's extract prefill
+           navigates) but wrong here — the photo-first form is already mounted
+           while ?/extract runs, so the extracted merchant changed a prop the
+           picker deliberately ignores and the Vendor field stayed empty while
+           amount/date filled. Re-keying on the server-provided pair restores
+           fresh-mount semantics exactly when the server hands back new values,
+           and never remounts during plain typing (typing changes the picker's
+           internal state, not these). -->
+      {#key `${v('merchant')}|${v('vendorContactId')}`}
+        <VendorPicker
+          initialMerchant={v('merchant')}
+          initialVendorContactId={v('vendorContactId')}
+          required
+        />
+      {/key}
       {#if err('merchant')}
         <p class="mt-1 text-xs text-danger">{err('merchant')}</p>
       {/if}

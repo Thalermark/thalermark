@@ -248,6 +248,36 @@ function diffShape(before, after, path, kind, findings) {
     return;
   }
 
+  // Unions get member-wise pairing. `X | null` serializes as a union, and
+  // fieldsOf sees no fields on one, so before this branch ANY change inside a
+  // union — including a plainly additive new response field on the X member —
+  // fell through to the blob compare below and read as breaking (first hit:
+  // adding timeoutSeconds to the nullable `connection` in the settings-ai
+  // responses). Pair each old member with a compatible new one instead, where
+  // compatible means a recursive diff in the same direction finds nothing
+  // breaking. Only an old member with no compatible partner is a real break;
+  // brand-new members are additive by the same logic that makes new response
+  // fields safe. Greedy first-match is fine at the arity unions actually have
+  // here (2–3 members, usually null plus an object).
+  const isUnion = (v) =>
+    v !== null && typeof v === 'object' && !Array.isArray(v) && Array.isArray(v.union);
+  if (isUnion(before) && isUnion(after)) {
+    const remaining = [...after.union];
+    for (const member of before.union) {
+      const idx = remaining.findIndex((candidate) => {
+        const memberFindings = [];
+        diffShape(member, candidate, path, kind, memberFindings);
+        return memberFindings.length === 0;
+      });
+      if (idx === -1) {
+        findings.push(`${kind} union member changed at ${path || '(root)'}: ${truncate(member)}`);
+        continue;
+      }
+      remaining.splice(idx, 1);
+    }
+    return;
+  }
+
   const a = JSON.stringify(before);
   const b = JSON.stringify(after);
   if (a !== b)

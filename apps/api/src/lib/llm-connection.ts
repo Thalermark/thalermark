@@ -45,6 +45,7 @@ export type ConnectionInput = {
   modelVision?: string | null;
   modelReasoning?: string | null;
   modelFast?: string | null;
+  timeoutSeconds?: number | null;
 };
 
 // The status the chip renders. Derived from the health columns, never stored:
@@ -66,6 +67,7 @@ export type ConnectionDisplay = {
   modelReasoning: string | null;
   modelFast: string | null;
   structured: boolean | null;
+  timeoutSeconds: number | null;
   status: ConnectionStatus;
   lastOkAt: string | null;
   lastErrorAt: string | null;
@@ -111,6 +113,7 @@ function toCredential(row: ConnectionRow, apiKey: string | undefined): LlmCreden
   if (row.modelReasoning !== null) credential.modelReasoning = row.modelReasoning;
   if (row.modelFast !== null) credential.modelFast = row.modelFast;
   if (row.structured !== null) credential.structured = row.structured;
+  if (row.timeoutSeconds !== null) credential.timeoutSeconds = row.timeoutSeconds;
   return credential;
 }
 
@@ -173,6 +176,7 @@ function toDisplay(row: ConnectionRow, masterKey: Buffer): ConnectionDisplay {
     modelReasoning: row.modelReasoning,
     modelFast: row.modelFast,
     structured: row.structured,
+    timeoutSeconds: row.timeoutSeconds,
     status: statusOf(row),
     lastOkAt: row.lastOkAt?.toISOString() ?? null,
     lastErrorAt: row.lastErrorAt?.toISOString() ?? null,
@@ -256,6 +260,7 @@ export function createLlmConnectionStore(
           modelVision: input.modelVision ?? null,
           modelReasoning: input.modelReasoning ?? null,
           modelFast: input.modelFast ?? null,
+          timeoutSeconds: input.timeoutSeconds ?? null,
           // Every write resets health: a changed connection is unverified until
           // the probe re-blesses it, so a bad edit can never keep serving on the
           // old row's last_ok_at. structured is unknown until re-detected.

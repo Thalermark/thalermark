@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { type ProbeRunner, probeCredential } from './probe.js';
+import {
+  type ProbeRunner,
+  type VisionProbeRunner,
+  probeCredential,
+  probeVisionCredential,
+} from './probe.js';
 import type { LlmCredential } from './provider.js';
 
 const anthropic: LlmCredential = { provider: 'anthropic', apiKey: 'sk-ant-secret-key' };
@@ -126,6 +131,40 @@ describe('probeCredential — structured detection on custom endpoints', () => {
   it('never double-probes a preset provider', async () => {
     const run = vi.fn<ProbeRunner>(fails(new Error('nope')));
     await probeCredential({ provider: 'ollama' }, { run });
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+});
+
+// TMC-296 — the second verify stage. Vision can be dead while fast is green (a
+// model that cannot load, an endpoint with no vision model), and before this
+// probe that state verified green and broke receipt extraction alone.
+describe('probeVisionCredential', () => {
+  it('refuses an incomplete credential without calling the model', async () => {
+    const run = vi.fn<VisionProbeRunner>();
+    const result = await probeVisionCredential({ provider: 'anthropic' }, { run });
+    expect(result.ok).toBe(false);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('reports healthy when the vision model answers', async () => {
+    const result = await probeVisionCredential(anthropic, { run: async () => ({ ok: true }) });
+    expect(result.ok).toBe(true);
+  });
+
+  it('surfaces and redacts the provider error', async () => {
+    const result = await probeVisionCredential(anthropic, {
+      run: async () => ({ ok: false, error: new Error('401 for key sk-ant-secret-key') }),
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).not.toContain('sk-ant-secret-key');
+      expect(result.error).toContain('••••');
+    }
+  });
+
+  it('probes exactly once — no structured-detection retry on the vision path', async () => {
+    const run = vi.fn<VisionProbeRunner>(async () => ({ ok: false, error: new Error('nope') }));
+    await probeVisionCredential(custom(), { run });
     expect(run).toHaveBeenCalledTimes(1);
   });
 });

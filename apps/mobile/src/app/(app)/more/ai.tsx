@@ -45,6 +45,7 @@ type Connection = {
   modelVision: string | null;
   modelReasoning: string | null;
   modelFast: string | null;
+  timeoutSeconds: number | null;
   status: string;
   lastOkAt: string | null;
   lastError: string | null;
@@ -115,6 +116,8 @@ export default function AiSettings() {
   const [modelVision, setModelVision] = useState('');
   const [modelReasoning, setModelReasoning] = useState('');
   const [modelFast, setModelFast] = useState('');
+  // Timeout override (Advanced), held as the typed string; '' = defaults.
+  const [timeoutSeconds, setTimeoutSeconds] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   const [acting, setActing] = useState(false);
@@ -137,6 +140,9 @@ export default function AiSettings() {
     setModelVision(body.connection?.modelVision ?? '');
     setModelReasoning(body.connection?.modelReasoning ?? '');
     setModelFast(body.connection?.modelFast ?? '');
+    setTimeoutSeconds(
+      body.connection?.timeoutSeconds != null ? String(body.connection.timeoutSeconds) : '',
+    );
   }, []);
 
   useFocusEffect(
@@ -159,6 +165,14 @@ export default function AiSettings() {
       setError('Choose a provider.');
       return;
     }
+    // Timeout override: blank = defaults; a value is whole seconds, bounds
+    // mirroring the schema so a typo fails with a sentence, not a Zod dump.
+    const timeoutRaw = timeoutSeconds.trim();
+    const timeout = timeoutRaw === '' ? null : Number(timeoutRaw);
+    if (timeout !== null && (!Number.isInteger(timeout) || timeout < 30 || timeout > 300)) {
+      setError('Timeout must be a whole number between 30 and 300 seconds.');
+      return;
+    }
     setActing(true);
     try {
       const res = await api.api.settings.ai.$put({
@@ -171,6 +185,7 @@ export default function AiSettings() {
           modelVision: modelVision.trim() || null,
           modelReasoning: modelReasoning.trim() || null,
           modelFast: modelFast.trim() || null,
+          timeoutSeconds: timeout,
         },
       });
       if (!res.ok) {
@@ -215,18 +230,29 @@ export default function AiSettings() {
         });
         return;
       }
-      const { result } = (await res.json()) as {
+      const { result, vision } = (await res.json()) as {
         result: { ok: boolean; latencyMs?: number; error?: string };
+        // The second verify stage (TMC-296): the vision-role probe, null when
+        // the fast probe already failed. ok:false here is the "text works but
+        // receipt reading doesn't" verdict that used to be invisible.
+        vision: { ok: boolean; latencyMs?: number; error?: string } | null;
       };
       setVerifyMsg(
-        result.ok
+        result.ok && vision && !vision.ok
           ? {
-              ok: true,
-              text: result.latencyMs
-                ? `Verified. AI is live, responded in ${result.latencyMs} ms.`
-                : 'Verified. AI is live.',
+              ok: false,
+              text: `Text model verified, but receipt reading failed: ${vision.error ?? 'unknown error'}`,
             }
-          : { ok: false, text: `Verification failed: ${result.error ?? 'unknown error'}` },
+          : result.ok
+            ? {
+                ok: true,
+                text: `${
+                  result.latencyMs
+                    ? `Verified. AI is live, responded in ${result.latencyMs} ms.`
+                    : 'Verified. AI is live.'
+                }${vision?.ok ? ' Receipt reading works too.' : ''}`,
+              }
+            : { ok: false, text: `Verification failed: ${result.error ?? 'unknown error'}` },
       );
       await load();
     } finally {
@@ -320,6 +346,8 @@ export default function AiSettings() {
             setModelReasoning={setModelReasoning}
             modelFast={modelFast}
             setModelFast={setModelFast}
+            timeoutSeconds={timeoutSeconds}
+            setTimeoutSeconds={setTimeoutSeconds}
             showAdvanced={showAdvanced}
             setShowAdvanced={setShowAdvanced}
             acting={acting}
@@ -350,6 +378,8 @@ function AiForm({
   setModelReasoning,
   modelFast,
   setModelFast,
+  timeoutSeconds,
+  setTimeoutSeconds,
   showAdvanced,
   setShowAdvanced,
   acting,
@@ -373,6 +403,8 @@ function AiForm({
   setModelReasoning: (v: string) => void;
   modelFast: string;
   setModelFast: (v: string) => void;
+  timeoutSeconds: string;
+  setTimeoutSeconds: (v: string) => void;
   showAdvanced: boolean;
   setShowAdvanced: (v: boolean) => void;
   acting: boolean;
@@ -519,6 +551,20 @@ function AiForm({
               onChange={setModelFast}
               placeholder={preset?.models?.fast ?? ''}
             />
+            <Text className="mt-4 font-mono text-xs uppercase tracking-widest text-ink-subtle">
+              Timeout (seconds)
+            </Text>
+            <TextInput
+              value={timeoutSeconds}
+              onChangeText={setTimeoutSeconds}
+              placeholder="auto"
+              keyboardType="number-pad"
+              className="mt-2 border-b border-field py-2 text-ink"
+            />
+            <Text className="mt-2 text-xs text-ink-subtle">
+              How long to wait for the model before giving up, 30–300. Leave blank for the defaults.
+              Raise this if a local model is slow — reading a receipt can then take a few minutes.
+            </Text>
           </View>
         ) : null}
 

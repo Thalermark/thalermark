@@ -1,4 +1,4 @@
-import type { LlmCredential, ProbeResult } from '@thalermark/ai';
+import type { LlmCredential, ProbeResult, VisionProbeResult } from '@thalermark/ai';
 import { authUser, memberships } from '@thalermark/db';
 import { eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -45,6 +45,14 @@ const failProbe = async (): Promise<ProbeResult> => ({
   latencyMs: 3,
   error: 'invalid x-api-key',
 });
+// The second verify stage (TMC-296). Stubbed like the fast probe so no test
+// ever reaches the live vision runner.
+const okVisionProbe = async (): Promise<VisionProbeResult> => ({ ok: true, latencyMs: 7 });
+const failVisionProbe = async (): Promise<VisionProbeResult> => ({
+  ok: false,
+  latencyMs: 4,
+  error: 'unknown model architecture: mllama',
+});
 
 function extractSessionCookie(res: Response): string {
   const list =
@@ -56,6 +64,7 @@ function extractSessionCookie(res: Response): string {
 type BuildOpts = {
   withStore?: boolean; // default true
   probe?: (c: LlmCredential) => Promise<ProbeResult>;
+  visionProbe?: (c: LlmCredential) => Promise<VisionProbeResult>;
   allowPrivate?: boolean;
   allowedEndpoints?: string[];
 };
@@ -74,6 +83,7 @@ function buildApp(opts: BuildOpts = {}) {
     publicAppUrl: testEnv.publicAppUrl,
     llmConnections: store,
     llmProbe: opts.probe ?? okProbe,
+    llmVisionProbe: opts.visionProbe ?? okVisionProbe,
     aiAllowPrivateEndpoints: opts.allowPrivate ?? false,
     aiAllowedEndpoints: opts.allowedEndpoints,
   });
@@ -195,6 +205,127 @@ describe('Settings → AI', () => {
         provider: 'anthropic',
         apiKey: 'sk-ant-secret1234',
       });
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  // TMC-296 — before the vision stage existed, exactly this state verified
+  // green: text healthy, vision model unable to load, receipt extraction broken
+  // alone with the reason visible nowhere.
+  it('verify flags a dead vision model, while text features stay on', async () => {
+    const ctx = buildApp({ visionProbe: failVisionProbe });
+    if (!ctx.store) throw new Error('store expected');
+    try {
+      const cookie = await signUp(ctx.app, 'vision-dead@example.com');
+      const accountId = await accountFor('vision-dead@example.com');
+      await req(ctx.app, 'PUT', cookie, accountId, { provider: 'ollama' });
+
+      const verify = await req(ctx.app, 'POST', cookie, accountId, {}, '/api/settings/ai/verify');
+      expect(verify.status).toBe(200);
+      const body = (await verify.json()) as {
+        result: { ok: boolean };
+        vision: { ok: boolean; error?: string } | null;
+        connection: { status: string; lastError: string | null };
+      };
+      // The split verdict: the fast probe passed, the vision probe did not.
+      expect(body.result.ok).toBe(true);
+      expect(body.vision).toMatchObject({ ok: false, error: 'unknown model architecture: mllama' });
+      // The chip carries the why, role named.
+      expect(body.connection.status).toBe('error');
+      expect(body.connection.lastError).toContain('Receipt reading');
+      expect(body.connection.lastError).toContain('mllama');
+      // last_ok_at is fresh underneath, so the resolver still serves the
+      // text-role features — vision being dead must not turn categorize off.
+      expect(await ctx.store.getUsable(accountId)).not.toBeNull();
+
+      // Fixing the model and re-verifying clears the flag (both stages green).
+      const fixed = buildApp();
+      try {
+        const reverify = await req(
+          fixed.app,
+          'POST',
+          cookie,
+          accountId,
+          {},
+          '/api/settings/ai/verify',
+        );
+        const after = (await reverify.json()) as {
+          vision: { ok: boolean } | null;
+          connection: { status: string; lastError: string | null };
+        };
+        expect(after.vision).toMatchObject({ ok: true });
+        expect(after.connection.status).toBe('ready');
+        expect(after.connection.lastError).toBeNull();
+      } finally {
+        await fixed.handle.close();
+      }
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  it('skips the vision stage entirely when the fast probe already failed', async () => {
+    let visionCalls = 0;
+    const ctx = buildApp({
+      probe: failProbe,
+      visionProbe: async () => {
+        visionCalls += 1;
+        return { ok: true, latencyMs: 1 };
+      },
+    });
+    try {
+      const cookie = await signUp(ctx.app, 'vision-skip@example.com');
+      const accountId = await accountFor('vision-skip@example.com');
+      await req(ctx.app, 'PUT', cookie, accountId, { provider: 'anthropic', apiKey: 'sk-bad-1' });
+      const verify = await req(ctx.app, 'POST', cookie, accountId, {}, '/api/settings/ai/verify');
+      const body = (await verify.json()) as { result: { ok: boolean }; vision: unknown };
+      expect(body.result.ok).toBe(false);
+      // A dead endpoint or bad key already told the whole story.
+      expect(body.vision).toBeNull();
+      expect(visionCalls).toBe(0);
+    } finally {
+      await ctx.handle.close();
+    }
+  });
+
+  // The Advanced timeout override (TMC-296 follow-up): persisted, echoed to
+  // the display, carried on the credential, and bounded by the schema.
+  it('stores the timeout override, hands it to the resolver, and rejects out-of-bounds values', async () => {
+    const ctx = buildApp();
+    if (!ctx.store) throw new Error('store expected');
+    try {
+      const cookie = await signUp(ctx.app, 'timeout@example.com');
+      const accountId = await accountFor('timeout@example.com');
+
+      const put = await req(ctx.app, 'PUT', cookie, accountId, {
+        provider: 'anthropic',
+        apiKey: 'sk-ant-slow1234',
+        timeoutSeconds: 300,
+      });
+      expect(put.status).toBe(200);
+      const saved = (await put.json()) as { connection: { timeoutSeconds: number | null } };
+      expect(saved.connection.timeoutSeconds).toBe(300);
+
+      // The credential the AI routes resolve carries it (after verify).
+      await req(ctx.app, 'POST', cookie, accountId, {}, '/api/settings/ai/verify');
+      expect(await ctx.store.getUsable(accountId)).toMatchObject({ timeoutSeconds: 300 });
+
+      // Blank clears back to the defaults, like the model overrides.
+      const cleared = await req(ctx.app, 'PUT', cookie, accountId, { provider: 'anthropic' });
+      expect(
+        ((await cleared.json()) as { connection: { timeoutSeconds: number | null } }).connection
+          .timeoutSeconds,
+      ).toBeNull();
+
+      // Bounds are the schema's: below 30 or above 300 is a 400, not a save.
+      for (const timeoutSeconds of [10, 301]) {
+        const bad = await req(ctx.app, 'PUT', cookie, accountId, {
+          provider: 'anthropic',
+          timeoutSeconds,
+        });
+        expect(bad.status).toBe(400);
+      }
     } finally {
       await ctx.handle.close();
     }

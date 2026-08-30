@@ -12,8 +12,13 @@ vi.mock('ai', () => ({
 const { createCashFlowAdvisor } = await import('./advisor.js');
 const { createExpenseCategorizer } = await import('./categorizer.js');
 const { createReceiptExtractor } = await import('./extractor.js');
-const { ADVISE_TIMEOUT_MS, AI_MAX_RETRIES, CATEGORIZE_TIMEOUT_MS, EXTRACT_TIMEOUT_MS } =
-  await import('./limits.js');
+const {
+  ADVISE_TIMEOUT_MS,
+  AI_MAX_RETRIES,
+  CATEGORIZE_TIMEOUT_MS,
+  EXTRACT_TIMEOUT_MS,
+  resolveTimeoutMs,
+} = await import('./limits.js');
 
 import type { LlmCredential } from './provider.js';
 
@@ -97,5 +102,14 @@ describe('every production model call is bounded', () => {
     // quickest. If these ever inverted, someone mis-tuned a number.
     expect(CATEGORIZE_TIMEOUT_MS).toBeLessThanOrEqual(ADVISE_TIMEOUT_MS);
     expect(ADVISE_TIMEOUT_MS).toBeLessThanOrEqual(EXTRACT_TIMEOUT_MS);
+  });
+
+  // The per-connection override (TMC-296 follow-up): one number replaces every
+  // per-purpose default when set; absent, the defaults stand.
+  it('resolves the connection timeout override over the per-purpose default', () => {
+    expect(resolveTimeoutMs({}, EXTRACT_TIMEOUT_MS)).toBe(EXTRACT_TIMEOUT_MS);
+    expect(resolveTimeoutMs({ timeoutSeconds: undefined }, 60_000)).toBe(60_000);
+    expect(resolveTimeoutMs({ timeoutSeconds: 300 }, EXTRACT_TIMEOUT_MS)).toBe(300_000);
+    expect(resolveTimeoutMs({ timeoutSeconds: 30 }, 60_000)).toBe(30_000);
   });
 });
