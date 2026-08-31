@@ -63,6 +63,24 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # The web build bakes in the api version it was built against (the
+      # nearest api-v* tag in this commit's history), so About can say when a
+      # running api is older than the page expects (TMC-299). The default
+      # checkout is shallow and tagless; describe needs both. Api builds skip
+      # this — nothing in that image compares versions.
+      - name: Fetch tags for the api baseline (web only)
+        if: matrix.app == 'web'
+        run: git fetch --quiet --tags --unshallow || git fetch --quiet --tags
+
+      - name: Api baseline this build expects (web only)
+        id: apibase
+        if: matrix.app == 'web'
+        # Routing prefix stripped, same as the image tag. Empty when no api-v*
+        # tag is reachable, and About then stays quiet.
+        run: |
+          base="$(git describe --tags --match 'api-v*' --abbrev=0 2>/dev/null || true)"
+          echo "version=${base#api-}" >> "$GITHUB_OUTPUT"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
@@ -95,8 +113,12 @@ jobs:
           # else the commit SHA. Web bakes it into the build (Settings → About);
           # the api reads it at runtime and stamps it onto the telemetry envelope
           # (product_version). See each app's Dockerfile.
+          #
+          # The second arg exists only on the web leg (the expression renders an
+          # empty line for api, whose Dockerfile declares no such ARG).
           build-args: |
             APP_VERSION=${{ needs.targets.outputs.version }}
+            ${{ matrix.app == 'web' && format('EXPECTED_API_VERSION={0}', steps.apibase.outputs.version) || '' }}
           # PR = validate only; tag/manual = publish.
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}

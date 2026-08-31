@@ -5,6 +5,11 @@ declare global {
   // release tag of this build, shown on Settings → About.
   const __APP_VERSION__: string;
 
+  // Also injected by Vite `define`: the api version this web build was built
+  // against (nearest api-v* tag, prefix stripped), or '' when unknown. About
+  // uses it to note when the running api is older than this build expects.
+  const __EXPECTED_API_VERSION__: string;
+
   namespace App {
     interface Locals {
       session: Session | null;
