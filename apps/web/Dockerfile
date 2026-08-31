@@ -47,6 +47,12 @@ FROM deps AS builder
 # Falls back to 'dev' for a plain `docker build` with no --build-arg.
 ARG APP_VERSION=dev
 ENV APP_VERSION=${APP_VERSION}
+# The api version this build is built against (nearest api-v* tag at the build
+# commit, prefix stripped) — About notes when the running api is older than
+# this. Same no-.git story as APP_VERSION; empty means unknown and About stays
+# quiet about it.
+ARG EXPECTED_API_VERSION=
+ENV EXPECTED_API_VERSION=${EXPECTED_API_VERSION}
 COPY apps/web ./apps/web
 COPY packages ./packages
 COPY tsconfig.base.json ./

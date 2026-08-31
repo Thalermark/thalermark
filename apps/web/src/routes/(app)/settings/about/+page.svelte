@@ -1,5 +1,6 @@
 <script lang="ts">
   import { DOMAIN, PRODUCT_NAME, TAGLINE } from '@thalermark/brand';
+  import { isOlderVersion } from '$lib/version';
   import type { PageProps } from './$types';
 
   let { data }: PageProps = $props();
@@ -9,16 +10,19 @@
   const version = __APP_VERSION__;
 
   // The API reports its own build separately (GET /api/build-info), because web
-  // and api are two images that can end up at different versions: a rollout that
-  // only half finished, a rolled back api, a stale cached web bundle. Null when
-  // the API could not be reached, which is not a mismatch, just unknown.
+  // and api are two images that version independently since the per-component
+  // tag split — the two numbers differing is the normal state, not an incident,
+  // so a difference alone must never warn (TMC-299). Null when the API could
+  // not be reached, which is just unknown.
   //
-  // Both sides resolve their version the same way (an explicit APP_VERSION, else
-  // `git describe --tags --always --long`), so in a dev checkout they agree on
-  // the commit and this stays quiet. It does fire if you commit while the dev
-  // server is running, because this page's number was frozen at start-up and the
-  // api's was not — which is a true statement about what is running.
-  const mismatched = $derived(data.apiVersion !== null && data.apiVersion !== version);
+  // The one direction that can break is the api being OLDER than the api-line
+  // tag this build was compiled against: web then calls routes the server does
+  // not have yet (a rollout that only half finished, a rolled back api). A
+  // newer api is additive by the contract gate. Anything that is not a clean
+  // release tag — a dev long-describe, a bare SHA — compares as unknown and
+  // stays quiet.
+  const expectedApiVersion = __EXPECTED_API_VERSION__;
+  const apiOlder = $derived(isOlderVersion(data.apiVersion, expectedApiVersion));
 
   const siteUrl = `https://${DOMAIN}`;
   const sourceUrl = 'https://github.com/Thalermark/thalermark';
@@ -115,22 +119,26 @@
       <dt class="text-fg/60">This page</dt>
       <dd class="font-mono text-fg">{version}</dd>
     </div>
-    <div class="flex items-center justify-between gap-4">
+    <div class="flex items-start justify-between gap-4">
       <dt class="text-fg/60">Server</dt>
-      <dd class="font-mono {data.apiVersion ? 'text-fg' : 'text-fg/40'}">
-        {data.apiVersion ?? 'unavailable'}
+      <dd class="text-right">
+        <span class="font-mono {data.apiVersion ? 'text-fg' : 'text-fg/40'}">
+          {data.apiVersion ?? 'unavailable'}
+        </span>
+        {#if apiOlder}
+          <!-- An annotation, not a warning banner: the reader often cannot fix
+               this (managed hosting), so the page states the fact for whoever
+               runs the server instead of alarming whoever happens to be
+               reading. The comparison itself is the value — with independent
+               version lines, nobody can eyeball two different numbers and tell
+               healthy from behind. Says nothing about migrations or data: an
+               old api and its own schema are internally consistent; what is
+               missing is routes this newer page may call. -->
+          <span class="mt-1 block text-xs text-warning">
+            older than this page expects ({expectedApiVersion})
+          </span>
+        {/if}
       </dd>
     </div>
   </dl>
-  {#if mismatched}
-    <!-- The two numbers come from different places on purpose: this page's is
-         compiled into the web build, the server's is read from its own image.
-         Showing them separately is only useful if a disagreement is called out,
-         because nobody compares two version strings by eye. -->
-    <p class="border-t border-fg/10 px-6 py-5 text-sm leading-relaxed text-fg/70">
-      These two normally match. They don't right now, which usually means an update finished only
-      part way. It often sorts itself out in a minute or two. If it doesn't, whoever runs this
-      server will want to know.
-    </p>
-  {/if}
 </section>
