@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import type { Role } from '@thalermark/validation';
-import { Redirect, Tabs, useFocusEffect } from 'expo-router';
+import { Redirect, Tabs, router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, AppState, Pressable, Text, View, useColorScheme } from 'react-native';
 import { LegalConsentGate } from '../../components/LegalConsentGate';
@@ -218,6 +218,7 @@ export default function AppLayout() {
         >
           <Text className="text-sm font-medium text-cream">Try again</Text>
         </Pressable>
+        <ServerPickerLink />
       </View>
     );
   }
@@ -240,6 +241,7 @@ export default function AppLayout() {
         >
           <Text className="text-sm font-medium text-cream">Try again</Text>
         </Pressable>
+        <ServerPickerLink />
       </View>
     );
   }
@@ -365,5 +367,20 @@ export default function AppLayout() {
         touching any screen's layout or stealing a tap. */}
       <OfflineBanner />
     </RoleProvider>
+  );
+}
+
+// The one exit the cannot-connect screens forgot (TMC-298): when the SERVER
+// ADDRESS is the thing that is wrong — a self-host that moved, a dev build
+// baked to a localhost the phone can no longer reach — retrying the same
+// address forever is a dead end. Same understated affordance sign-in uses.
+// The picker validates against GET /ready before saving and backs out, and
+// this layout's gate re-runs on focus, so returning IS the retry against the
+// new address.
+function ServerPickerLink() {
+  return (
+    <Pressable onPress={() => router.push('/server')} hitSlop={8} className="mt-6">
+      <Text className="font-mono text-xs uppercase tracking-widest text-ink-subtle">Advanced</Text>
+    </Pressable>
   );
 }
