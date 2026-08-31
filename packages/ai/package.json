@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@ai-sdk/anthropic": "3.0.81",
+    "@napi-rs/canvas": "0.1.100",
     "@ai-sdk/openai": "3.0.67",
     "@ai-sdk/openai-compatible": "2.0.48",
     "ai": "6.0.194",

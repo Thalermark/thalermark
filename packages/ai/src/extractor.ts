@@ -1,5 +1,6 @@
 import { generateObject } from 'ai';
 import { z } from 'zod';
+import { normalizeReceiptImage } from './image.js';
 import { AI_MAX_RETRIES, EXTRACT_TIMEOUT_MS, resolveTimeoutMs } from './limits.js';
 import { type RawExtraction, normalizeExtraction } from './normalize.js';
 import { renderPdfFirstPageToPng } from './pdf.js';
@@ -55,12 +56,15 @@ export function createReceiptExtractor(): ReceiptExtractor {
       const model = resolveModel(credential, 'vision');
       if (!model) throw new Error('no vision model for the provided LLM credential');
 
-      // PDFs render to PNG first so every provider gets an image; images pass
-      // through untouched.
-      const image =
+      // PDFs render to PNG first so every provider gets an image; then EVERY
+      // path funnels through the size normalizer (TMC-297) — a camera photo at
+      // full resolution is pure cost to the model, so the copy it sees is
+      // capped while the stored original stays untouched.
+      const image = await normalizeReceiptImage(
         input.mimeType === 'application/pdf'
           ? await renderPdfFirstPageToPng(input.bytes)
-          : input.bytes;
+          : input.bytes,
+      );
 
       const { object } = await generateObject({
         model,
