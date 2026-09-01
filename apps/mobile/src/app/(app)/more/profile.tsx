@@ -4,7 +4,7 @@ import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { PasswordStrength } from '../../../components/PasswordStrength';
-import { authClient } from '../../../lib/auth-client';
+import { authClient, signOut } from '../../../lib/auth-client';
 
 // Personal profile — native mirror of apps/web's /settings/profile. Display name
 // + change password for the signed-in user (no email change — that needs
@@ -35,6 +35,8 @@ export default function Profile() {
 
   const [sendingReset, setSendingReset] = useState(false);
   const [resetSent, setResetSent] = useState(false);
+
+  const [signingOut, setSigningOut] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -110,6 +112,12 @@ export default function Profile() {
     setNewPassword('');
     setConfirmPassword('');
     setPwDone(true);
+  }
+
+  async function onSignOut() {
+    setSigningOut(true);
+    await signOut();
+    router.replace('/sign-in');
   }
 
   // Email a reset link to the user's own address (same flow as forgot-password)
@@ -263,6 +271,20 @@ export default function Profile() {
                 </Text>
               )}
             </View>
+
+            {/* Sign-out lives here because this is where people look for it; the
+                dashboard's corner link predates this screen and stays for
+                anyone used to it. Same semantics: revoke + clear the stored
+                bearer, then land on sign-in. */}
+            <Pressable
+              onPress={onSignOut}
+              disabled={signingOut}
+              className="mt-6 rounded-sm border border-ink/15 bg-cream-warm px-4 py-4 active:bg-cream disabled:opacity-50"
+            >
+              <Text className="text-center text-sm font-medium text-oxblood">
+                {signingOut ? 'Signing out…' : 'Sign out'}
+              </Text>
+            </Pressable>
           </>
         )}
       </ScrollView>
