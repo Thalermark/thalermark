@@ -66,6 +66,9 @@ export default function PaymentsSettings() {
   const [onboarding, setOnboarding] = useState(false);
   const [onboardError, setOnboardError] = useState<string | null>(null);
 
+  const [dashboardOpening, setDashboardOpening] = useState(false);
+  const [dashboardError, setDashboardError] = useState<string | null>(null);
+
   const fetchAll = useCallback(async (active: () => boolean) => {
     const compRes = await api.api.companies.$get();
     if (!active()) return;
@@ -161,6 +164,28 @@ export default function PaymentsSettings() {
       setOnboardError("Couldn't start onboarding. Try again.");
     } finally {
       setOnboarding(false);
+    }
+  }
+
+  async function onOpenDashboard() {
+    if (!company) return;
+    setDashboardOpening(true);
+    setDashboardError(null);
+    try {
+      const res = await api.api.companies[':id']['stripe-connect'].dashboard.$post({
+        param: { id: company.id },
+      });
+      if (!res.ok) {
+        setDashboardError("Couldn't open your Stripe dashboard. Try again.");
+        return;
+      }
+      const { url } = await res.json();
+      // Single-use login link; minted fresh per tap, so nothing to cache.
+      await Linking.openURL(url);
+    } catch {
+      setDashboardError("Couldn't open your Stripe dashboard. Try again.");
+    } finally {
+      setDashboardOpening(false);
     }
   }
 
@@ -264,6 +289,27 @@ export default function PaymentsSettings() {
                 </Pressable>
                 {onboardError ? (
                   <Text className="mt-3 text-sm text-oxblood">{onboardError}</Text>
+                ) : null}
+                {status.stripeConnectDetailsSubmitted ? (
+                  // Express accounts have no standalone Stripe login; the API
+                  // mints a single-use login link and the system browser opens
+                  // their dashboard (payouts, balance, disputes). Gated on
+                  // detailsSubmitted because Stripe refuses login links for
+                  // half-onboarded accounts (TMC-301).
+                  <>
+                    <Pressable
+                      onPress={onOpenDashboard}
+                      disabled={dashboardOpening}
+                      className="mt-3 rounded-sm border border-ink/15 bg-cream-warm px-4 py-3 active:bg-cream disabled:opacity-50"
+                    >
+                      <Text className="text-center text-sm font-medium text-ink">
+                        {dashboardOpening ? 'Opening Stripe…' : 'Open Stripe dashboard'}
+                      </Text>
+                    </Pressable>
+                    {dashboardError ? (
+                      <Text className="mt-3 text-sm text-oxblood">{dashboardError}</Text>
+                    ) : null}
+                  </>
                 ) : null}
               </View>
             )}

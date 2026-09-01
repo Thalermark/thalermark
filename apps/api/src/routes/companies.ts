@@ -1031,6 +1031,49 @@ export function companiesRoutes(deps: AppDeps) {
           return c.json({ url: link.url, accountId: connectAccountId });
         },
       )
+      // The Express dashboard (TMC-301): payouts, balance, disputes — Stripe's
+      // own record of the connected account. Express accounts have no
+      // standalone login; the platform mints a single-use login link on
+      // demand. Minted fresh per click and returned for a redirect, never
+      // stored: the URL expires and is single-use by design. Stripe refuses
+      // login links for accounts that never finished onboarding, so callers
+      // gate the UI on detailsSubmitted and this route maps that refusal to a
+      // clean 409 rather than a 500.
+      .post(
+        '/api/companies/:id/stripe-connect/dashboard',
+        requireCapability('settings:manage'),
+        async (c) => {
+          const id = c.req.param('id');
+          if (!UUID_RE.test(id)) return c.json({ error: 'invalid_id' }, 400);
+          if (!deps.stripe) return c.json({ error: 'stripe_not_configured' }, 503);
+
+          const tx = c.get('tx');
+          const accountId = c.get('accountId');
+
+          const [company] = await tx
+            .select()
+            .from(companies)
+            .where(and(eq(companies.id, id), eq(companies.accountId, accountId)))
+            .limit(1);
+          if (!company) return c.json({ error: 'company_not_found' }, 404);
+          if (!company.stripeConnectAccountId) {
+            return c.json({ error: 'stripe_not_connected' }, 409);
+          }
+
+          try {
+            const link = await deps.stripe.client.accounts.createLoginLink(
+              company.stripeConnectAccountId,
+            );
+            return c.json({ url: link.url });
+          } catch (err) {
+            log.warn('stripe login link refused', {
+              companyId: id,
+              err: err instanceof Error ? err.message : String(err),
+            });
+            return c.json({ error: 'stripe_dashboard_unavailable' }, 409);
+          }
+        },
+      )
       // Current state of the Connect onboarding for this company. The web
       // /settings/payments page polls this on the ?stripe=return landing so
       // it can resolve "submitted, waiting on Stripe verification" vs
