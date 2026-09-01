@@ -123,8 +123,10 @@
                single-use login link server-side and 303s into their dashboard
                (payouts, balance, disputes). Gated on detailsSubmitted because
                Stripe refuses login links for half-onboarded accounts
-               (TMC-301). -->
-          <form method="POST" action="?/dashboard">
+               (TMC-301). target=_blank so the dashboard opens beside the app
+               rather than replacing it — unlike onboarding, Stripe never
+               routes this flow back to us. -->
+          <form method="POST" action="?/dashboard" target="_blank" rel="noopener">
             <input type="hidden" name="companyId" value={data.company.id} />
             <button
               type="submit"
