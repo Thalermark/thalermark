@@ -63,6 +63,33 @@ export const actions: Actions = {
     redirect(303, url);
   },
 
+  // Opens the company's Stripe Express dashboard (TMC-301): payouts, balance,
+  // Stripe's own record. The API mints a single-use login link per click, so
+  // this is always a fresh 303 — same plain-HTML-form + redirect shape as
+  // onboard, and the same CSP form-action allowance covers it.
+  dashboard: async (event) => {
+    const client = serverApiClient(event);
+    const formData = await event.request.formData();
+    const companyId = String(formData.get('companyId') ?? '');
+    if (!companyId) return fail(400, { dashboardError: 'missing_company_id' });
+
+    const res = await client.api.companies[':id']['stripe-connect'].dashboard.$post({
+      param: { id: companyId },
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      return fail(res.status, {
+        dashboardError: apiErrorMessage(
+          body?.error,
+          'Stripe could not open your dashboard right now. Try again.',
+          body,
+        ),
+      });
+    }
+    const { url } = await res.json();
+    redirect(303, url);
+  },
+
   // Offline payment instructions (cash / check / Venmo / Zelle). Plain HTML
   // form, no use:enhance — matches the no-JS path of the onboard action above.
   // All six fields are sent every save; the API schema coerces '' → null so a

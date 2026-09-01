@@ -91,6 +91,7 @@ async function userContext(email: string): Promise<{ accountId: string; companyI
 type ConnectStubs = {
   createAccount?: ReturnType<typeof vi.fn>;
   createAccountLink?: ReturnType<typeof vi.fn>;
+  createLoginLink?: ReturnType<typeof vi.fn>;
   createPaymentIntent?: ReturnType<typeof vi.fn>;
   retrieveAccount?: ReturnType<typeof vi.fn>;
 };
@@ -115,8 +116,15 @@ function makeStubStripe(stubs: ConnectStubs = {}): StripeBundle {
       payouts_enabled: true,
       requirements: { currently_due: [], past_due: [], disabled_reason: null },
     }));
+  const createLoginLink =
+    stubs.createLoginLink ??
+    vi.fn(async () => ({ url: 'https://connect.stripe.com/express/login/test' }));
   const client = {
-    accounts: { create: createAccount, retrieve: retrieveAccount },
+    accounts: {
+      create: createAccount,
+      retrieve: retrieveAccount,
+      createLoginLink,
+    },
     accountLinks: { create: createAccountLink },
     paymentIntents: { create: createPaymentIntent },
   } as unknown as Stripe;
@@ -292,6 +300,131 @@ describe('POST /api/companies/:id/stripe-connect/onboard', () => {
         .values({ id: otherCompanyId, accountId: otherAccountId, name: 'Other Co' });
 
       const res = await app.request(`/api/companies/${otherCompanyId}/stripe-connect/onboard`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+      });
+      expect(res.status).toBe(404);
+    } finally {
+      await handle.close();
+    }
+  });
+});
+
+describe('POST /api/companies/:id/stripe-connect/dashboard', () => {
+  beforeEach(resetDb);
+
+  it('mints a fresh Express login link for a connected company', async () => {
+    const createAccount = vi.fn(async () => ({ id: 'acct_dash' }));
+    const createLoginLink = vi.fn(async () => ({
+      url: 'https://connect.stripe.com/express/login/xyz',
+    }));
+    const stripe = makeStubStripe({ createAccount, createLoginLink });
+    const { app, handle } = buildApp(stripe);
+    try {
+      const cookie = await signUp(app, 'dash@connect.test');
+      const { accountId, companyId } = await userContext('dash@connect.test');
+      const onboard = await app.request(`/api/companies/${companyId}/stripe-connect/onboard`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+      });
+      expect(onboard.status).toBe(200);
+
+      const res = await app.request(`/api/companies/${companyId}/stripe-connect/dashboard`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ url: 'https://connect.stripe.com/express/login/xyz' });
+      expect(createLoginLink).toHaveBeenCalledTimes(1);
+      expect(createLoginLink).toHaveBeenCalledWith('acct_dash');
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('409s a company that never onboarded, without calling Stripe', async () => {
+    const createLoginLink = vi.fn(async () => ({ url: 'https://connect.stripe.com/x' }));
+    const stripe = makeStubStripe({ createLoginLink });
+    const { app, handle } = buildApp(stripe);
+    try {
+      const cookie = await signUp(app, 'nolink@connect.test');
+      const { accountId, companyId } = await userContext('nolink@connect.test');
+      const res = await app.request(`/api/companies/${companyId}/stripe-connect/dashboard`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+      });
+      expect(res.status).toBe(409);
+      expect(await res.json()).toMatchObject({ error: 'stripe_not_connected' });
+      expect(createLoginLink).not.toHaveBeenCalled();
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('maps a Stripe refusal to a clean 409, not a 500', async () => {
+    // Stripe declines login links for accounts that never finished
+    // onboarding; the route must surface that as a state, not an error page.
+    const createLoginLink = vi.fn(async () => {
+      throw new Error(
+        'Cannot create a login link for an account that has not completed onboarding.',
+      );
+    });
+    const stripe = makeStubStripe({ createLoginLink });
+    const { app, handle } = buildApp(stripe);
+    try {
+      const cookie = await signUp(app, 'refused@connect.test');
+      const { accountId, companyId } = await userContext('refused@connect.test');
+      const onboard = await app.request(`/api/companies/${companyId}/stripe-connect/onboard`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+      });
+      expect(onboard.status).toBe(200);
+
+      const res = await app.request(`/api/companies/${companyId}/stripe-connect/dashboard`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+      });
+      expect(res.status).toBe(409);
+      expect(await res.json()).toMatchObject({ error: 'stripe_dashboard_unavailable' });
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('returns 503 when Stripe is not configured', async () => {
+    const { app, handle } = buildApp(null);
+    try {
+      const cookie = await signUp(app, 'nostripe-dash@connect.test');
+      const { accountId, companyId } = await userContext('nostripe-dash@connect.test');
+      const res = await app.request(`/api/companies/${companyId}/stripe-connect/dashboard`, {
+        method: 'POST',
+        headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
+      });
+      expect(res.status).toBe(503);
+      expect(await res.json()).toMatchObject({ error: 'stripe_not_configured' });
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('returns 404 for a company in another tenant', async () => {
+    const stripe = makeStubStripe();
+    const { app, handle } = buildApp(stripe);
+    try {
+      const cookie = await signUp(app, 'tenant-dash@connect.test');
+      const { accountId } = await userContext('tenant-dash@connect.test');
+      const otherAccountId = uuidv7();
+      const otherCompanyId = uuidv7();
+      const db = getTestDb();
+      await db.insert(accounts).values({ id: otherAccountId, name: 'Other' });
+      await db.insert(companies).values({
+        id: otherCompanyId,
+        accountId: otherAccountId,
+        name: 'Other Co',
+        stripeConnectAccountId: 'acct_other',
+      });
+
+      const res = await app.request(`/api/companies/${otherCompanyId}/stripe-connect/dashboard`, {
         method: 'POST',
         headers: { cookie, 'x-account-id': accountId, 'content-type': 'application/json' },
       });

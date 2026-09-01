@@ -108,19 +108,42 @@
           <dd class="text-fg/80">{data.status.stripeConnectPayoutsEnabled ? 'yes' : 'no'}</dd>
         </dl>
       </div>
-      <form method="POST" action="?/onboard">
-        <input type="hidden" name="companyId" value={data.company.id} />
-        <button
-          type="submit"
-          class="btn"
-        >
-          {buttonLabel}
-        </button>
-      </form>
+      <div class="grid gap-3">
+        <form method="POST" action="?/onboard">
+          <input type="hidden" name="companyId" value={data.company.id} />
+          <button
+            type="submit"
+            class="btn w-full"
+          >
+            {buttonLabel}
+          </button>
+        </form>
+        {#if data.status.stripeConnectDetailsSubmitted}
+          <!-- Express accounts have no standalone Stripe login; this mints a
+               single-use login link server-side and 303s into their dashboard
+               (payouts, balance, disputes). Gated on detailsSubmitted because
+               Stripe refuses login links for half-onboarded accounts
+               (TMC-301). -->
+          <form method="POST" action="?/dashboard">
+            <input type="hidden" name="companyId" value={data.company.id} />
+            <button
+              type="submit"
+              class="btn-ghost w-full"
+            >
+              Open Stripe dashboard
+            </button>
+          </form>
+        {/if}
+      </div>
     </div>
     {#if form?.onboardError}
       <p class="border-t border-fg/10 px-6 py-3 text-sm text-danger">
         Couldn't start onboarding: {form.onboardError}
+      </p>
+    {/if}
+    {#if form?.dashboardError}
+      <p class="border-t border-fg/10 px-6 py-3 text-sm text-danger">
+        Couldn't open the Stripe dashboard: {form.dashboardError}
       </p>
     {/if}
   </section>

@@ -9901,6 +9901,16 @@
         "retiredAt": "string"
       }
     },
+    "$post /api/companies/:id/stripe-connect/dashboard": {
+      "request": {
+        "param": {
+          "id": "string"
+        }
+      },
+      "response": {
+        "url": "string"
+      }
+    },
     "$post /api/companies/:id/stripe-connect/onboard": {
       "request": {
         "param": {
