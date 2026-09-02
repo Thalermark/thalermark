@@ -6,6 +6,7 @@ import {
   type LlmConnectionReader,
   rowToCredential,
   settingsLlmCredentials,
+  statusOf,
 } from './llm-connection.js';
 
 const key = deriveConnectionKey('a-genuinely-random-better-auth-secret');
@@ -103,6 +104,30 @@ describe('rowToCredential — null means "trust the preset"', () => {
       modelFast: 'f',
       structured: true,
     });
+  });
+});
+
+describe('statusOf', () => {
+  it('reads unverified before any probe, error after a failed first probe', () => {
+    expect(statusOf(row({ lastOkAt: null }))).toBe('unverified');
+    expect(statusOf(row({ lastOkAt: null, lastError: 'invalid x-api-key' }))).toBe('error');
+  });
+
+  it('reads ready after a success, error once a failure follows it', () => {
+    expect(statusOf(row())).toBe('ready');
+    expect(statusOf(row({ lastErrorAt: new Date(HEALTHY.getTime() + 1), lastError: 'down' }))).toBe(
+      'error',
+    );
+  });
+
+  // TMC-304 regression. Verify writes text-ok then vision-fail milliseconds
+  // apart; when both stamps landed in the same millisecond the old strict
+  // timestamp comparison tied and a dead vision model read 'ready'. Both set
+  // means the error is newer — every success write clears last_error_at.
+  it('reads error when the ok and error stamps tie to the millisecond', () => {
+    expect(
+      statusOf(row({ lastErrorAt: HEALTHY, lastError: 'Receipt reading (vision model): dead' })),
+    ).toBe('error');
   });
 });
 

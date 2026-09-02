@@ -150,8 +150,13 @@ export function rowToCredential(row: ConnectionRow, masterKey: Buffer): LlmCrede
 // Derived, never stored. See ConnectionStatus.
 export function statusOf(row: ConnectionRow): ConnectionStatus {
   if (row.lastOkAt === null) return row.lastError === null ? 'unverified' : 'error';
-  const failingSinceOk = row.lastErrorAt !== null && row.lastErrorAt > row.lastOkAt;
-  return failingSinceOk ? 'error' : 'ready';
+  // Every success write nulls last_error_at (the upsert health reset, a
+  // passing probe, recordOk), so both timestamps being set can only mean the
+  // error landed after the ok in program order. Comparing the clocks
+  // re-derived that and got it wrong on a tie: verify's text-ok and
+  // vision-fail writes are millisecond stamps taken a hair apart, and when
+  // they matched, a dead vision model read 'ready' (TMC-304).
+  return row.lastErrorAt !== null ? 'error' : 'ready';
 }
 
 // ••••last4 — enough to recognise your own key, useless to anyone else. Returns
