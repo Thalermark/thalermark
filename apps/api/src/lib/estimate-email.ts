@@ -61,7 +61,7 @@ export function buildEstimateEmail(input: EstimateEmailInput): {
   // corrections are a wrong date or a wrong line description.
   const correction = revision
     ? [
-        'Sorry — the earlier estimate was wrong. This is the corrected one.',
+        'Sorry, the earlier estimate was wrong. This is the corrected one.',
         ...(revision.previousTotal !== estimate.total
           ? [
               `The total changed from ${formatMoneyDisplay(revision.previousTotal, estimate.currency)} to ${amount}.`,
@@ -74,7 +74,7 @@ export function buildEstimateEmail(input: EstimateEmailInput): {
   const validUntilHtml = expiresOn
     ? `<p style="margin:14px 0 0;">This estimate is valid until ${escapeHtml(expiresOn)}.</p>`
     : '';
-  const text = `${correction ? `${correction}\n\n` : ''}${textBody}${validUntilText}\n\nView the estimate: ${publicUrl}\n\n— ${companyName}\n\n${emailFooterText(true)}`;
+  const text = `${correction ? `${correction}\n\n` : ''}${textBody}${validUntilText}\n\nView the estimate: ${publicUrl}\n\n${companyName}\n\n${emailFooterText(true)}`;
   const html = renderEmailHtml({
     brandName: companyName,
     preheader: correction

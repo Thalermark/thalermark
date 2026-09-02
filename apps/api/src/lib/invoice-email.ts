@@ -85,7 +85,7 @@ export function buildInvoiceEmail(input: InvoiceEmailInput): {
   // from $450.00 to $450.00" would read as a mistake in its own right.
   const correction = revision
     ? [
-        'Sorry — the earlier invoice was wrong. This is the corrected one.',
+        'Sorry, the earlier invoice was wrong. This is the corrected one.',
         ...(revision.previousTotal !== invoice.total
           ? [
               `The total changed from ${formatMoneyDisplay(revision.previousTotal, invoice.currency)} to ${amount}.`,
@@ -103,7 +103,7 @@ export function buildInvoiceEmail(input: InvoiceEmailInput): {
     `View your invoice: ${publicUrl}`,
     ...(replyNote ? ['', replyNote] : []),
     '',
-    `— ${companyName}`,
+    companyName,
     '',
     emailFooterText(true),
   ].join('\n');

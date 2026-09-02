@@ -282,7 +282,7 @@ describe('GET /api/contacts/:id/statement', () => {
         balance: '150.00',
       });
       expect(body.lines[2]).toMatchObject({
-        description: 'Payment received — INV-2',
+        description: 'Payment received for INV-2',
         charge: null,
         payment: '50.00',
         balance: '100.00',
@@ -359,7 +359,7 @@ describe('statement payment lines come from the receipts (TMC-253)', () => {
       // arrived, for what actually arrived.
       expect(body.lines[1]).toMatchObject({
         date: '2026-03-05',
-        description: 'Payment received — INV-1',
+        description: 'Payment received for INV-1',
         charge: null,
         payment: '200.00',
         balance: '250.00',
@@ -441,7 +441,7 @@ describe('statement payment lines come from the receipts (TMC-253)', () => {
       // Charge-side: money handed back is money owed again.
       expect(body.lines[2]).toMatchObject({
         date: '2026-03-20',
-        description: 'Refund issued — INV-1',
+        description: 'Refund issued for INV-1',
         charge: '200.00',
         payment: null,
         balance: '200.00',
@@ -517,7 +517,7 @@ describe('statement payment lines come from the receipts (TMC-253)', () => {
 
       expect(body.lines).toHaveLength(2);
       expect(body.lines[1]).toMatchObject({
-        description: 'Payment received — INV-1',
+        description: 'Payment received for INV-1',
         payment: '450.00',
         balance: '0.00',
       });
@@ -628,7 +628,7 @@ describe('POST /api/contacts/:id/statement/send', () => {
 
       const mail = rec.sent[0];
       expect(mail?.subject).toContain('$250.00');
-      expect(mail?.html).toContain('Payment received — A');
+      expect(mail?.html).toContain('Payment received for A');
       expect(mail?.html).toContain('$200.00');
       expect(mail?.text).toContain('Balance due: $250.00');
       // The number that was being demanded of a customer who had already paid.
