@@ -105,7 +105,7 @@ export function invoicePaidNotice(args: {
     body: [
       `${args.customerName} paid ${args.amount} ${args.currency} on invoice ${args.number}.`,
       '',
-      'The payment is already on your books — nothing else to do.',
+      'The payment is already on your books. Nothing else to do.',
     ].join('\n'),
   };
 }

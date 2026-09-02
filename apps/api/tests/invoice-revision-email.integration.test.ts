@@ -218,7 +218,7 @@ describe('the corrected-invoice email', () => {
       // The re-issue is not. Prefixed rather than replaced, so the business's
       // own subject line still identifies the thread.
       expect(corrected?.subject).toMatch(/^Corrected: Invoice INV-001 from /);
-      expect(corrected?.text).toContain('Sorry — the earlier invoice was wrong.');
+      expect(corrected?.text).toContain('Sorry, the earlier invoice was wrong.');
       // Formatted for a reader, not the stored decimal string.
       expect(corrected?.text).toContain('The total changed from $450.00 to $4,500.00.');
       expect(corrected?.html).toContain('The total changed from $450.00 to $4,500.00.');
@@ -245,7 +245,7 @@ describe('the corrected-invoice email', () => {
 
       const corrected = ctx.rec.sent[1];
       expect(corrected?.subject).toMatch(/^Corrected: /);
-      expect(corrected?.text).toContain('Sorry — the earlier invoice was wrong.');
+      expect(corrected?.text).toContain('Sorry, the earlier invoice was wrong.');
       // "The total changed from $450.00 to $450.00" would read as a mistake in
       // its own right.
       expect(corrected?.text).not.toContain('The total changed');
@@ -371,7 +371,7 @@ describe('the corrected-estimate email', () => {
 
       const corrected = ctx.rec.sent[1];
       expect(corrected?.subject).toMatch(/^Corrected: Estimate EST-001 from /);
-      expect(corrected?.text).toContain('Sorry — the earlier estimate was wrong.');
+      expect(corrected?.text).toContain('Sorry, the earlier estimate was wrong.');
       expect(corrected?.text).toContain('The total changed from $900.00 to $1,200.00.');
       // The fixed "valid until" chrome still rides along under the preamble.
       expect(corrected?.html).toContain('This estimate is valid until');

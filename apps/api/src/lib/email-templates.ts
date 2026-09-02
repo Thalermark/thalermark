@@ -14,14 +14,14 @@ import { escapeHtml } from './html.js';
 export const DEFAULT_TEMPLATES: Record<EmailTemplateType, { subject: string; body: string }> = {
   invoice: {
     subject: 'Invoice {{invoice_number}} from {{company_name}}',
-    body: "Hi {{customer_name}},\n\nThanks for your business. Invoice {{invoice_number}} for {{amount}} is ready — it's due {{due_date}}.",
+    body: "Hi {{customer_name}},\n\nThanks for your business. Invoice {{invoice_number}} for {{amount}} is ready. It's due {{due_date}}.",
   },
   estimate: {
     subject: 'Estimate {{estimate_number}} from {{company_name}}',
     body: "Hi {{customer_name}},\n\nHere's estimate {{estimate_number}} for {{amount}}, ready for your review. Take a look and let us know if you'd like to go ahead.",
   },
   statement: {
-    subject: 'Statement from {{company_name}} — balance due {{balance_due}}',
+    subject: 'Statement from {{company_name}}: balance due {{balance_due}}',
     body: "Hi {{customer_name}},\n\nHere's your account statement from {{company_name}} as of {{statement_date}}.",
   },
   // Deliberately gentle, and deliberately not accusatory (TMC-189). The same
@@ -32,8 +32,8 @@ export const DEFAULT_TEMPLATES: Record<EmailTemplateType, { subject: string; bod
   // {{outstanding}}, never {{amount}}: this chases what is still owed, which
   // stops being the invoice total the moment a deposit exists.
   reminder: {
-    subject: 'Invoice {{invoice_number}} from {{company_name}} — {{outstanding}} outstanding',
-    body: 'Hi {{customer_name}},\n\nA quick note that {{outstanding}} is outstanding on invoice {{invoice_number}}, due {{due_date}}.\n\nIf you have already sent it, thank you — please ignore this.',
+    subject: 'Invoice {{invoice_number}} from {{company_name}}: {{outstanding}} outstanding',
+    body: 'Hi {{customer_name}},\n\nA quick note that {{outstanding}} is outstanding on invoice {{invoice_number}}, due {{due_date}}.\n\nIf you have already sent it, thank you. Please ignore this.',
   },
 };
 

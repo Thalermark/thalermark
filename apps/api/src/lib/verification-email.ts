@@ -19,10 +19,10 @@ export function verificationEmail(args: { name?: string | null; url: string }): 
       brandName: 'Thalermark',
       preheader: 'Confirm your email to finish setting up your account.',
       heading: 'Confirm your email',
-      bodyHtml: `<p style="margin:0;">${greeting}</p><p style="margin:14px 0 0;">You're almost there — confirm your email address to finish setting up your Thalermark account.</p>`,
+      bodyHtml: `<p style="margin:0;">${greeting}</p><p style="margin:14px 0 0;">You're almost there. Confirm your email address to finish setting up your Thalermark account.</p>`,
       cta: { label: 'Verify my email', url: args.url },
       footnote: ignore,
     }),
-    text: `${greeting}\n\nYou're almost there — confirm your email address to finish setting up your Thalermark account:\n${args.url}\n\n${ignore}\n`,
+    text: `${greeting}\n\nYou're almost there. Confirm your email address to finish setting up your Thalermark account:\n${args.url}\n\n${ignore}\n`,
   };
 }

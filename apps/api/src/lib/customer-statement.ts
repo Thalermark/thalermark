@@ -168,7 +168,7 @@ export async function buildCustomerStatement(
         cents < 0
           ? {
               date: r.receivedOn,
-              description: `Refund issued — ${inv.number}`,
+              description: `Refund issued for ${inv.number}`,
               charge: centsToMoney(-cents),
               payment: null,
               sort: 1,
@@ -176,7 +176,7 @@ export async function buildCustomerStatement(
             }
           : {
               date: r.receivedOn,
-              description: `Payment received — ${inv.number}`,
+              description: `Payment received for ${inv.number}`,
               charge: null,
               payment: centsToMoney(cents),
               sort: 1,
@@ -190,7 +190,7 @@ export async function buildCustomerStatement(
     if (receipts.length === 0 && inv.status === 'paid' && inv.paidAt) {
       entries.push({
         date: inv.paidAt.toISOString().slice(0, 10),
-        description: `Payment received — ${inv.number}`,
+        description: `Payment received for ${inv.number}`,
         charge: null,
         payment: inv.total,
         sort: 1,

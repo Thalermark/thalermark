@@ -37,7 +37,7 @@
       gone rather than leaving the recipient at a quote that stopped working.
     -->
     <div class="mt-6 rounded-sm border border-fg/20 bg-surface-2 px-4 py-3 text-sm text-fg/70">
-      {est.companyName ?? 'The business'} is revising this estimate — the price may change. You'll
+      {est.companyName ?? 'The business'} is revising this estimate. The price may change. You'll
       get the corrected version shortly.
     </div>
   {:else if est.status === 'accepted'}
@@ -59,7 +59,7 @@
       {#each est.revisions as r (r.revisedAt)}
         <p class="text-sm text-fg/60">
           Revised {formatDateDisplay(r.revisedAt.slice(0, 10))}{r.previousTotal !== est.total
-            ? ` — the total was ${formatMoneyDisplay(r.previousTotal, est.currency)}`
+            ? ` (the total was ${formatMoneyDisplay(r.previousTotal, est.currency)})`
             : ''}.
         </p>
       {/each}
@@ -94,7 +94,7 @@
     </div>
     <div>
       <dt class="label">Expires</dt>
-      <dd class="mt-1 text-fg">{est.expiresOn ?? '—'}</dd>
+      <dd class="mt-1 text-fg">{est.expiresOn ?? '–'}</dd>
     </div>
   </dl>
 

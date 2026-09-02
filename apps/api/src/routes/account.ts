@@ -345,13 +345,13 @@ export function accountRoutes(deps: AppDeps) {
             await deps.mailer.send({
               to: email,
               subject: "You're invited to a workspace on Thalermark",
-              text: `You've been invited to join a workspace on Thalermark — AI-first accounting for freelancers and tradespeople.\n\nAccept the invitation: ${url}\n\nThis invitation expires in 7 days. If you weren't expecting it, you can ignore this email.\n\n${emailFooterText(false)}\n`,
+              text: `You've been invited to join a workspace on Thalermark: AI-first accounting for freelancers and tradespeople.\n\nAccept the invitation: ${url}\n\nThis invitation expires in 7 days. If you weren't expecting it, you can ignore this email.\n\n${emailFooterText(false)}\n`,
               html: renderEmailHtml({
                 brandName: 'Thalermark',
                 preheader: "You've been invited to join a workspace on Thalermark.",
                 heading: "You're invited",
                 bodyHtml:
-                  '<p style="margin:0;">You\'ve been invited to join a workspace on <strong>Thalermark</strong> — AI-first accounting for freelancers and tradespeople.</p>',
+                  '<p style="margin:0;">You\'ve been invited to join a workspace on <strong>Thalermark</strong>: AI-first accounting for freelancers and tradespeople.</p>',
                 cta: { label: 'Accept invitation', url },
                 footnote:
                   "This invitation expires in 7 days. If you weren't expecting it, you can ignore this email.",

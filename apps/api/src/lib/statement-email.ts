@@ -58,7 +58,7 @@ export function buildStatementEmail(input: StatementEmailInput): {
     `Total paid: ${money(statement.totalPayments)}`,
     `Balance due: ${balanceDue}`,
     '',
-    `— ${companyName}`,
+    companyName,
     '',
     emailFooterText(true),
   ].join('\n');

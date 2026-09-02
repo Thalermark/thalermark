@@ -91,7 +91,7 @@
       invoice the business is already dealing with.
     -->
     <div class="mt-6 rounded-sm border border-fg/20 bg-surface-2 px-4 py-3 text-sm text-fg/70">
-      {inv.companyName ?? 'The business'} is revising this invoice — the amount may change. You
+      {inv.companyName ?? 'The business'} is revising this invoice. The amount may change. You
       don't need to do anything right now.
     </div>
   {:else if inv.status === 'paid'}
@@ -114,16 +114,16 @@
     </div>
   {:else if payOutcome === 'succeeded'}
     <div class="mt-6 rounded-sm border border-accent/30 bg-accent/5 px-4 py-3 text-sm text-fg">
-      Payment received — finalizing. Refresh in a moment if this banner doesn't update.
+      Payment received: finalizing. Refresh in a moment if this banner doesn't update.
     </div>
   {:else if payOutcome === 'processing'}
     <div class="mt-6 rounded-sm border border-accent/30 bg-accent/5 px-4 py-3 text-sm text-fg">
-      Payment submitted and still clearing with your bank. This can take a few minutes — the
+      Payment submitted and still clearing with your bank. This can take a few minutes. The
       invoice updates on its own once it settles.
     </div>
   {:else if payOutcome === 'unknown'}
     <div class="mt-6 rounded-sm border border-fg/15 bg-surface-2 px-4 py-3 text-sm text-fg/80">
-      We're still confirming this payment. Refresh in a moment — the invoice shows as paid once
+      We're still confirming this payment. Refresh in a moment. The invoice shows as paid once
       it clears.
     </div>
   {:else if inv.noPaymentMethod}
@@ -154,7 +154,7 @@
       omitted when the total did not move.
 
       Hidden WHILE a correction is in flight. Mid-revision the figures on the
-      page are still the old ones, so "Revised Aug 11 — the total was $450.00"
+      page are still the old ones, so "Revised Aug 11 (the total was $450.00)"
       sits above a $450 total and reads as though the change has already
       happened. The banner above is the whole story until the resend lands.
     -->
@@ -162,7 +162,7 @@
       {#each inv.revisions as r (r.revisedAt)}
         <p class="text-sm text-fg/60">
           Revised {formatDateDisplay(r.revisedAt.slice(0, 10))}{r.previousTotal !== inv.total
-            ? ` — the total was ${formatMoneyDisplay(r.previousTotal, inv.currency)}`
+            ? ` (the total was ${formatMoneyDisplay(r.previousTotal, inv.currency)})`
             : ''}.
         </p>
       {/each}
