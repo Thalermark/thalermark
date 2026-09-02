@@ -5,7 +5,11 @@ import type { OpeningBalanceAccount, OpeningBalanceData } from '$lib/opening-bal
 import { may } from '$lib/perms';
 import type { Actions, RequestEvent } from '@sveltejs/kit';
 import { error, fail, redirect } from '@sveltejs/kit';
-import { openingBalanceFullUpsertSchema, openingBalanceUpsertSchema } from '@thalermark/validation';
+import {
+  localToday,
+  openingBalanceFullUpsertSchema,
+  openingBalanceUpsertSchema,
+} from '@thalermark/validation';
 
 // Loader + actions for starting balances, lifted out of the owner-money route so
 // the settings page and the welcome wizard can mount the same thing.
@@ -20,18 +24,19 @@ import { openingBalanceFullUpsertSchema, openingBalanceUpsertSchema } from '@tha
 //
 // `redirectTo` is the only thing that varies between hosts.
 
-async function activeCompanyId(event: RequestEvent): Promise<string | null> {
+async function activeCompany(event: RequestEvent) {
   const client = serverApiClient(event);
   const res = await client.api.companies.$get();
   if (!res.ok) throw error(res.status, 'failed to load companies');
   const { companies } = await res.json();
-  return pickActiveCompany(event.cookies, companies)?.id ?? null;
+  return pickActiveCompany(event.cookies, companies) ?? null;
 }
 
 export async function loadOpeningBalance(event: RequestEvent): Promise<OpeningBalanceData> {
   const client = serverApiClient(event);
-  const companyId = await activeCompanyId(event);
-  if (!companyId) throw error(500, 'no company in this workspace');
+  const company = await activeCompany(event);
+  if (!company) throw error(500, 'no company in this workspace');
+  const companyId = company.id;
 
   const res = await client.api['owner-money']['opening-balance'].$get({ query: { companyId } });
   const body = res.ok ? await res.json() : null;
@@ -59,7 +64,9 @@ export async function loadOpeningBalance(event: RequestEvent): Promise<OpeningBa
     current: (body?.openingBalance ?? null) as OpeningBalanceData['current'],
     lines: body?.lines ?? [],
     accounts,
-    today: new Date().toISOString().slice(0, 10),
+    // The company's calendar day, not this server's UTC clock, which dates an
+    // evening entry tomorrow (TMC-303).
+    today: localToday(company.timezone),
   };
 }
 
@@ -81,7 +88,7 @@ export function openingBalanceActions(redirectTo: string): Actions {
       const values = readForm(await event.request.formData());
 
       // companyId is resolved server-side (never trusted from the form).
-      const companyId = await activeCompanyId(event);
+      const companyId = (await activeCompany(event))?.id ?? null;
       if (!companyId) return fail(400, { values, formError: 'No company in this workspace.' });
 
       // Blank fields collapse to undefined so the schema applies its "0" default.
@@ -123,7 +130,7 @@ export function openingBalanceActions(redirectTo: string): Actions {
       // client, the same way the ledger portal's entry form does it.
       const linesRaw = String(data.get('lines') ?? '');
 
-      const companyId = await activeCompanyId(event);
+      const companyId = (await activeCompany(event))?.id ?? null;
       if (!companyId) return fail(400, { fullError: 'No company in this workspace.' });
 
       let lines: unknown = [];
@@ -154,7 +161,7 @@ export function openingBalanceActions(redirectTo: string): Actions {
 
     clear: async (event) => {
       const client = serverApiClient(event);
-      const companyId = await activeCompanyId(event);
+      const companyId = (await activeCompany(event))?.id ?? null;
       if (!companyId) return fail(400, { formError: 'No company in this workspace.' });
 
       const res = await client.api['owner-money']['opening-balance'].$delete({

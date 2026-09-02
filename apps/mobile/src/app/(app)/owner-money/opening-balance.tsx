@@ -1,4 +1,4 @@
-import { openingBalanceUpsertSchema } from '@thalermark/validation';
+import { localToday, openingBalanceUpsertSchema } from '@thalermark/validation';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
 import {
@@ -51,6 +51,10 @@ export default function OpeningBalanceScreen() {
         const company = await pickActiveCompany(companies);
         if (!company) return;
         setCompanyId(company.id);
+        // Re-date through the company's timezone now that we know it
+        // (TMC-303). The useState seed ran on the device clock in UTC, which
+        // dates an evening entry tomorrow. A stored balance below still wins.
+        setAsOfDate(localToday(company.timezone));
         const obRes = await api.api['owner-money']['opening-balance'].$get({
           query: { companyId: company.id },
         });

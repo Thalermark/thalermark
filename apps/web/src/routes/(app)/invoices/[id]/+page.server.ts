@@ -2,6 +2,7 @@ import { pickActiveCompany } from '$lib/active-company';
 import { apiErrorMessage, settlementErrorMessage } from '$lib/api-errors';
 import { serverApiClient } from '$lib/api.server';
 import { error, fail, redirect } from '@sveltejs/kit';
+import { localToday } from '@thalermark/validation';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async (event) => {
@@ -116,6 +117,11 @@ export const load: PageServerLoad = async (event) => {
     // on a company that never reminds anyone reads as a setting that does
     // nothing, so the section says which of the two levels is off (TMC-189).
     companyRemindersEnabled: company?.remindersEnabled ?? false,
+    // Today as the company's calendar day, for the payment-date defaults
+    // (TMC-303). This server runs UTC, so its own clock dates an evening
+    // receipt tomorrow. UTC fallback only when the best-effort companies
+    // fetch above failed, which is the pre-TMC-303 behaviour.
+    today: company ? localToday(company.timezone) : new Date().toISOString().slice(0, 10),
   };
 };
 

@@ -1,6 +1,6 @@
-import { loanPaymentSchema } from '@thalermark/validation';
+import { loanPaymentSchema, localToday } from '@thalermark/validation';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { type AuditEvent, AuditHistory } from '../../../components/AuditHistory';
+import { pickActiveCompany } from '../../../lib/active-company';
 import { api } from '../../../lib/api';
 import { apiErrorMessage } from '../../../lib/api-errors';
 import { useMay } from '../../../lib/role';
@@ -77,6 +78,12 @@ export default function PurchaseDetail() {
   const [payDate, setPayDate] = useState(todayIso());
   const [payError, setPayError] = useState<string | null>(null);
 
+  // Re-date the payment default through the company's timezone once (TMC-303):
+  // the useState seed above ran on the device clock in UTC, which dates an
+  // evening payment tomorrow. Ref-guarded because load() re-runs on every
+  // focus regain and must not clobber a date the user has already edited.
+  const didSeedPayDate = useRef(false);
+
   const load = useCallback(async () => {
     const res = await api.api.purchases[':id'].$get({ param: { id } });
     if (!res.ok) {
@@ -101,6 +108,20 @@ export default function PurchaseDetail() {
         query: { entityType: 'capital_purchase', entityId: id },
       });
       if (auditRes.ok) setAuditEvents((await auditRes.json()).events);
+    } catch {}
+    // Best-effort like the audit trail: a failed companies read leaves the
+    // UTC seed, which is what every date here was before TMC-303.
+    try {
+      if (!didSeedPayDate.current) {
+        const compRes = await api.api.companies.$get();
+        if (compRes.ok) {
+          const company = await pickActiveCompany((await compRes.json()).companies);
+          if (company && !didSeedPayDate.current) {
+            didSeedPayDate.current = true;
+            setPayDate(localToday(company.timezone));
+          }
+        }
+      }
     } catch {}
   }, [id]);
 

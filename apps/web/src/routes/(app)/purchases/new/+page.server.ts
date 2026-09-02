@@ -2,7 +2,7 @@ import { pickActiveCompany } from '$lib/active-company';
 import { apiErrorMessage } from '$lib/api-errors';
 import { serverApiClient } from '$lib/api.server';
 import { error, fail, redirect } from '@sveltejs/kit';
-import { capitalPurchaseCreateSchema } from '@thalermark/validation';
+import { capitalPurchaseCreateSchema, localToday } from '@thalermark/validation';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async (event) => {
@@ -16,7 +16,9 @@ export const load: PageServerLoad = async (event) => {
   // likely to go on the card as out of checking.
   const moneyRes = await client.api['money-accounts'].$get({ query: { companyId: company.id } });
   const moneyAccounts = moneyRes.ok ? (await moneyRes.json()).moneyAccounts : [];
-  return { today: new Date().toISOString().slice(0, 10), moneyAccounts };
+  // The company's calendar day, not this server's UTC clock, which dates an
+  // evening purchase tomorrow (TMC-303).
+  return { today: localToday(company.timezone), moneyAccounts };
 };
 
 type FormValues = {

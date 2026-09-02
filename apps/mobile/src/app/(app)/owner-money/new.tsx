@@ -1,4 +1,8 @@
-import { type OwnerMoneyEventKind, ownerMoneyEventCreateSchema } from '@thalermark/validation';
+import {
+  type OwnerMoneyEventKind,
+  localToday,
+  ownerMoneyEventCreateSchema,
+} from '@thalermark/validation';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
 import {
@@ -56,7 +60,13 @@ export default function NewOwnerMoney() {
         if (!active || !compRes.ok) return;
         const { companies } = await compRes.json();
         const company = await pickActiveCompany(companies);
-        if (company) setCompanyId(company.id);
+        if (company) {
+          setCompanyId(company.id);
+          // Re-date through the company's timezone now that we know it
+          // (TMC-303). The useState seed ran on the device clock in UTC,
+          // which dates an evening draw or contribution tomorrow.
+          setOccurredOn(localToday(company.timezone));
+        }
       })()
         .catch(() => {})
         .finally(() => {

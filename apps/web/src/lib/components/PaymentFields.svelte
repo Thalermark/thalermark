@@ -12,6 +12,11 @@
     method = 'cash',
     reference = null,
     date,
+    // Today as the COMPANY's calendar day, from the caller's server load
+    // (TMC-303). The UTC fallback below is the pre-TMC-303 behaviour for any
+    // caller not passing it: an evening default dated tomorrow, and in zones
+    // ahead of UTC a max-cap of yesterday that blocks a same-day payment.
+    today = new Date().toISOString().slice(0, 10),
     accounts = [],
     accountField = 'paymentAccountId',
     accountLabel = 'Paid from',
@@ -22,6 +27,7 @@
     method?: string;
     reference?: string | null;
     date?: string;
+    today?: string;
     accounts?: { id: string; name: string; kind: string | null }[];
     accountField?: string;
     accountLabel?: string;
@@ -55,7 +61,6 @@
   // is intended.
   // svelte-ignore state_referenced_locally
   let selected = $state(method);
-  const today = new Date().toISOString().slice(0, 10);
   const dateValue = $derived(date ?? today);
 </script>
 
