@@ -1,6 +1,7 @@
 import { pickActiveCompany } from '$lib/active-company';
 import { apiBaseUrl, serverApiClient, serverApiHeaders } from '$lib/api.server';
 import { error } from '@sveltejs/kit';
+import { localToday } from '@thalermark/validation';
 
 // Shared loaders for the report pages. They all read a from/to window (default
 // YTD) off a single company (single-company MVP picks the first), surface the
@@ -10,29 +11,20 @@ import { error } from '@sveltejs/kit';
 
 export type Preset = { key: string; label: string; from: string; to: string };
 
-const ymd = (d: Date) => d.toISOString().slice(0, 10);
-
-// Standard reporting windows computed from `now` (UTC).
-export function periodPresets(now = new Date()): Preset[] {
-  const y = now.getUTCFullYear();
-  const m = now.getUTCMonth();
-  const today = ymd(now);
-  const qStart = Math.floor(m / 3) * 3;
+// Standard reporting windows anchored to `today`, the company's own calendar
+// day, never this server's clock. The web server runs UTC, so an evening
+// visit computed every default a day ahead, and on New Year's Eve the default
+// YTD window became the empty new year (TMC-302).
+export function periodPresets(today: string): Preset[] {
+  const y = Number(today.slice(0, 4));
+  const m = Number(today.slice(5, 7));
+  const mm = (n: number) => String(n).padStart(2, '0');
+  const qStartMonth = Math.floor((m - 1) / 3) * 3 + 1;
   return [
-    { key: 'month', label: 'This month', from: ymd(new Date(Date.UTC(y, m, 1))), to: today },
-    {
-      key: 'quarter',
-      label: 'This quarter',
-      from: ymd(new Date(Date.UTC(y, qStart, 1))),
-      to: today,
-    },
-    { key: 'ytd', label: 'Year to date', from: ymd(new Date(Date.UTC(y, 0, 1))), to: today },
-    {
-      key: 'lastyear',
-      label: 'Last year',
-      from: ymd(new Date(Date.UTC(y - 1, 0, 1))),
-      to: ymd(new Date(Date.UTC(y - 1, 11, 31))),
-    },
+    { key: 'month', label: 'This month', from: `${y}-${mm(m)}-01`, to: today },
+    { key: 'quarter', label: 'This quarter', from: `${y}-${mm(qStartMonth)}-01`, to: today },
+    { key: 'ytd', label: 'Year to date', from: `${y}-01-01`, to: today },
+    { key: 'lastyear', label: 'Last year', from: `${y - 1}-01-01`, to: `${y - 1}-12-31` },
   ];
 }
 
@@ -50,14 +42,14 @@ async function reportCompany(event: Parameters<typeof serverApiClient>[0]) {
   const { companies } = await companiesRes.json();
   const company = pickActiveCompany(event.cookies, companies);
   if (!company) throw error(500, 'no company in this workspace');
-  return { client, companyId: company.id };
+  return { client, companyId: company.id, timezone: company.timezone };
 }
 
 // Company + window + presets shared by every report loader.
 async function reportContext(event: Parameters<typeof serverApiClient>[0]) {
-  const { client, companyId } = await reportCompany(event);
+  const { client, companyId, timezone } = await reportCompany(event);
 
-  const presets = periodPresets();
+  const presets = periodPresets(localToday(timezone));
   const ytd = presets.find((p) => p.key === 'ytd');
   const sp = event.url.searchParams;
   const from = sp.get('from') || ytd?.from || '';
@@ -172,16 +164,14 @@ export async function loadEstimateWinRate(event: Parameters<typeof serverApiClie
 }
 
 // Point-in-time reports (balance sheet, A/R aging) take a single ?asOf= date
-// (default today) instead of a window — no presets, just a date input.
+// (default today) instead of a window: no presets, just a date input. The
+// default is today in the COMPANY's timezone, same helper the API uses, so
+// the two can't disagree (TMC-302: this server's UTC clock ran evening
+// reports a day ahead).
 async function reportContextAsOf(event: Parameters<typeof serverApiClient>[0]) {
-  const client = serverApiClient(event);
-  const companiesRes = await client.api.companies.$get();
-  if (!companiesRes.ok) throw error(companiesRes.status, 'failed to load companies');
-  const { companies } = await companiesRes.json();
-  const company = pickActiveCompany(event.cookies, companies);
-  if (!company) throw error(500, 'no company in this workspace');
-  const asOf = event.url.searchParams.get('asOf') || ymd(new Date());
-  return { client, companyId: company.id, asOf };
+  const { client, companyId, timezone } = await reportCompany(event);
+  const asOf = event.url.searchParams.get('asOf') || localToday(timezone);
+  return { client, companyId, asOf };
 }
 
 export type BalanceSheet = {
@@ -385,22 +375,22 @@ export type TaxWorksheet = {
 
 // The tax years worth offering: the current one (an in-progress preview) plus
 // three back, which covers the normal amended-return window without turning
-// the picker into a scrolling list.
-export function taxYearOptions(now = new Date()): number[] {
-  const y = now.getUTCFullYear();
-  return [y, y - 1, y - 2, y - 3];
+// the picker into a scrolling list. `currentYear` is the company's, not the
+// machine's: on New Year's Eve evening the UTC clock is already next year.
+export function taxYearOptions(currentYear: number): number[] {
+  return [currentYear, currentYear - 1, currentYear - 2, currentYear - 3];
 }
 
 export async function loadTaxWorksheet(event: Parameters<typeof serverApiClient>[0]) {
-  const { client, companyId } = await reportCompany(event);
+  const { client, companyId, timezone } = await reportCompany(event);
   const sp = event.url.searchParams;
 
-  const years = taxYearOptions();
+  const currentYear = Number(localToday(timezone).slice(0, 4));
+  const years = taxYearOptions(currentYear);
   const yearParam = Number(sp.get('year'));
   // Fall back to the current year on anything unparseable rather than 400ing —
   // a hand-edited URL should land somewhere sensible, and the API bounds it too.
-  const year =
-    Number.isInteger(yearParam) && yearParam > 1900 ? yearParam : new Date().getUTCFullYear();
+  const year = Number.isInteger(yearParam) && yearParam > 1900 ? yearParam : currentYear;
 
   // Omitted basis means "use the company's stored election", which the API
   // resolves — don't guess it here or the page and the setting can disagree.
