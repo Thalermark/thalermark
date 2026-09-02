@@ -1,4 +1,8 @@
-import { capitalPurchaseCreateSchema, contactCreateSchema } from '@thalermark/validation';
+import {
+  capitalPurchaseCreateSchema,
+  contactCreateSchema,
+  localToday,
+} from '@thalermark/validation';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
 import {
@@ -62,7 +66,13 @@ export default function NewPurchase() {
         if (!active || !compRes.ok) return;
         const { companies } = await compRes.json();
         const company = await pickActiveCompany(companies);
-        if (company) setCompanyId(company.id);
+        if (company) {
+          setCompanyId(company.id);
+          // Re-date through the company's timezone now that we know it
+          // (TMC-303). The useState seed ran on the device clock in UTC,
+          // which dates an evening purchase tomorrow.
+          setPurchaseDate(localToday(company.timezone));
+        }
       })()
         .catch(() => {})
         .finally(() => {

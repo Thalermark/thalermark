@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { manualJournalEntryCreateSchema, sumMoney } from '@thalermark/validation';
+import { localToday, manualJournalEntryCreateSchema, sumMoney } from '@thalermark/validation';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
 import {
@@ -68,6 +68,10 @@ export default function NewLedgerEntry() {
         const company = await pickActiveCompany(companies);
         if (!company) return;
         setCompanyId(company.id);
+        // Re-date through the company's timezone now that we know it
+        // (TMC-303). The useState seed ran on the device clock in UTC, which
+        // dates an evening entry tomorrow.
+        setPostedOn(localToday(company.timezone));
         const accRes = await api.api.companies[':id'].accounts.$get({
           param: { id: company.id },
           query: { type: undefined },

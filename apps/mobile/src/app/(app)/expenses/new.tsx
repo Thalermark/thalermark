@@ -1,4 +1,4 @@
-import { expenseCreateSchema } from '@thalermark/validation';
+import { expenseCreateSchema, localToday } from '@thalermark/validation';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
@@ -207,6 +207,10 @@ export default function NewExpense() {
         const company = await pickActiveCompany(companies);
         if (!company) return;
         setCompanyId(company.id);
+        // Re-date through the company's timezone now that we know it
+        // (TMC-303). The useState seed ran on the device clock in UTC, which
+        // dates an evening expense tomorrow.
+        setExpenseDate(localToday(company.timezone));
         const [catRes, payRes] = await Promise.all([
           api.api.companies[':id'].accounts.$get({
             param: { id: company.id },

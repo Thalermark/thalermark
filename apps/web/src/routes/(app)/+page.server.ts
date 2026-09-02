@@ -2,6 +2,7 @@ import { pickActiveCompany } from '$lib/active-company';
 import { serverApiClient } from '$lib/api.server';
 import { fillMonths } from '$lib/reports.server';
 import { error } from '@sveltejs/kit';
+import { localToday } from '@thalermark/validation';
 import type { PageServerLoad } from './$types';
 
 const PERIODS = ['month', '30d', 'ytd'] as const;
@@ -88,12 +89,17 @@ export const load: PageServerLoad = async (event) => {
   // endpoint: it is the same arithmetic, already gap-filled, and sharing it
   // means the tile and the report can never disagree. Best-effort like the
   // summaries above — a failed fetch drops the sparkline, not the dashboard.
-  const trendTo = new Date();
-  const trendFrom = new Date(trendTo.getFullYear(), trendTo.getMonth() - 11, 1);
-  const iso = (d: Date) => d.toISOString().slice(0, 10);
+  // Windowed on the COMPANY's calendar day, not this server's UTC clock
+  // (TMC-303): on the evening of a month's last day the UTC date is already
+  // next month, which shifted the whole window forward one month, drew an
+  // empty current month, and dropped the oldest real one.
+  const trendTo = localToday(company.timezone);
+  const monthsSinceEpoch =
+    Number(trendTo.slice(0, 4)) * 12 + (Number(trendTo.slice(5, 7)) - 1) - 11;
+  const trendFrom = `${Math.floor(monthsSinceEpoch / 12)}-${String((monthsSinceEpoch % 12) + 1).padStart(2, '0')}-01`;
   const trendRes = await client.api.companies[':id']['revenue-over-time'].$get({
     param: { id: company.id },
-    query: { from: iso(trendFrom), to: iso(trendTo) },
+    query: { from: trendFrom, to: trendTo },
   });
   // GAP-FILLED, which is not optional. The API returns only months that had
   // sales, so feeding `months` straight in would draw June and August as

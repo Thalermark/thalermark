@@ -1,6 +1,6 @@
-import { formatQuantity, formatUnitPrice } from '@thalermark/validation';
+import { formatQuantity, formatUnitPrice, localToday } from '@thalermark/validation';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -15,6 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { type AuditEvent, AuditHistory } from '../../../../components/AuditHistory';
 import { DateField } from '../../../../components/DateField';
 import { MoneyAccountPicker, useMoneyAccounts } from '../../../../components/MoneyAccountPicker';
+import { pickActiveCompany } from '../../../../lib/active-company';
 import { api } from '../../../../lib/api';
 import { apiErrorMessage } from '../../../../lib/api-errors';
 import { useMay } from '../../../../lib/role';
@@ -174,6 +175,12 @@ export default function InvoiceDetail() {
   // which is the ordinary answer (TMC-227).
   const [sendConcern, setSendConcern] = useState<string | null>(null);
 
+  // Re-date the paidOn/payOn defaults through the company's timezone once
+  // (TMC-303): the useState seeds above ran on the device clock in UTC, which
+  // dates an evening receipt tomorrow. Ref-guarded because load() re-runs on
+  // every focus regain and must not clobber dates the user already edited.
+  const didSeedPayDates = useRef(false);
+
   const load = useCallback(async () => {
     const res = await api.api.invoices[':id'].$get({ param: { id } });
     if (!res.ok) {
@@ -236,6 +243,22 @@ export default function InvoiceDetail() {
         query: { entityType: 'invoice', entityId: id },
       });
       if (auditRes.ok) setAuditEvents((await auditRes.json()).events);
+    } catch {}
+    // Best-effort like the audit trail: a failed companies read leaves the
+    // UTC seeds, which is what every date here was before TMC-303.
+    try {
+      if (!didSeedPayDates.current) {
+        const compRes = await api.api.companies.$get();
+        if (compRes.ok) {
+          const company = await pickActiveCompany((await compRes.json()).companies);
+          if (company && !didSeedPayDates.current) {
+            didSeedPayDates.current = true;
+            const today = localToday(company.timezone);
+            setPaidOn(today);
+            setPayOn(today);
+          }
+        }
+      }
     } catch {}
   }, [id]);
 

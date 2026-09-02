@@ -1,6 +1,7 @@
 import { settlementErrorMessage } from '$lib/api-errors';
 import { serverApiClient } from '$lib/api.server';
 import { error, fail, redirect } from '@sveltejs/kit';
+import { localToday } from '@thalermark/validation';
 import type { Actions, PageServerLoad } from './$types';
 
 type AuditEvent = {
@@ -69,9 +70,21 @@ export const load: PageServerLoad = async (event) => {
   });
   const moneyAccounts = payFromRes.ok ? (await payFromRes.json()).moneyAccounts : [];
 
+  // Today as the company's calendar day, for the payment-date defaults
+  // (TMC-303). This server runs UTC, so its own clock dates an evening
+  // payment tomorrow. Best-effort like the labels above: a failed companies
+  // fetch falls back to the UTC slice, the pre-TMC-303 behaviour.
+  let today = new Date().toISOString().slice(0, 10);
+  const companiesRes = await client.api.companies.$get();
+  if (companiesRes.ok) {
+    const company = (await companiesRes.json()).companies.find((c) => c.id === bill.companyId);
+    if (company) today = localToday(company.timezone);
+  }
+
   return {
     bill,
     moneyAccounts,
+    today,
     // One key per render, so a double-click on Record payment sends the same
     // one twice and the server writes a single row (TMC-218). Minted here so it
     // survives hydration unchanged.

@@ -2,7 +2,7 @@ import { pickActiveCompany } from '$lib/active-company';
 import { apiErrorMessage } from '$lib/api-errors';
 import { serverApiClient } from '$lib/api.server';
 import { error, fail, redirect } from '@sveltejs/kit';
-import { manualJournalEntryCreateSchema } from '@thalermark/validation';
+import { localToday, manualJournalEntryCreateSchema } from '@thalermark/validation';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async (event) => {
@@ -34,7 +34,9 @@ export const load: PageServerLoad = async (event) => {
       name: a.name,
       accountType: a.accountType,
     })),
-    today: new Date().toISOString().slice(0, 10),
+    // The company's calendar day, not this server's UTC clock, which dates an
+    // evening entry tomorrow (TMC-303).
+    today: localToday(company.timezone),
   };
 };
 

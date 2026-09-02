@@ -177,7 +177,9 @@
   const overpaidBy = $derived(
     settlement ? Math.abs(Number(settlement.outstanding)).toFixed(2) : '0.00',
   );
-  const today = new Date().toISOString().slice(0, 10);
+  // The company's calendar day, from the server load (TMC-303), never the
+  // browser's UTC slice, which dates an evening receipt tomorrow.
+  const today = $derived(data.today);
 
   function money(value: string): string {
     return `$${formatUnitPrice(Math.abs(Number(value)).toFixed(2))}`;
@@ -487,6 +489,7 @@
       class="mt-4 max-w-md rounded-sm border border-fg/15 bg-surface-2 p-5"
     >
       <PaymentFields
+        today={data.today}
         accounts={data.moneyAccounts}
         accountField="depositAccountId"
         accountLabel="Deposited into"
@@ -530,6 +533,7 @@
           method={inv.paymentMethod ?? 'cash'}
           reference={inv.paymentReference}
           date={inv.paidAt ? inv.paidAt.slice(0, 10) : undefined}
+          today={data.today}
         />
         <div class="mt-5 flex items-center gap-3">
           <SubmitButton label="Update payment" pendingLabel="Saving…" class="btn" />

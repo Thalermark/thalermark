@@ -86,7 +86,9 @@
   const overpaidBy = $derived(
     settlement ? Math.abs(Number(settlement.outstanding)).toFixed(2) : '0.00',
   );
-  const today = new Date().toISOString().slice(0, 10);
+  // The company's calendar day, from the server load (TMC-303), never the
+  // browser's UTC slice, which dates an evening payment tomorrow.
+  const today = $derived(data.today);
 </script>
 
 <a href="/bills" class="eyebrow text-fg/60 hover:text-fg">← Bills</a>
@@ -180,7 +182,7 @@
 
   {#if showPay && canMarkPaid}
     <form method="POST" action="?/markPaid" class="mt-6 max-w-xl rounded-sm border border-fg/10 bg-surface-2 p-5">
-      <PaymentFields accounts={data.moneyAccounts} />
+      <PaymentFields today={data.today} accounts={data.moneyAccounts} />
       <div class="mt-5 flex items-center gap-4">
         <SubmitButton label="Pay in full" pendingLabel="Recording…" class="btn" />
         <button type="button" class="text-sm text-fg/60 hover:text-fg" onclick={() => (showPay = false)}>
